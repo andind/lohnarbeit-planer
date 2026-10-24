@@ -317,6 +317,8 @@ const wishLate = a => a.wunsch && a.wunsch < todayIso() && !a.datum;
 const artKultur = a => `${esc(a.arbeit || '')}${a.kultur ? `${a.arbeit ? ' · ' : ''}<span class="kultur">${esc(a.kultur)}</span>` : ''}`;
 
 /* ---------- Listen: Arbeitsarten & Kulturen (bearbeitbar unter «Mehr») ---------- */
+// Doppelte entfernen, eigene Reihenfolge behalten
+const uniqKeep = arr => { const seen = new Set(); return arr.map(v => String(v || '').trim()).filter(v => v && !seen.has(norm(v)) && seen.add(norm(v))); };
 const Lists = {
   arbeitsarten() {
     const c = Store.cfg();
@@ -330,7 +332,7 @@ const Lists = {
   // neue Werte automatisch in die Liste aufnehmen
   ensure(kind, values) {
     const cur = this[kind](); const add = values.map(v => String(v || '').trim()).filter(v => v && !cur.some(x => norm(x) === norm(v)));
-    if (add.length || !Array.isArray(Store.cfg()[kind])) Store.setCfg({ [kind]: uniqSort([...cur, ...add]) });
+    if (add.length || !Array.isArray(Store.cfg()[kind])) Store.setCfg({ [kind]: uniqKeep([...cur, ...add]) });
   }
 };
 
@@ -501,7 +503,8 @@ const Views = {
       $('#pLbl').textContent = this.label();
       $('#zv').textContent = Math.round(App.zoom * 100) + ' %';
       $('#pDate').value = isoDate(P.date);
-      const aas = uniqSort(Store.all('maschinen').flatMap(m => m.arbeitsarten || []));
+      const mAas = Store.all('maschinen').flatMap(m => m.arbeitsarten || []);
+      const aas = uniqKeep([...Lists.arbeitsarten().filter(x => mAas.includes(x)), ...mAas]);
       $('#pAA').innerHTML = `<option value="">Alle Arbeitsarten</option>` + aas.map(x => `<option ${x === P.aa ? 'selected' : ''}>${esc(x)}</option>`).join('');
       $('#pBel').checked = P.nurBelegt;
       const sb = $('#selModeBtn'); sb.classList.toggle('primary', App.selMode); sb.textContent = App.selMode ? '☑ Auswahl aktiv' : '☐ Mehrere auswählen';
@@ -806,14 +809,17 @@ function orderDialog(id, { plan, kunde: kundeId } = {}) {
   const planDate = a.datum || (plan ? (a.wunsch && a.wunsch >= todayIso() ? a.wunsch : (App.view === 'plan' ? isoDate(App.plan.date) : todayIso())) : '');
   const body = `
     <label class="fld"><span>Kunde</span>
-      <input class="input" name="kunde" list="dlKunden" value="${esc(k ? kundeLabel(k) : '')}" placeholder="Name eingeben oder auswählen" autocomplete="off" required ${isNew && !kundeId ? 'autofocus' : ''}>
-      <datalist id="dlKunden">${Store.all('kunden').sort((x, y) => x.name.localeCompare(y.name, 'de')).map(k => `<option value="${esc(kundeLabel(k))}">`).join('')}</datalist>
+      <div class="withbtn">
+        <input class="input" name="kunde" list="dlKunden" value="${esc(k ? kundeLabel(k) : '')}" placeholder="Name eingeben und aus der Liste wählen" autocomplete="off" required ${isNew && !kundeId ? 'autofocus' : ''}>
+        <button type="button" class="btn" data-act="quickKunde" title="Neuen Kunden erfassen" aria-label="Neuen Kunden erfassen">＋</button>
+      </div>
+      <datalist id="dlKunden">${kundenOptions()}</datalist>
       <div class="hint" id="kHint"></div></label>
     <div class="two">
-      <label class="fld"><span>Arbeit</span><input class="input" name="arbeit" list="dlArbeit" value="${esc(a.arbeit || '')}" placeholder="z.B. Säen" autocomplete="off">
-        <datalist id="dlArbeit">${Lists.arbeitsarten().map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>
-      <label class="fld"><span>Kultur</span><input class="input" name="kultur" list="dlKultur" value="${esc(a.kultur || '')}" placeholder="z.B. Weizen" autocomplete="off">
-        <datalist id="dlKultur">${Lists.kulturen().map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>
+      <label class="fld"><span>Arbeit *</span><select class="input" name="arbeit" required>
+        <option value="">— bitte wählen —</option>${listOptions(Lists.arbeitsarten(), a.arbeit)}</select></label>
+      <label class="fld"><span>Kultur</span><select class="input" name="kultur">
+        <option value="">—</option>${listOptions(Lists.kulturen(), a.kultur)}</select></label>
     </div>
     <div class="two">
       <label class="fld"><span>Fläche (ha)</span><input class="input" name="flaeche" inputmode="decimal" value="${a.flaeche ?? ''}" placeholder="z.B. 4.5"></label>
@@ -848,11 +854,11 @@ function orderDialog(id, { plan, kunde: kundeId } = {}) {
 
   Dlg.open(isNew ? 'Neuer Auftrag' : 'Auftrag', body, footer, fd => {
     const kTxt = (fd.get('kunde') || '').trim();
-    let kunde = Store.all('kunden').find(k => kundeLabel(k) === kTxt) || Store.all('kunden').find(k => norm(k.name) === norm(kTxt));
-    if (!kunde && kTxt) kunde = Store.put('kunden', { id: uid(), name: kTxt }, { silent: true });
+    const kunde = findKunde(kTxt);
+    if (!kunde) { toast('Kunde nicht gefunden – aus der Liste wählen oder mit ＋ neu erfassen.', 4000); Dlg.form.kunde.focus(); return false; }
     const planOpen = $('#planBox', Dlg.form).open;
     const o = Object.assign(a, {
-      kunde: kunde?.id || '', arbeit: fd.get('arbeit').trim(), kultur: fd.get('kultur').trim(),
+      kunde: kunde.id, arbeit: fd.get('arbeit'), kultur: fd.get('kultur'),
       flaeche: num(fd.get('flaeche')), wunsch: fd.get('wunsch'), notiz: fd.get('notiz').trim()
     });
     if (planOpen && fd.get('datum')) {
@@ -867,7 +873,6 @@ function orderDialog(id, { plan, kunde: kundeId } = {}) {
       }
     }
     if (isOpen(o)) o.status = o.datum ? 'geplant' : 'offen';
-    Lists.ensure('arbeitsarten', [o.arbeit]); Lists.ensure('kulturen', [o.kultur]);
     if (o.datum && o.zeit && isOpen(o)) { const fr = freezeDay(o.datum, o.maschine || '', [o.id]); if (fr.length) Store.putMany('auftraege', fr); }
     Store.put('auftraege', o);
     toast(o.datum && isOpen(o) ? `Eingeplant am ${fmtDate(o.datum)} ${timeRange(o)}` : 'Auftrag gespeichert');
@@ -893,8 +898,7 @@ function orderDialog(id, { plan, kunde: kundeId } = {}) {
   };
   const checkKunde = () => {
     const t = f.kunde.value.trim();
-    const known = !t || Store.all('kunden').some(k => kundeLabel(k) === t || norm(k.name) === norm(t));
-    $('#kHint', f).textContent = known ? '' : 'Neuer Kunde – wird beim Speichern angelegt.';
+    $('#kHint', f).textContent = !t || findKunde(t) ? '' : 'Kein Kunde mit diesem Namen – aus der Liste wählen oder mit ＋ neu erfassen.';
   };
   f.kunde.addEventListener('input', checkKunde);
   f.arbeit.addEventListener('change', fillMachines);
@@ -914,6 +918,43 @@ function orderDialog(id, { plan, kunde: kundeId } = {}) {
   });
   fillMachines(); checkKunde();
   if (plan) setTimeout(() => $('#planBox', f)?.scrollIntoView({ block: 'nearest' }), 60);
+}
+
+/* ---------- Auswahllisten im Auftrag (nur bestehende Einträge) ---------- */
+const findKunde = t => { t = String(t || '').trim(); if (!t) return null; const all = Store.all('kunden'); return all.find(k => kundeLabel(k) === t) || all.find(k => norm(k.name) === norm(t)) || null; };
+const kundenOptions = () => Store.all('kunden').sort((x, y) => x.name.localeCompare(y.name, 'de')).map(k => `<option value="${esc(kundeLabel(k))}">`).join('');
+// bestehender Wert bleibt wählbar, auch wenn er inzwischen nicht mehr in der Liste steht
+const listOptions = (list, cur) => (cur && !list.includes(cur) ? [cur, ...list] : list).map(x => `<option ${x === cur ? 'selected' : ''}>${esc(x)}</option>`).join('');
+
+/* ---------- Neuer Kunde direkt aus dem Auftrag (zweites Fenster) ---------- */
+function quickKundeDialog() {
+  let d2 = $('#dlg2');
+  if (!d2) { d2 = document.createElement('dialog'); d2.id = 'dlg2'; document.body.appendChild(d2); }
+  const typed = Dlg.form.kunde.value.trim();
+  d2.innerHTML = `<form id="dlg2Form"><div class="dh"><h2>Neuer Kunde</h2><button type="button" class="x" data-k2="close" aria-label="Schliessen">×</button></div>
+    <div class="db">
+      <div class="two"><label class="fld"><span>Kunden-Nr.</span><input class="input" name="nr"></label>
+        <label class="fld"><span>Telefon</span><input class="input" name="tel" type="tel"></label></div>
+      <label class="fld"><span>Name / Betrieb *</span><input class="input" name="name" value="${esc(findKunde(typed) ? '' : typed)}" required></label>
+      <label class="fld"><span>Adresse</span><input class="input" name="adresse"></label>
+      <div class="two"><label class="fld"><span>PLZ</span><input class="input" name="plz" inputmode="numeric"></label>
+        <label class="fld"><span>Ort</span><input class="input" name="ort"></label></div>
+    </div>
+    <div class="df"><span class="spacer"></span><button type="button" class="btn" data-k2="close">Abbrechen</button><button type="submit" class="btn primary">Kunde speichern</button></div></form>`;
+  const f2 = $('#dlg2Form');
+  f2.addEventListener('click', e => { if (e.target.closest('[data-k2="close"]')) d2.close(); });
+  f2.addEventListener('submit', e => {
+    e.preventDefault();
+    const fd = new FormData(f2), k = { id: uid() };
+    ['nr', 'name', 'adresse', 'plz', 'ort', 'tel'].forEach(x => { k[x] = (fd.get(x) || '').trim(); });
+    const dup = Store.all('kunden').find(x => norm(x.name) === norm(k.name) && (!k.ort || norm(x.ort) === norm(k.ort)));
+    if (dup && !confirm(`«${kundeLabel(dup)}» gibt es schon. Trotzdem neu anlegen?`)) return;
+    Store.put('kunden', k, { silent: true });
+    const f = Dlg.form; f.kunde.value = kundeLabel(k); $('#dlKunden', f).innerHTML = kundenOptions();
+    f.kunde.dispatchEvent(new Event('input')); d2.close(); toast('Kunde angelegt');
+  });
+  d2.showModal();
+  if (matchMedia('(pointer:fine)').matches) f2.name.focus();
 }
 
 function doneDialog(id) {
@@ -938,14 +979,15 @@ function doneDialog(id) {
 
 function listDialog(kind) {
   const title = kind === 'kulturen' ? 'Kulturen bearbeiten' : 'Arbeitsarten bearbeiten';
-  const row = (v, i) => `<div class="lrow"><input class="input" name="v" value="${esc(v)}" data-orig="${i == null ? '' : esc(v)}"><button type="button" class="x" data-act="lrowDel" aria-label="Entfernen">×</button></div>`;
-  const body = `<p class="nr" style="margin-top:0">Umbenennen ändert auch alle Aufträge${kind === 'arbeitsarten' ? ' und Maschinen' : ''} mit diesem Eintrag. Entfernen löscht nur den Vorschlag – bestehende Aufträge bleiben unverändert.</p>
+  const row = (v, i) => `<div class="lrow"><span class="updown"><button type="button" class="x" data-act="lrowUp" aria-label="Nach oben">▲</button><button type="button" class="x" data-act="lrowDown" aria-label="Nach unten">▼</button></span><input class="input" name="v" value="${esc(v)}" data-orig="${i == null ? '' : esc(v)}"><button type="button" class="x" data-act="lrowDel" aria-label="Entfernen">×</button></div>`;
+  const body = `<div class="links" style="margin:0 0 10px"><a href="#" data-act="lrowSort">Alphabetisch sortieren</a></div>
+    <p class="nr" style="margin-top:0">Mit ▲▼ legst du die Reihenfolge in den Auswahllisten fest. Umbenennen ändert auch alle Aufträge${kind === 'arbeitsarten' ? ' und Maschinen' : ''} mit diesem Eintrag. Entfernen löscht nur den Vorschlag – bestehende Aufträge bleiben unverändert.</p>
     <div id="lrows">${Lists[kind]().map((v, i) => row(v, i)).join('')}</div>
     <button type="button" class="btn small" data-act="lrowAdd">＋ Eintrag</button>`;
   Dlg.open(title, body, saveFooter(), () => {
     const inputs = $$('#lrows input', Dlg.form);
     const renames = inputs.filter(i => i.dataset.orig && i.value.trim() && i.value.trim() !== i.dataset.orig).map(i => [i.dataset.orig, i.value.trim()]);
-    const vals = uniqSort(inputs.map(i => i.value));
+    const vals = uniqKeep(inputs.map(i => i.value));
     const now = Date.now();
     renames.forEach(([from, to]) => {
       if (kind === 'arbeitsarten') {
@@ -980,7 +1022,7 @@ function kundeDialog(id) {
 function maschineDialog(id) {
   const m = id ? structuredClone(Store.get('maschinen', id)) : { id: uid(), einheit: 'ha', aktiv: true, arbeitsarten: [], monate: [] };
   const mon = m.monate?.length ? m.monate : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-  const arbeiten = uniqSort([...Lists.arbeitsarten(), ...(m.arbeitsarten || [])]);
+  const arbeiten = uniqKeep([...Lists.arbeitsarten(), ...(m.arbeitsarten || [])]);
   const body = `
     <div class="three"><label class="fld"><span>Art.-Nr.</span><input class="input" name="artNr" value="${esc(m.artNr || '')}"></label>
       <label class="fld"><span>Priorität (1 = zuerst)</span><input class="input" name="prio" inputmode="numeric" value="${m.prio ?? ''}"></label>
@@ -1320,6 +1362,7 @@ document.addEventListener('click', async e => {
     case 'planOrder': e.stopPropagation(); orderDialog(id, { plan: true }); break;
     case 'done': e.stopPropagation(); doneDialog(id); break;
     case 'unplan': f.datum.value = ''; f.zeit.value = ''; toast('Beim Speichern wird die Einplanung entfernt'); break;
+    case 'quickKunde': quickKundeDialog(); break;
     case 'dauerReset': f.dauer.value = ''; f.dauer.dispatchEvent(new Event('input')); break;
     case 'dupOrder': {
       const a = structuredClone(Store.get('auftraege', id));
@@ -1360,6 +1403,9 @@ document.addEventListener('click', async e => {
     case 'editList': listDialog(t.dataset.kind); break;
     case 'lrowAdd': { const w = $('#lrows', f); w.insertAdjacentHTML('beforeend', f._row('', null)); w.lastElementChild.querySelector('input').focus(); break; }
     case 'lrowDel': t.closest('.lrow').remove(); break;
+    case 'lrowUp': { const r = t.closest('.lrow'); if (r.previousElementSibling) r.parentNode.insertBefore(r, r.previousElementSibling); break; }
+    case 'lrowDown': { const r = t.closest('.lrow'); if (r.nextElementSibling) r.parentNode.insertBefore(r.nextElementSibling, r); break; }
+    case 'lrowSort': { const w = $('#lrows', f); [...w.children].sort((x, y) => x.querySelector('input').value.localeCompare(y.querySelector('input').value, 'de')).forEach(r => w.appendChild(r)); break; }
     case 'export': exportCsv(); break;
     case 'backup': download(`Lohnarbeit-Sicherung_${todayIso()}.json`, JSON.stringify(Store.data, null, 1), 'application/json'); break;
     case 'restore': restoreBackup(); break;

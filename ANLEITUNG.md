@@ -80,9 +80,12 @@ Auf jedem Gerät **mit derselben Dropbox** anmelden. Die Anmeldung bleibt besteh
 - **Kunden:** *Kunden › Import (Excel/CSV)* liest z.B. deine `Kunden.xlsx` ein. Erkannt werden Spalten wie
   Nr, Name, Vorname, Adresse/Strasse, PLZ, Ort, Telefon, E-Mail (erste Zeile = Überschriften).
   Kunden mit gleicher Nummer werden aktualisiert statt doppelt angelegt.
-- **Auftrag erfassen:** ＋ oben rechts – Kunde, Arbeit, Kultur, Fläche, Wunschdatum, Bemerkungen.
-  Unbekannter Kundenname → Kunde wird automatisch angelegt. Wer gleich einplanen will, klappt
-  **Direkt einplanen** auf (Datum, Maschine; die Dauer wird vorgeschlagen und kann überschrieben werden).
+- **Auftrag erfassen:** ＋ oben rechts – Kunde, Arbeit (Pflichtfeld), Kultur, Fläche, Wunschdatum, Bemerkungen.
+  Kunde, Arbeit und Kultur werden nur aus den bestehenden Listen gewählt – Tippfehler erzeugen so keine
+  doppelten Einträge. Einen **neuen Kunden** erfasst du direkt mit dem **＋ neben dem Kundenfeld**; er wird
+  danach gleich übernommen. Neue Arbeitsarten und Kulturen legst du unter *Mehr* an.
+  Wer gleich einplanen will, klappt **Direkt einplanen** auf (Datum, Maschine; die Dauer wird vorgeschlagen
+  und kann überschrieben werden).
 - **Planung:** Tages- oder Wochenansicht, die in Saison verfügbaren Maschinen stehen nebeneinander –
   in der Reihenfolge ihrer **Priorität** (unter *Maschinen* mit ▲▼ festlegen, oder Zahl im Maschinen-Dialog).
   Rechts (am iPhone unten) stehen die noch nicht eingeplanten Aufträge mit Wunschdatum und Bemerkung;
@@ -108,9 +111,10 @@ Auf jedem Gerät **mit derselben Dropbox** anmelden. Die Anmeldung bleibt besteh
     In der Tagesansicht wird die Zeitachse gestreckt, in der Wochenansicht der ganze Kalender.
   - Die Maschinennamen bleiben beim Scrollen oben stehen, die Tage bzw. Uhrzeiten links.
   - Filter: nach Arbeitsart oder «nur belegte Maschinen».
-- **Arbeitsarten und Kulturen:** unter *Mehr* mit «Bearbeiten» umbenennen, ergänzen oder entfernen.
-  Umbenennen ändert auch bestehende Aufträge (und bei Arbeitsarten die Maschinen). Neue Einträge, die du
-  direkt im Auftrag eintippst, werden automatisch in die Liste übernommen.
+- **Arbeitsarten und Kulturen:** unter *Mehr* mit «Bearbeiten» umbenennen, ergänzen, entfernen und mit ▲▼
+  sortieren (oder «Alphabetisch sortieren»). In dieser Reihenfolge erscheinen sie in den Auswahllisten.
+  Umbenennen ändert auch bestehende Aufträge (und bei Arbeitsarten die Maschinen). Nur hier (und bei den
+  Maschinen) können neue Arbeitsarten bzw. Kulturen angelegt werden.
 - **Erledigt melden:** Knopf «✓ Erledigt» → effektive Fläche und Stunden eintragen.
 - **Abrechnen:** *Mehr › Export* erstellt eine CSV für Excel (Art.-Nr., Fläche, Stunden, Verrechnungsmenge
   in der Einheit der Maschine, Ansatz, Betrag). Optional werden die Aufträge danach als «verrechnet» markiert.

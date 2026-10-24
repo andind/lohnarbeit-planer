@@ -388,3 +388,10 @@ details.box > summary { cursor: pointer; }
 body.fs-plan { overflow: hidden; }
 body.fs-plan #selbar { z-index: 50; bottom: calc(12px + env(safe-area-inset-bottom)); left: 12px; }
 #toast { z-index: 60; }
+.withbtn { display: flex; gap: 6px; }
+.withbtn .input { flex: 1; min-width: 0; }
+.withbtn .btn { min-width: 46px; font-size: 20px; padding: 0 12px; }
+#dlg2 { border: 0; padding: 0; border-radius: 16px; width: min(520px, 100vw - 24px); background: var(--surface); color: var(--text); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+#dlg2::backdrop { background: rgba(0,0,0,.45); }
+#dlg2Form { display: flex; flex-direction: column; max-height: calc(100dvh - 24px); }
+@media (max-width: 699px) { #dlg2 { height: auto; max-height: calc(100dvh - 24px); width: calc(100vw - 24px); margin: auto; border-radius: 16px; } }
