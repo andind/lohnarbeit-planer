@@ -86,6 +86,19 @@ Auf jedem Gerät **mit derselben Dropbox** anmelden. Die Anmeldung bleibt besteh
   danach gleich übernommen. Neue Arbeitsarten und Kulturen legst du unter *Mehr* an.
   Wer gleich einplanen will, klappt **Direkt einplanen** auf (Datum, Maschine; die Dauer wird vorgeschlagen
   und kann überschrieben werden).
+- **Diktieren:** Im neuen Auftrag oben ins Feld «🎤 Diktieren» tippen, am iPhone das **Mikrofon der Tastatur**
+  antippen (am PC **Windows-Taste + H**) und den Auftrag in einem Satz sprechen, z.B.
+  «Müller Fritz, säen, Weizen, 4,5 Hektaren, nächsten Dienstag, Bemerkung Saatgut liegt beim Hof».
+  Dann **«Felder ausfüllen»** – die App erkennt:
+  - Kunde (aus deiner Kundenliste, auch nur mit Nachnamen; bei mehreren Treffern zum Antippen),
+  - Arbeit und Kultur (aus deinen Listen),
+  - Fläche («4,5 Hektaren», «viereinhalb Hektar», «12 ha»; eine Zahl ohne Einheit gilt als Hektaren),
+  - Dauer («zweieinhalb Stunden»),
+  - Wunschdatum («heute», «morgen», «übermorgen», «Freitag», «nächsten Dienstag», «nächste Woche»,
+    «Ende Woche», «in 3 Tagen», «am dritten November», «5.11.»),
+  - Bemerkung: alles nach «Bemerkung …» bzw. «Notiz …» sowie übrige Satzteile.
+  Unbekannte Kunden werden vorgeschlagen und lassen sich mit ＋ gleich erfassen. Danach kurz prüfen und speichern.
+  Hochdeutsch wird am zuverlässigsten erkannt.
 - **Planung:** Tages- oder Wochenansicht, die in Saison verfügbaren Maschinen stehen nebeneinander –
   in der Reihenfolge ihrer **Priorität** (unter *Maschinen* mit ▲▼ festlegen, oder Zahl im Maschinen-Dialog).
   Rechts (am iPhone unten) stehen die noch nicht eingeplanten Aufträge mit Wunschdatum und Bemerkung;

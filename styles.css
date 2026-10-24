@@ -395,3 +395,12 @@ body.fs-plan #selbar { z-index: 50; bottom: calc(12px + env(safe-area-inset-bott
 #dlg2::backdrop { background: rgba(0,0,0,.45); }
 #dlg2Form { display: flex; flex-direction: column; max-height: calc(100dvh - 24px); }
 @media (max-width: 699px) { #dlg2 { height: auto; max-height: calc(100dvh - 24px); width: calc(100vw - 24px); margin: auto; border-radius: 16px; } }
+/* ---------- Diktat ---------- */
+.dict { background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 12px; padding: 10px 12px; margin-bottom: 14px; }
+.dict textarea.input { min-height: 64px; }
+.dictbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+#dictRes ul { list-style: none; padding: 0; margin: 10px 0 4px; font-size: 14px; }
+#dictRes li { padding: 2px 0; }
+#dictRes li.ok { color: var(--text); }
+#dictRes li.bad { color: var(--warn); }
+#dictRes a { font-weight: 600; }

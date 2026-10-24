@@ -807,7 +807,13 @@ function orderDialog(id, { plan, kunde: kundeId } = {}) {
   const k = a.kunde && Store.get('kunden', a.kunde);
   const s = statusOf(a), done = s === 'erledigt' || s === 'verrechnet';
   const planDate = a.datum || (plan ? (a.wunsch && a.wunsch >= todayIso() ? a.wunsch : (App.view === 'plan' ? isoDate(App.plan.date) : todayIso())) : '');
-  const body = `
+  const body = `${isNew ? `
+    <div class="dict">
+      <label class="fld" style="margin-bottom:8px"><span>🎤 Diktieren</span>
+        <textarea class="input" name="diktat" rows="2" placeholder="Ins Feld tippen, dann das Mikrofon der Tastatur – z.B. «Müller Fritz, säen, Weizen, 4,5 Hektaren, nächsten Dienstag, Bemerkung Saatgut liegt beim Hof»"></textarea></label>
+      <div class="dictbar"><button type="button" class="btn small primary" data-act="dictParse">Felder ausfüllen</button><span class="nr">Am PC: Windows-Taste + H</span></div>
+      <div id="dictRes"></div>
+    </div>` : ''}
     <label class="fld"><span>Kunde</span>
       <div class="withbtn">
         <input class="input" name="kunde" list="dlKunden" value="${esc(k ? kundeLabel(k) : '')}" placeholder="Name eingeben und aus der Liste wählen" autocomplete="off" required ${isNew && !kundeId ? 'autofocus' : ''}>
@@ -865,6 +871,7 @@ function orderDialog(id, { plan, kunde: kundeId } = {}) {
       const m = maschine(fd.get('maschine')); const manual = num(fd.get('dauer'));
       Object.assign(o, { datum: fd.get('datum'), zeit: fd.get('zeit'), maschine: m?.id || '', dauerManuell: manual != null, dauer: manual ?? defaultDauer(m, o.flaeche) });
     } else if (!o.datum || planOpen) { Object.assign(o, { datum: '', zeit: '' }); }
+    if (!planOpen && isNew && num(fd.get('dauer')) != null) { o.dauer = num(fd.get('dauer')); o.dauerManuell = true; } // z.B. diktierte Stunden
     if (!isNew) {
       o.status = fd.get('status');
       if (o.status === 'erledigt' || o.status === 'verrechnet') {
@@ -1270,6 +1277,163 @@ function exportCsv() {
   if (mark) { list.forEach(a => { if (statusOf(a) === 'erledigt') { a.status = 'verrechnet'; a.upd = Date.now(); } }); Store.save(); Sync.schedule(); App.render(); }
   toast(`${list.length} Aufträge exportiert`);
 }
+/* ================= Diktat: gesprochenen Satz in Auftragsfelder zerlegen ================= */
+const Dict = (() => {
+  const MONTHS = ['januar', 'februar', 'maerz', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'dezember'];
+  const WDAYS = ['sonntag', 'montag', 'dienstag', 'mittwoch', 'donnerstag', 'freitag', 'samstag'];
+  const ONES = ['', 'ein', 'zwei', 'drei', 'vier', 'fuenf', 'sechs', 'sieben', 'acht', 'neun'];
+  const TEENS = { 10: 'zehn', 11: 'elf', 12: 'zwoelf', 13: 'dreizehn', 14: 'vierzehn', 15: 'fuenfzehn', 16: 'sechzehn', 17: 'siebzehn', 18: 'achtzehn', 19: 'neunzehn' };
+  const TENS = { 20: 'zwanzig', 30: 'dreissig', 40: 'vierzig', 50: 'fuenfzig', 60: 'sechzig', 70: 'siebzig', 80: 'achtzig', 90: 'neunzig' };
+  const card = n => n < 10 ? ONES[n] : n < 20 ? TEENS[n] : (n % 10 ? ONES[n % 10] + 'und' : '') + TENS[n - n % 10];
+  const NUMW = {}; for (let n = 1; n < 100; n++) NUMW[card(n)] = n;
+  Object.assign(NUMW, { eins: 1, eine: 1, einen: 1, einer: 1, hundert: 100, null: 0 });
+  const ORD = {}; // erste(n) … einunddreissigste(n)
+  for (let n = 1; n <= 31; n++) {
+    const w = n === 1 ? 'erste' : n === 3 ? 'dritte' : n === 7 ? 'siebte' : n === 8 ? 'achte' : n < 20 ? card(n) + 'te' : card(n) + 'ste';
+    ORD[w] = n;
+  }
+  const norm2 = s => String(s || '').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').replace(/[éè]/g, 'e');
+  const tokens = s => norm2(s).split(/[^a-z0-9.]+/).filter(Boolean);
+  function lev(a, b) {
+    if (a === b) return 0; const m = a.length, n = b.length; if (!m || !n) return m || n;
+    let prev = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) { const cur = [i]; for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; }
+    return prev[n];
+  }
+  const sim = (a, b) => a === b ? 1 : 1 - lev(a, b) / Math.max(a.length, b.length);
+  // Zahlwörter → Ziffern («viereinhalb» → 4.5, «vier komma fünf» → 4.5)
+  function wordNum(w) {
+    if (/^\d+(\.\d+)?$/.test(w)) return +w;
+    if (w === 'anderthalb' || w === 'eineinhalb') return 1.5;
+    if (w === 'halb' || w === 'halbe' || w === 'halben') return 0.5;
+    const h = /^(.+)einhalb$/.exec(w); if (h && NUMW[h[1]] != null) return NUMW[h[1]] + 0.5;
+    return NUMW[w] ?? null;
+  }
+  function numbersToDigits(t) {
+    const tk = t.split(' '), out = [];
+    for (let i = 0; i < tk.length; i++) {
+      let v = wordNum(tk[i]);
+      if (v != null && tk[i + 1] === 'komma') { // «vier komma fünf (null)»
+        let dec = '', j = i + 2;
+        while (j < tk.length) { const d = wordNum(tk[j]); if (d == null || d > 99) break; dec += String(d); j++; }
+        if (dec) { out.push(`${v}.${dec}`); i = j - 1; continue; }
+      }
+      out.push(v != null && !/^\d/.test(tk[i]) ? String(v) : tk[i]);
+    }
+    return out.join(' ');
+  }
+  const nextWeekday = (from, wd, strict = true) => { const d = new Date(from); let k = (wd - d.getDay() + 7) % 7; if (k === 0 && strict) k = 7; d.setDate(d.getDate() + k); return d; };
+  function findDate(t) {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    let m;
+    const mk = (d, mo, y) => { let dt = new Date(y || today.getFullYear(), mo, d); if (!y && dt < today) dt = new Date(today.getFullYear() + 1, mo, d); return dt; };
+    if ((m = /\b(\d{1,2})\.\s?(\d{1,2})\.(?:\s?(\d{2,4}))?/.exec(t)) && +m[2] >= 1 && +m[2] <= 12) return { d: mk(+m[1], +m[2] - 1, m[3] ? (+m[3] < 100 ? 2000 + +m[3] : +m[3]) : 0), hit: m[0] };
+    const monRe = MONTHS.join('|'), ordRe = Object.keys(ORD).sort((a, b) => b.length - a.length).join('|');
+    if ((m = new RegExp(`\\b(\\d{1,2})\\.?\\s*(${monRe})\\b(?:\\s+(\\d{4}))?`).exec(t))) return { d: mk(+m[1], MONTHS.indexOf(m[2]), +m[3] || 0), hit: m[0] };
+    if ((m = new RegExp(`\\b(${ordRe})[nrms]?\\s+(${monRe})\\b`).exec(t))) return { d: mk(ORD[m[1]], MONTHS.indexOf(m[2])), hit: m[0] };
+    if ((m = /\bueber\s?morgen\b/.exec(t))) return { d: addDays(today, 2), hit: m[0] };
+    if ((m = /\bmorgen\b/.exec(t))) return { d: addDays(today, 1), hit: m[0] };
+    if ((m = /\bheute\b/.exec(t))) return { d: today, hit: m[0] };
+    if ((m = /\bin\s+(\d+)\s+(tag|tagen|woche|wochen)\b/.exec(t))) return { d: addDays(today, +m[1] * (m[2].startsWith('woche') ? 7 : 1)), hit: m[0] };
+    if ((m = /\bende\s+(der\s+)?(naechste[nr]?\s+)?woche\b/.exec(t))) { const f = nextWeekday(today, 5, false); return { d: m[2] ? addDays(f, 7) : f, hit: m[0] }; }
+    if ((m = /\b(anfang\s+)?(ueber)?naechste[nr]?\s+woche\b/.exec(t))) return { d: addDays(mondayOf(today), m[2] ? 14 : 7), hit: m[0] };
+    if ((m = new RegExp(`\\b(naechste[nrms]?\\s+|kommende[nrms]?\\s+)?(${WDAYS.join('|')})\\b`).exec(t))) return { d: nextWeekday(today, WDAYS.indexOf(m[2]), true), hit: m[0] };
+    return null;
+  }
+  // bestes Listen-Element (Arbeitsart/Kultur) im Text: ganze Wörter, Wortstamm oder kleine Abweichung
+  function findListItem(list, tk) {
+    let best = null;
+    const nameTk = new Set(Store.all('kunden').flatMap(k => tokens(k.name)));
+    list.forEach(item => {
+      const words = tokens(item); if (!words.length) return;
+      const ok = words.every(w => tk.some(x => x === w || (!nameTk.has(x) && w.length >= 5 && x.length >= 4 && (x.startsWith(w.slice(0, Math.max(4, w.length - 2))) || sim(x, w) >= 0.8))));
+      const score = words.join('').length;
+      if (ok && (!best || score > best.score)) best = { item, score, words };
+    });
+    return best;
+  }
+  function findKunde(tk, used) {
+    const free = tk.filter(x => !used.has(x));
+    const res = Store.all('kunden').map(k => {
+      if (k.nr && free.includes(norm2(k.nr))) return { k, score: 2 };
+      const nameTk = tokens(k.name).filter(w => w.length >= 2 && !['ag', 'gmbh', 'und', 'von', 'der', 'die'].includes(w));
+      if (!nameTk.length) return { k, score: 0 };
+      let hit = 0, len = 0;
+      nameTk.forEach(w => { const s = Math.max(...free.map(x => sim(x, w)), 0); if (s >= (w.length <= 4 ? 1 : 0.8)) { hit++; len += w.length; } });
+      return { k, score: hit / nameTk.length + (hit ? len / 100 : 0), hit };
+    }).filter(r => r.score >= 0.5 && (r.score >= 2 || r.hit >= 1)).sort((a, b) => b.score - a.score);
+    if (!res.length) return { none: true };
+    const top = res.filter(r => Math.abs(r.score - res[0].score) < 0.001);
+    return top.length > 1 ? { ambiguous: top.map(r => r.k) } : { kunde: res[0].k };
+  }
+  function parse(raw) {
+    let text = String(raw || '').trim(), notiz = '';
+    const rm = /\b(Bemerkung(?:en)?|Notiz|Hinweis|Info)\b[:\s,]*(.*)$/is.exec(text);
+    if (rm) { notiz = rm[2].trim(); text = text.slice(0, rm.index).trim(); }
+    let t = norm2(text).replace(/(\d),(\d)/g, '$1.$2').replace(/[;,!?]/g, ' , ').replace(/\s+/g, ' ');
+    t = numbersToDigits(t);
+    const out = { notiz }, drop = new Set();
+    const eat = hit => { tokens(hit).forEach(x => drop.add(x)); t = t.replace(hit, ' , '); };
+    // Fläche zuerst (Zahl + Einheit), damit «4.5 ha» nicht als Datum gilt
+    let m = /\b(\d+(?:\.\d+)?)\s*(ha|hektar(?:e|en)?|hectare?n?)\b/.exec(t);
+    if (m) { out.flaeche = +m[1]; eat(m[0]); }
+    else if ((m = /\b(\d+(?:\.\d+)?)\s*(aren|are)\b/.exec(t))) { out.flaeche = +m[1] / 100; eat(m[0]); }
+    else if ((m = /\b(?:flaeche|feld)\s*(\d+(?:\.\d+)?)\b/.exec(t))) { out.flaeche = +m[1]; eat(m[0]); }
+    if ((m = /\b(\d+(?:\.\d+)?)\s*(stunden|stunde|std|h)\b/.exec(t))) { out.stunden = +m[1]; eat(m[0]); }
+    const dt = findDate(t); if (dt) { out.wunsch = isoDate(dt.d); eat(dt.hit); }
+    if (out.flaeche == null) { // einzelne Zahl ohne Einheit → Fläche
+      const nums = tokens(t).filter(x => /^\d+(\.\d+)?$/.test(x) && +x !== 1 && +x <= 500);
+      if (nums.length === 1 && !Store.all('kunden').some(k => norm2(k.nr) === nums[0])) { out.flaeche = +nums[0]; drop.add(nums[0]); }
+    }
+    const tk = tokens(t);
+    const used = new Set();
+    const ar = findListItem(Lists.arbeitsarten(), tk); if (ar) { out.arbeit = ar.item; ar.words.forEach(w => tk.filter(x => x === w || x.startsWith(w.slice(0, 4))).forEach(x => used.add(x))); }
+    const ku = findListItem(Lists.kulturen(), tk.filter(x => !used.has(x))); if (ku) { out.kultur = ku.item; ku.words.forEach(w => tk.filter(x => x === w || x.startsWith(w.slice(0, 4))).forEach(x => used.add(x))); }
+    out.kundeRes = findKunde(tk, used);
+    // Übrige Wörter (in Originalschreibweise): zusammenhängende Gruppen, Füllwörter nur am Rand entfernt
+    const filler = /^(fuer|bei|beim|am|an|ab|bis|auf|der|die|das|den|dem|des|ein|eine|einen|einem|und|mit|von|vom|zu|zum|im|in|ist|sind|kunde|kundin|auftrag|neuer|neu|wunsch|wunschtermin|wunschdatum|termin|datum|arbeit|kultur|flaeche|bitte|ca|circa|etwa|ungefaehr|so|es|soll|sollte|wird|werden|machen|gemacht|ha|hektar|hektaren|hektare|komma|stunden|stunde|std)$/;
+    const kNames = out.kundeRes.kunde ? [out.kundeRes.kunde] : (out.kundeRes.ambiguous || []);
+    const kTk = kNames.flatMap(k => tokens(k.name));
+    const hard = x => drop.has(x) || used.has(x) || wordNum(x) != null || /^\d/.test(x) || ORD[x.replace(/[nrms]$/, '')] || MONTHS.includes(x) || WDAYS.includes(x)
+      || kTk.some(w => sim(x, w) >= 0.8) || kNames.some(k => x === norm2(k.nr));
+    const words = text.split(/\s+/).filter(Boolean).map((w, idx) => {
+      const tt = tokens(w.replace(/(\d),(\d)/g, '$1.$2'));
+      return { w, idx, hard: !tt.length || tt.every(hard), soft: tt.length && tt.every(x => filler.test(x)) };
+    });
+    const runs = []; let cur = [];
+    words.forEach(x => { if (x.hard) { if (cur.length) runs.push(cur); cur = []; } else cur.push(x); });
+    if (cur.length) runs.push(cur);
+    const groups = runs.map(r => { while (r.length && r[0].soft) r.shift(); while (r.length && r[r.length - 1].soft) r.pop(); return r; })
+      .filter(r => r.some(x => !x.soft))
+      .map(r => ({ start: r[0].idx, text: r.map(x => x.w).join(' ').replace(/^[,.;:]+|[,;:]+$/g, '').trim() })).filter(g => g.text);
+    // unbekannter Kunde: Wortgruppe am Satzanfang als Name vorschlagen
+    if (out.kundeRes.none && groups.length && words.slice(0, groups[0].start).every(x => x.soft)) out.kundeText = groups.shift().text;
+    if (!notiz && groups.length) out.notizAuto = groups.map(g => g.text).join(', ');
+    return out;
+  }
+  return { parse };
+})();
+
+// Diktat ins Auftragsformular übernehmen und Ergebnis anzeigen
+function applyDictation() {
+  const f = Dlg.form, txt = f.diktat.value.trim();
+  if (!txt) { toast('Zuerst ins Feld tippen und auf das Mikrofon der Tastatur – dann sprechen.', 4000); f.diktat.focus(); return; }
+  const r = Dict.parse(txt), lines = [];
+  const ok = (l, v) => lines.push(`<li class="ok">✓ ${l}: <b>${esc(v)}</b></li>`), bad = (l, v) => lines.push(`<li class="bad">⚠ ${l}: ${v}</li>`);
+  if (r.kundeRes.kunde) { f.kunde.value = kundeLabel(r.kundeRes.kunde); f.kunde.dispatchEvent(new Event('input')); ok('Kunde', kundeLabel(r.kundeRes.kunde)); }
+  else if (r.kundeRes.ambiguous) bad('Kunde', 'mehrere passen – bitte wählen: ' + r.kundeRes.ambiguous.slice(0, 5).map(k => `<a href="#" data-act="dictKunde" data-id="${k.id}">${esc(kundeLabel(k))}</a>`).join(' · '));
+  else if (r.kundeText) { f.kunde.value = r.kundeText; f.kunde.dispatchEvent(new Event('input')); bad('Kunde', `«${esc(r.kundeText)}» ist noch nicht erfasst – mit <a href="#" data-act="quickKunde">＋ neu erfassen</a> oder anderen wählen`); }
+  else bad('Kunde', 'nicht erkannt – im Feld wählen oder mit ＋ neu erfassen');
+  if (r.arbeit) { f.arbeit.value = r.arbeit; f.arbeit.dispatchEvent(new Event('change')); ok('Arbeit', r.arbeit); } else bad('Arbeit', 'nicht erkannt – bitte wählen');
+  if (r.kultur) { f.kultur.value = r.kultur; ok('Kultur', r.kultur); }
+  if (r.flaeche != null) { f.flaeche.value = r.flaeche; f.flaeche.dispatchEvent(new Event('input')); ok('Fläche', fmtNum(r.flaeche) + ' ha'); }
+  if (r.stunden != null) { f.dauer.value = r.stunden; f.dauer.dispatchEvent(new Event('input')); ok('Dauer', hrs(r.stunden)); }
+  if (r.wunsch) { f.wunsch.value = r.wunsch; ok('Wunschdatum', fmtDate(r.wunsch, { weekday: 'short', day: 'numeric', month: 'long' })); }
+  const note = r.notiz || r.notizAuto;
+  if (note) { const cur = f.notiz.value.trim(); if (!cur.includes(note)) f.notiz.value = cur ? cur + ' ' + note : note; ok('Bemerkung', note); }
+  $('#dictRes', f).innerHTML = `<ul>${lines.join('')}</ul><p class="nr">Bitte kurz prüfen und dann speichern.</p>`;
+}
+
 function pickFile(accept) {
   return new Promise(res => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.onchange = () => res(i.files[0]); i.click(); });
 }
@@ -1363,6 +1527,8 @@ document.addEventListener('click', async e => {
     case 'done': e.stopPropagation(); doneDialog(id); break;
     case 'unplan': f.datum.value = ''; f.zeit.value = ''; toast('Beim Speichern wird die Einplanung entfernt'); break;
     case 'quickKunde': quickKundeDialog(); break;
+    case 'dictParse': applyDictation(); break;
+    case 'dictKunde': { const k = Store.get('kunden', id); if (k) { f.kunde.value = kundeLabel(k); f.kunde.dispatchEvent(new Event('input')); t.closest('li').innerHTML = `✓ Kunde: <b>${esc(kundeLabel(k))}</b>`; } break; }
     case 'dauerReset': f.dauer.value = ''; f.dauer.dispatchEvent(new Event('input')); break;
     case 'dupOrder': {
       const a = structuredClone(Store.get('auftraege', id));
