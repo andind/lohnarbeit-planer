@@ -68,20 +68,33 @@ Auf jedem Gerät **mit derselben Dropbox** anmelden. Die Anmeldung bleibt besteh
 
 ## Erste Schritte in der App
 
-- **Maschinen:** deine 12 Maschinen (Art.-Nr. 101–112, mit Einheit h/ha) sind bereits erfasst. Unter *Maschinen*
-  kannst du Ansätze (CHF pro Einheit) ergänzen – dann rechnet der Export den Betrag gleich mit.
+- **Maschinen einrichten** (*Maschinen*, Maschine antippen):
+  - **Flächenleistung (ha/h):** daraus berechnet die Planung die Dauer (Fläche ÷ Leistung, auf ¼ h aufgerundet).
+  - **Arbeitsarten:** z.B. Säen, Mulchen, Dreschen – antippen oder neue eintippen. Bei der Planung werden
+    zuerst die Maschinen vorgeschlagen, die zur Arbeit des Auftrags passen.
+  - **Saison:** Monate, in denen die Maschine verfügbar ist. Ausserhalb der Saison erscheint sie weder in der
+    Planung noch in der Auswahl.
+  - Ansatz (CHF pro Einheit) ergänzen, dann rechnet der Export den Betrag gleich mit.
+  Deine 12 Maschinen (Art.-Nr. 101–112) sind mit Einheit und einer ersten Arbeitsart vorerfasst – bitte prüfen
+  und Flächenleistung sowie Saison ergänzen.
 - **Kunden:** *Kunden › Import (Excel/CSV)* liest z.B. deine `Kunden.xlsx` ein. Erkannt werden Spalten wie
   Nr, Name, Vorname, Adresse/Strasse, PLZ, Ort, Telefon, E-Mail (erste Zeile = Überschriften).
   Kunden mit gleicher Nummer werden aktualisiert statt doppelt angelegt.
-- **Fahrer:** unter *Mehr › Fahrer / Personal* erfassen; jede Person bekommt eine Farbe im Plan.
-- **Auftrag erfassen:** ＋ oben rechts. Unbekannter Kundenname → Kunde wird automatisch angelegt.
-  Mit «📍 Aktuellen Standort übernehmen» speicherst du direkt auf dem Feld die Koordinaten; später führt
-  «Navigation» genau dorthin.
-- **Einplanen:** im Auftrag «Geplant am» setzen – oder am PC im *Plan* die Karte auf den Tag ziehen.
-  Ist eine Maschine am selben Tag schon verplant, erscheint ein ⚠-Hinweis.
-- **Erledigt melden:** Knopf «✓ Erledigt» → pro Maschine die effektive Menge (ha bzw. h) eintragen.
-- **Abrechnen:** *Mehr › Export* erstellt eine CSV für Excel (eine Zeile pro Maschine mit Art.-Nr., Menge,
-  Einheit, Ansatz, Betrag). Optional werden die Aufträge danach als «verrechnet» markiert.
+- **Auftrag erfassen:** ＋ oben rechts – Kunde, Arbeit, Kultur, Fläche, Wunschdatum, Bemerkungen.
+  Unbekannter Kundenname → Kunde wird automatisch angelegt. Wer gleich einplanen will, klappt
+  **Direkt einplanen** auf (Datum, Maschine; die Dauer wird vorgeschlagen und kann überschrieben werden).
+- **Planung:** Tages- oder Wochenansicht, die in Saison verfügbaren Maschinen stehen nebeneinander.
+  Rechts (am iPhone unten) stehen die noch nicht eingeplanten Aufträge mit Wunschdatum und Bemerkung;
+  überfällige Wunschdaten sind orange markiert.
+  - Am PC: Auftrag mit der Maus auf Maschine und Tag ziehen. Zurück in die Liste ziehen = Einplanung entfernen.
+  - Am iPhone: Auftrag antippen › Datum und Maschine wählen. Für weitere Maschinen waagrecht wischen.
+  - Der Balken pro Maschine und Tag zeigt die Auslastung (Arbeitsstunden pro Tag unter *Mehr › Planung*, Standard 10 h);
+    rot = überbucht.
+  - Filter: nach Arbeitsart oder «nur belegte Maschinen».
+- **Fahrer (optional):** unter *Mehr › Fahrer / Personal* erfassen und beim Einplanen zuweisen.
+- **Erledigt melden:** Knopf «✓ Erledigt» → effektive Fläche und Stunden eintragen.
+- **Abrechnen:** *Mehr › Export* erstellt eine CSV für Excel (Art.-Nr., Fläche, Stunden, Verrechnungsmenge
+  in der Einheit der Maschine, Ansatz, Betrag). Optional werden die Aufträge danach als «verrechnet» markiert.
 
 ## Gut zu wissen
 
