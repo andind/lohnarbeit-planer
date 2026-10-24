@@ -4,7 +4,7 @@
 // =====================================================================
 window.APP_CONFIG = {
   // App-Key aus der Dropbox App Console (Reiter «Settings»)
-  appKey: "HIER-APP-KEY-EINTRAGEN",
+  appKey: edt8c249hmq2gws,
 
   // Datendatei im App-Ordner: Dropbox › Apps › <App-Name> › planung.json
   dataPath: "/planung.json"
