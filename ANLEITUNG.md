@@ -83,15 +83,24 @@ Auf jedem Gerät **mit derselben Dropbox** anmelden. Die Anmeldung bleibt besteh
 - **Auftrag erfassen:** ＋ oben rechts – Kunde, Arbeit, Kultur, Fläche, Wunschdatum, Bemerkungen.
   Unbekannter Kundenname → Kunde wird automatisch angelegt. Wer gleich einplanen will, klappt
   **Direkt einplanen** auf (Datum, Maschine; die Dauer wird vorgeschlagen und kann überschrieben werden).
-- **Planung:** Tages- oder Wochenansicht, die in Saison verfügbaren Maschinen stehen nebeneinander.
-  Rechts (am iPhone unten) stehen die noch nicht eingeplanten Aufträge mit Wunschdatum und Bemerkung;
-  überfällige Wunschdaten sind orange markiert.
-  - Am PC: Auftrag mit der Maus auf Maschine und Tag ziehen. Zurück in die Liste ziehen = Einplanung entfernen.
-  - Am iPhone: Auftrag antippen › Datum und Maschine wählen. Für weitere Maschinen waagrecht wischen.
-  - Der Balken pro Maschine und Tag zeigt die Auslastung (Arbeitsstunden pro Tag unter *Mehr › Planung*, Standard 10 h);
-    rot = überbucht.
+- **Planung:** Tages- oder Wochenansicht, die in Saison verfügbaren Maschinen stehen nebeneinander
+  (belegte Maschinen zuerst). Rechts (am iPhone unten) stehen die noch nicht eingeplanten Aufträge mit
+  Wunschdatum und Bemerkung; überfällige Wunschdaten sind orange markiert. Die Kultur ist grün hervorgehoben.
+  - **Tagesansicht:** senkrechte Zeitachse 0–24 Uhr. Jeder Auftrag ist ein Block von Start bis Ende.
+    Am PC einen Auftrag auf Maschine **und Uhrzeit** ziehen (Viertelstunden-genau).
+  - **Wochenansicht:** pro Maschine und Tag eine kleine 24-Stunden-Leiste und die Aufträge mit Uhrzeit.
+  - **Startzeit:** Aufträge ohne feste Startzeit reihen sich ab Arbeitsbeginn lückenlos aneinander.
+    Eine feste Startzeit (📌) setzt du im Auftrag oder durch Ziehen in der Tagesansicht. Überschneidungen sind rot (⚠).
+  - **Pausen:** die tägliche Pause (z.B. Mittag 12–13 Uhr) gilt für alle Maschinen – einstellen unter
+    *Mehr › Arbeitszeit & Pausen*. Einzelne Pausen (Tanken, Umsetzen, Service …) mit «＋ Pause» oder in der
+    Tagesansicht durch Klick/Tippen auf eine freie Stelle; wahlweise für eine Maschine oder alle.
+    Fällt eine Pause in einen Auftrag, wird er unterbrochen und läuft danach weiter (↳).
+  - Der Balken pro Maschine und Tag zeigt die Auslastung gegenüber der Arbeitszeit (ohne Pausen); rot = überbucht.
+  - Am iPhone: Auftrag antippen › Datum, Startzeit und Maschine wählen. Für weitere Maschinen waagrecht wischen.
   - Filter: nach Arbeitsart oder «nur belegte Maschinen».
-- **Fahrer (optional):** unter *Mehr › Fahrer / Personal* erfassen und beim Einplanen zuweisen.
+- **Arbeitsarten und Kulturen:** unter *Mehr* mit «Bearbeiten» umbenennen, ergänzen oder entfernen.
+  Umbenennen ändert auch bestehende Aufträge (und bei Arbeitsarten die Maschinen). Neue Einträge, die du
+  direkt im Auftrag eintippst, werden automatisch in die Liste übernommen.
 - **Erledigt melden:** Knopf «✓ Erledigt» → effektive Fläche und Stunden eintragen.
 - **Abrechnen:** *Mehr › Export* erstellt eine CSV für Excel (Art.-Nr., Fläche, Stunden, Verrechnungsmenge
   in der Einheit der Maschine, Ansatz, Betrag). Optional werden die Aufträge danach als «verrechnet» markiert.
