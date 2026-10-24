@@ -416,18 +416,21 @@ function moveOrders(ids, draggedId, tgt) {
 }
 
 /* ================= App / Ansichten ================= */
-const PX = 0.75; // Pixel pro Minute in der Tages-Zeitachse (45 px pro Stunde)
+let PX = 0.75; // Pixel pro Minute in der Tages-Zeitachse (45 px pro Stunde bei Zoom 100 %)
+const ZOOM_MIN = 0.4, ZOOM_MAX = 3;
 const App = {
   view: ls('lp_view') || 'auftraege',
   filter: { auftraege: 'offen', q: '', kq: '' },
   plan: { mode: ls('lp_pmode') || 'woche', date: new Date(), aa: ls('lp_paa') || '', nurBelegt: ls('lp_pbel') === '1' },
-  lastView: null, tlScroll: null, sel: new Set(), selMode: false,
+  lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false, zoom: +(ls('lp_zoom') || 1),
   go(v) { this.view = v; ls('lp_view', v); this.lastView = null; this.tlScroll = null; window.scrollTo(0, 0); this.render(); },
   render() {
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === this.view));
     const fresh = this.lastView !== this.view; this.lastView = this.view;
     const v = Views[this.view] || Views.auftraege;
-    const tl = $('#tlwrap'); if (tl) this.tlScroll = { top: tl.scrollTop, left: tl.scrollLeft };
+    const tl = $('.cal'); if (tl && !this.resetScroll) this.tlScroll = { top: tl.scrollTop, left: tl.scrollLeft };
+    if (this.resetScroll) { this.tlScroll = null; this.resetScroll = false; }
+    document.body.classList.toggle('fs-plan', this.fs && this.view === 'plan');
     if (fresh) $('#toolbar').innerHTML = v.toolbar();
     if (v.refreshToolbar) v.refreshToolbar();
     $('#content').innerHTML = v.content();
@@ -487,20 +490,27 @@ const Views = {
           <select class="input" id="pAA" data-in="pAA" style="width:auto;min-height:34px;padding:4px 8px" aria-label="Arbeitsart"></select>
           <label class="tog"><input type="checkbox" id="pBel" data-in="pBel"> nur belegte Maschinen</label>
           <button class="btn small" id="selModeBtn" data-act="selMode">☐ Mehrere auswählen</button>
+          <span class="zoomctl"><button class="btn small" data-act="zoom" data-d="-1" aria-label="Verkleinern">−</button><span class="zv" id="zv"></span><button class="btn small" data-act="zoom" data-d="1" aria-label="Vergrössern">＋</button></span>
+          <button class="btn small" data-act="fs" title="Kalender im Vollbild">⛶ Vollbild</button>
         </div>`;
     },
     refreshToolbar() {
       const P = App.plan;
       $$('#pSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === P.mode));
       const days = this.days();
-      $('#pLbl').textContent = P.mode === 'tag'
-        ? parseDate(days[0]).toLocaleDateString('de-CH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-        : `KW ${kw(parseDate(days[0]))} · ${parseDate(days[0]).toLocaleDateString('de-CH', { day: 'numeric', month: 'short' })} – ${parseDate(days[6]).toLocaleDateString('de-CH', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+      $('#pLbl').textContent = this.label();
+      $('#zv').textContent = Math.round(App.zoom * 100) + ' %';
       $('#pDate').value = isoDate(P.date);
       const aas = uniqSort(Store.all('maschinen').flatMap(m => m.arbeitsarten || []));
       $('#pAA').innerHTML = `<option value="">Alle Arbeitsarten</option>` + aas.map(x => `<option ${x === P.aa ? 'selected' : ''}>${esc(x)}</option>`).join('');
       $('#pBel').checked = P.nurBelegt;
       const sb = $('#selModeBtn'); sb.classList.toggle('primary', App.selMode); sb.textContent = App.selMode ? '☑ Auswahl aktiv' : '☐ Mehrere auswählen';
+    },
+    label(short) {
+      const P = App.plan, days = this.days();
+      return P.mode === 'tag'
+        ? parseDate(days[0]).toLocaleDateString('de-CH', short ? { weekday: 'short', day: 'numeric', month: 'short' } : { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+        : `KW ${kw(parseDate(days[0]))} · ${parseDate(days[0]).toLocaleDateString('de-CH', { day: 'numeric', month: 'short' })} – ${parseDate(days[6]).toLocaleDateString('de-CH', { day: 'numeric', month: 'short' })}`;
     },
     days() {
       const P = App.plan;
@@ -524,16 +534,23 @@ const Views = {
     },
     content() {
       const P = App.plan, days = this.days(), cols = this.columns(days);
+      PX = 0.75 * App.zoom;
       let grid;
       if (!cols.length) grid = `<div class="empty">${P.nurBelegt || P.aa ? 'Keine passenden Maschinen – Filter oben anpassen.' : 'In diesem Zeitraum ist keine Maschine in Saison.<br>Saison unter <b>Maschinen</b> anpassen.'}</div>`;
       else grid = P.mode === 'tag' ? this.dayTimeline(days[0], cols) : this.weekGrid(days, cols);
       const unpl = Store.all('auftraege').filter(a => isOpen(a) && !a.datum)
         .sort((x, y) => (x.wunsch || '9999').localeCompare(y.wunsch || '9999'));
-      const fine = matchMedia('(pointer:fine)').matches;
+      if (App.fs) return `<div class="fsview">
+        <div class="fsbar">
+          <button class="btn small" data-act="pNav" data-d="-1" aria-label="Zurück">◀</button>
+          <span class="lbl">${esc(this.label(true))}</span>
+          <button class="btn small" data-act="pNav" data-d="1" aria-label="Weiter">▶</button>
+          <div class="seg"><button type="button" data-act="pMode" data-v="tag" class="${P.mode === 'tag' ? 'on' : ''}">Tag</button><button type="button" data-act="pMode" data-v="woche" class="${P.mode === 'woche' ? 'on' : ''}">Woche</button></div>
+          <span class="zoomctl"><button class="btn small" data-act="zoom" data-d="-1" aria-label="Verkleinern">−</button><span class="zv">${Math.round(App.zoom * 100)} %</span><button class="btn small" data-act="zoom" data-d="1" aria-label="Vergrössern">＋</button></span>
+          <button class="btn small fsclose" data-act="fs" aria-label="Vollbild schliessen">✕</button>
+        </div>${grid}</div>`;
       return `<div class="planwrap">
-        <div>${grid}<p class="nr" style="margin-top:8px">${fine
-          ? `Ziehen zum Einplanen – Aufträge docken magnetisch aneinander und überlappen nie. Ctrl/Shift-Klick wählt mehrere aus, die dann gemeinsam verschoben werden. Klick auf den Maschinennamen erstellt den Tagesplan als Bild.`
-          : `Auftrag antippen zum Ändern. «Mehrere auswählen» für gemeinsames Verschieben. Maschinennamen antippen für den Tagesplan als Bild. Waagrecht wischen für weitere Maschinen.`}</p></div>
+        <div>${grid}</div>
         <aside class="unplanned" data-drop="">
           <h3>Noch nicht eingeplant (${unpl.length})</h3>
           <div class="slot">${unpl.map(unplCard).join('') || '<div class="none">Alles eingeplant 👍</div>'}</div>
@@ -558,7 +575,7 @@ const Views = {
             ${strip}${items.map(it => planCard(it)).join('')}
             ${off && !items.length ? '<span class="nr">ausser Saison</span>' : ''}</div>`;
         }).join('')).join('');
-      return `<div class="gridwrap"><div class="pgrid" style="grid-template-columns: 64px repeat(${cols.length}, minmax(140px, 1fr))">${head}${rows}</div></div>`;
+      return `<div class="gridwrap cal" id="cal"><div class="pgrid" style="zoom:${App.zoom};grid-template-columns: 64px repeat(${cols.length}, minmax(140px, 1fr))">${head}${rows}</div></div>`;
     },
     // ---- Tag: senkrechte Zeitachse 0–24 Uhr, Maschinen als Spalten
     dayTimeline(d, cols) {
@@ -587,15 +604,18 @@ const Views = {
             ${off ? '<span class="nr" style="position:absolute;top:8px;left:8px">ausser Saison</span>' : ''}
           </div>`);
       });
-      return `<div class="tlwrap" id="tlwrap"><div class="tl" style="grid-template-columns:52px repeat(${cols.length}, minmax(170px, 1fr))">
+      const cw = Math.round(170 * Math.max(0.5, Math.min(1.6, App.zoom)));
+      return `<div class="tlwrap cal" id="tlwrap"><div class="tl" style="--hh:${60 * PX}px;grid-template-columns:52px repeat(${cols.length}, minmax(${cw}px, 1fr))">
         <div class="tl-corner"></div>${heads.join('')}<div class="tl-axis" style="height:${H}px">${axis}</div>${bodies.join('')}
       </div></div>`;
     },
     after() {
-      const tl = $('#tlwrap');
-      if (tl) {
-        if (App.tlScroll) { tl.scrollTop = App.tlScroll.top; tl.scrollLeft = App.tlScroll.left; }
-        else tl.scrollTop = Math.max(0, ((toMin(Store.cfg().beginn) ?? 420) - 60) * PX);
+      const cal = $('.cal');
+      if (cal) {
+        if (App.zoomAnchor) { App.zoomAnchor(cal); App.zoomAnchor = null; }
+        else if (App.tlScroll) { cal.scrollTop = App.tlScroll.top; cal.scrollLeft = App.tlScroll.left; }
+        else if (cal.id === 'tlwrap') cal.scrollTop = Math.max(0, ((toMin(Store.cfg().beginn) ?? 420) - 60) * PX);
+        attachPinch(cal);
       }
       let grabY = 0; // Abstand Mauszeiger ↔ Oberkante des gezogenen Blocks
       $$('[draggable="true"]').forEach(el => el.addEventListener('dragstart', e => {
@@ -993,6 +1013,44 @@ function maschineDialog(id) {
     });
 }
 
+/* ================= Zoom & Vollbild ================= */
+function setZoom(z) {
+  z = Math.round(Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z)) * 100) / 100;
+  if (z === App.zoom) return;
+  const cal = $('.cal'), old = App.zoom;
+  if (cal) { // Bildmitte festhalten
+    const cx = cal.scrollLeft + cal.clientWidth / 2, cy = cal.scrollTop + cal.clientHeight / 2, r = z / old;
+    const dayCols = cal.id === 'tlwrap';
+    App.zoomAnchor = c => {
+      c.scrollTop = Math.max(0, cy * r - c.clientHeight / 2);
+      c.scrollLeft = Math.max(0, (dayCols ? cx * Math.max(0.5, Math.min(1.6, z)) / Math.max(0.5, Math.min(1.6, old)) : cx * r) - c.clientWidth / 2);
+    };
+  }
+  App.zoom = z; ls('lp_zoom', String(z)); App.render();
+}
+// Zwei-Finger-Zoom (iPhone/Tablet) und Ctrl+Mausrad bzw. Trackpad-Pinch (PC)
+function attachPinch(cal) {
+  const inner = cal.firstElementChild; let d0 = 0, scale = 1;
+  const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  cal.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) {
+      d0 = dist(e.touches); scale = 1;
+      const r = cal.getBoundingClientRect();
+      inner.style.transformOrigin = `${(e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left + cal.scrollLeft}px ${(e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top + cal.scrollTop}px`;
+    }
+  }, { passive: true });
+  cal.addEventListener('touchmove', e => {
+    if (e.touches.length !== 2 || !d0) return;
+    e.preventDefault();
+    scale = Math.max(ZOOM_MIN / App.zoom, Math.min(ZOOM_MAX / App.zoom, dist(e.touches) / d0));
+    inner.style.transform = `scale(${scale})`; // nur Vorschau, gerechnet wird beim Loslassen
+  }, { passive: false });
+  const end = e => { if (d0 && e.touches.length < 2) { d0 = 0; inner.style.transform = ''; if (Math.abs(scale - 1) > 0.03) setZoom(App.zoom * scale); } };
+  cal.addEventListener('touchend', end); cal.addEventListener('touchcancel', end);
+  ['gesturestart', 'gesturechange'].forEach(n => cal.addEventListener(n, e => e.preventDefault()));
+  cal.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); setZoom(App.zoom * Math.exp(-e.deltaY / 300)); } }, { passive: false });
+}
+
 /* ================= Mehrfachauswahl ================= */
 function toggleSel(id) { if (App.sel.has(id)) App.sel.delete(id); else App.sel.add(id); App.render(); }
 function clearSel() { App.sel.clear(); App.selMode = false; App.render(); }
@@ -1270,7 +1328,9 @@ document.addEventListener('click', async e => {
     }
     case 'delOrder': if (confirm('Auftrag löschen?')) { Store.remove('auftraege', id); Dlg.close(); } break;
     case 'aFilter': App.filter.auftraege = t.dataset.v; App.render(); break;
-    case 'pMode': App.plan.mode = t.dataset.v; ls('lp_pmode', t.dataset.v); App.render(); break;
+    case 'pMode': App.plan.mode = t.dataset.v; ls('lp_pmode', t.dataset.v); App.resetScroll = true; App.render(); break;
+    case 'zoom': setZoom(App.zoom * (+t.dataset.d > 0 ? 1.25 : 0.8)); break;
+    case 'fs': App.fs = !App.fs; App.render(); break;
     case 'pNav': {
       const d = +t.dataset.d;
       App.plan.date = d ? addDays(App.plan.date, d * (App.plan.mode === 'tag' ? 1 : 7)) : new Date();
@@ -1305,7 +1365,10 @@ document.addEventListener('click', async e => {
     case 'restore': restoreBackup(); break;
   }
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && App.sel.size && !Dlg.el.open) clearSel(); });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || Dlg.el.open) return;
+  if (App.sel.size) clearSel(); else if (App.fs) { App.fs = false; App.render(); }
+});
 document.addEventListener('input', e => {
   const k = e.target.dataset.in; if (!k) return;
   if (k === 'aSearch') { App.filter.q = e.target.value; App.render(); }

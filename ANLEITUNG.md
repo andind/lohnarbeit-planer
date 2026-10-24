@@ -103,6 +103,10 @@ Auf jedem Gerät **mit derselben Dropbox** anmelden. Die Anmeldung bleibt besteh
     Am iPhone «Teilen…» → direkt per WhatsApp, SMS oder Mail senden; am PC «Bild speichern» oder «Kopieren».
   - Der Balken pro Maschine und Tag zeigt die Auslastung gegenüber der Arbeitszeit (*Mehr › Arbeitszeit*); rot = überbucht.
   - Am iPhone: Auftrag antippen › Datum, Startzeit und Maschine wählen (Ziehen geht nur am PC).
+  - **Vollbild:** «⛶ Vollbild» zeigt nur den Kalender über den ganzen Bildschirm (✕ oder Esc schliesst).
+  - **Zoomen:** mit − / ＋, am iPhone mit zwei Fingern (auseinander/zusammen), am PC mit Ctrl + Mausrad.
+    In der Tagesansicht wird die Zeitachse gestreckt, in der Wochenansicht der ganze Kalender.
+  - Die Maschinennamen bleiben beim Scrollen oben stehen, die Tage bzw. Uhrzeiten links.
   - Filter: nach Arbeitsart oder «nur belegte Maschinen».
 - **Arbeitsarten und Kulturen:** unter *Mehr* mit «Bearbeiten» umbenennen, ergänzen oder entfernen.
   Umbenennen ändert auch bestehende Aufträge (und bei Arbeitsarten die Maschinen). Neue Einträge, die du

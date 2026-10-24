@@ -320,7 +320,8 @@ details.box > summary { cursor: pointer; }
 .tl-axis span { position: absolute; right: 6px; transform: translateY(-50%); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .tl-axis span:first-child { transform: none; }
 .tl-col { position: relative; border-right: 1px solid var(--line); min-width: 0; cursor: copy;
-  background-image: repeating-linear-gradient(to bottom, var(--line) 0 1px, transparent 1px 45px), repeating-linear-gradient(to bottom, transparent 0 22px, color-mix(in srgb, var(--line) 45%, transparent) 22px 23px, transparent 23px 45px); }
+  background-image: linear-gradient(to bottom, var(--line) 0 1px, transparent 1px), linear-gradient(to bottom, transparent calc(var(--hh, 45px) / 2), color-mix(in srgb, var(--line) 45%, transparent) calc(var(--hh, 45px) / 2), color-mix(in srgb, var(--line) 45%, transparent) calc(var(--hh, 45px) / 2 + 1px), transparent calc(var(--hh, 45px) / 2 + 1px));
+  background-size: 100% var(--hh, 45px); background-repeat: repeat-y; }
 .tl-col.off { cursor: default; background-color: var(--surface-2); }
 .tl-col.drop { background-color: var(--accent-soft); }
 .tl-col .night { position: absolute; left: 0; right: 0; background: color-mix(in srgb, var(--muted) 12%, transparent); pointer-events: auto; }
@@ -359,3 +360,31 @@ details.box > summary { cursor: pointer; }
 .updown .x { font-size: 12px; padding: 2px 6px; line-height: 1; }
 .planimg { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
 .dragcount { position: fixed; top: -100px; left: 0; padding: 6px 10px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 14px; }
+
+/* ---------- Woche: Maschinennamen oben angeheftet ---------- */
+.gridwrap { overflow: auto; max-height: calc(100dvh - 230px); min-height: 360px; }
+.g-head { position: sticky; top: 0; z-index: 3; }
+.g-corner { position: sticky; top: 0; left: 0; z-index: 4; }
+.g-day { z-index: 2; }
+@media (max-width: 899px) {
+  .gridwrap, .tlwrap { max-height: calc(100dvh - var(--tabh) - 90px - env(safe-area-inset-bottom)); }
+}
+
+/* ---------- Zoom ---------- */
+.zoomctl { display: inline-flex; align-items: center; gap: 4px; }
+.zoomctl .zv { min-width: 46px; text-align: center; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.zoomctl .btn { min-width: 36px; font-size: 18px; padding: 2px 8px; }
+.cal > .tl, .cal > .pgrid { transform-origin: 0 0; }
+
+/* ---------- Vollbild ---------- */
+.fsview { position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column; background: var(--bg);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+.fsbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 8px 10px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.fsbar .lbl { font-weight: 650; font-size: 15px; min-width: 0; }
+.fsbar .seg button { padding: 5px 10px; }
+.fsbar .fsclose { margin-left: auto; font-size: 18px; min-width: 40px; }
+.fsview .cal { flex: 1; min-height: 0; max-height: none; border: 0; border-radius: 0; padding-bottom: env(safe-area-inset-bottom); }
+.fsview > .empty { flex: 1; }
+body.fs-plan { overflow: hidden; }
+body.fs-plan #selbar { z-index: 50; bottom: calc(12px + env(safe-area-inset-bottom)); left: 12px; }
+#toast { z-index: 60; }
