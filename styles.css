@@ -343,3 +343,19 @@ details.box > summary { cursor: pointer; }
 .lrow { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
 .chips.static { gap: 6px; }
 .blk span.kultur { display: inline; }
+
+/* ---------- Auswahl, Prioritäten, Tagesplan-Bild ---------- */
+.blk.sel, .pcard.sel { outline: 3px solid var(--warn); outline-offset: 1px; z-index: 3; }
+.strip .job.sel { background: var(--warn); }
+#selbar { position: fixed; z-index: 30; left: 12px; right: 12px; margin: 0 auto; width: fit-content; justify-content: center; bottom: calc(var(--tabh) + 12px + env(safe-area-inset-bottom));
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; max-width: calc(100vw - 24px);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.18); }
+#selbar[hidden] { display: none; }
+@media (min-width: 900px) { #selbar { bottom: 20px; left: 108px; } }
+.mh { cursor: pointer; }
+.mh:hover b { color: var(--accent); text-decoration: underline; }
+.mh .pic { font-size: 12px; opacity: .7; }
+.updown { display: flex; flex-direction: column; flex: none; }
+.updown .x { font-size: 12px; padding: 2px 6px; line-height: 1; }
+.planimg { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+.dragcount { position: fixed; top: -100px; left: 0; padding: 6px 10px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 14px; }

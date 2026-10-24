@@ -99,6 +99,11 @@ const Store = {
     this.save(); Sync.schedule(); if (!silent) App.render();
     return obj;
   },
+  putMany(c, list) {
+    const now = Date.now();
+    list.forEach(obj => { obj.upd = now; const i = this.data[c].findIndex(x => x.id === obj.id); if (i >= 0) this.data[c][i] = obj; else this.data[c].push(obj); });
+    this.save(); Sync.schedule(); App.render();
+  },
   remove(c, id) {
     const o = this.data[c].find(x => x.id === id);
     if (!o) return;
@@ -289,6 +294,7 @@ const kundeName = id => { const k = Store.get('kunden', id); return k ? k.name :
 const kundeLabel = k => `${k.name}${k.ort ? ' – ' + k.ort : ''}${k.nr ? ' (' + k.nr + ')' : ''}`;
 const maschine = id => id ? Store.get('maschinen', id) : null;
 const byArtNr = (a, b) => (a.artNr || '').localeCompare(b.artNr || '', 'de', { numeric: true }) || a.name.localeCompare(b.name, 'de');
+const byPrio = (a, b) => (a.prio ?? 9999) - (b.prio ?? 9999) || byArtNr(a, b);
 const statusOf = a => a.status || (a.datum ? 'geplant' : 'offen');
 const isOpen = a => ['offen', 'geplant'].includes(statusOf(a));
 function mapsUrl(q) { return `https://maps.apple.com/?q=${encodeURIComponent(q)}`; }
@@ -329,51 +335,84 @@ const Lists = {
 };
 
 /* ---------- Zeitachse ---------- */
-const toMin = t => { if (!t) return null; const [h, m] = String(t).split(':').map(Number); return isNaN(h) ? null : h * 60 + (m || 0); };
+const toMin = t => { if (t == null || t === '') return null; const [h, m] = String(t).split(':').map(Number); return isNaN(h) ? null : h * 60 + (m || 0); };
 const fromMin = m => m >= 1440 ? '24:00' : `${pad(Math.floor(m / 60))}:${pad(Math.round(m % 60))}`;
-function pausesFor(d, mid) {
-  const c = Store.cfg(), out = [];
-  const sv = toMin(c.pauseVon), sb = toMin(c.pauseBis);
-  if (sv != null && sb != null && sb > sv) out.push({ std: true, von: sv, bis: sb, text: c.pauseText || 'Pause' });
-  Store.all('pausen').filter(p => p.datum === d && (!p.maschine || p.maschine === mid))
-    .forEach(p => out.push({ id: p.id, von: toMin(p.von), bis: toMin(p.bis), text: p.text || 'Pause', alle: !p.maschine }));
-  return out.filter(p => p.von != null && p.bis > p.von).sort((a, b) => a.von - b.von);
-}
-// Ablauf einer Maschine an einem Tag: feste Startzeiten zuerst, übrige Aufträge folgen lückenlos ab Arbeitsbeginn.
-// Pausen unterbrechen einen Auftrag; er läuft danach weiter.
+const lenOf = a => Math.round((dauerOf(a) || 1) * 60);
+// Ablauf einer Maschine an einem Tag. Aufträge überlappen nie: wer in einen laufenden Auftrag fällt,
+// wird direkt dahinter angedockt. Aufträge ohne feste Startzeit docken ab Arbeitsbeginn bzw. am vorherigen an.
 function schedule(d, mid) {
-  const pauses = pausesFor(d, mid);
   const orders = Store.all('auftraege').filter(a => a.datum === d && (a.maschine || '') === mid)
     .sort((x, y) => (toMin(x.zeit) ?? 9999) - (toMin(y.zeit) ?? 9999) || (x.nr || '').localeCompare(y.nr || ''));
-  const skip = t => { let moved = true; while (moved) { moved = false; for (const p of pauses) if (t >= p.von && t < p.bis) { t = p.bis; moved = true; } } return t; };
-  let cursor = toMin(Store.cfg().beginn) ?? 420;
+  const beginn = toMin(Store.cfg().beginn) ?? 420;
+  let prevEnd = null;
   const items = orders.map(a => {
-    const fixed = toMin(a.zeit) != null;
-    let t = fixed ? toMin(a.zeit) : cursor;
-    const overlap = fixed && t < cursor;
-    t = skip(t);
-    const dur = dauerOf(a), start = t, segs = [];
-    let rem = Math.round((dur || 1) * 60);
-    while (rem > 0 && t < 1440) {
-      const p = pauses.find(p => p.von >= t && p.von < t + rem);
-      if (p) { if (p.von > t) { segs.push([t, p.von]); rem -= p.von - t; } t = skip(p.bis); }
-      else { const e = Math.min(1440, t + rem); segs.push([t, e]); rem -= e - t; t = e; }
-    }
-    cursor = Math.max(cursor, t);
-    return { a, start, end: t, segs, fixed, overlap, noDur: !dur, over: rem > 0 };
+    const want = toMin(a.zeit), fixed = want != null;
+    let t = fixed ? want : (prevEnd ?? beginn);
+    if (prevEnd != null && t < prevEnd) t = prevEnd;
+    const end = t + lenOf(a); prevEnd = end;
+    return { a, start: t, end: Math.min(1440, end), fixed, pushed: fixed && t !== want, noDur: !dauerOf(a), over: end > 1440 };
   });
-  return { items, pauses };
+  return { items };
 }
-function capacity(d, mid) { // verfügbare Arbeitsminuten (Arbeitszeit minus Pausen darin)
-  const c = Store.cfg(), b = toMin(c.beginn) ?? 420, e = toMin(c.ende) ?? 1140;
-  let cap = Math.max(0, e - b);
-  pausesFor(d, mid).forEach(p => { cap -= Math.max(0, Math.min(e, p.bis) - Math.max(b, p.von)); });
-  return Math.max(0, cap);
+const startOf = a => a.datum ? (schedule(a.datum, a.maschine || '').items.find(i => i.a.id === a.id)?.start ?? null) : null;
+function capacity() { const c = Store.cfg(); return Math.max(0, (toMin(c.ende) ?? 1140) - (toMin(c.beginn) ?? 420)); }
+// Magnet: Startzeit rastet an Arbeitsbeginn, am Ende eines Auftrags oder so ein, dass das Ende an den nächsten Auftrag stösst
+function snapStart(d, mid, exclude, desired, len) {
+  const SNAP = 30, b = toMin(Store.cfg().beginn) ?? 420;
+  const others = schedule(d, mid).items.filter(it => !exclude.includes(it.a.id));
+  const cands = [b, ...others.map(o => o.end), ...others.map(o => o.start - len)].filter(c => c >= 0 && c <= 1425);
+  let best = null;
+  cands.forEach(c => { if (Math.abs(c - desired) <= SNAP && (best == null || Math.abs(c - desired) < Math.abs(best - desired))) best = c; });
+  return best ?? Math.max(0, Math.min(1425, Math.round(desired / 15) * 15));
 }
 function machinesFor(iso, arbeit, keepId) {
   const day = iso || todayIso();
-  const list = Store.all('maschinen').filter(m => (m.aktiv !== false && inSeason(m, day)) || m.id === keepId).sort(byArtNr);
+  const list = Store.all('maschinen').filter(m => (m.aktiv !== false && inSeason(m, day)) || m.id === keepId).sort(byPrio);
   return { passend: list.filter(m => fits(m, arbeit)), andere: list.filter(m => !fits(m, arbeit)) };
+}
+
+// Aufträge ohne feste Startzeit an ihrer aktuellen Position festhalten (bevor ein anderer mit Uhrzeit dazukommt)
+function freezeDay(d, mid, exclude) {
+  return schedule(d, mid).items.filter(it => !it.fixed && !exclude.includes(it.a.id)).map(it => ({ ...it.a, zeit: fromMin(it.start) }));
+}
+/* ---------- Verschieben (einzeln oder mehrere) ---------- */
+// tgt: { unplan:true } | { datum, mid, minute? }  (minute nur in der Tagesansicht)
+function moveOrders(ids, draggedId, tgt) {
+  const list = ids.map(id => Store.get('auftraege', id)).filter(a => a && isOpen(a)).map(a => ({ ...a }));
+  if (!list.length) return;
+  if (tgt.unplan) { list.forEach(a => { a.datum = ''; a.zeit = ''; a.status = 'offen'; }); Store.putMany('auftraege', list); return; }
+  const drag = list.find(a => a.id === draggedId) || list[0];
+  const starts = Object.fromEntries(list.map(a => [a.id, startOf(a)]));
+  const moving = list.map(a => a.id);
+  const dragMid = drag.maschine || '';
+  const target = a => { // neue Maschine/Datum je Auftrag
+    if (!drag.datum || !a.datum) return { datum: tgt.datum, mid: tgt.mid };
+    const delta = Math.round((parseDate(tgt.datum) - parseDate(drag.datum)) / 864e5);
+    return { datum: isoDate(addDays(parseDate(a.datum), delta)), mid: (a.maschine || '') === dragMid ? tgt.mid : (a.maschine || '') };
+  };
+  const plan = list.map(a => ({ a, ...target(a) }));
+  const misfit = plan.filter(p => { const m = maschine(p.mid); return m && p.a.arbeit && !fits(m, p.a.arbeit) && p.mid !== (p.a.maschine || ''); });
+  if (misfit.length && !confirm(misfit.length === 1
+    ? `«${maschine(misfit[0].mid).name}» ist nicht für «${misfit[0].a.arbeit}» erfasst. Trotzdem einplanen?`
+    : `${misfit.length} Aufträge passen nicht zur Arbeitsart der Maschine. Trotzdem verschieben?`)) return;
+  plan.forEach(p => {
+    const a = p.a, m = maschine(p.mid);
+    if ((a.maschine || '') !== p.mid || !a.dauerManuell) { a.dauer = defaultDauer(m, a.flaeche); a.dauerManuell = false; }
+    a.maschine = p.mid; a.datum = p.datum; a.status = 'geplant';
+  });
+  let frozen = [];
+  if (tgt.minute != null) { // Tagesansicht: Uhrzeit mit Magnet
+    const want = snapStart(tgt.datum, tgt.mid, moving, tgt.minute, lenOf(drag));
+    frozen = [...new Set(plan.map(p => p.datum + '|' + p.mid))].flatMap(k => { const [d, m] = k.split('|'); return freezeDay(d, m, moving); });
+    if (drag.datum && starts[drag.id] != null) {
+      const delta = want - starts[drag.id];  // alle geplanten um dieselbe Zeit verschieben
+      plan.forEach(p => { const s = starts[p.a.id]; p.a.zeit = s != null ? fromMin(Math.max(0, Math.min(1425, s + delta))) : ''; });
+    } else { // aus «nicht eingeplant»: nacheinander ab der Ablagestelle andocken
+      let t = want;
+      [drag, ...list.filter(a => a !== drag)].forEach(a => { a.zeit = fromMin(Math.min(1425, t)); t += lenOf(a); });
+    }
+  } else if (!drag.datum) list.forEach(a => { a.zeit = ''; });
+  Store.putMany('auftraege', [...frozen, ...list]);
 }
 
 /* ================= App / Ansichten ================= */
@@ -382,7 +421,7 @@ const App = {
   view: ls('lp_view') || 'auftraege',
   filter: { auftraege: 'offen', q: '', kq: '' },
   plan: { mode: ls('lp_pmode') || 'woche', date: new Date(), aa: ls('lp_paa') || '', nurBelegt: ls('lp_pbel') === '1' },
-  lastView: null, tlScroll: null,
+  lastView: null, tlScroll: null, sel: new Set(), selMode: false,
   go(v) { this.view = v; ls('lp_view', v); this.lastView = null; this.tlScroll = null; window.scrollTo(0, 0); this.render(); },
   render() {
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === this.view));
@@ -393,6 +432,7 @@ const App = {
     if (v.refreshToolbar) v.refreshToolbar();
     $('#content').innerHTML = v.content();
     if (v.after) v.after();
+    renderSelbar();
     Sync.setState();
   }
 };
@@ -446,7 +486,7 @@ const Views = {
         <div class="weekhead">
           <select class="input" id="pAA" data-in="pAA" style="width:auto;min-height:34px;padding:4px 8px" aria-label="Arbeitsart"></select>
           <label class="tog"><input type="checkbox" id="pBel" data-in="pBel"> nur belegte Maschinen</label>
-          <button class="btn small" data-act="newPause">＋ Pause</button>
+          <button class="btn small" id="selModeBtn" data-act="selMode">☐ Mehrere auswählen</button>
         </div>`;
     },
     refreshToolbar() {
@@ -460,6 +500,7 @@ const Views = {
       const aas = uniqSort(Store.all('maschinen').flatMap(m => m.arbeitsarten || []));
       $('#pAA').innerHTML = `<option value="">Alle Arbeitsarten</option>` + aas.map(x => `<option ${x === P.aa ? 'selected' : ''}>${esc(x)}</option>`).join('');
       $('#pBel').checked = P.nurBelegt;
+      const sb = $('#selModeBtn'); sb.classList.toggle('primary', App.selMode); sb.textContent = App.selMode ? '☑ Auswahl aktiv' : '☐ Mehrere auswählen';
     },
     days() {
       const P = App.plan;
@@ -468,18 +509,17 @@ const Views = {
     },
     columns(days) {
       const P = App.plan;
-      const orders = Store.all('auftraege').filter(a => a.datum && days.includes(a.datum));
-      const used = new Set(orders.map(a => a.maschine || ''));
+      const used = new Set(Store.all('auftraege').filter(a => a.datum && days.includes(a.datum)).map(a => a.maschine || ''));
       const ms = Store.all('maschinen').filter(m => (m.aktiv !== false && days.some(d => inSeason(m, d))) || used.has(m.id))
         .filter(m => (!P.aa || (fits(m, P.aa) && (m.arbeitsarten || []).length)) && (!P.nurBelegt || used.has(m.id)))
-        .sort((x, y) => used.has(y.id) - used.has(x.id) || byArtNr(x, y)); // belegte Maschinen zuerst
+        .sort(byPrio);
       const cols = ms.map(m => ({ id: m.id, m }));
       if (used.has('') && !P.aa) cols.push({ id: '', m: null });
       return cols;
     },
     head(c) {
       return c.m
-        ? `<b>${esc(c.m.name)}</b><small>${esc((c.m.arbeitsarten || []).join(', ') || '—')}${c.m.leistung ? ` · ${fmtNum(c.m.leistung)} ha/h` : ''}</small>`
+        ? `<div class="mh" data-act="machinePlan" data-id="${c.m.id}" title="Tagesplan als Bild für den Fahrer"><b>${esc(c.m.name)} <span class="pic">🖼</span></b><small>${esc((c.m.arbeitsarten || []).join(', ') || '—')}${c.m.leistung ? ` · ${fmtNum(c.m.leistung)} ha/h` : ''}</small></div>`
         : '<b>Ohne Maschine</b><small>Datum gesetzt, Maschine fehlt</small>';
     },
     content() {
@@ -491,9 +531,9 @@ const Views = {
         .sort((x, y) => (x.wunsch || '9999').localeCompare(y.wunsch || '9999'));
       const fine = matchMedia('(pointer:fine)').matches;
       return `<div class="planwrap">
-        <div>${grid}<p class="nr" style="margin-top:8px">${P.mode === 'tag'
-          ? (fine ? 'Auftrag auf Maschine und Uhrzeit ziehen. Klick auf eine freie Stelle fügt dort eine Pause ein.' : 'Auftrag antippen zum Ändern. Freie Stelle antippen fügt dort eine Pause ein.')
-          : (fine ? 'Aufträge auf Maschine und Tag ziehen. Ohne feste Startzeit reihen sie sich ab Arbeitsbeginn aneinander.' : 'Auftrag antippen, um ihn einzuplanen oder zu ändern. Waagrecht wischen für weitere Maschinen.')}</p></div>
+        <div>${grid}<p class="nr" style="margin-top:8px">${fine
+          ? `Ziehen zum Einplanen – Aufträge docken magnetisch aneinander und überlappen nie. Ctrl/Shift-Klick wählt mehrere aus, die dann gemeinsam verschoben werden. Klick auf den Maschinennamen erstellt den Tagesplan als Bild.`
+          : `Auftrag antippen zum Ändern. «Mehrere auswählen» für gemeinsames Verschieben. Maschinennamen antippen für den Tagesplan als Bild. Waagrecht wischen für weitere Maschinen.`}</p></div>
         <aside class="unplanned" data-drop="">
           <h3>Noch nicht eingeplant (${unpl.length})</h3>
           <div class="slot">${unpl.map(unplCard).join('') || '<div class="none">Alles eingeplant 👍</div>'}</div>
@@ -501,96 +541,83 @@ const Views = {
     },
     // ---- Woche: Maschinen nebeneinander, pro Tag eine 24h-Leiste und die Aufträge
     weekGrid(days, cols) {
-      const today = todayIso(), c = Store.cfg(), b = toMin(c.beginn) ?? 420, e = toMin(c.ende) ?? 1140;
+      const today = todayIso(), c = Store.cfg(), b = toMin(c.beginn) ?? 420, e = toMin(c.ende) ?? 1140, cap = capacity();
       const head = `<div class="g-corner"></div>` + cols.map(col => `<div class="g-head">${this.head(col)}</div>`).join('');
+      const pct = m => (m / 1440 * 100).toFixed(2) + '%';
       const rows = days.map(d => `<div class="g-day ${d === today ? 'today' : ''}"><b>${fmtDate(d, { weekday: 'short' })}</b><small>${fmtDate(d, { day: '2-digit', month: '2-digit' })}</small></div>` +
         cols.map(col => {
           const off = col.m && !inSeason(col.m, d);
-          const { items, pauses } = schedule(d, col.id);
-          const used = items.reduce((s, it) => s + it.segs.reduce((x, [p, q]) => x + q - p, 0), 0), cap = capacity(d, col.id);
-          const pct = m => (m / 1440 * 100).toFixed(2) + '%';
-          const strip = (items.length || pauses.some(p => !p.std)) ? `<div class="strip" title="0–24 Uhr">
+          const { items } = schedule(d, col.id);
+          const used = items.reduce((s, it) => s + it.end - it.start, 0);
+          const strip = items.length ? `<div class="strip" title="0–24 Uhr">
               <i class="night" style="left:0;width:${pct(b)}"></i><i class="night" style="left:${pct(e)};right:0"></i>
-              ${pauses.map(p => `<i class="pz" style="left:${pct(p.von)};width:${pct(p.bis - p.von)}" title="${esc(p.text)} ${fromMin(p.von)}–${fromMin(p.bis)}"></i>`).join('')}
-              ${items.flatMap(it => it.segs.map(([s, q]) => `<i class="job ${it.overlap ? 'warn' : ''}" style="left:${pct(s)};width:${pct(q - s)}" title="${esc(kundeName(it.a.kunde))} ${fromMin(s)}–${fromMin(q)}"></i>`)).join('')}
+              ${items.map(it => `<i class="job ${App.sel.has(it.a.id) ? 'sel' : ''}" style="left:${pct(it.start)};width:${pct(it.end - it.start)}" title="${esc(kundeName(it.a.kunde))} ${fromMin(it.start)}–${fromMin(it.end)}"></i>`).join('')}
               <span class="ticks"><em>0</em><em>6</em><em>12</em><em>18</em><em>24</em></span></div>` : '';
           return `<div class="g-cell ${off ? 'off' : ''} ${d === today ? 'today' : ''}" ${off ? '' : `data-drop="${d}|${col.id}"`}>
             ${items.length ? `<div class="load ${used > cap ? 'over' : ''}"><i style="width:${Math.min(100, cap ? used / cap * 100 : 100)}%"></i><span>${fmtNum(used / 60)} / ${fmtNum(cap / 60)} h</span></div>` : ''}
-            ${strip}
-            ${items.map(it => planCard(it)).join('')}
-            ${pauses.filter(p => !p.std).map(p => `<div class="pzcard" data-act="editPause" data-id="${p.id}">☕ ${esc(p.text)} ${fromMin(p.von)}–${fromMin(p.bis)}${p.alle ? ' · alle' : ''}</div>`).join('')}
+            ${strip}${items.map(it => planCard(it)).join('')}
             ${off && !items.length ? '<span class="nr">ausser Saison</span>' : ''}</div>`;
         }).join('')).join('');
       return `<div class="gridwrap"><div class="pgrid" style="grid-template-columns: 64px repeat(${cols.length}, minmax(140px, 1fr))">${head}${rows}</div></div>`;
     },
     // ---- Tag: senkrechte Zeitachse 0–24 Uhr, Maschinen als Spalten
     dayTimeline(d, cols) {
-      const c = Store.cfg(), b = toMin(c.beginn) ?? 420, e = toMin(c.ende) ?? 1140, H = 1440 * PX;
+      const c = Store.cfg(), b = toMin(c.beginn) ?? 420, e = toMin(c.ende) ?? 1140, H = 1440 * PX, cap = capacity();
       const now = new Date(), nowMin = now.getHours() * 60 + now.getMinutes(), isToday = d === todayIso();
       const axis = Array.from({ length: 25 }, (_, h) => `<span style="top:${h * 60 * PX}px">${pad(h)}:00</span>`).join('');
-      const colHtml = cols.map(col => {
+      const heads = [], bodies = [];
+      cols.forEach(col => {
         const off = col.m && !inSeason(col.m, d);
-        const { items, pauses } = schedule(d, col.id);
-        const used = items.reduce((s, it) => s + it.segs.reduce((x, [p, q]) => x + q - p, 0), 0), cap = capacity(d, col.id);
-        const blocks = items.flatMap(it => it.segs.map(([s, q], i) => {
-          const h = Math.max(20, (q - s) * PX - 2), a = it.a, st = statusOf(a);
-          const warn = it.overlap ? '⚠ überschneidet sich' : it.noDur ? '⚠ Dauer fehlt (1 h angenommen)' : it.over ? '⚠ läuft über Mitternacht' : '';
-          return `<div class="blk ${st} ${warn ? 'warn' : ''}" style="top:${s * PX + 1}px;height:${h}px" data-act="editOrder" data-id="${a.id}" ${isOpen(a) ? 'draggable="true"' : ''} title="${esc(kundeName(a.kunde))} ${fromMin(s)}–${fromMin(q)}">
-            <b>${fromMin(s)}–${fromMin(q)} ${i ? '↳ ' : ''}${esc(kundeName(a.kunde))}${it.fixed && !i ? ' 📌' : ''}</b>
-            ${h > 34 ? `<span>${artKultur(a)}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}${!i && dauerOf(a) ? ` · ${hrs(dauerOf(a))}` : ''}${st === 'erledigt' || st === 'verrechnet' ? ' · ✓' : ''}</span>` : ''}
-            ${h > 54 && warn ? `<span class="w">${warn}</span>` : ''}
-            ${h > 70 && a.notiz && !i ? `<span class="note">${esc(a.notiz)}</span>` : ''}
+        const { items } = schedule(d, col.id);
+        const used = items.reduce((s, it) => s + it.end - it.start, 0);
+        const blocks = items.map(it => {
+          const s = it.start, q = it.end, h = Math.max(20, (q - s) * PX - 2), a = it.a, st = statusOf(a);
+          const info = it.pushed ? `⤵ angedockt (gewünscht ${esc(a.zeit)})` : it.noDur ? '⚠ Dauer fehlt (1 h angenommen)' : it.over ? '⚠ läuft über Mitternacht' : '';
+          return `<div class="blk ${st} ${it.noDur || it.over ? 'warn' : ''} ${App.sel.has(a.id) ? 'sel' : ''}" style="top:${s * PX + 1}px;height:${h}px" data-act="editOrder" data-id="${a.id}" ${isOpen(a) ? 'draggable="true"' : ''} title="${esc(kundeName(a.kunde))} ${fromMin(s)}–${fromMin(q)}">
+            <b>${fromMin(s)}–${fromMin(q)} ${esc(kundeName(a.kunde))}${it.fixed ? ' 📌' : ''}</b>
+            ${h > 34 ? `<span>${artKultur(a)}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}${dauerOf(a) ? ` · ${hrs(dauerOf(a))}` : ''}${st === 'erledigt' || st === 'verrechnet' ? ' · ✓' : ''}</span>` : ''}
+            ${h > 54 && info ? `<span class="w">${info}</span>` : ''}
+            ${h > 70 && a.notiz ? `<span class="note">${esc(a.notiz)}</span>` : ''}
           </div>`;
-        })).join('');
-        const pz = pauses.map(p => `<div class="pzb ${p.std ? 'std' : ''}" style="top:${p.von * PX}px;height:${Math.max(14, (p.bis - p.von) * PX)}px" ${p.std ? 'data-act="stdPause"' : `data-act="editPause" data-id="${p.id}"`} title="${esc(p.text)} ${fromMin(p.von)}–${fromMin(p.bis)}">
-            <span>☕ ${esc(p.text)} ${fromMin(p.von)}–${fromMin(p.bis)}</span></div>`).join('');
-        return `<div class="tl-head">${this.head(col)}${items.length ? `<div class="load ${used > cap ? 'over' : ''}"><i style="width:${Math.min(100, cap ? used / cap * 100 : 100)}%"></i><span>${fmtNum(used / 60)} / ${fmtNum(cap / 60)} h</span></div>` : ''}</div>
-          <div class="tl-col ${off ? 'off' : ''}" style="height:${H}px" ${off ? '' : `data-drop="${d}|${col.id}" data-tl="1" data-m="${col.id}"`}>
+        }).join('');
+        heads.push(`<div class="tl-head">${this.head(col)}${items.length ? `<div class="load ${used > cap ? 'over' : ''}"><i style="width:${Math.min(100, cap ? used / cap * 100 : 100)}%"></i><span>${fmtNum(used / 60)} / ${fmtNum(cap / 60)} h</span></div>` : ''}</div>`);
+        bodies.push(`<div class="tl-col ${off ? 'off' : ''}" style="height:${H}px" ${off ? '' : `data-drop="${d}|${col.id}" data-tl="1"`}>
             <i class="night" style="top:0;height:${b * PX}px"></i><i class="night" style="top:${e * PX}px;bottom:0"></i>
-            ${pz}${blocks}
-            ${isToday ? `<i class="now" style="top:${nowMin * PX}px"></i>` : ''}
+            ${blocks}${isToday ? `<i class="now" style="top:${nowMin * PX}px"></i>` : ''}
             ${off ? '<span class="nr" style="position:absolute;top:8px;left:8px">ausser Saison</span>' : ''}
-          </div>`;
+          </div>`);
       });
-      // Raster: Kopfzeile + Zeitachse/Spalten
       return `<div class="tlwrap" id="tlwrap"><div class="tl" style="grid-template-columns:52px repeat(${cols.length}, minmax(170px, 1fr))">
-        <div class="tl-corner"></div>${colHtml.map(h => h.split('<div class="tl-col')[0]).join('')}
-        <div class="tl-axis" style="height:${H}px">${axis}</div>${colHtml.map(h => '<div class="tl-col' + h.split('<div class="tl-col')[1]).join('')}
+        <div class="tl-corner"></div>${heads.join('')}<div class="tl-axis" style="height:${H}px">${axis}</div>${bodies.join('')}
       </div></div>`;
     },
     after() {
-      // Zeitachse an sinnvolle Stelle scrollen
       const tl = $('#tlwrap');
       if (tl) {
         if (App.tlScroll) { tl.scrollTop = App.tlScroll.top; tl.scrollLeft = App.tlScroll.left; }
         else tl.scrollTop = Math.max(0, ((toMin(Store.cfg().beginn) ?? 420) - 60) * PX);
       }
-      $$('[draggable="true"]').forEach(el => el.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', el.dataset.id); e.dataTransfer.effectAllowed = 'move'; e.stopPropagation(); }));
+      let grabY = 0; // Abstand Mauszeiger ↔ Oberkante des gezogenen Blocks
+      $$('[draggable="true"]').forEach(el => el.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/plain', el.dataset.id); e.dataTransfer.effectAllowed = 'move';
+        grabY = el.classList.contains('blk') ? e.clientY - el.getBoundingClientRect().top : 0;
+        const n = App.sel.has(el.dataset.id) ? App.sel.size : 1;
+        if (n > 1) { const g = document.createElement('div'); g.className = 'dragcount'; g.textContent = `${n} Aufträge`; document.body.appendChild(g); e.dataTransfer.setDragImage(g, 10, 10); setTimeout(() => g.remove(), 0); }
+      }));
       $$('[data-drop]').forEach(el => {
         el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drop'); });
         el.addEventListener('dragleave', () => el.classList.remove('drop'));
         el.addEventListener('drop', e => {
           e.preventDefault(); el.classList.remove('drop');
-          const a0 = Store.get('auftraege', e.dataTransfer.getData('text/plain')); if (!a0) return;
-          const a = { ...a0 };
-          if (!el.dataset.drop) { a.datum = ''; a.zeit = ''; if (statusOf(a) === 'geplant') a.status = 'offen'; Store.put('auftraege', a); return; }
-          const [d, mid] = el.dataset.drop.split('|'); const m = maschine(mid);
-          if (m && a.arbeit && !fits(m, a.arbeit) && !confirm(`«${m.name}» ist nicht für «${a.arbeit}» erfasst. Trotzdem einplanen?`)) return;
-          if ((a.maschine || '') !== mid || !a.dauerManuell) { a.dauer = defaultDauer(m, a.flaeche); a.dauerManuell = false; }
-          if (el.dataset.tl) { // Tagesansicht: Startzeit aus der Drop-Position (¼ h genau)
-            const r = el.getBoundingClientRect();
-            a.zeit = fromMin(Math.max(0, Math.min(1425, Math.round((e.clientY - r.top) / PX / 15) * 15)));
-          }
-          a.maschine = mid; a.datum = d; if (statusOf(a) === 'offen') a.status = 'geplant';
-          Store.put('auftraege', a);
+          const id = e.dataTransfer.getData('text/plain'); if (!Store.get('auftraege', id)) return;
+          const ids = App.sel.has(id) && App.sel.size > 1 ? [...App.sel] : [id];
+          if (!el.dataset.drop) { moveOrders(ids, id, { unplan: true }); return; }
+          const [d, mid] = el.dataset.drop.split('|');
+          let minute = null;
+          if (el.dataset.tl) { const r = el.getBoundingClientRect(); minute = Math.max(0, (e.clientY - grabY - r.top) / PX); }
+          moveOrders(ids, id, { datum: d, mid, minute });
         });
       });
-      // Klick auf freie Stelle in der Tagesansicht → Pause an dieser Uhrzeit
-      $$('.tl-col[data-tl]').forEach(col => col.addEventListener('click', e => {
-        if (e.target !== col && !e.target.classList.contains('night')) return;
-        const r = col.getBoundingClientRect(); const m = Math.max(0, Math.min(1380, Math.floor((e.clientY - r.top) / PX / 15) * 15));
-        pauseDialog(null, { datum: App.plan.mode === 'tag' ? isoDate(App.plan.date) : todayIso(), maschine: col.dataset.m, von: fromMin(m) });
-      }));
     }
   },
 
@@ -623,18 +650,19 @@ const Views = {
   maschinen: {
     toolbar() { return `<h1>Maschinen</h1><button class="btn primary" data-act="editMaschine">＋ Maschine</button>`; },
     content() {
-      const list = Store.all('maschinen').sort(byArtNr);
+      const list = Store.all('maschinen').sort(byPrio);
       if (!list.length) return '<div class="empty">Noch keine Maschinen erfasst.</div>';
       const month = new Date().getMonth() + 1;
       return `<div class="rows">${list.map(m => {
         const season = !m.monate?.length || m.monate.includes(month);
         return `<div class="rowi ${m.aktiv === false ? 'off' : ''}" data-act="editMaschine" data-id="${m.id}">
+          <span class="updown"><button type="button" class="x" data-act="mUp" data-id="${m.id}" aria-label="Nach oben">▲</button><button type="button" class="x" data-act="mDown" data-id="${m.id}" aria-label="Nach unten">▼</button></span>
           <span class="num">${esc(m.artNr || '')}</span>
           <div class="grow"><div class="t">${esc(m.name)}</div>
             <div class="s">${esc((m.arbeitsarten || []).join(', ') || 'keine Arbeitsart')}${m.leistung ? ` · ${fmtNum(m.leistung)} ha/h` : ''} · pro ${esc(m.einheit || '—')}${m.ansatz ? ` CHF ${fmtNum(m.ansatz)}` : ''}</div></div>
           <span class="chip ${season ? '' : 'muted'}" title="Saison">${esc(monthsLabel(m.monate))}</span>
         </div>`; }).join('')}</div>
-        <p class="nr" style="margin-top:10px">In der Planung erscheinen nur Maschinen, die in Saison und aktiv sind. Art.-Nr. und Einheit gehen in den Excel-Export.</p>`;
+        <p class="nr" style="margin-top:10px">Mit ▲▼ legst du die Priorität fest – in dieser Reihenfolge erscheinen die Maschinen in der Planung und in der Auswahl. In der Planung stehen nur Maschinen, die in Saison und aktiv sind.</p>`;
     }
   },
 
@@ -656,18 +684,12 @@ const Views = {
         <div class="chips static">${Lists[kind]().map(x => `<span class="chip">${esc(x)}</span>`).join('') || '<span class="nr">Keine Einträge</span>'}</div>
         <div class="btns"><button class="btn" data-act="editList" data-kind="${kind}">Bearbeiten</button></div></div>`;
       return `<div class="cols"><div>
-        <div class="panel"><h2>Arbeitszeit & Pausen</h2>
+        <div class="panel"><h2>Arbeitszeit</h2>
           <div class="two">
             <label class="fld"><span>Arbeitsbeginn</span><input class="input" type="time" value="${esc(c.beginn)}" data-in="cfg" data-k="beginn"></label>
             <label class="fld"><span>Arbeitsende</span><input class="input" type="time" value="${esc(c.ende)}" data-in="cfg" data-k="ende"></label>
           </div>
-          <div class="three">
-            <label class="fld"><span>Tägliche Pause von</span><input class="input" type="time" value="${esc(c.pauseVon)}" data-in="cfg" data-k="pauseVon"></label>
-            <label class="fld"><span>bis</span><input class="input" type="time" value="${esc(c.pauseBis)}" data-in="cfg" data-k="pauseBis"></label>
-            <label class="fld"><span>Bezeichnung</span><input class="input" value="${esc(c.pauseText || '')}" placeholder="Mittag" data-in="cfg" data-k="pauseText"></label>
-          </div>
-          <p>Aufträge ohne feste Startzeit reihen sich ab Arbeitsbeginn aneinander; Pausen unterbrechen einen Auftrag, er läuft danach weiter.
-            Die tägliche Pause gilt für alle Maschinen (leer lassen = keine). Einzelne Pausen fügst du in der <b>Planung</b> mit «＋ Pause» ein.</p></div>
+          <p>Aufträge ohne feste Startzeit docken ab Arbeitsbeginn aneinander. Grundlage für die Auslastungsanzeige.</p></div>
         ${listPanel('arbeitsarten', 'Arbeitsarten', 'Auswahl bei Aufträgen und Maschinen. Umbenennen ändert auch bestehende Aufträge und Maschinen.')}
         ${listPanel('kulturen', 'Kulturen', 'Auswahl bei Aufträgen. Umbenennen ändert auch bestehende Aufträge.')}
       </div><div>
@@ -716,15 +738,15 @@ function orderCard(a) {
 }
 function planCard(it) {
   const a = it.a, s = statusOf(a), d = dauerOf(a);
-  return `<div class="pcard ${s} ${it.overlap ? 'warnb' : ''}" data-act="editOrder" data-id="${a.id}" ${isOpen(a) ? 'draggable="true"' : ''}>
-    <div class="tm">${fromMin(it.start)}–${fromMin(it.end)}${it.fixed ? ' 📌' : ''}${it.overlap ? ' ⚠' : ''}</div>
+  return `<div class="pcard ${s} ${App.sel.has(a.id) ? 'sel' : ''}" data-act="editOrder" data-id="${a.id}" ${isOpen(a) ? 'draggable="true"' : ''}>
+    <div class="tm">${fromMin(it.start)}–${fromMin(it.end)}${it.fixed ? ' 📌' : ''}${it.pushed ? ' ⤵' : ''}</div>
     <b>${esc(kundeName(a.kunde))}</b>
     <div class="sub">${artKultur(a)}</div>
     <div class="sub">${a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''}${a.flaeche && d ? ' · ' : ''}${d ? '⏱ ' + hrs(d) : '⏱ Dauer fehlt'}${s === 'erledigt' || s === 'verrechnet' ? ' · ✓' : ''}</div>
   </div>`;
 }
 function unplCard(a) {
-  return `<div class="pcard unpl" data-act="planOrder" data-id="${a.id}" draggable="true">
+  return `<div class="pcard unpl ${App.sel.has(a.id) ? 'sel' : ''}" data-act="planOrder" data-id="${a.id}" draggable="true">
     <b>${esc(kundeName(a.kunde))}</b>
     <div class="sub">${artKultur(a)}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}</div>
     <div class="meta"><span class="chip ${wishLate(a) ? 'warn' : ''}">${wishTxt(a)}</span></div>
@@ -826,6 +848,7 @@ function orderDialog(id, { plan, kunde: kundeId } = {}) {
     }
     if (isOpen(o)) o.status = o.datum ? 'geplant' : 'offen';
     Lists.ensure('arbeitsarten', [o.arbeit]); Lists.ensure('kulturen', [o.kultur]);
+    if (o.datum && o.zeit && isOpen(o)) { const fr = freezeDay(o.datum, o.maschine || '', [o.id]); if (fr.length) Store.putMany('auftraege', fr); }
     Store.put('auftraege', o);
     toast(o.datum && isOpen(o) ? `Eingeplant am ${fmtDate(o.datum)} ${timeRange(o)}` : 'Auftrag gespeichert');
     return true;
@@ -875,7 +898,7 @@ function orderDialog(id, { plan, kunde: kundeId } = {}) {
 
 function doneDialog(id) {
   const a = structuredClone(Store.get('auftraege', id)); if (!a) return;
-  const ms = Store.all('maschinen').filter(m => m.aktiv !== false || m.id === a.maschine).sort(byArtNr);
+  const ms = Store.all('maschinen').filter(m => m.aktiv !== false || m.id === a.maschine).sort(byPrio);
   const body = `
     <p style="margin-top:0"><b>${esc(kundeName(a.kunde))}</b> · ${artKultur(a)}</p>
     <label class="fld"><span>Erledigt am</span><input class="input" type="date" name="erledigtAm" value="${a.datum && a.datum <= todayIso() ? a.datum : todayIso()}"></label>
@@ -891,29 +914,6 @@ function doneDialog(id) {
     if (!a.datum) a.datum = a.erledigtAm;
     Store.put('auftraege', a); toast('Als erledigt gemeldet'); return true;
   });
-}
-
-function pauseDialog(id, pre = {}) {
-  const p = id ? { ...Store.get('pausen', id) } : Object.assign({ id: uid(), datum: todayIso(), maschine: '', von: '12:00', text: '' }, pre);
-  if (!p.bis) { const v = toMin(p.von) ?? 720; p.bis = fromMin(Math.min(1440, v + 60)); }
-  const ms = Store.all('maschinen').filter(m => (m.aktiv !== false && inSeason(m, p.datum)) || m.id === p.maschine).sort(byArtNr);
-  const body = `
-    <label class="fld"><span>Bezeichnung</span><input class="input" name="text" list="dlPause" value="${esc(p.text || '')}" placeholder="z.B. Mittag, Tanken, Umsetzen" autocomplete="off">
-      <datalist id="dlPause">${PAUSEN_TEXTE.map(x => `<option value="${x}">`).join('')}</datalist></label>
-    <div class="three">
-      <label class="fld"><span>Datum</span><input class="input" type="date" name="datum" value="${esc(p.datum)}" required></label>
-      <label class="fld"><span>Von</span><input class="input" type="time" name="von" value="${esc(p.von)}" step="900" required></label>
-      <label class="fld"><span>Bis</span><input class="input" type="time" name="bis" value="${esc(p.bis)}" step="900" required></label>
-    </div>
-    <label class="fld"><span>Gilt für</span><select class="input" name="maschine"><option value="">Alle Maschinen</option>${ms.map(m => `<option value="${m.id}" ${m.id === p.maschine ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>
-    <p class="nr">Aufträge, die in die Pause fallen, werden unterbrochen und laufen danach weiter.</p>`;
-  Dlg.open(id ? 'Pause bearbeiten' : 'Pause einfügen', body,
-    saveFooter(id ? `<button type="button" class="btn danger" data-act="delPause" data-id="${p.id}">Löschen</button>` : ''), fd => {
-      const von = fd.get('von'), bis = fd.get('bis');
-      if (toMin(bis) <= toMin(von)) { toast('«Bis» muss nach «Von» liegen'); return false; }
-      Object.assign(p, { text: fd.get('text').trim(), datum: fd.get('datum'), von, bis, maschine: fd.get('maschine') });
-      Store.put('pausen', p); toast('Pause gespeichert'); return true;
-    });
 }
 
 function listDialog(kind) {
@@ -962,7 +962,8 @@ function maschineDialog(id) {
   const mon = m.monate?.length ? m.monate : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
   const arbeiten = uniqSort([...Lists.arbeitsarten(), ...(m.arbeitsarten || [])]);
   const body = `
-    <div class="two"><label class="fld"><span>Art.-Nr.</span><input class="input" name="artNr" value="${esc(m.artNr || '')}"></label>
+    <div class="three"><label class="fld"><span>Art.-Nr.</span><input class="input" name="artNr" value="${esc(m.artNr || '')}"></label>
+      <label class="fld"><span>Priorität (1 = zuerst)</span><input class="input" name="prio" inputmode="numeric" value="${m.prio ?? ''}"></label>
       <label class="fld"><span>Verrechnung pro</span><select class="input" name="einheit">${EINHEITEN.map(e => `<option ${m.einheit === e ? 'selected' : ''}>${e}</option>`).join('')}</select></label></div>
     <label class="fld"><span>Bezeichnung</span><input class="input" name="name" value="${esc(m.name || '')}" required ${id ? '' : 'autofocus'}></label>
     <div class="two">
@@ -982,7 +983,7 @@ function maschineDialog(id) {
       const monate = fd.getAll('mon').map(Number);
       if (!monate.length && !confirm('Keine Monate gewählt – die Maschine wäre nie verfügbar. Als «ganzes Jahr» speichern?')) return false;
       Object.assign(m, {
-        artNr: fd.get('artNr').trim(), name: fd.get('name').trim(), einheit: fd.get('einheit'), leistung: num(fd.get('leistung')),
+        artNr: fd.get('artNr').trim(), prio: num(fd.get('prio')), name: fd.get('name').trim(), einheit: fd.get('einheit'), leistung: num(fd.get('leistung')),
         ansatz: num(fd.get('ansatz')), aktiv: !!fd.get('aktiv'),
         arbeitsarten: uniqSort([...fd.getAll('aa'), ...fd.get('aaNeu').split(',')]),
         monate: monate.length === 12 || !monate.length ? [] : monate.sort((x, y) => x - y)
@@ -990,6 +991,160 @@ function maschineDialog(id) {
       Lists.ensure('arbeitsarten', m.arbeitsarten);
       Store.put('maschinen', m); return true;
     });
+}
+
+/* ================= Mehrfachauswahl ================= */
+function toggleSel(id) { if (App.sel.has(id)) App.sel.delete(id); else App.sel.add(id); App.render(); }
+function clearSel() { App.sel.clear(); App.selMode = false; App.render(); }
+function renderSelbar() {
+  const bar = $('#selbar'); if (!bar) return;
+  [...App.sel].forEach(id => { const a = Store.get('auftraege', id); if (!a || !isOpen(a)) App.sel.delete(id); });
+  const n = App.sel.size;
+  if (App.view !== 'plan' || (!n && !App.selMode)) { bar.hidden = true; bar.innerHTML = ''; return; }
+  bar.hidden = false;
+  bar.innerHTML = n
+    ? `<b>${n} ausgewählt</b>
+       <button class="btn small primary" data-act="bulkMove">Verschieben…</button>
+       <button class="btn small" data-act="bulkDay" data-d="-1">◀ 1 Tag</button>
+       <button class="btn small" data-act="bulkDay" data-d="1">1 Tag ▶</button>
+       <button class="btn small" data-act="bulkUnplan">Ausplanen</button>
+       <button class="btn small ghost" data-act="selClear">Aufheben</button>`
+    : `<span>Aufträge antippen, um sie auszuwählen</span><button class="btn small ghost" data-act="selClear">Fertig</button>`;
+}
+function bulkShiftDays(delta) {
+  const list = [...App.sel].map(id => Store.get('auftraege', id)).filter(a => a && a.datum).map(a => ({ ...a, datum: isoDate(addDays(parseDate(a.datum), delta)) }));
+  if (!list.length) { toast('Nur eingeplante Aufträge lassen sich um Tage verschieben'); return; }
+  Store.putMany('auftraege', list); toast(`${list.length} Aufträge verschoben`);
+}
+function bulkMoveDialog() {
+  const sel = [...App.sel].map(id => Store.get('auftraege', id)).filter(Boolean);
+  const first = sel.find(a => a.datum)?.datum || isoDate(App.plan.date);
+  const ms = Store.all('maschinen').filter(m => m.aktiv !== false).sort(byPrio);
+  const body = `<p style="margin-top:0">${sel.length} Aufträge: ${sel.map(a => esc(kundeName(a.kunde))).join(', ')}</p>
+    <div class="two">
+      <label class="fld"><span>Datum</span><input class="input" type="date" name="datum" value="${first}" required></label>
+      <label class="fld"><span>Startzeit (leer = automatisch andocken)</span><input class="input" type="time" name="zeit" step="900"></label>
+    </div>
+    <label class="fld"><span>Maschine</span><select class="input" name="maschine"><option value="*">— jeweils unverändert —</option>${ms.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select></label>
+    <p class="nr">Alle Aufträge kommen auf dieses Datum und docken nacheinander an (ab der Startzeit bzw. am Ende der bestehenden Aufträge).</p>`;
+  Dlg.open('Auswahl verschieben', body, saveFooter(), fd => {
+    const datum = fd.get('datum'), mid = fd.get('maschine'), z = toMin(fd.get('zeit'));
+    const list = sel.map(a => ({ ...a })).sort((x, y) => (x.datum || '9').localeCompare(y.datum || '9') || (startOf(x) ?? 9999) - (startOf(y) ?? 9999));
+    const misfit = mid !== '*' && maschine(mid) ? list.filter(a => a.arbeit && !fits(maschine(mid), a.arbeit)) : [];
+    if (misfit.length && !confirm(`${misfit.length} Aufträge passen nicht zur Arbeitsart von «${maschine(mid).name}». Trotzdem verschieben?`)) return false;
+    const cursor = {}, ids = list.map(a => a.id);
+    const frozen = z == null ? [] : [...new Set(list.map(a => mid === '*' ? (a.maschine || '') : mid))].flatMap(m => freezeDay(datum, m, ids));
+    list.forEach(a => {
+      const newMid = mid === '*' ? (a.maschine || '') : mid;
+      if ((a.maschine || '') !== newMid || !a.dauerManuell) { a.dauer = defaultDauer(maschine(newMid), a.flaeche); a.dauerManuell = false; }
+      Object.assign(a, { datum, maschine: newMid, status: 'geplant' });
+      if (z != null) { const t = cursor[newMid] ?? z; a.zeit = fromMin(Math.min(1425, t)); cursor[newMid] = t + lenOf(a); } else a.zeit = '';
+    });
+    Store.putMany('auftraege', [...frozen, ...list]); toast(`${list.length} Aufträge verschoben`); return true;
+  });
+}
+
+/* ================= Maschinen-Priorität ================= */
+function moveMachine(id, dir) {
+  const list = Store.all('maschinen').sort(byPrio);
+  const i = list.findIndex(m => m.id === id), j = i + dir;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  const changed = list.map((m, k) => ({ ...m, prio: k + 1 })).filter((m, k) => Store.get('maschinen', m.id).prio !== k + 1);
+  Store.putMany('maschinen', changed);
+}
+
+/* ================= Tagesplan als Bild (für den Fahrer) ================= */
+function wrapLines(ctx, text, maxW) {
+  const out = [];
+  String(text || '').split('\n').forEach(par => {
+    let line = '';
+    par.split(/\s+/).forEach(w => {
+      const t = line ? line + ' ' + w : w;
+      if (ctx.measureText(t).width > maxW && line) { out.push(line); line = w; } else line = t;
+    });
+    out.push(line);
+  });
+  return out;
+}
+function drawDayPlan(mid, d) {
+  const m = maschine(mid), { items } = schedule(d, mid);
+  const W = 1080, P = 48, TW = 200, cs = getComputedStyle(document.documentElement);
+  const F = (w, s) => `${w} ${s}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+  const green = '#2f6b3a', ink = '#1d211e', muted = '#5c625d', line = '#dedbd3';
+  const cv = document.createElement('canvas'), ctx = cv.getContext('2d');
+  // Inhalt vorbereiten (zweimal: messen, dann zeichnen)
+  const run = draw => {
+    let y = 0;
+    const text = (t, x, font, color, yy) => { if (draw) { ctx.font = font; ctx.fillStyle = color; ctx.fillText(t, x, yy); } };
+    // Kopf
+    if (draw) { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, cv.height); ctx.fillStyle = green; ctx.fillRect(0, 0, W, 190); }
+    text('Tagesplan', P, F('600', 30), '#d9ead9', 62);
+    text(m ? m.name : 'Ohne Maschine', P, F('700', 52), '#ffffff', 124);
+    text(parseDate(d).toLocaleDateString('de-CH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }), P, F('500', 30), '#ffffff', 168);
+    y = 190 + 36;
+    const total = items.reduce((s, it) => s + it.end - it.start, 0);
+    ctx.font = F('500', 28);
+    text(items.length ? `${items.length} ${items.length > 1 ? 'Aufträge' : 'Auftrag'} · ${fmtNum(total / 60)} h · ${fromMin(items[0].start)} bis ${fromMin(items[items.length - 1].end)} Uhr` : 'Keine Aufträge eingeplant', P, F('500', 28), muted, y + 10);
+    y += 44;
+    items.forEach((it, idx) => {
+      const a = it.a, k = Store.get('kunden', a.kunde) || {};
+      const x = P + TW, w = W - x - P;
+      const top = y + 24;
+      let yy = top + 40;
+      const lines = [];
+      ctx.font = F('700', 36); lines.push([kundeName(a.kunde), F('700', 36), ink, 46]);
+      const adr = [k.adresse, [k.plz, k.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+      if (adr) { ctx.font = F('400', 28); wrapLines(ctx, adr, w).forEach(l => lines.push([l, F('400', 28), muted, 38])); }
+      if (k.tel) lines.push(['Tel. ' + k.tel, F('400', 28), muted, 38]);
+      ctx.font = F('600', 30);
+      const work = [a.arbeit, a.kultur].filter(Boolean).join(' · ') + (a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : '') + (dauerOf(a) ? ` · ${hrs(dauerOf(a))}` : '');
+      wrapLines(ctx, work, w).forEach(l => lines.push([l, F('600', 30), green, 42]));
+      if (a.notiz) { ctx.font = F('italic 400', 28); wrapLines(ctx, a.notiz, w).forEach(l => lines.push([l, F('italic 400', 28), ink, 38])); }
+      const hBlock = Math.max(130, 24 + lines.reduce((s, l) => s + l[3], 0) + 20);
+      if (draw) {
+        ctx.fillStyle = idx % 2 ? '#ffffff' : '#f6f5f1'; ctx.fillRect(0, y, W, hBlock + 24);
+        ctx.fillStyle = green; ctx.fillRect(P, top, 6, hBlock - 24);
+        ctx.font = F('700', 40); ctx.fillStyle = ink; ctx.fillText(fromMin(it.start), P + 26, top + 40);
+        ctx.font = F('500', 30); ctx.fillStyle = muted; ctx.fillText('– ' + fromMin(it.end), P + 26, top + 80);
+        lines.forEach(([t, f, c, lh], i) => { ctx.font = f; ctx.fillStyle = c; ctx.fillText(t, x, yy); yy += lh; });
+        ctx.fillStyle = line; ctx.fillRect(P, y + hBlock + 23, W - 2 * P, 1);
+      }
+      y += hBlock + 24;
+    });
+    y += 30;
+    text(`Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · Lohnarbeit-Planer`, P, F('400', 22), muted, y);
+    return y + 36;
+  };
+  cv.width = W; cv.height = run(false); run(true);
+  return cv;
+}
+function machinePlanDialog(mid, d) {
+  const m = maschine(mid); if (!m) return;
+  d = d || isoDate(App.plan.date);
+  const fname = `Tagesplan_${m.name.replace(/[^\wäöüÄÖÜ.-]+/g, '_')}_${d}.png`;
+  const cv = drawDayPlan(mid, d);
+  const canShare = !!(navigator.canShare && navigator.share);
+  const body = `<div class="weekhead" style="margin-bottom:10px">
+      <button type="button" class="btn small" data-act="mpNav" data-d="-1" data-id="${mid}" data-date="${d}">◀</button>
+      <input class="input" type="date" value="${d}" data-in="mpDate" data-id="${mid}" style="width:auto;min-height:34px;padding:4px 8px">
+      <button type="button" class="btn small" data-act="mpNav" data-d="1" data-id="${mid}" data-date="${d}">▶</button></div>
+    <img class="planimg" alt="Tagesplan ${esc(m.name)}" src="${cv.toDataURL('image/png')}">`;
+  const footer = `<span class="spacer"></span>
+    ${canShare ? `<button type="button" class="btn primary" data-act="mpShare">Teilen…</button>` : ''}
+    <button type="button" class="btn ${canShare ? '' : 'primary'}" data-act="mpSave">Bild speichern</button>
+    ${navigator.clipboard && window.ClipboardItem ? '<button type="button" class="btn" data-act="mpCopy">Kopieren</button>' : ''}`;
+  Dlg.open(`Tagesplan ${esc(m.name)}`, body, footer, () => true);
+  Dlg.plan = { cv, fname, title: `Tagesplan ${m.name} ${fmtDate(d)}` };
+}
+async function machinePlanOut(kind) {
+  const { cv, fname, title } = Dlg.plan || {}; if (!cv) return;
+  const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+  if (kind === 'save') { download(fname, blob); return; }
+  if (kind === 'copy') { try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); toast('Bild kopiert – z.B. in WhatsApp einfügen'); } catch { toast('Kopieren nicht möglich – bitte «Bild speichern»'); } return; }
+  const file = new File([blob], fname, { type: 'image/png' });
+  if (navigator.canShare?.({ files: [file] })) { try { await navigator.share({ files: [file], title }); } catch (e) { if (e.name !== 'AbortError') toast('Teilen nicht möglich'); } }
+  else download(fname, blob);
 }
 
 /* ================= Export / Import ================= */
@@ -1092,6 +1247,10 @@ document.addEventListener('click', async e => {
   if (t.dataset.view) { App.go(t.dataset.view); return; }
   const act = t.dataset.act, id = t.dataset.id, f = Dlg.form;
   if (t.tagName === 'A') e.preventDefault();
+  if ((act === 'editOrder' || act === 'planOrder') && App.view === 'plan' && !Dlg.el.open && (e.ctrlKey || e.metaKey || e.shiftKey || App.selMode)) {
+    const a = Store.get('auftraege', id); if (a && isOpen(a)) toggleSel(id); else toast('Erledigte Aufträge lassen sich nicht verschieben');
+    return;
+  }
   switch (act) {
     case 'close': Dlg.close(); break;
     case 'sync': if (!Auth.configured()) { App.go('mehr'); toast('Dropbox ist noch nicht eingerichtet.'); } else if (!Auth.hasSession()) Auth.login(); else Sync.run(); break;
@@ -1127,10 +1286,17 @@ document.addEventListener('click', async e => {
     case 'delMaschine': if (confirm('Maschine löschen? (Tipp: «Aktiv» ausschalten behält sie in alten Aufträgen sichtbar)')) { Store.remove('maschinen', id); Dlg.close(); } break;
     case 'monAll': $$('input[name="mon"]', f).forEach(i => { i.checked = true; }); break;
     case 'monNone': $$('input[name="mon"]', f).forEach(i => { i.checked = false; }); break;
-    case 'newPause': pauseDialog(null, { datum: App.plan.mode === 'tag' ? isoDate(App.plan.date) : todayIso() }); break;
-    case 'editPause': e.stopPropagation(); pauseDialog(id); break;
-    case 'delPause': if (confirm('Pause löschen?')) { Store.remove('pausen', id); Dlg.close(); } break;
-    case 'stdPause': e.stopPropagation(); App.go('mehr'); toast('Die tägliche Pause stellst du hier unter «Arbeitszeit & Pausen» ein.', 4000); break;
+    case 'selMode': App.selMode = !App.selMode; if (!App.selMode) App.sel.clear(); App.render(); break;
+    case 'selClear': clearSel(); break;
+    case 'bulkMove': bulkMoveDialog(); break;
+    case 'bulkDay': bulkShiftDays(+t.dataset.d); break;
+    case 'bulkUnplan': moveOrders([...App.sel], null, { unplan: true }); toast('Ausgeplant'); break;
+    case 'mUp': case 'mDown': e.stopPropagation(); moveMachine(id, act === 'mUp' ? -1 : 1); break;
+    case 'machinePlan': machinePlanDialog(id); break;
+    case 'mpNav': machinePlanDialog(id, isoDate(addDays(parseDate(t.dataset.date), +t.dataset.d))); break;
+    case 'mpShare': machinePlanOut('share'); break;
+    case 'mpSave': machinePlanOut('save'); break;
+    case 'mpCopy': machinePlanOut('copy'); break;
     case 'editList': listDialog(t.dataset.kind); break;
     case 'lrowAdd': { const w = $('#lrows', f); w.insertAdjacentHTML('beforeend', f._row('', null)); w.lastElementChild.querySelector('input').focus(); break; }
     case 'lrowDel': t.closest('.lrow').remove(); break;
@@ -1139,6 +1305,7 @@ document.addEventListener('click', async e => {
     case 'restore': restoreBackup(); break;
   }
 });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && App.sel.size && !Dlg.el.open) clearSel(); });
 document.addEventListener('input', e => {
   const k = e.target.dataset.in; if (!k) return;
   if (k === 'aSearch') { App.filter.q = e.target.value; App.render(); }
@@ -1146,13 +1313,13 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('change', e => {
   const k = e.target.dataset.in; if (!k) return;
+  if (k === 'mpDate' && e.target.value) { machinePlanDialog(e.target.dataset.id, e.target.value); return; }
   if (k === 'pDate' && e.target.value) { App.plan.date = parseDate(e.target.value); App.render(); }
   if (k === 'cfg') {
     const key = e.target.dataset.k, v = e.target.value.trim();
     if ((key === 'beginn' || key === 'ende') && !v) { toast('Bitte eine Uhrzeit eingeben'); return; }
     const c = Object.assign(Store.cfg(), { [key]: v });
     if (toMin(c.ende) <= toMin(c.beginn)) { toast('Arbeitsende muss nach Arbeitsbeginn liegen'); return; }
-    if (c.pauseVon && c.pauseBis && toMin(c.pauseBis) <= toMin(c.pauseVon)) { toast('Pause: «bis» muss nach «von» liegen'); }
     Store.setCfg({ [key]: v }); toast('Gespeichert');
   }
 });
