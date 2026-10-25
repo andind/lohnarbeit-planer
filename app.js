@@ -3,7 +3,7 @@
 'use strict';
 
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
-const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen'];
+const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
 const EINHEITEN = ['ha', 'h', 'Stk', 'm³', 't', 'km', 'Ballen', 'pauschal'];
 const MONATE = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
@@ -81,6 +81,12 @@ const Store = {
         m.arbeitsarten = seed && seed[0] === m.name ? seed[2].slice() : [];
       }
       if (!Array.isArray(m.monate)) m.monate = [];
+    });
+    // frühere Produktliste (Einstellungen) in eigene Sammlung übernehmen
+    const cfgDoc = this.data.einstellungen.find(x => x.id === 'cfg' && !x.del);
+    (cfgDoc && Array.isArray(cfgDoc.produkte) ? cfgDoc.produkte : []).forEach(p => {
+      if (!p || !p.name || this.data.produkte.some(x => !x.del && x.name === p.name)) return;
+      this.data.produkte.push({ id: 'pr-' + p.name.toLowerCase().replace(/[^a-z0-9äöü]+/g, '-'), upd: 1, name: p.name, einheit: p.einheit || 'l', preis: 0, aktuell: true });
     });
     this.data.auftraege.forEach(a => {
       if (a.del) return;
@@ -327,7 +333,9 @@ const Lists = {
     if (!l.some(x => /spritz|pflanzenschutz/i.test(x))) l.push('Spritzen'); // für das Modul Spritzen
     return l;
   },
-  produkte() { const p = Store.cfg().produkte; return Array.isArray(p) ? p.filter(x => x && x.name) : []; },
+  produkte() { return Store.all('produkte').filter(p => p.aktuell !== false).sort((a, b) => a.name.localeCompare(b.name, 'de')); },
+  duesen() { const l = Store.cfg().duesen; return Array.isArray(l) ? l.slice() : []; },
+  traktoren() { const l = Store.cfg().traktoren; return Array.isArray(l) ? l.slice() : []; },
   kulturen() {
     const c = Store.cfg();
     return Array.isArray(c.kulturen) ? c.kulturen.slice() : uniqSort([...KULTUREN, ...Store.all('auftraege').map(a => a.kultur)]);
@@ -466,7 +474,9 @@ const App = {
   filter: { auftraege: 'offen', q: '', kq: '' },
   plan: { mode: ls('lp_pmode') || 'woche', date: new Date(), aa: ls('lp_paa') || '', nurBelegt: ls('lp_pbel') === '1' },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false, zoom: +(ls('lp_zoom') || 1),
-  spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set() },
+  spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jlimit: 200,
+    ak: '', av: `${new Date().getFullYear()}-01-01`, ab: todayIso(), ag: false, ny: 0, nk: '', nc: '', ngep: false, pk: '', pall: false, prq: '', prall: false },
+  alimit: 150,
   go(v) { this.view = v; ls('lp_view', v); this.lastView = null; this.tlScroll = null; window.scrollTo(0, 0); this.render(); },
   render() {
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === this.view));
@@ -511,7 +521,8 @@ const Views = {
         ? (!!x.datum - !!y.datum) || (x.datum || x.wunsch || '9999').localeCompare(y.datum || y.wunsch || '9999') || (x.zeit || '99').localeCompare(y.zeit || '99')
         : (y.erledigtAm || y.datum || '').localeCompare(x.erledigtAm || x.datum || ''));
       if (!list.length) return `<div class="empty">${q ? 'Keine Treffer.' : 'Keine Aufträge in dieser Ansicht.'}<br><br><button class="btn primary" data-act="newOrder">＋ Neuer Auftrag</button></div>`;
-      if (f !== 'offen') return `<div class="list grid">${list.map(orderCard).join('')}</div>`;
+      const more = n => n > App.alimit ? `<div class="btns" style="margin-top:12px"><button class="btn" data-act="aMore">Weitere anzeigen (${n - App.alimit} übrig)</button></div>` : '';
+      if (f !== 'offen') return `<p class="nr">${list.length} Aufträge</p><div class="list grid">${list.slice(0, App.alimit).map(orderCard).join('')}</div>${more(list.length)}`;
       const unpl = list.filter(a => !a.datum), pl = list.filter(a => a.datum);
       return (unpl.length ? `<div class="section-h">Noch nicht eingeplant (${unpl.length})</div><div class="list grid">${unpl.map(orderCard).join('')}</div>` : '') +
         (pl.length ? `<div class="section-h">Eingeplant (${pl.length})</div><div class="list grid">${pl.map(orderCard).join('')}</div>` : '');
@@ -634,8 +645,8 @@ const Views = {
         const used = items.reduce((s, it) => s + it.end - it.start, 0);
         const blocks = items.map(it => {
           const s = it.start, q = it.end, h = Math.max(20, (q - s) * PX - 2), a = it.a, st = statusOf(a);
-          const info = it.pushed ? `⤵ angedockt (gewünscht ${esc(a.zeit)})` : it.noDur ? '⚠ Dauer fehlt (1 h angenommen)' : it.over ? '⚠ läuft über Mitternacht' : '';
-          return `<div class="blk ${st} ${it.noDur || it.over ? 'warn' : ''} ${App.sel.has(a.id) ? 'sel' : ''}" style="top:${s * PX + 1}px;height:${h}px" data-act="editOrder" data-id="${a.id}" ${isOpen(a) ? 'draggable="true"' : ''} title="${esc(kundeName(a.kunde))} ${fromMin(s)}–${fromMin(q)}">
+          const op = isOpen(a), info = it.pushed && op ? `⤵ angedockt (gewünscht ${esc(a.zeit)})` : it.noDur && op ? '⚠ Dauer fehlt (1 h angenommen)' : it.over && op ? '⚠ läuft über Mitternacht' : '';
+          return `<div class="blk ${st} ${(it.noDur || it.over) && op ? 'warn' : ''} ${App.sel.has(a.id) ? 'sel' : ''}" style="top:${s * PX + 1}px;height:${h}px" data-act="editOrder" data-id="${a.id}" ${isOpen(a) ? 'draggable="true"' : ''} title="${esc(kundeName(a.kunde))} ${fromMin(s)}–${fromMin(q)}">
             <b>${fromMin(s)}–${fromMin(q)} ${esc(kundeName(a.kunde))}${it.fixed ? ' 📌' : ''}</b>
             ${h > 34 ? `<span>${artKultur(a)}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}${dauerOf(a) ? ` · ${hrs(dauerOf(a))}` : ''}${st === 'erledigt' || st === 'verrechnet' ? ' · ✓' : ''}</span>` : ''}
             ${h > 54 && info ? `<span class="w">${info}</span>` : ''}
@@ -831,7 +842,7 @@ function planCard(it) {
     <div class="tm">${fromMin(it.start)}–${fromMin(it.end)}${it.fixed ? ' 📌' : ''}${it.pushed ? ' ⤵' : ''}</div>
     <b>${esc(kundeName(a.kunde))}</b>
     <div class="sub">${artKultur(a)}</div>
-    <div class="sub">${a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''}${a.flaeche && d ? ' · ' : ''}${d ? '⏱ ' + hrs(d) : '⏱ Dauer fehlt'}${s === 'erledigt' || s === 'verrechnet' ? ' · ✓' : ''}</div>
+    <div class="sub">${a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''}${a.flaeche && (d || isOpen(a)) ? ' · ' : ''}${d ? '⏱ ' + hrs(d) : isOpen(a) ? '⏱ Dauer fehlt' : ''}${s === 'erledigt' || s === 'verrechnet' ? ' · ✓' : ''}</div>
     ${sprayShort(a)}${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}
   </div>`;
 }
@@ -934,7 +945,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
       const m = maschine(fd.get('maschine')); const manual = num(fd.get('dauer'));
       Object.assign(o, { datum: fd.get('datum'), zeit: fd.get('zeit'), maschine: m?.id || '', dauerManuell: manual != null, dauer: manual ?? defaultDauer(m, o.flaeche) });
     } else if (!o.datum || planOpen) { Object.assign(o, { datum: '', zeit: '' }); }
-    if (isSpray(o)) Object.assign(o, readSpray(fd));
+    if (isSpray(o)) Object.assign(o, readSpray(Dlg.form));
     if (!isNew) {
       o.status = fd.get('status');
       if (o.status === 'erledigt' || o.status === 'verrechnet') {
@@ -1048,7 +1059,8 @@ function doneDialog(id) {
 }
 
 function listDialog(kind) {
-  const title = kind === 'kulturen' ? 'Kulturen bearbeiten' : 'Arbeitsarten bearbeiten';
+  const title = { kulturen: 'Kulturen bearbeiten', duesen: 'Düsen bearbeiten', traktoren: 'Traktoren bearbeiten' }[kind] || 'Arbeitsarten bearbeiten';
+  const field = { arbeitsarten: 'arbeit', kulturen: 'kultur', duesen: 'duese', traktoren: 'traktor' }[kind];
   const row = (v, i) => `<div class="lrow"><span class="updown"><button type="button" class="x" data-act="lrowUp" aria-label="Nach oben">▲</button><button type="button" class="x" data-act="lrowDown" aria-label="Nach unten">▼</button></span><input class="input" name="v" value="${esc(v)}" data-orig="${i == null ? '' : esc(v)}"><button type="button" class="x" data-act="lrowDel" aria-label="Entfernen">×</button></div>`;
   const body = `<div class="links" style="margin:0 0 10px"><a href="#" data-act="lrowSort">Alphabetisch sortieren</a></div>
     <p class="nr" style="margin-top:0">Mit ▲▼ legst du die Reihenfolge in den Auswahllisten fest. Umbenennen ändert auch alle Aufträge${kind === 'arbeitsarten' ? ' und Maschinen' : ''} mit diesem Eintrag. Entfernen löscht nur den Vorschlag – bestehende Aufträge bleiben unverändert.</p>
@@ -1063,7 +1075,8 @@ function listDialog(kind) {
       if (kind === 'arbeitsarten') {
         Store.data.maschinen.forEach(m => { if (!m.del && (m.arbeitsarten || []).includes(from)) { m.arbeitsarten = uniqSort(m.arbeitsarten.map(x => x === from ? to : x)); m.upd = now; } });
         Store.data.auftraege.forEach(a => { if (!a.del && a.arbeit === from) { a.arbeit = to; a.upd = now; } });
-      } else Store.data.auftraege.forEach(a => { if (!a.del && a.kultur === from) { a.kultur = to; a.upd = now; } });
+      } else Store.data.auftraege.forEach(a => { if (!a.del && a[field] === from) { a[field] = to; a.upd = now; } });
+      if (kind === 'kulturen') Store.data.parzellen.forEach(p => { if (!p.del && p.kultur === from) { p.kultur = to; p.upd = now; } });
     });
     Store.setCfg({ [kind]: vals }, { silent: false });
     toast(renames.length ? `Gespeichert, ${renames.length} umbenannt` : 'Gespeichert'); return true;
@@ -1075,16 +1088,25 @@ function kundeDialog(id) {
   const k = id ? { ...Store.get('kunden', id) } : { id: uid() };
   const body = `
     <div class="two"><label class="fld"><span>Kunden-Nr.</span><input class="input" name="nr" value="${esc(k.nr || '')}"></label>
-      <label class="fld"><span>Telefon</span><input class="input" name="tel" type="tel" value="${esc(k.tel || '')}"></label></div>
+      <label class="fld"><span>Anrede</span><input class="input" name="anrede" value="${esc(k.anrede || '')}" placeholder="Herr / Frau / Familie"></label></div>
     <label class="fld"><span>Name / Betrieb</span><input class="input" name="name" value="${esc(k.name || '')}" required autofocus></label>
+    <div class="two"><label class="fld"><span>Telefon</span><input class="input" name="tel" type="tel" value="${esc(k.tel || '')}"></label>
+      <label class="fld"><span>Handy</span><input class="input" name="handy" type="tel" value="${esc(k.handy || '')}"></label></div>
     <label class="fld"><span>Adresse</span><input class="input" name="adresse" value="${esc(k.adresse || '')}"></label>
     <div class="two"><label class="fld"><span>PLZ</span><input class="input" name="plz" inputmode="numeric" value="${esc(k.plz || '')}"></label>
       <label class="fld"><span>Ort</span><input class="input" name="ort" value="${esc(k.ort || '')}"></label></div>
     <label class="fld"><span>E-Mail</span><input class="input" name="mail" type="email" value="${esc(k.mail || '')}"></label>
-    <label class="fld"><span>Notizen</span><textarea class="input" name="notiz">${esc(k.notiz || '')}</textarea></label>`;
+    <label class="fld"><span>Notizen</span><textarea class="input" name="notiz">${esc(k.notiz || '')}</textarea></label>
+    <div class="box"><h4>🧪 Preise Spritzen (pro ha)</h4>
+      <div class="three"><label class="fld"><span>Spritze CHF</span><input class="input" name="preisSpritze" inputmode="decimal" value="${k.preisSpritze ?? ''}"></label>
+        <label class="fld"><span>Fahrer CHF</span><input class="input" name="preisFahrer" inputmode="decimal" value="${k.preisFahrer ?? ''}"></label>
+        <label class="fld"><span>Traktor CHF</span><input class="input" name="preisTraktor" inputmode="decimal" value="${k.preisTraktor ?? ''}"></label></div>
+      <label class="fld" style="margin:0"><span>Zuschlag Mittel (%)</span><input class="input" name="zuschlag" inputmode="decimal" value="${k.zuschlag != null ? r2(k.zuschlag * 100) : ''}" style="max-width:140px"></label></div>`;
   Dlg.open(id ? 'Kunde bearbeiten' : 'Neuer Kunde', body,
     saveFooter(id ? `<button type="button" class="btn danger" data-act="delKunde" data-id="${k.id}">Löschen</button><button type="button" class="btn" data-act="newOrderFor" data-id="${k.id}">＋ Auftrag</button>` : ''), fd => {
-      ['nr', 'name', 'adresse', 'plz', 'ort', 'tel', 'mail', 'notiz'].forEach(x => { k[x] = (fd.get(x) || '').trim(); });
+      ['nr', 'anrede', 'name', 'adresse', 'plz', 'ort', 'tel', 'handy', 'mail', 'notiz'].forEach(x => { k[x] = (fd.get(x) || '').trim(); });
+      ['preisSpritze', 'preisFahrer', 'preisTraktor'].forEach(x => { k[x] = num(fd.get(x)); });
+      k.zuschlag = num(fd.get('zuschlag')) != null ? num(fd.get('zuschlag')) / 100 : null;
       Store.put('kunden', k); return true;
     });
 }
@@ -1337,11 +1359,10 @@ function exportCsv() {
   toast(`${list.length} Aufträge exportiert`);
 }
 /* ================= Modul Spritzen ================= */
-const PROD_EINHEITEN = ['l', 'kg', 'g', 'ml'];
+const PROD_EINHEITEN = ['l', 'kg', 'g', 'ml', 'Stk'];
 const isSprayName = s => /spritz|pflanzenschutz/i.test(s || '');
 const isSpray = a => !!a && isSprayName(a.arbeit);
 const sprayArbeit = () => Lists.arbeitsarten().find(isSprayName) || 'Spritzen';
-const prodUnit = name => (Lists.produkte().find(p => p.name === name) || {}).einheit || 'l';
 const prodList = a => (a.produkte || []).filter(p => p.name);
 const prodNames = a => prodList(a).map(p => p.name);
 const r2 = n => Math.round(n * 100) / 100;
@@ -1366,46 +1387,6 @@ function sprayTable(a) {
 }
 
 /* ---------- Auftragsdialog: Bereich Spritzen ---------- */
-const prodOptions = cur => { const names = Lists.produkte().map(p => p.name); return (cur && !names.includes(cur) ? [cur, ...names] : names).map(n => `<option ${n === cur ? 'selected' : ''}>${esc(n)}</option>`).join(''); };
-const prodRow = (p = {}) => `<div class="prow"><select class="input" name="pname"><option value="">— Produkt —</option>${prodOptions(p.name)}</select>
-  <input class="input" name="pmenge" inputmode="decimal" value="${p.menge ?? ''}" placeholder="Menge"><span class="u">${esc(p.name ? (p.einheit || prodUnit(p.name)) : 'l')}/ha</span>
-  <button type="button" class="x" data-act="prodDel" aria-label="Entfernen">×</button></div>`;
-function sprayBox(a) {
-  const ps = prodList(a);
-  return `<div class="box spraybox" id="sprayBox" ${isSpray(a) ? '' : 'hidden'}>
-    <h4>🧪 Spritzen</h4>
-    <div class="two">
-      <label class="fld"><span>Feld</span><input class="input" name="feld" value="${esc(a.feld || '')}" placeholder="z.B. Grossacker"></label>
-      <label class="fld"><span>Wassermenge (l/ha)</span><input class="input" name="wasser" inputmode="decimal" value="${a.wasser ?? ''}" placeholder="z.B. 200"></label>
-    </div>
-    <div class="fld" style="margin-bottom:6px"><span>Produkte und Aufwandmenge pro ha</span></div>
-    <div id="prodRows">${(ps.length ? ps : [{}]).map(prodRow).join('')}</div>
-    <div class="links" style="margin-top:4px"><a href="#" data-act="prodAdd">＋ weiteres Produkt</a><a href="#" data-act="prodNew">Neues Produkt erfassen</a></div>
-    <div id="sprayTot" class="sprtot"></div>
-  </div>`;
-}
-function readSpray(fd) {
-  const names = fd.getAll('pname'), mengen = fd.getAll('pmenge');
-  return {
-    feld: (fd.get('feld') || '').trim(), wasser: num(fd.get('wasser')),
-    produkte: names.map((n, i) => ({ name: n, menge: num(mengen[i]), einheit: n ? prodUnit(n) : '' })).filter(p => p.name)
-  };
-}
-function wireSpray(f) {
-  const box = $('#sprayBox', f); if (!box) return;
-  const upd = () => {
-    box.hidden = !isSprayName(f.arbeit.value);
-    $$('.prow', f).forEach(r => { const n = r.querySelector('select').value; r.querySelector('.u').textContent = (n ? prodUnit(n) : 'l') + '/ha'; });
-    const s = readSpray(new FormData(f)), fl = num(f.flaeche.value);
-    const tmp = { arbeit: 'Spritzen', flaeche: fl, ...s };
-    const rows = sprayRows(tmp).filter(r => r.tot);
-    $('#sprayTot', f).innerHTML = fl && rows.length ? `<b>Bedarf für ${fmtNum(fl)} ha:</b> ${rows.map(r => `${esc(r.name)} ${esc(r.tot)}`).join(' · ')}` : (rows.length || s.produkte.length ? '<span class="nr">Fläche eintragen, um den Bedarf zu berechnen.</span>' : '');
-  };
-  f.arbeit.addEventListener('change', upd);
-  f.addEventListener('input', e => { if (e.target.closest('#sprayBox') || e.target.name === 'flaeche') upd(); });
-  f.addEventListener('change', e => { if (e.target.name === 'pname') upd(); });
-  f._sprayUpd = upd; upd();
-}
 
 /* ---------- Kleines Zweitfenster (über einem offenen Dialog) ---------- */
 function smallDialog(title, body, okLabel, onSubmit) {
@@ -1419,47 +1400,6 @@ function smallDialog(title, body, okLabel, onSubmit) {
   f2.addEventListener('submit', e => { e.preventDefault(); if (onSubmit(new FormData(f2)) !== false) d2.close(); });
   d2.showModal();
   const first = f2.querySelector('input'); if (first && matchMedia('(pointer:fine)').matches) first.focus();
-}
-function newProductDialog() {
-  smallDialog('Neues Produkt', `<label class="fld"><span>Produktname *</span><input class="input" name="name" required></label>
-    <label class="fld"><span>Einheit</span><select class="input" name="einheit">${PROD_EINHEITEN.map(u => `<option>${u}</option>`).join('')}</select></label>`, 'Produkt speichern', fd => {
-    const name = fd.get('name').trim(); if (!name) return false;
-    if (Lists.produkte().some(p => norm(p.name) === norm(name))) { toast('Dieses Produkt gibt es schon'); return false; }
-    Store.setCfg({ produkte: [...Lists.produkte(), { name, einheit: fd.get('einheit') }] });
-    const f = Dlg.form;
-    if (Dlg.el.open && $('#prodRows', f)) {
-      $$('select[name="pname"]', f).forEach(s => { const v = s.value; s.innerHTML = `<option value="">— Produkt —</option>${prodOptions(v)}`; });
-      const empty = $$('select[name="pname"]', f).find(s => !s.value);
-      if (empty) empty.value = name; else { $('#prodRows', f).insertAdjacentHTML('beforeend', prodRow({ name })); }
-      f._sprayUpd && f._sprayUpd();
-    }
-    toast('Produkt erfasst');
-  });
-}
-function productsDialog() {
-  const row = (p, i) => `<div class="lrow"><span class="updown"><button type="button" class="x" data-act="lrowUp" aria-label="Nach oben">▲</button><button type="button" class="x" data-act="lrowDown" aria-label="Nach unten">▼</button></span>
-    <input class="input" name="v" value="${esc(p.name || '')}" data-orig="${i == null ? '' : esc(p.name)}" placeholder="Produktname">
-    <select class="input unit" name="u">${PROD_EINHEITEN.map(u => `<option ${u === (p.einheit || 'l') ? 'selected' : ''}>${u}</option>`).join('')}</select>
-    <button type="button" class="x" data-act="lrowDel" aria-label="Entfernen">×</button></div>`;
-  const body = `<div class="links" style="margin:0 0 10px"><a href="#" data-act="lrowSort">Alphabetisch sortieren</a></div>
-    <p class="nr" style="margin-top:0">Pflanzenschutz- und Düngerprodukte mit Einheit. Umbenennen ändert auch bestehende Spritzaufträge.</p>
-    <div id="lrows">${Lists.produkte().map((p, i) => row(p, i)).join('')}</div>
-    <button type="button" class="btn small" data-act="lrowAdd">＋ Produkt</button>`;
-  Dlg.open('Produkte', body, saveFooter(), () => {
-    const rows = $$('#lrows .lrow', Dlg.form).map(r => ({ el: r.querySelector('input'), name: r.querySelector('input').value.trim(), einheit: r.querySelector('select').value })).filter(r => r.name);
-    const seen = new Set(), list = rows.filter(r => !seen.has(norm(r.name)) && seen.add(norm(r.name)));
-    const ren = list.filter(r => r.el.dataset.orig && r.el.dataset.orig !== r.name).map(r => [r.el.dataset.orig, r.name]);
-    const units = Object.fromEntries(list.map(r => [r.name, r.einheit]));
-    const ch = Store.all('auftraege').filter(a => prodList(a).length).map(a => {
-      let changed = false;
-      const produkte = a.produkte.map(p => { const to = (ren.find(([f]) => f === p.name) || [])[1]; if (to) { changed = true; return { ...p, name: to, einheit: units[to] || p.einheit }; } return p; });
-      return changed ? { ...a, produkte } : null;
-    }).filter(Boolean);
-    if (ch.length) Store.putMany('auftraege', ch);
-    Store.setCfg({ produkte: list.map(r => ({ name: r.name, einheit: r.einheit })) }, { silent: false });
-    toast('Produkte gespeichert'); return true;
-  });
-  Dlg.form._row = (v, i) => row({ name: v }, i);
 }
 
 /* ---------- Ansicht «Spritzen» ---------- */
@@ -1502,10 +1442,14 @@ function sprayView() {
   return {
     toolbar() {
       return `<h1>Spritzen</h1>
-        <button class="btn" data-act="prodManage">Produkte</button>
         <button class="btn primary" data-act="newSpray">＋ Spritzauftrag</button>`;
     },
     content() {
+      const t = App.spray.tab;
+      const body = t === 'journal' ? journalContent() : t === 'abrechnung' ? abrechnungContent() : t === 'nachweis' ? nachweisContent() : t === 'stamm' ? stammContent() : this.planContent();
+      return spTabs() + body;
+    },
+    planContent() {
       const S = App.spray, days = sprayDays(), sel = days.filter(d => !S.off.has(d));
       const need = sprayNeed(sel), showDays = sel.length > 1 && sel.length <= 7;
       const dayHead = d => fmtDate(d, { weekday: 'short', day: '2-digit', month: '2-digit' });
@@ -1622,6 +1566,357 @@ function pickerDialog(d, mid, minute, all = false) {
   Dlg.pick = { d, mid, minute };
 }
 
+/* ================= Spritzen: Erfassung wie ErfassungPS, Stammdaten, Abrechnung, ÖLN-Nachweis ================= */
+const round05 = x => Math.round((x || 0) / 0.05) * 0.05;
+const chf = x => (Math.round((x || 0) * 100) / 100).toLocaleString('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const prodById = id => id ? Store.get('produkte', id) : null;
+const prodByName = n => Store.all('produkte').find(p => p.name === n) || null;
+const prodOf = p => prodById(p.pid) || prodByName(p.name);
+const prodUnit = name => (prodByName(name) || {}).einheit || 'l';
+const byName = (a, b) => (a.name || '').localeCompare(b.name || '', 'de');
+const kundeOf = a => Store.get('kunden', a.kunde) || {};
+const ernteDefault = (iso, kultur) => { if (!iso) return null; const d = parseDate(iso), y = d.getFullYear(); return d.getMonth() >= 7 && /^(winter|triticale|korn)/i.test(kultur || '') ? y + 1 : y; };
+const ernteOf = a => a.erntejahr || ernteDefault(a.erledigtAm || a.datum, a.kultur);
+const flOf = a => a.flaecheEff ?? a.flaeche ?? 0;
+const sprayOrders = () => Store.all('auftraege').filter(isSpray);
+
+/* ---------- Produktzeilen im Auftrag ---------- */
+function prodOptions(curPid, curName) {
+  const list = Store.all('produkte').filter(p => p.aktuell !== false).sort(byName);
+  const cur = curPid ? prodById(curPid) : (curName ? prodByName(curName) : null);
+  const opts = list.map(p => `<option value="${p.id}" ${cur && cur.id === p.id ? 'selected' : ''}>${esc(p.name)}${p.zulassung ? ' – ' + esc(p.zulassung) : ''}</option>`);
+  if (cur && cur.aktuell === false) opts.unshift(`<option value="${cur.id}" selected>${esc(cur.name)} (nicht aktuell)</option>`);
+  else if (!cur && curName) opts.unshift(`<option value="n:${esc(curName)}" selected>${esc(curName)}</option>`);
+  return opts.join('');
+}
+const prodRow = (p = {}) => `<div class="prow"><select class="input" name="pname"><option value="">— Produkt —</option>${prodOptions(p.pid, p.name)}</select>
+  <input class="input" name="pmenge" inputmode="decimal" value="${p.menge ?? ''}" placeholder="Menge"><span class="u">${esc(p.name ? (p.einheit || prodUnit(p.name)) : 'l')}/ha</span>
+  <label class="noeln" title="Nicht ÖLN-konform"><input type="checkbox" name="poeln" ${p.nichtOeln ? 'checked' : ''}><span>⚠ÖLN</span></label>
+  <button type="button" class="x" data-act="prodDel" aria-label="Entfernen">×</button></div>`;
+const optList = (list, cur) => (cur && !list.includes(cur) ? [cur, ...list] : list).map(x => `<option ${x === cur ? 'selected' : ''}>${esc(x)}</option>`).join('');
+function parzOptions(kid, cur) {
+  const list = Store.all('parzellen').filter(p => p.kunde === kid && (p.aktiv !== false || p.id === cur)).sort(byName);
+  return `<option value="">— keine —</option>` + list.map(p => `<option value="${p.id}" ${p.id === cur ? 'selected' : ''}>${esc(p.name)}${p.flaeche ? ` · ${fmtNum(p.flaeche)} ha` : ''}${p.kultur ? ` · ${esc(p.kultur)}` : ''}</option>`).join('');
+}
+function sprayBox(a) {
+  const ps = prodList(a);
+  return `<div class="box spraybox" id="sprayBox" ${isSpray(a) ? '' : 'hidden'}>
+    <h4>🧪 Spritzen</h4>
+    <div class="two">
+      <label class="fld"><span>Parzelle</span><div class="withbtn"><select class="input" name="parzelle">${parzOptions(a.kunde, a.parzelle)}</select>
+        <button type="button" class="btn" data-act="parzNew" title="Neue Parzelle" aria-label="Neue Parzelle">＋</button></div></label>
+      <label class="fld"><span>Feld (Bezeichnung)</span><input class="input" name="feld" value="${esc(a.feld || '')}" placeholder="z.B. Grossacker"></label>
+    </div>
+    <div class="two">
+      <label class="fld"><span>Wassermenge (l/ha)</span><input class="input" name="wasser" inputmode="decimal" value="${a.wasser ?? ''}" placeholder="z.B. 200"></label>
+      <label class="fld"><span>Stadium</span><input class="input" name="stadium" value="${esc(a.stadium || '')}" placeholder="z.B. BBCH 31"></label>
+    </div>
+    <div class="three">
+      <label class="fld"><span>Düse</span><select class="input" name="duese"><option value="">—</option>${optList(Lists.duesen(), a.duese)}</select></label>
+      <label class="fld"><span>Traktor</span><select class="input" name="traktor"><option value="">—</option>${optList(Lists.traktoren(), a.traktor)}</select></label>
+      <label class="fld"><span>Erntejahr</span><input class="input" name="erntejahr" inputmode="numeric" value="${a.erntejahr ?? ''}" placeholder="${ernteDefault(a.datum || todayIso(), a.kultur) || ''}"></label>
+    </div>
+    <div class="checks"><label><input type="checkbox" name="gps" ${a.gps ? 'checked' : ''}> Einsatz GPS</label>
+      <label><input type="checkbox" name="nichtOeln" ${a.nichtOeln ? 'checked' : ''}> Nicht ÖLN-konform</label></div>
+    <div class="fld" style="margin:10px 0 6px"><span>Produkte und Aufwandmenge pro ha</span></div>
+    <div id="prodRows">${(ps.length ? ps : [{}]).map(prodRow).join('')}</div>
+    <div class="links" style="margin-top:4px"><a href="#" data-act="prodAdd">＋ weiteres Produkt</a><a href="#" data-act="prodNew">Neues Produkt erfassen</a></div>
+    <div id="sprayTot" class="sprtot"></div>
+  </div>`;
+}
+function readSpray(f) {
+  const produkte = $$('.prow', f).map(r => {
+    const v = r.querySelector('select').value; if (!v) return null;
+    const p = v.startsWith('n:') ? null : prodById(v), name = p ? p.name : v.slice(2);
+    return { pid: p ? p.id : '', name, menge: num(r.querySelector('input[name="pmenge"]').value), einheit: p ? p.einheit : prodUnit(name), nichtOeln: r.querySelector('input[name="poeln"]').checked };
+  }).filter(Boolean);
+  const ej = num(f.erntejahr.value);
+  return {
+    parzelle: f.parzelle.value, feld: f.feld.value.trim(), wasser: num(f.wasser.value), stadium: f.stadium.value.trim(),
+    duese: f.duese.value, traktor: f.traktor.value, gps: f.gps.checked, nichtOeln: f.nichtOeln.checked,
+    erntejahr: ej || ernteDefault(f.datum.value || f.wunsch.value || todayIso(), f.kultur.value), produkte
+  };
+}
+function wireSpray(f) {
+  const box = $('#sprayBox', f); if (!box) return;
+  const upd = () => {
+    box.hidden = !isSprayName(f.arbeit.value);
+    $$('.prow', f).forEach(r => { const v = r.querySelector('select').value, p = v && !v.startsWith('n:') ? prodById(v) : null; r.querySelector('.u').textContent = (p ? p.einheit : v ? prodUnit(v.slice(2)) : 'l') + '/ha'; });
+    const s = readSpray(f), fl = num(f.flaeche.value);
+    const rows = sprayRows({ arbeit: 'Spritzen', flaeche: fl, ...s }).filter(r => r.tot);
+    $('#sprayTot', f).innerHTML = fl && rows.length ? `<b>Bedarf für ${fmtNum(fl)} ha:</b> ${rows.map(r => `${esc(r.name)} ${esc(r.tot)}`).join(' · ')}` : (s.produkte.length ? '<span class="nr">Fläche eintragen, um den Bedarf zu berechnen.</span>' : '');
+    f.erntejahr.placeholder = ernteDefault(f.datum.value || f.wunsch.value || todayIso(), f.kultur.value) || '';
+  };
+  const refreshParz = () => { const k = findKunde(f.kunde.value); const cur = f.parzelle.value; f.parzelle.innerHTML = parzOptions(k ? k.id : '', cur); };
+  f.arbeit.addEventListener('change', upd);
+  f.kunde.addEventListener('input', refreshParz);
+  f.parzelle.addEventListener('change', () => {
+    const p = Store.get('parzellen', f.parzelle.value); if (!p) return;
+    f.feld.value = p.name;
+    if (p.kultur && !f.kultur.value) { if (![...f.kultur.options].some(o => o.value === p.kultur)) f.kultur.insertAdjacentHTML('beforeend', `<option>${esc(p.kultur)}</option>`); f.kultur.value = p.kultur; }
+    if (p.flaeche && !f.flaeche.value) { f.flaeche.value = p.flaeche; f.flaeche.dispatchEvent(new Event('input', { bubbles: true })); }
+    upd();
+  });
+  f.addEventListener('input', e => { if (e.target.closest('#sprayBox') || e.target.name === 'flaeche') upd(); });
+  f.addEventListener('change', e => { if (e.target.name === 'pname' || e.target.name === 'kultur' || e.target.name === 'datum') upd(); });
+  f._sprayUpd = upd; f._refreshParz = refreshParz; upd();
+}
+
+/* ---------- Produkte ---------- */
+function productDialog(id, { fromOrder } = {}) {
+  const p = id ? { ...Store.get('produkte', id) } : { id: uid(), einheit: 'l', aktuell: true, preis: 0 };
+  const units = [...new Set([...PROD_EINHEITEN, p.einheit].filter(Boolean))];
+  const body = `<label class="fld"><span>Produktname *</span><input class="input" name="name" value="${esc(p.name || '')}" required></label>
+    <label class="fld"><span>Zulassungs-Nr. / Art</span><input class="input" name="zulassung" value="${esc(p.zulassung || '')}" placeholder="z.B. HZ, W-7294"></label>
+    <div class="three">
+      <label class="fld"><span>Einheit</span><select class="input" name="einheit">${units.map(u => `<option ${u === p.einheit ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></label>
+      <label class="fld"><span>Preis CHF / Einheit</span><input class="input" name="preis" inputmode="decimal" value="${p.preis ?? ''}"></label>
+      <label class="fld"><span>Inventar</span><input class="input" name="inventar" inputmode="decimal" value="${p.inventar ?? ''}"></label>
+    </div>
+    <label class="tog"><input type="checkbox" name="aktuell" ${p.aktuell !== false ? 'checked' : ''}> Aktuell (in der Auswahl anzeigen)</label>`;
+  const save = fd => {
+    const name = String(fd.get('name') || '').trim(); if (!name) return false;
+    if (Store.all('produkte').some(x => x.id !== p.id && norm(x.name) === norm(name)) && !confirm(`«${name}» gibt es schon. Trotzdem speichern?`)) return false;
+    const old = p.name;
+    Object.assign(p, { name, zulassung: String(fd.get('zulassung') || '').trim(), einheit: fd.get('einheit'), preis: num(fd.get('preis')) ?? 0,
+      inventar: num(fd.get('inventar')), aktuell: !!fd.get('aktuell'), geaendert: todayIso() });
+    if (old && old !== name) { // Umbenennen in Aufträgen nachführen
+      const ch = Store.all('auftraege').filter(a => prodList(a).some(x => x.pid === p.id || x.name === old))
+        .map(a => ({ ...a, produkte: a.produkte.map(x => (x.pid === p.id || x.name === old) ? { ...x, pid: p.id, name, einheit: p.einheit } : x) }));
+      if (ch.length) Store.putMany('auftraege', ch);
+    }
+    Store.put('produkte', p, { silent: !!fromOrder });
+    return p;
+  };
+  if (fromOrder) {
+    smallDialog('Neues Produkt', body, 'Produkt speichern', fd => {
+      const r = save(fd); if (!r) return false;
+      const f = Dlg.form;
+      $$('select[name="pname"]', f).forEach(s => { const v = s.value; s.innerHTML = `<option value="">— Produkt —</option>${prodOptions(v.startsWith('n:') ? '' : v, v.startsWith('n:') ? v.slice(2) : '')}`; s.value = v; });
+      const empty = $$('select[name="pname"]', f).find(s => !s.value);
+      if (empty) empty.value = r.id; else $('#prodRows', f).insertAdjacentHTML('beforeend', prodRow({ pid: r.id, name: r.name }));
+      f._sprayUpd && f._sprayUpd(); toast('Produkt erfasst');
+    });
+    return;
+  }
+  Dlg.open(id ? 'Produkt bearbeiten' : 'Neues Produkt', body,
+    saveFooter(id ? `<button type="button" class="btn danger" data-act="prodDelete" data-id="${p.id}">Löschen</button>` : ''), fd => !!save(fd));
+}
+function newProductDialog() { productDialog(null, { fromOrder: true }); }
+function productsDialog() { App.spray.tab = 'stamm'; App.spray.stamm = 'produkte'; App.go('spritzen'); }
+
+/* ---------- Parzellen ---------- */
+function parzelleDialog(id, { kunde, fromOrder } = {}) {
+  const p = id ? { ...Store.get('parzellen', id) } : { id: uid(), kunde: kunde || '', aktiv: true };
+  const ks = Store.all('kunden').sort(byName);
+  const body = `<label class="fld"><span>Kunde *</span><select class="input" name="kunde" required><option value="">—</option>${ks.map(k => `<option value="${k.id}" ${k.id === p.kunde ? 'selected' : ''}>${esc(kundeLabel(k))}</option>`).join('')}</select></label>
+    <label class="fld"><span>Parzellenname *</span><input class="input" name="name" value="${esc(p.name || '')}" required></label>
+    <div class="two">
+      <label class="fld"><span>Kultur</span><select class="input" name="kultur"><option value="">—</option>${optList(Lists.kulturen(), p.kultur)}</select></label>
+      <label class="fld"><span>Fläche (ha)</span><input class="input" name="flaeche" inputmode="decimal" value="${p.flaeche ?? ''}"></label>
+    </div>
+    <label class="tog"><input type="checkbox" name="aktiv" ${p.aktiv !== false ? 'checked' : ''}> Aktiv (in der Auswahl anzeigen)</label>`;
+  const save = fd => {
+    Object.assign(p, { kunde: fd.get('kunde'), name: String(fd.get('name') || '').trim(), kultur: fd.get('kultur'), flaeche: num(fd.get('flaeche')), aktiv: !!fd.get('aktiv') });
+    if (!p.kunde || !p.name) { toast('Kunde und Name angeben'); return false; }
+    Store.put('parzellen', p, { silent: !!fromOrder }); return p;
+  };
+  if (fromOrder) {
+    smallDialog('Neue Parzelle', body, 'Parzelle speichern', fd => {
+      const r = save(fd); if (!r) return false;
+      const f = Dlg.form; f._refreshParz && f._refreshParz(); f.parzelle.value = r.id; f.parzelle.dispatchEvent(new Event('change')); toast('Parzelle erfasst');
+    });
+    return;
+  }
+  Dlg.open(id ? 'Parzelle bearbeiten' : 'Neue Parzelle', body,
+    saveFooter(id ? `<button type="button" class="btn danger" data-act="parzDelete" data-id="${p.id}">Löschen</button>` : ''), fd => !!save(fd));
+}
+
+/* ---------- Unteransichten des Moduls ---------- */
+const SP_TABS = [['plan', 'Planung'], ['journal', 'Journal'], ['abrechnung', 'Abrechnung'], ['nachweis', 'ÖLN-Nachweis'], ['stamm', 'Stammdaten']];
+function spTabs() { return `<div class="seg sptabs">${SP_TABS.map(([k, l]) => `<button type="button" data-act="spTab" data-v="${k}" class="${App.spray.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>`; }
+const yearsOf = () => [...new Set(sprayOrders().map(ernteOf).filter(Boolean))].sort((a, b) => b - a);
+function kundenMitSpritz() { const ids = new Set(sprayOrders().map(a => a.kunde)); return Store.all('kunden').filter(k => ids.has(k.id)).sort(byName); }
+
+// Journal: alle Spritzaufträge durchsuchen
+function journalContent() {
+  const S = App.spray, q = norm(S.jq), y = S.jy;
+  const list = sprayOrders().filter(a => a.datum || a.erledigtAm).filter(a => (!y || ernteOf(a) === +y) && (!q || [kundeName(a.kunde), a.feld, a.kultur, a.notiz, a.stadium, a.nr, ...prodNames(a)].join(' ').toLowerCase().includes(q)))
+    .sort((a, b) => (b.erledigtAm || b.datum).localeCompare(a.erledigtAm || a.datum) || (b.nr || '').localeCompare(a.nr || ''));
+  const shown = list.slice(0, S.jlimit);
+  return `<div class="filters"><input class="input search" type="search" placeholder="Suchen: Kunde, Parzelle, Kultur, Produkt…" value="${esc(S.jq)}" data-in="spJq">
+      <select class="input" data-in="spJy" style="width:auto"><option value="">Alle Erntejahre</option>${yearsOf().map(v => `<option ${+y === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+    <p class="nr">${list.length} Spritzaufträge · ${fmtNum(r2(list.reduce((s, a) => s + flOf(a), 0)))} ha</p>
+    <div class="rows">${shown.map(a => `<div class="rowi" data-act="editOrder" data-id="${a.id}">
+      <span class="num" style="width:74px">${fmtDate(a.erledigtAm || a.datum, { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>
+      <div class="grow"><div class="t">${esc(kundeName(a.kunde))}${a.feld ? ` · ${esc(a.feld)}` : ''}</div>
+        <div class="s">${a.kultur ? `<span class="kultur">${esc(a.kultur)}</span> · ` : ''}${fmtNum(flOf(a))} ha${a.stadium ? ` · ${esc(a.stadium)}` : ''} · ${prodList(a).map(p => `${esc(p.name)} ${fmtNum(p.menge)} ${esc(p.einheit || '')}${p.nichtOeln ? ' ⚠' : ''}`).join(', ') || 'keine Produkte'}</div></div>
+      <span class="badge ${statusOf(a)}">${STATUS[statusOf(a)]}</span></div>`).join('') || '<div class="empty">Keine Treffer.</div>'}</div>
+    ${list.length > shown.length ? `<div class="btns" style="margin-top:10px"><button class="btn" data-act="spMore">Weitere ${Math.min(200, list.length - shown.length)} anzeigen</button></div>` : ''}`;
+}
+
+// Abrechnung pro Kunde und Zeitraum (Formeln wie ErfassungPS)
+function billing(kid, von, bis, mitGeplant) {
+  const k = Store.get('kunden', kid) || {};
+  const preisHa = (k.preisSpritze || 0) + (k.preisFahrer || 0) + (k.preisTraktor || 0), zu = k.zuschlag || 0;
+  const orders = sprayOrders().filter(a => a.kunde === kid && (a.erledigtAm || a.datum) && (a.erledigtAm || a.datum) >= von && (a.erledigtAm || a.datum) <= bis
+    && (['erledigt', 'verrechnet'].includes(statusOf(a)) || (mitGeplant && statusOf(a) === 'geplant')))
+    .sort((a, b) => (a.erledigtAm || a.datum).localeCompare(b.erledigtAm || b.datum) || (a.nr || '').localeCompare(b.nr || ''));
+  let tA = 0, tM = 0;
+  const rows = orders.map(a => {
+    const fl = flOf(a), arbeit = round05(fl * preisHa);
+    const mittel = prodList(a).map(p => {
+      const pr = prodOf(p) || {}, preis = pr.preis || 0, preisZ = round05(preis * zu + preis), menge = (p.menge || 0) * fl, betrag = round05(menge * preisZ);
+      return { name: p.name, zulassung: pr.zulassung || '', mengeHa: p.menge, einheit: p.einheit || pr.einheit || '', menge, preis, preisZ, betrag };
+    });
+    const m = mittel.reduce((s, x) => s + x.betrag, 0); tA += arbeit; tM += m;
+    return { a, fl, arbeit, mittel, mittelTot: m };
+  });
+  return { k, preisHa, zu, rows, tA, tM, total: tA + tM };
+}
+function billingHtml(b, von, bis) {
+  return `<div class="bill"><div class="bill-h"><div><b>${esc(b.k.anrede ? b.k.anrede + ' ' : '')}${esc(b.k.name || '')}</b><br>${esc(b.k.adresse || '')}<br>${esc([b.k.plz, b.k.ort].filter(Boolean).join(' '))}</div>
+      <div class="r">Spritzarbeiten ${fmtDate(von, { day: '2-digit', month: '2-digit', year: 'numeric' })} – ${fmtDate(bis, { day: '2-digit', month: '2-digit', year: 'numeric' })}<br>
+      <span class="nr">Ansatz Arbeit CHF ${chf(b.preisHa)}/ha (Spritze ${chf(b.k.preisSpritze)}, Fahrer ${chf(b.k.preisFahrer)}, Traktor ${chf(b.k.preisTraktor)}) · Zuschlag Mittel ${fmtNum(r2((b.zu || 0) * 100))} %</span></div></div>
+    <table class="btab"><thead><tr><th>Datum</th><th>Parzelle / Produkt</th><th>Kultur / Zulassung</th><th class="n">Menge</th><th class="n">Ansatz</th><th class="n">Betrag CHF</th></tr></thead><tbody>
+    ${b.rows.map(r => `<tr class="job"><td>${fmtDate(r.a.erledigtAm || r.a.datum, { day: '2-digit', month: '2-digit', year: '2-digit' })}</td><td><b>${esc(r.a.feld || '—')}</b></td><td>${esc(r.a.kultur || '')}</td>
+        <td class="n">${fmtNum(r.fl)} ha</td><td class="n">${chf(b.preisHa)}</td><td class="n"><b>${chf(r.arbeit)}</b></td></tr>
+      ${r.mittel.map(m => `<tr class="mit"><td></td><td>${esc(m.name)}</td><td class="nr">${esc(m.zulassung)}</td><td class="n">${fmtNum(r2(m.menge))} ${esc(m.einheit)}</td><td class="n">${chf(m.preisZ)}</td><td class="n">${chf(m.betrag)}</td></tr>`).join('')}`).join('')}
+    </tbody><tfoot>
+      <tr><td colspan="5">Total Arbeit (${fmtNum(r2(b.rows.reduce((s, r) => s + r.fl, 0)))} ha)</td><td class="n">${chf(b.tA)}</td></tr>
+      <tr><td colspan="5">Total Mittel</td><td class="n">${chf(b.tM)}</td></tr>
+      <tr class="tot"><td colspan="5">Total CHF</td><td class="n">${chf(b.total)}</td></tr></tfoot></table></div>`;
+}
+function abrechnungContent() {
+  const S = App.spray, ks = kundenMitSpritz();
+  const head = `<div class="filters">
+      <select class="input" data-in="spAk" style="width:auto;min-width:200px"><option value="">Alle Kunden (Übersicht)</option>${ks.map(k => `<option value="${k.id}" ${k.id === S.ak ? 'selected' : ''}>${esc(kundeLabel(k))}</option>`).join('')}</select>
+      <label class="fld inl"><span>Von</span><input class="input" type="date" value="${S.av}" data-in="spAv"></label>
+      <label class="fld inl"><span>Bis</span><input class="input" type="date" value="${S.ab}" data-in="spAb"></label>
+      <label class="tog"><input type="checkbox" data-in="spAg" ${S.ag ? 'checked' : ''}> auch geplante</label></div>`;
+  if (!S.ak) {
+    const sums = ks.map(k => ({ k, b: billing(k.id, S.av, S.ab, S.ag) })).filter(x => x.b.rows.length);
+    const tot = sums.reduce((s, x) => s + x.b.total, 0);
+    return head + (sums.length ? `<div class="tscroll"><table class="need"><thead><tr><th>Kunde</th><th>Aufträge</th><th>Fläche ha</th><th>Arbeit</th><th>Mittel</th><th>Total CHF</th><th></th></tr></thead><tbody>
+      ${sums.map(x => `<tr class="click" data-act="spAkSel" data-id="${x.k.id}"><td>${esc(x.k.name)}</td><td>${x.b.rows.length}</td><td>${fmtNum(r2(x.b.rows.reduce((s, r) => s + r.fl, 0)))}</td><td>${chf(x.b.tA)}</td><td>${chf(x.b.tM)}</td><td><b>${chf(x.b.total)}</b></td><td></td></tr>`).join('')}
+      <tr class="area"><td>Total</td><td></td><td></td><td></td><td></td><td><b>${chf(tot)}</b></td><td></td></tr></tbody></table></div>
+      <div class="btns"><button class="btn" data-act="spBillCsv">CSV (alle)</button><button class="btn" data-act="spBillPrintAll">Alle drucken / PDF</button></div>`
+      : '<div class="empty">Keine erledigten Spritzaufträge in diesem Zeitraum.</div>');
+  }
+  const b = billing(S.ak, S.av, S.ab, S.ag);
+  if (!b.rows.length) return head + '<div class="empty">Keine erledigten Spritzaufträge dieses Kunden im Zeitraum.</div>';
+  const offen = b.rows.filter(r => statusOf(r.a) === 'erledigt').length;
+  return head + `${!b.preisHa ? '<p class="hintp panel">Für diesen Kunden sind keine Spritzpreise erfasst – unter <b>Kunden</b> ergänzen.</p>' : ''}
+    <div class="panel">${billingHtml(b, S.av, S.ab)}
+    <div class="btns"><button class="btn primary" data-act="spBillPrint">Drucken / PDF</button><button class="btn" data-act="spBillCsv">CSV</button>
+      ${offen ? `<button class="btn" data-act="spBillMark">${offen} als verrechnet markieren</button>` : ''}</div></div>`;
+}
+function billingCsv() {
+  const S = App.spray, ids = S.ak ? [S.ak] : kundenMitSpritz().map(k => k.id);
+  const rows = [['Kunde', 'Datum', 'Parzelle', 'Kultur', 'Fläche ha', 'Position', 'Zulassung', 'Menge', 'Einheit', 'Ansatz CHF', 'Betrag CHF', 'Auftrag']];
+  ids.forEach(id => { const b = billing(id, S.av, S.ab, S.ag); b.rows.forEach(r => {
+    const d = r.a.erledigtAm || r.a.datum;
+    rows.push([b.k.name, d, r.a.feld, r.a.kultur, r.fl, 'Arbeit Spritzen', '', r.fl, 'ha', b.preisHa.toFixed(2), r.arbeit.toFixed(2), r.a.nr]);
+    r.mittel.forEach(m => rows.push([b.k.name, d, r.a.feld, r.a.kultur, r.fl, m.name, m.zulassung, r2(m.menge), m.einheit, m.preisZ.toFixed(2), m.betrag.toFixed(2), r.a.nr]));
+  }); });
+  download(`Abrechnung_Spritzen_${S.av}_bis_${S.ab}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+}
+
+// ÖLN-Nachweis / Spritzprotokoll
+function nachweisRows() {
+  const S = App.spray;
+  return sprayOrders().filter(a => (a.erledigtAm || a.datum) && ernteOf(a) === +S.ny && (!S.nk || a.kunde === S.nk) && (!S.nc || a.kultur === S.nc) && (S.ngep || statusOf(a) !== 'geplant'))
+    .sort((a, b) => kundeName(a.kunde).localeCompare(kundeName(b.kunde), 'de') || (a.feld || '').localeCompare(b.feld || '', 'de') || (a.erledigtAm || a.datum).localeCompare(b.erledigtAm || b.datum));
+}
+function nachweisHtml(list) {
+  const groups = [...new Set(list.map(a => a.kunde))];
+  return groups.map(kid => {
+    const k = Store.get('kunden', kid) || {}, ol = list.filter(a => a.kunde === kid);
+    return `<div class="bill nachweis"><div class="bill-h"><div><b>${esc(k.name || '')}</b>${k.ort ? ', ' + esc([k.plz, k.ort].filter(Boolean).join(' ')) : ''}</div>
+      <div class="r">Pflanzenschutz-Nachweis Erntejahr ${esc(App.spray.ny)}${App.spray.nc ? ' · ' + esc(App.spray.nc) : ''}</div></div>
+      <table class="btab"><thead><tr><th>Datum</th><th>Parzelle</th><th>Kultur</th><th class="n">ha</th><th>Stadium</th><th>Produkt</th><th>Zulassung</th><th class="n">Menge/ha</th><th>Bemerkung</th></tr></thead><tbody>
+      ${ol.map(a => { const ps = prodList(a).length ? prodList(a) : [{}]; return ps.map((p, i) => `<tr class="${i ? 'mit' : 'job'} ${p.nichtOeln || a.nichtOeln ? 'noeln' : ''}">
+          <td>${i ? '' : fmtDate(a.erledigtAm || a.datum, { day: '2-digit', month: '2-digit', year: '2-digit' })}</td><td>${i ? '' : esc(a.feld || '')}</td><td>${i ? '' : esc(a.kultur || '')}</td>
+          <td class="n">${i ? '' : fmtNum(flOf(a))}</td><td>${i ? '' : esc(a.stadium || '')}</td>
+          <td>${esc(p.name || '–')}${p.nichtOeln ? ' <b>(nicht ÖLN)</b>' : ''}</td><td>${esc((prodOf(p) || {}).zulassung || '')}</td>
+          <td class="n">${p.menge != null ? fmtNum(p.menge) + ' ' + esc(p.einheit || '') : ''}</td><td>${i ? '' : esc([a.notiz, a.nichtOeln ? 'nicht ÖLN-konform' : ''].filter(Boolean).join(' · '))}</td></tr>`).join(''); }).join('')}
+      </tbody></table></div>`;
+  }).join('');
+}
+function nachweisContent() {
+  const S = App.spray, ys = yearsOf(); if (!S.ny) S.ny = ys[0] || new Date().getFullYear();
+  const list = nachweisRows(), kult = [...new Set(sprayOrders().filter(a => ernteOf(a) === +S.ny).map(a => a.kultur).filter(Boolean))].sort();
+  return `<div class="filters">
+      <select class="input" data-in="spNy" style="width:auto">${(ys.length ? ys : [S.ny]).map(v => `<option ${+S.ny === v ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      <select class="input" data-in="spNk" style="width:auto;min-width:180px"><option value="">Alle Kunden</option>${kundenMitSpritz().map(k => `<option value="${k.id}" ${k.id === S.nk ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
+      <select class="input" data-in="spNc" style="width:auto"><option value="">Alle Kulturen</option>${kult.map(c => `<option ${c === S.nc ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      <label class="tog"><input type="checkbox" data-in="spNgep" ${S.ngep ? 'checked' : ''}> auch geplante</label></div>
+    <p class="nr">${list.length} Behandlungen · ${new Set(list.map(a => a.kunde)).size} Kunden${list.some(a => a.nichtOeln || prodList(a).some(p => p.nichtOeln)) ? ' · nicht ÖLN-konforme sind markiert' : ''}</p>
+    ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-act="spNwPrint">Drucken / PDF</button><button class="btn" data-act="spNwCsv">CSV</button></div><div class="panel">${nachweisHtml(list)}</div>` : '<div class="empty">Keine Behandlungen für diese Auswahl.</div>'}`;
+}
+function nachweisCsv() {
+  const rows = [['Erntejahr', 'Kunde', 'Ort', 'Datum', 'Parzelle', 'Kultur', 'Fläche ha', 'Stadium', 'Produkt', 'Zulassung', 'Menge/ha', 'Einheit', 'Nicht ÖLN-konform', 'Wasser l/ha', 'Düse', 'Bemerkung']];
+  nachweisRows().forEach(a => { const k = kundeOf(a); (prodList(a).length ? prodList(a) : [{}]).forEach(p => rows.push([ernteOf(a), k.name, k.ort, a.erledigtAm || a.datum, a.feld, a.kultur, flOf(a), a.stadium, p.name, (prodOf(p) || {}).zulassung, p.menge, p.einheit, (p.nichtOeln || a.nichtOeln) ? 'ja' : '', a.wasser, a.duese, a.notiz])); });
+  download(`OELN-Nachweis_${App.spray.ny}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+}
+function printHtml(title, html) {
+  let pa = $('#printArea'); if (!pa) { pa = document.createElement('div'); pa.id = 'printArea'; document.body.appendChild(pa); }
+  pa.innerHTML = `<h1 class="ptitle">${esc(title)}</h1>${html}<p class="pfoot">Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · Lohnarbeit-Planer</p>`;
+  document.body.classList.add('printing');
+  const done = () => { document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done);
+  setTimeout(() => { window.print(); setTimeout(done, 1000); }, 50);
+}
+
+// Stammdaten
+function stammContent() {
+  const S = App.spray, sub = S.stamm;
+  const segs = `<div class="seg" style="margin-bottom:12px">${[['produkte', 'Produkte'], ['parzellen', 'Parzellen'], ['geraete', 'Düsen & Traktoren'], ['import', 'Import']].map(([k, l]) => `<button type="button" data-act="spStamm" data-v="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  if (sub === 'parzellen') {
+    const list = Store.all('parzellen').filter(p => (!S.pk || p.kunde === S.pk) && (S.pall || p.aktiv !== false)).sort((a, b) => kundeName(a.kunde).localeCompare(kundeName(b.kunde), 'de') || byName(a, b));
+    return segs + `<div class="filters"><select class="input" data-in="spPk" style="width:auto;min-width:200px"><option value="">Alle Kunden</option>${Store.all('kunden').sort(byName).map(k => `<option value="${k.id}" ${k.id === S.pk ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
+        <label class="tog"><input type="checkbox" data-in="spPall" ${S.pall ? 'checked' : ''}> auch inaktive</label><button class="btn primary" data-act="parzAdd">＋ Parzelle</button></div>
+      <div class="rows">${list.map(p => `<div class="rowi ${p.aktiv === false ? 'off' : ''}" data-act="parzEdit" data-id="${p.id}"><div class="grow"><div class="t">${esc(p.name)}</div><div class="s">${esc(kundeName(p.kunde))}${p.kultur ? ' · ' + esc(p.kultur) : ''}</div></div><span class="num" style="width:auto">${p.flaeche ? fmtNum(p.flaeche) + ' ha' : ''}</span></div>`).join('') || '<div class="empty">Keine Parzellen.</div>'}</div>`;
+  }
+  if (sub === 'geraete') {
+    const panel = (kind, title) => `<div class="panel"><h2>${title}</h2><div class="chips static">${Lists[kind]().map(x => `<span class="chip">${esc(x)}</span>`).join('') || '<span class="nr">Keine Einträge</span>'}</div>
+      <div class="btns"><button class="btn" data-act="editList" data-kind="${kind}">Bearbeiten</button></div></div>`;
+    return segs + `<div class="cols"><div>${panel('duesen', 'Düsen')}</div><div>${panel('traktoren', 'Traktoren')}</div></div>`;
+  }
+  if (sub === 'import') {
+    return segs + `<div class="panel"><h2>Daten aus ErfassungPS (Access) übernehmen</h2>
+      <p>Importiert die Datei <b>ErfassungPS-Import.json</b>: Kunden mit Spritzpreisen, Parzellen, Produkte mit Zulassung, Preis und Inventar, Kulturen, Düsen, Traktoren und alle bisherigen Spritzaufträge.</p>
+      <p>Mehrfaches Importieren ist unbedenklich: bereits vorhandene Einträge werden nicht überschrieben.</p>
+      <div class="btns"><button class="btn primary" data-act="psImport">Importdatei wählen…</button></div></div>`;
+  }
+  const q = norm(S.prq);
+  const list = Store.all('produkte').filter(p => (S.prall || p.aktuell !== false) && (!q || [p.name, p.zulassung].join(' ').toLowerCase().includes(q))).sort(byName);
+  const inv = Store.all('produkte').reduce((s, p) => s + (p.inventar > 0 ? p.inventar * (p.preis || 0) : 0), 0);
+  return segs + `<div class="filters"><input class="input search" type="search" placeholder="Produkt suchen…" value="${esc(S.prq)}" data-in="spPrq">
+      <label class="tog"><input type="checkbox" data-in="spPrall" ${S.prall ? 'checked' : ''}> auch nicht aktuelle</label><button class="btn primary" data-act="prodAddNew">＋ Produkt</button></div>
+    <p class="nr">${list.length} Produkte${inv ? ` · Lagerwert Inventar CHF ${chf(inv)}` : ''}</p>
+    <div class="rows">${list.map(p => `<div class="rowi ${p.aktuell === false ? 'off' : ''}" data-act="prodEdit" data-id="${p.id}"><div class="grow"><div class="t">${esc(p.name)}</div><div class="s">${esc(p.zulassung || '')}${p.inventar ? ` · Inventar ${fmtNum(p.inventar)} ${esc(p.einheit)}` : ''}</div></div>
+      <span class="num" style="width:auto;white-space:nowrap">CHF ${chf(p.preis)} / ${esc(p.einheit)}</span></div>`).join('') || '<div class="empty">Keine Produkte.</div>'}</div>`;
+}
+
+/* ---------- Import aus ErfassungPS ---------- */
+async function importPS() {
+  const file = await pickFile('.json,application/json'); if (!file) return;
+  let d; try { d = JSON.parse(await readText(file)); } catch { toast('Datei konnte nicht gelesen werden'); return; }
+  if (d.format !== 'lohnarbeit-planer-import') { toast('Das ist keine Importdatei aus ErfassungPS'); return; }
+  const colls = ['maschinen', 'kunden', 'parzellen', 'produkte', 'auftraege'];
+  const neu = Object.fromEntries(colls.map(c => [c, (d[c] || []).filter(x => !Store.data[c].some(y => y.id === x.id)).length]));
+  if (!confirm(`Importieren:\n${neu.kunden} Kunden, ${neu.parzellen} Parzellen, ${neu.produkte} Produkte, ${neu.auftraege} Spritzaufträge${neu.maschinen ? ', 1 Maschine (Feldspritze)' : ''}.\n\nBereits vorhandene Einträge bleiben unverändert.`)) return;
+  const now = Date.now();
+  colls.forEach(c => (d[c] || []).forEach(x => { if (!Store.data[c].some(y => y.id === x.id)) Store.data[c].push({ ...x, upd: now }); }));
+  Store.save();
+  const L = d.listen || {};
+  if (L.kulturen) Lists.ensure('kulturen', L.kulturen);
+  if (L.duesen) Lists.ensure('duesen', L.duesen);
+  if (L.traktoren) Lists.ensure('traktoren', L.traktoren);
+  Sync.schedule(); App.render();
+  toast(`Import abgeschlossen: ${neu.auftraege} Spritzaufträge`, 5000);
+}
 function pickFile(accept) {
   return new Promise(res => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.onchange = () => res(i.files[0]); i.click(); });
 }
@@ -1722,6 +2017,36 @@ document.addEventListener('click', async e => {
     case 'pickNew': { const p = Dlg.pick; Dlg.close(); orderDialog(null, { pre: { datum: p.d, maschine: p.mid, zeit: p.minute != null ? fromMin(Math.round(p.minute / 15) * 15) : '' } }); break; }
     case 'newSpray': orderDialog(null, { arbeit: sprayArbeit() }); break;
     case 'prodManage': productsDialog(); break;
+    case 'aMore': App.alimit += 150; App.render(); break;
+    case 'spTab': App.spray.tab = t.dataset.v; App.render(); window.scrollTo(0, 0); break;
+    case 'spStamm': App.spray.stamm = t.dataset.v; App.render(); break;
+    case 'spMore': App.spray.jlimit += 200; App.render(); break;
+    case 'spAkSel': App.spray.ak = id; App.render(); window.scrollTo(0, 0); break;
+    case 'spBillCsv': billingCsv(); break;
+    case 'spBillPrint': { const S = App.spray, b = billing(S.ak, S.av, S.ab, S.ag); printHtml('Abrechnung Spritzarbeiten', billingHtml(b, S.av, S.ab)); break; }
+    case 'spBillPrintAll': { const S = App.spray; printHtml('Abrechnung Spritzarbeiten', kundenMitSpritz().map(k => billing(k.id, S.av, S.ab, S.ag)).filter(b => b.rows.length).map(b => billingHtml(b, S.av, S.ab)).join('')); break; }
+    case 'spBillMark': {
+      const S = App.spray, b = billing(S.ak, S.av, S.ab, S.ag), ch = b.rows.filter(r => statusOf(r.a) === 'erledigt').map(r => ({ ...r.a, status: 'verrechnet' }));
+      if (ch.length && confirm(`${ch.length} Spritzaufträge als verrechnet markieren?`)) { Store.putMany('auftraege', ch); toast('Als verrechnet markiert'); } break;
+    }
+    case 'spNwPrint': printHtml('Pflanzenschutz-Nachweis', nachweisHtml(nachweisRows())); break;
+    case 'spNwCsv': nachweisCsv(); break;
+    case 'psImport': importPS(); break;
+    case 'prodEdit': productDialog(id); break;
+    case 'prodAddNew': productDialog(null); break;
+    case 'prodDelete': {
+      const n = sprayOrders().filter(a => prodList(a).some(p => p.pid === id)).length;
+      if (n) { if (confirm(`Das Produkt kommt in ${n} Aufträgen vor und kann nicht gelöscht werden. Stattdessen als «nicht aktuell» ausblenden?`)) { Store.put('produkte', { ...Store.get('produkte', id), aktuell: false }); Dlg.close(); } }
+      else if (confirm('Produkt löschen?')) { Store.remove('produkte', id); Dlg.close(); } break;
+    }
+    case 'parzNew': { const k = findKunde(f.kunde.value); if (!k) { toast('Zuerst den Kunden wählen'); break; } parzelleDialog(null, { kunde: k.id, fromOrder: true }); break; }
+    case 'parzAdd': parzelleDialog(null, { kunde: App.spray.pk }); break;
+    case 'parzEdit': parzelleDialog(id); break;
+    case 'parzDelete': {
+      const n = sprayOrders().filter(a => a.parzelle === id).length;
+      if (n) { if (confirm(`Die Parzelle kommt in ${n} Aufträgen vor. Stattdessen als inaktiv ausblenden?`)) { Store.put('parzellen', { ...Store.get('parzellen', id), aktiv: false }); Dlg.close(); } }
+      else if (confirm('Parzelle löschen?')) { Store.remove('parzellen', id); Dlg.close(); } break;
+    }
     case 'prodAdd': $('#prodRows', f).insertAdjacentHTML('beforeend', prodRow()); break;
     case 'prodDel': { const r = t.closest('.prow'); if ($$('.prow', f).length > 1) r.remove(); else { r.querySelector('select').value = ''; r.querySelector('input').value = ''; } f._sprayUpd && f._sprayUpd(); break; }
     case 'prodNew': newProductDialog(); break;
@@ -1735,7 +2060,7 @@ document.addEventListener('click', async e => {
       Store.put('auftraege', a); Dlg.close(); orderDialog(a.id); toast('Kopie erstellt – z.B. anderen Kunden wählen'); break;
     }
     case 'delOrder': if (confirm('Auftrag löschen?')) { Store.remove('auftraege', id); Dlg.close(); } break;
-    case 'aFilter': App.filter.auftraege = t.dataset.v; App.render(); break;
+    case 'aFilter': App.filter.auftraege = t.dataset.v; App.alimit = 150; App.render(); break;
     case 'pMode': App.plan.mode = t.dataset.v; ls('lp_pmode', t.dataset.v); App.resetScroll = true; App.render(); break;
     case 'zoom': setZoom(App.zoom * (+t.dataset.d > 0 ? 1.25 : 0.8)); break;
     case 'fs': App.fs = !App.fs; App.render(); break;
@@ -1782,11 +2107,19 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('input', e => {
   const k = e.target.dataset.in; if (!k) return;
-  if (k === 'aSearch') { App.filter.q = e.target.value; App.render(); }
+  if (k === 'aSearch') { App.filter.q = e.target.value; App.alimit = 150; App.render(); }
   if (k === 'kSearch') { App.filter.kq = e.target.value; App.render(); }
+  if (k === 'spJq' || k === 'spPrq') {
+    App.spray[k === 'spJq' ? 'jq' : 'prq'] = e.target.value; App.spray.jlimit = 200;
+    const pos = e.target.selectionStart; App.render(); const el = $(`[data-in="${k}"]`); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch { } }
+  }
 });
 document.addEventListener('change', e => {
   const k = e.target.dataset.in; if (!k) return;
+  const SP = { spAk: 'ak', spAv: 'av', spAb: 'ab', spNy: 'ny', spNk: 'nk', spNc: 'nc', spJy: 'jy', spPk: 'pk' };
+  if (SP[k]) { App.spray[SP[k]] = e.target.value; if (k === 'spJy') App.spray.jlimit = 200; App.render(); return; }
+  const SPB = { spAg: 'ag', spNgep: 'ngep', spPall: 'pall', spPrall: 'prall' };
+  if (SPB[k]) { App.spray[SPB[k]] = e.target.checked; App.render(); return; }
   if (k === 'spVon' && e.target.value) { App.spray.von = e.target.value; if (App.spray.bis < App.spray.von) App.spray.bis = App.spray.von; App.render(); return; }
   if (k === 'spBis' && e.target.value) { App.spray.bis = e.target.value; if (App.spray.bis < App.spray.von) App.spray.von = App.spray.bis; App.render(); return; }
   if (k === 'spDay') { if (e.target.checked) App.spray.off.delete(e.target.value); else App.spray.off.add(e.target.value); App.render(); return; }

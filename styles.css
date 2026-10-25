@@ -408,7 +408,8 @@ body.fs-plan #selbar { z-index: 50; bottom: calc(12px + env(safe-area-inset-bott
 .prods { font-size: 12px; color: var(--accent); margin-top: 2px; overflow-wrap: anywhere; display: block; }
 .card .prods { font-size: 13px; margin-top: 4px; }
 .spraybox h4 { margin: 0 0 10px; }
-.prow { display: grid; grid-template-columns: 1fr 90px 46px 32px; gap: 6px; align-items: center; margin-bottom: 6px; }
+.prow { display: grid; grid-template-columns: minmax(0,1fr) 80px 46px 56px 30px; gap: 6px; align-items: center; margin-bottom: 6px; }
+@media (max-width: 480px) { .prow { grid-template-columns: minmax(0,1fr) 70px 40px 30px; } .prow .noeln { grid-column: 1 / 2; grid-row: 2; } }
 .prow .u { font-size: 13px; color: var(--muted); }
 .sprtot { font-size: 13px; margin-top: 8px; }
 .stab { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
@@ -429,3 +430,43 @@ table.need tr.water td, table.need tr.area td { color: var(--muted); }
 .tscroll { max-width: 100%; }
 .two > *, .three > * { min-width: 0; }
 .input { min-width: 0; }
+
+/* ---------- Spritzen: Unterseiten ---------- */
+.sptabs { margin-bottom: 14px; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.filters .fld.inl { display: flex; align-items: center; gap: 6px; margin: 0; }
+.filters .fld.inl > span { margin: 0; }
+.filters .fld.inl .input { width: auto; min-height: 40px; padding: 6px 8px; }
+.checks { display: flex; flex-wrap: wrap; gap: 16px; font-size: 14px; }
+.checks label { display: inline-flex; gap: 6px; align-items: center; }
+.noeln { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.noeln input:checked + span { color: var(--danger); font-weight: 700; }
+tr.click { cursor: pointer; }
+tr.click:hover td { background: var(--surface-2); }
+.bill { margin-bottom: 18px; }
+.bill-h { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; font-size: 14px; }
+.bill-h .r { text-align: right; }
+.btab { width: 100%; border-collapse: collapse; font-size: 13px; }
+.btab th { text-align: left; font-size: 12px; color: var(--muted); border-bottom: 2px solid var(--line); padding: 5px 6px; }
+.btab td { padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.btab .n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.btab tr.job td { border-top: 1px solid var(--muted); }
+.btab tr.mit td { color: var(--muted); border-bottom-color: transparent; }
+.btab tr.noeln td { background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.btab tfoot td { font-weight: 600; border-bottom: 0; padding-top: 6px; }
+.btab tfoot tr.tot td { font-size: 15px; border-top: 2px solid var(--text); }
+.panel .tscroll, .panel > .bill { overflow-x: auto; }
+#printArea { display: none; }
+@media print {
+  body.printing > *:not(#printArea) { display: none !important; }
+  body.printing #printArea { display: block; color: #000; font-size: 11pt; }
+  body.printing { background: #fff; padding: 0; }
+  #printArea .ptitle { font-size: 16pt; margin: 0 0 8mm; }
+  #printArea .bill { page-break-after: always; }
+  #printArea .bill:last-of-type { page-break-after: auto; }
+  #printArea .btab { font-size: 9.5pt; }
+  #printArea .btab th, #printArea .btab td { color: #000; border-color: #999; }
+  #printArea .nr { color: #444; }
+  #printArea .pfoot { font-size: 8pt; color: #555; margin-top: 6mm; }
+  @page { margin: 14mm; }
+}

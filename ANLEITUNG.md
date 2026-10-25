@@ -119,16 +119,27 @@ Auf jedem Gerät **mit derselben Dropbox** anmelden. Die Anmeldung bleibt besteh
     In der Tagesansicht wird die Zeitachse gestreckt, in der Wochenansicht der ganze Kalender.
   - Die Maschinennamen bleiben beim Scrollen oben stehen, die Tage bzw. Uhrzeiten links.
   - Filter: nach Arbeitsart oder «nur belegte Maschinen».
-- **Spritzen (eigenes Modul):** Ein Auftrag mit der Arbeit «Spritzen» hat zusätzlich **Feld, Wassermenge (l/ha)**
-  und **Produkte mit Aufwandmenge pro ha**. Die App rechnet den Bedarf für die Fläche gleich aus.
-  - Lege unter *Maschinen* eine Feldspritze mit der Arbeitsart «Spritzen» an.
-  - *Spritzen › Produkte*: Produktliste mit Einheit (l, kg, g, ml) pflegen und sortieren; neue Produkte auch
-    direkt im Auftrag mit «Neues Produkt erfassen».
-  - *Spritzen › Tage auswählen*: Zeitraum wählen (oder Heute/Morgen/Woche) und einzelne Tage an- oder abwählen.
-    **Produktbedarf** zeigt die Summen je Produkt (pro Tag und total), dazu Wasser und Fläche – als Bild zum
-    Teilen oder als CSV. Darunter die Detailplanung je Tag mit allen Mengen.
-  - In der Planung erscheinen bei Spritzaufträgen Feld und Produkte **ohne Mengen**, dazu die Bemerkung.
-    Der Tagesplan für den Fahrer (Maschinenname antippen) enthält alle Mengen pro ha und total.
+- **Spritzen (eigenes Modul, ersetzt ErfassungPS):** Reiter *Planung · Journal · Abrechnung · ÖLN-Nachweis · Stammdaten*.
+  - **Daten übernehmen (einmalig):** *Spritzen › Stammdaten › Import* → Datei **ErfassungPS-Import.json** wählen.
+    Übernommen werden Kunden (mit Spritzpreisen und Mittelzuschlag), Parzellen, Produkte (Zulassung, Preis,
+    Inventar), Kulturen, Düsen, Traktoren und alle Spritzaufträge seit 2010 (Aufträge bis 2025 als «verrechnet»,
+    2026 als «erledigt»). Dazu wird die Maschine «Feldspritze» angelegt (Flächenleistung dort ergänzen).
+    Mehrfaches Importieren schadet nicht – Vorhandenes wird nicht überschrieben.
+  - **Spritzauftrag erfassen** (＋ Spritzauftrag oder Arbeit «Spritzen»): Parzelle (übernimmt Feld, Kultur und
+    Fläche; ＋ für neue Parzelle), Wassermenge, Stadium, Düse, Traktor, Erntejahr (Vorschlag: Winterkulturen ab
+    August → nächstes Jahr), Einsatz GPS, Nicht ÖLN-konform, Produkte mit Menge/ha und je Produkt «⚠ÖLN».
+  - **Journal:** alle Spritzaufträge durchsuchen (Kunde, Parzelle, Kultur, Produkt), Filter Erntejahr.
+  - **Abrechnung:** Kunde und Zeitraum wählen (ohne Kunde: Übersicht aller). Arbeit = Fläche × (Spritze + Fahrer +
+    Traktor pro ha), Mittel = Menge × Preis inkl. Zuschlag – beides auf 5 Rappen gerundet wie in ErfassungPS.
+    *Drucken / PDF*, *CSV*, und erledigte Aufträge als «verrechnet» markieren. Preise pro Kunde unter *Kunden*.
+  - **ÖLN-Nachweis:** Erntejahr, Kunde und Kultur (z.B. Zuckerrüben) wählen → Spritzprotokoll mit Datum, Parzelle,
+    Kultur, Fläche, Stadium, Produkt, Zulassungs-Nr. und Menge/ha; nicht ÖLN-konforme sind markiert.
+    *Drucken / PDF* (jeder Kunde auf eigener Seite) oder *CSV*.
+  - **Stammdaten:** Produkte (Zulassung, Einheit, Preis, Inventar, aktuell ja/nein; Lagerwert), Parzellen pro Kunde,
+    Düsen und Traktoren.
+  - **Planung:** Zeitraum wählen → **Produktbedarf** je Produkt (pro Tag und total), dazu Wasser und Fläche –
+    als Bild oder CSV. In der Hauptplanung erscheinen Feld und Produkte ohne Mengen; der Tagesplan für den
+    Fahrer (Maschinenname antippen) enthält alle Mengen.
 - **Arbeitsarten und Kulturen:** unter *Mehr* mit «Bearbeiten» umbenennen, ergänzen, entfernen und mit ▲▼
   sortieren (oder «Alphabetisch sortieren»). In dieser Reihenfolge erscheinen sie in den Auswahllisten.
   Umbenennen ändert auch bestehende Aufträge (und bei Arbeitsarten die Maschinen). Nur hier (und bei den
