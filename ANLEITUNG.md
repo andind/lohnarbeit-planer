@@ -77,7 +77,9 @@ Auf jedem Gerät **mit derselben Dropbox** anmelden. Die Anmeldung bleibt besteh
   - Ansatz (CHF pro Einheit) ergänzen, dann rechnet der Export den Betrag gleich mit.
   Deine 12 Maschinen (Art.-Nr. 101–112) sind mit Einheit und einer ersten Arbeitsart vorerfasst – bitte prüfen
   und Flächenleistung sowie Saison ergänzen.
-- **Kunden:** *Kunden › Import (Excel/CSV)* liest z.B. deine `Kunden.xlsx` ein. Erkannt werden Spalten wie
+- **Kunden:** nicht mehr aktive Kunden im Kunden-Dialog auf *inaktiv* setzen – sie verschwinden aus der Kundenliste
+  und der Auswahl bei neuen Aufträgen (alte Aufträge und Berichte bleiben erhalten; «auch inaktive» zeigt sie wieder).
+  *Kunden › Import (Excel/CSV)* liest z.B. deine `Kunden.xlsx` ein. Erkannt werden Spalten wie
   Nr, Name, Vorname, Adresse/Strasse, PLZ, Ort, Telefon, E-Mail (erste Zeile = Überschriften).
   Kunden mit gleicher Nummer werden aktualisiert statt doppelt angelegt.
 - **Auftrag erfassen:** ＋ oben rechts – Kunde, Arbeit (Pflichtfeld), Kultur, Fläche, Wunschdatum, Bemerkungen.
@@ -127,13 +129,16 @@ Auf jedem Gerät **mit derselben Dropbox** anmelden. Die Anmeldung bleibt besteh
     Mehrfaches Importieren schadet nicht – Vorhandenes wird nicht überschrieben.
   - **Spritzauftrag erfassen** (＋ Spritzauftrag oder Arbeit «Spritzen»): Parzelle (übernimmt Feld, Kultur und
     Fläche; ＋ für neue Parzelle), Wassermenge, Stadium, Düse, Traktor, Erntejahr (Vorschlag: Winterkulturen ab
-    August → nächstes Jahr), Einsatz GPS, Nicht ÖLN-konform, Produkte mit Menge/ha und je Produkt «⚠ÖLN».
-  - **Journal:** alle Spritzaufträge durchsuchen (Kunde, Parzelle, Kultur, Produkt), Filter Erntejahr.
-  - **Abrechnung:** Kunde und Zeitraum wählen (ohne Kunde: Übersicht aller). Arbeit = Fläche × (Spritze + Fahrer +
-    Traktor pro ha), Mittel = Menge × Preis inkl. Zuschlag – beides auf 5 Rappen gerundet wie in ErfassungPS.
+    August → nächstes Jahr), Nicht ÖLN-konform, Produkte mit Menge/ha und je Produkt «⚠ÖLN».
+  - **Journal:** gegliedert nach Kultur und Parzelle; durchsuchen (Kunde, Parzelle, Kultur, Produkt), Filter Erntejahr.
+  - **Abrechnung:** Zeitraum und Kunde wählen (zur Auswahl stehen nur Kunden mit Aufträgen im Zeitraum; ohne Kunde:
+    Übersicht aller). Gegliedert nach Kultur und Parzelle. Arbeit = Fläche × (Spritze + Fahrer + Traktor pro ha),
+    Mittel = Menge × Preis inkl. Zuschlag – beides auf 5 Rappen gerundet wie in ErfassungPS (im Bericht nicht aufgeführt).
     *Drucken / PDF*, *CSV*, und erledigte Aufträge als «verrechnet» markieren. Preise pro Kunde unter *Kunden*.
+    In Abrechnung und Nachweis öffnet ein Antippen der Zeile den Auftrag zum Bearbeiten.
   - **ÖLN-Nachweis:** Erntejahr, Kunde und Kultur (z.B. Zuckerrüben) wählen → Spritzprotokoll mit Datum, Parzelle,
-    Kultur, Fläche, Stadium, Produkt, Zulassungs-Nr. und Menge/ha; nicht ÖLN-konforme sind markiert.
+    Kultur, Fläche, Stadium, Produkt, Zulassungs-Nr. und Menge/ha (ohne Hinweise auf nicht ÖLN-konforme Behandlungen).
+    Zur Auswahl stehen nur Kunden mit Behandlungen im gewählten Erntejahr.
     *Drucken / PDF* (jeder Kunde auf eigener Seite) oder *CSV*.
   - **Stammdaten:** Produkte (Zulassung, Einheit, Preis, Inventar, aktuell ja/nein; Lagerwert), Parzellen pro Kunde,
     Düsen und Traktoren.

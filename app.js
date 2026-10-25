@@ -474,7 +474,7 @@ const App = {
   filter: { auftraege: 'offen', q: '', kq: '' },
   plan: { mode: ls('lp_pmode') || 'woche', date: new Date(), aa: ls('lp_paa') || '', nurBelegt: ls('lp_pbel') === '1' },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false, zoom: +(ls('lp_zoom') || 1),
-  spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jlimit: 200,
+  spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: null, jlimit: 200,
     ak: '', av: `${new Date().getFullYear()}-01-01`, ab: todayIso(), ag: false, ny: 0, nk: '', nc: '', ngep: false, pk: '', pall: false, prq: '', prall: false },
   alimit: 150,
   go(v) { this.view = v; ls('lp_view', v); this.lastView = null; this.tlScroll = null; window.scrollTo(0, 0); this.render(); },
@@ -726,18 +726,19 @@ const Views = {
     toolbar() {
       return `<h1>Kunden</h1>
         <input class="input search" type="search" placeholder="Kunde suchen…" value="${esc(App.filter.kq)}" data-in="kSearch">
+        <label class="tog"><input type="checkbox" data-in="kAll" ${App.filter.kall ? 'checked' : ''}> auch inaktive</label>
         <button class="btn" data-act="importKunden">Import (Excel/CSV)</button>
         <button class="btn primary" data-act="editKunde">＋ Kunde</button>`;
     },
     content() {
       const q = norm(App.filter.kq);
-      const list = Store.all('kunden').filter(k => !q || [k.nr, k.name, k.adresse, k.ort, k.tel].join(' ').toLowerCase().includes(q))
+      const list = Store.all('kunden').filter(k => (App.filter.kall || k.aktiv !== false) && (!q || [k.nr, k.name, k.adresse, k.ort, k.tel].join(' ').toLowerCase().includes(q)))
         .sort((a, b) => a.name.localeCompare(b.name, 'de'));
       if (!list.length) return `<div class="empty">${q ? 'Keine Treffer.' : 'Noch keine Kunden.<br>Lege Kunden an oder importiere deine Kundenliste (Excel/CSV).'}</div>`;
       const open = {};
       Store.all('auftraege').forEach(a => { if (isOpen(a)) open[a.kunde] = (open[a.kunde] || 0) + 1; });
       return `<div class="rows">${list.map(k => `
-        <div class="rowi" data-act="editKunde" data-id="${k.id}">
+        <div class="rowi ${k.aktiv === false ? 'off' : ''}" data-act="editKunde" data-id="${k.id}">
           <span class="num">${esc(k.nr || '')}</span>
           <div class="grow"><div class="t">${esc(k.name)}</div><div class="s">${esc([k.adresse, [k.plz, k.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))}</div>
             <div class="links">${k.tel ? `<a href="tel:${esc(k.tel.replace(/\s/g, ''))}" data-stop>📞 ${esc(k.tel)}</a>` : ''}${(k.adresse || k.ort) ? `<a href="${mapsUrl([k.adresse, k.plz, k.ort].filter(Boolean).join(', '))}" target="_blank" rel="noopener" data-stop>📍 Karte</a>` : ''}</div></div>
@@ -1002,8 +1003,8 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
 }
 
 /* ---------- Auswahllisten im Auftrag (nur bestehende Einträge) ---------- */
-const findKunde = t => { t = String(t || '').trim(); if (!t) return null; const all = Store.all('kunden'); return all.find(k => kundeLabel(k) === t) || all.find(k => norm(k.name) === norm(t)) || null; };
-const kundenOptions = () => Store.all('kunden').sort((x, y) => x.name.localeCompare(y.name, 'de')).map(k => `<option value="${esc(kundeLabel(k))}">`).join('');
+const findKunde = t => { t = String(t || '').trim(); if (!t) return null; const all = Store.all('kunden').sort((a, b) => (a.aktiv === false) - (b.aktiv === false)); return all.find(k => kundeLabel(k) === t) || all.find(k => norm(k.name) === norm(t)) || null; };
+const kundenOptions = () => Store.all('kunden').filter(k => k.aktiv !== false).sort((x, y) => x.name.localeCompare(y.name, 'de')).map(k => `<option value="${esc(kundeLabel(k))}">`).join('');
 // bestehender Wert bleibt wählbar, auch wenn er inzwischen nicht mehr in der Liste steht
 const listOptions = (list, cur) => (cur && !list.includes(cur) ? [cur, ...list] : list).map(x => `<option ${x === cur ? 'selected' : ''}>${esc(x)}</option>`).join('');
 
@@ -1101,12 +1102,14 @@ function kundeDialog(id) {
       <div class="three"><label class="fld"><span>Spritze CHF</span><input class="input" name="preisSpritze" inputmode="decimal" value="${k.preisSpritze ?? ''}"></label>
         <label class="fld"><span>Fahrer CHF</span><input class="input" name="preisFahrer" inputmode="decimal" value="${k.preisFahrer ?? ''}"></label>
         <label class="fld"><span>Traktor CHF</span><input class="input" name="preisTraktor" inputmode="decimal" value="${k.preisTraktor ?? ''}"></label></div>
-      <label class="fld" style="margin:0"><span>Zuschlag Mittel (%)</span><input class="input" name="zuschlag" inputmode="decimal" value="${k.zuschlag != null ? r2(k.zuschlag * 100) : ''}" style="max-width:140px"></label></div>`;
+      <label class="fld" style="margin:0"><span>Zuschlag Mittel (%)</span><input class="input" name="zuschlag" inputmode="decimal" value="${k.zuschlag != null ? r2(k.zuschlag * 100) : ''}" style="max-width:140px"></label></div>
+    <label class="tog"><input type="checkbox" name="aktiv" ${k.aktiv !== false ? 'checked' : ''}> Aktiv (inaktive Kunden werden in Listen und bei neuen Aufträgen nicht mehr angezeigt)</label>`;
   Dlg.open(id ? 'Kunde bearbeiten' : 'Neuer Kunde', body,
     saveFooter(id ? `<button type="button" class="btn danger" data-act="delKunde" data-id="${k.id}">Löschen</button><button type="button" class="btn" data-act="newOrderFor" data-id="${k.id}">＋ Auftrag</button>` : ''), fd => {
       ['nr', 'anrede', 'name', 'adresse', 'plz', 'ort', 'tel', 'handy', 'mail', 'notiz'].forEach(x => { k[x] = (fd.get(x) || '').trim(); });
       ['preisSpritze', 'preisFahrer', 'preisTraktor'].forEach(x => { k[x] = num(fd.get(x)); });
       k.zuschlag = num(fd.get('zuschlag')) != null ? num(fd.get('zuschlag')) / 100 : null;
+      k.aktiv = !!fd.get('aktiv');
       Store.put('kunden', k); return true;
     });
 }
@@ -1616,8 +1619,7 @@ function sprayBox(a) {
       <label class="fld"><span>Traktor</span><select class="input" name="traktor"><option value="">—</option>${optList(Lists.traktoren(), a.traktor)}</select></label>
       <label class="fld"><span>Erntejahr</span><input class="input" name="erntejahr" inputmode="numeric" value="${a.erntejahr ?? ''}" placeholder="${ernteDefault(a.datum || todayIso(), a.kultur) || ''}"></label>
     </div>
-    <div class="checks"><label><input type="checkbox" name="gps" ${a.gps ? 'checked' : ''}> Einsatz GPS</label>
-      <label><input type="checkbox" name="nichtOeln" ${a.nichtOeln ? 'checked' : ''}> Nicht ÖLN-konform</label></div>
+    <div class="checks"><label><input type="checkbox" name="nichtOeln" ${a.nichtOeln ? 'checked' : ''}> Nicht ÖLN-konform</label></div>
     <div class="fld" style="margin:10px 0 6px"><span>Produkte und Aufwandmenge pro ha</span></div>
     <div id="prodRows">${(ps.length ? ps : [{}]).map(prodRow).join('')}</div>
     <div class="links" style="margin-top:4px"><a href="#" data-act="prodAdd">＋ weiteres Produkt</a><a href="#" data-act="prodNew">Neues Produkt erfassen</a></div>
@@ -1633,7 +1635,7 @@ function readSpray(f) {
   const ej = num(f.erntejahr.value);
   return {
     parzelle: f.parzelle.value, feld: f.feld.value.trim(), wasser: num(f.wasser.value), stadium: f.stadium.value.trim(),
-    duese: f.duese.value, traktor: f.traktor.value, gps: f.gps.checked, nichtOeln: f.nichtOeln.checked,
+    duese: f.duese.value, traktor: f.traktor.value, nichtOeln: f.nichtOeln.checked,
     erntejahr: ej || ernteDefault(f.datum.value || f.wunsch.value || todayIso(), f.kultur.value), produkte
   };
 }
@@ -1708,7 +1710,7 @@ function productsDialog() { App.spray.tab = 'stamm'; App.spray.stamm = 'produkte
 /* ---------- Parzellen ---------- */
 function parzelleDialog(id, { kunde, fromOrder } = {}) {
   const p = id ? { ...Store.get('parzellen', id) } : { id: uid(), kunde: kunde || '', aktiv: true };
-  const ks = Store.all('kunden').sort(byName);
+  const ks = Store.all('kunden').filter(k => k.aktiv !== false || k.id === p.kunde).sort(byName);
   const body = `<label class="fld"><span>Kunde *</span><select class="input" name="kunde" required><option value="">—</option>${ks.map(k => `<option value="${k.id}" ${k.id === p.kunde ? 'selected' : ''}>${esc(kundeLabel(k))}</option>`).join('')}</select></label>
     <label class="fld"><span>Parzellenname *</span><input class="input" name="name" value="${esc(p.name || '')}" required></label>
     <div class="two">
@@ -1736,129 +1738,12 @@ function parzelleDialog(id, { kunde, fromOrder } = {}) {
 const SP_TABS = [['plan', 'Planung'], ['journal', 'Journal'], ['abrechnung', 'Abrechnung'], ['nachweis', 'ÖLN-Nachweis'], ['stamm', 'Stammdaten']];
 function spTabs() { return `<div class="seg sptabs">${SP_TABS.map(([k, l]) => `<button type="button" data-act="spTab" data-v="${k}" class="${App.spray.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>`; }
 const yearsOf = () => [...new Set(sprayOrders().map(ernteOf).filter(Boolean))].sort((a, b) => b - a);
-function kundenMitSpritz() { const ids = new Set(sprayOrders().map(a => a.kunde)); return Store.all('kunden').filter(k => ids.has(k.id)).sort(byName); }
 
 // Journal: alle Spritzaufträge durchsuchen
-function journalContent() {
-  const S = App.spray, q = norm(S.jq), y = S.jy;
-  const list = sprayOrders().filter(a => a.datum || a.erledigtAm).filter(a => (!y || ernteOf(a) === +y) && (!q || [kundeName(a.kunde), a.feld, a.kultur, a.notiz, a.stadium, a.nr, ...prodNames(a)].join(' ').toLowerCase().includes(q)))
-    .sort((a, b) => (b.erledigtAm || b.datum).localeCompare(a.erledigtAm || a.datum) || (b.nr || '').localeCompare(a.nr || ''));
-  const shown = list.slice(0, S.jlimit);
-  return `<div class="filters"><input class="input search" type="search" placeholder="Suchen: Kunde, Parzelle, Kultur, Produkt…" value="${esc(S.jq)}" data-in="spJq">
-      <select class="input" data-in="spJy" style="width:auto"><option value="">Alle Erntejahre</option>${yearsOf().map(v => `<option ${+y === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-    <p class="nr">${list.length} Spritzaufträge · ${fmtNum(r2(list.reduce((s, a) => s + flOf(a), 0)))} ha</p>
-    <div class="rows">${shown.map(a => `<div class="rowi" data-act="editOrder" data-id="${a.id}">
-      <span class="num" style="width:74px">${fmtDate(a.erledigtAm || a.datum, { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>
-      <div class="grow"><div class="t">${esc(kundeName(a.kunde))}${a.feld ? ` · ${esc(a.feld)}` : ''}</div>
-        <div class="s">${a.kultur ? `<span class="kultur">${esc(a.kultur)}</span> · ` : ''}${fmtNum(flOf(a))} ha${a.stadium ? ` · ${esc(a.stadium)}` : ''} · ${prodList(a).map(p => `${esc(p.name)} ${fmtNum(p.menge)} ${esc(p.einheit || '')}${p.nichtOeln ? ' ⚠' : ''}`).join(', ') || 'keine Produkte'}</div></div>
-      <span class="badge ${statusOf(a)}">${STATUS[statusOf(a)]}</span></div>`).join('') || '<div class="empty">Keine Treffer.</div>'}</div>
-    ${list.length > shown.length ? `<div class="btns" style="margin-top:10px"><button class="btn" data-act="spMore">Weitere ${Math.min(200, list.length - shown.length)} anzeigen</button></div>` : ''}`;
-}
 
 // Abrechnung pro Kunde und Zeitraum (Formeln wie ErfassungPS)
-function billing(kid, von, bis, mitGeplant) {
-  const k = Store.get('kunden', kid) || {};
-  const preisHa = (k.preisSpritze || 0) + (k.preisFahrer || 0) + (k.preisTraktor || 0), zu = k.zuschlag || 0;
-  const orders = sprayOrders().filter(a => a.kunde === kid && (a.erledigtAm || a.datum) && (a.erledigtAm || a.datum) >= von && (a.erledigtAm || a.datum) <= bis
-    && (['erledigt', 'verrechnet'].includes(statusOf(a)) || (mitGeplant && statusOf(a) === 'geplant')))
-    .sort((a, b) => (a.erledigtAm || a.datum).localeCompare(b.erledigtAm || b.datum) || (a.nr || '').localeCompare(b.nr || ''));
-  let tA = 0, tM = 0;
-  const rows = orders.map(a => {
-    const fl = flOf(a), arbeit = round05(fl * preisHa);
-    const mittel = prodList(a).map(p => {
-      const pr = prodOf(p) || {}, preis = pr.preis || 0, preisZ = round05(preis * zu + preis), menge = (p.menge || 0) * fl, betrag = round05(menge * preisZ);
-      return { name: p.name, zulassung: pr.zulassung || '', mengeHa: p.menge, einheit: p.einheit || pr.einheit || '', menge, preis, preisZ, betrag };
-    });
-    const m = mittel.reduce((s, x) => s + x.betrag, 0); tA += arbeit; tM += m;
-    return { a, fl, arbeit, mittel, mittelTot: m };
-  });
-  return { k, preisHa, zu, rows, tA, tM, total: tA + tM };
-}
-function billingHtml(b, von, bis) {
-  return `<div class="bill"><div class="bill-h"><div><b>${esc(b.k.anrede ? b.k.anrede + ' ' : '')}${esc(b.k.name || '')}</b><br>${esc(b.k.adresse || '')}<br>${esc([b.k.plz, b.k.ort].filter(Boolean).join(' '))}</div>
-      <div class="r">Spritzarbeiten ${fmtDate(von, { day: '2-digit', month: '2-digit', year: 'numeric' })} – ${fmtDate(bis, { day: '2-digit', month: '2-digit', year: 'numeric' })}<br>
-      <span class="nr">Ansatz Arbeit CHF ${chf(b.preisHa)}/ha (Spritze ${chf(b.k.preisSpritze)}, Fahrer ${chf(b.k.preisFahrer)}, Traktor ${chf(b.k.preisTraktor)}) · Zuschlag Mittel ${fmtNum(r2((b.zu || 0) * 100))} %</span></div></div>
-    <table class="btab"><thead><tr><th>Datum</th><th>Parzelle / Produkt</th><th>Kultur / Zulassung</th><th class="n">Menge</th><th class="n">Ansatz</th><th class="n">Betrag CHF</th></tr></thead><tbody>
-    ${b.rows.map(r => `<tr class="job"><td>${fmtDate(r.a.erledigtAm || r.a.datum, { day: '2-digit', month: '2-digit', year: '2-digit' })}</td><td><b>${esc(r.a.feld || '—')}</b></td><td>${esc(r.a.kultur || '')}</td>
-        <td class="n">${fmtNum(r.fl)} ha</td><td class="n">${chf(b.preisHa)}</td><td class="n"><b>${chf(r.arbeit)}</b></td></tr>
-      ${r.mittel.map(m => `<tr class="mit"><td></td><td>${esc(m.name)}</td><td class="nr">${esc(m.zulassung)}</td><td class="n">${fmtNum(r2(m.menge))} ${esc(m.einheit)}</td><td class="n">${chf(m.preisZ)}</td><td class="n">${chf(m.betrag)}</td></tr>`).join('')}`).join('')}
-    </tbody><tfoot>
-      <tr><td colspan="5">Total Arbeit (${fmtNum(r2(b.rows.reduce((s, r) => s + r.fl, 0)))} ha)</td><td class="n">${chf(b.tA)}</td></tr>
-      <tr><td colspan="5">Total Mittel</td><td class="n">${chf(b.tM)}</td></tr>
-      <tr class="tot"><td colspan="5">Total CHF</td><td class="n">${chf(b.total)}</td></tr></tfoot></table></div>`;
-}
-function abrechnungContent() {
-  const S = App.spray, ks = kundenMitSpritz();
-  const head = `<div class="filters">
-      <select class="input" data-in="spAk" style="width:auto;min-width:200px"><option value="">Alle Kunden (Übersicht)</option>${ks.map(k => `<option value="${k.id}" ${k.id === S.ak ? 'selected' : ''}>${esc(kundeLabel(k))}</option>`).join('')}</select>
-      <label class="fld inl"><span>Von</span><input class="input" type="date" value="${S.av}" data-in="spAv"></label>
-      <label class="fld inl"><span>Bis</span><input class="input" type="date" value="${S.ab}" data-in="spAb"></label>
-      <label class="tog"><input type="checkbox" data-in="spAg" ${S.ag ? 'checked' : ''}> auch geplante</label></div>`;
-  if (!S.ak) {
-    const sums = ks.map(k => ({ k, b: billing(k.id, S.av, S.ab, S.ag) })).filter(x => x.b.rows.length);
-    const tot = sums.reduce((s, x) => s + x.b.total, 0);
-    return head + (sums.length ? `<div class="tscroll"><table class="need"><thead><tr><th>Kunde</th><th>Aufträge</th><th>Fläche ha</th><th>Arbeit</th><th>Mittel</th><th>Total CHF</th><th></th></tr></thead><tbody>
-      ${sums.map(x => `<tr class="click" data-act="spAkSel" data-id="${x.k.id}"><td>${esc(x.k.name)}</td><td>${x.b.rows.length}</td><td>${fmtNum(r2(x.b.rows.reduce((s, r) => s + r.fl, 0)))}</td><td>${chf(x.b.tA)}</td><td>${chf(x.b.tM)}</td><td><b>${chf(x.b.total)}</b></td><td></td></tr>`).join('')}
-      <tr class="area"><td>Total</td><td></td><td></td><td></td><td></td><td><b>${chf(tot)}</b></td><td></td></tr></tbody></table></div>
-      <div class="btns"><button class="btn" data-act="spBillCsv">CSV (alle)</button><button class="btn" data-act="spBillPrintAll">Alle drucken / PDF</button></div>`
-      : '<div class="empty">Keine erledigten Spritzaufträge in diesem Zeitraum.</div>');
-  }
-  const b = billing(S.ak, S.av, S.ab, S.ag);
-  if (!b.rows.length) return head + '<div class="empty">Keine erledigten Spritzaufträge dieses Kunden im Zeitraum.</div>';
-  const offen = b.rows.filter(r => statusOf(r.a) === 'erledigt').length;
-  return head + `${!b.preisHa ? '<p class="hintp panel">Für diesen Kunden sind keine Spritzpreise erfasst – unter <b>Kunden</b> ergänzen.</p>' : ''}
-    <div class="panel">${billingHtml(b, S.av, S.ab)}
-    <div class="btns"><button class="btn primary" data-act="spBillPrint">Drucken / PDF</button><button class="btn" data-act="spBillCsv">CSV</button>
-      ${offen ? `<button class="btn" data-act="spBillMark">${offen} als verrechnet markieren</button>` : ''}</div></div>`;
-}
-function billingCsv() {
-  const S = App.spray, ids = S.ak ? [S.ak] : kundenMitSpritz().map(k => k.id);
-  const rows = [['Kunde', 'Datum', 'Parzelle', 'Kultur', 'Fläche ha', 'Position', 'Zulassung', 'Menge', 'Einheit', 'Ansatz CHF', 'Betrag CHF', 'Auftrag']];
-  ids.forEach(id => { const b = billing(id, S.av, S.ab, S.ag); b.rows.forEach(r => {
-    const d = r.a.erledigtAm || r.a.datum;
-    rows.push([b.k.name, d, r.a.feld, r.a.kultur, r.fl, 'Arbeit Spritzen', '', r.fl, 'ha', b.preisHa.toFixed(2), r.arbeit.toFixed(2), r.a.nr]);
-    r.mittel.forEach(m => rows.push([b.k.name, d, r.a.feld, r.a.kultur, r.fl, m.name, m.zulassung, r2(m.menge), m.einheit, m.preisZ.toFixed(2), m.betrag.toFixed(2), r.a.nr]));
-  }); });
-  download(`Abrechnung_Spritzen_${S.av}_bis_${S.ab}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
-}
 
 // ÖLN-Nachweis / Spritzprotokoll
-function nachweisRows() {
-  const S = App.spray;
-  return sprayOrders().filter(a => (a.erledigtAm || a.datum) && ernteOf(a) === +S.ny && (!S.nk || a.kunde === S.nk) && (!S.nc || a.kultur === S.nc) && (S.ngep || statusOf(a) !== 'geplant'))
-    .sort((a, b) => kundeName(a.kunde).localeCompare(kundeName(b.kunde), 'de') || (a.feld || '').localeCompare(b.feld || '', 'de') || (a.erledigtAm || a.datum).localeCompare(b.erledigtAm || b.datum));
-}
-function nachweisHtml(list) {
-  const groups = [...new Set(list.map(a => a.kunde))];
-  return groups.map(kid => {
-    const k = Store.get('kunden', kid) || {}, ol = list.filter(a => a.kunde === kid);
-    return `<div class="bill nachweis"><div class="bill-h"><div><b>${esc(k.name || '')}</b>${k.ort ? ', ' + esc([k.plz, k.ort].filter(Boolean).join(' ')) : ''}</div>
-      <div class="r">Pflanzenschutz-Nachweis Erntejahr ${esc(App.spray.ny)}${App.spray.nc ? ' · ' + esc(App.spray.nc) : ''}</div></div>
-      <table class="btab"><thead><tr><th>Datum</th><th>Parzelle</th><th>Kultur</th><th class="n">ha</th><th>Stadium</th><th>Produkt</th><th>Zulassung</th><th class="n">Menge/ha</th><th>Bemerkung</th></tr></thead><tbody>
-      ${ol.map(a => { const ps = prodList(a).length ? prodList(a) : [{}]; return ps.map((p, i) => `<tr class="${i ? 'mit' : 'job'} ${p.nichtOeln || a.nichtOeln ? 'noeln' : ''}">
-          <td>${i ? '' : fmtDate(a.erledigtAm || a.datum, { day: '2-digit', month: '2-digit', year: '2-digit' })}</td><td>${i ? '' : esc(a.feld || '')}</td><td>${i ? '' : esc(a.kultur || '')}</td>
-          <td class="n">${i ? '' : fmtNum(flOf(a))}</td><td>${i ? '' : esc(a.stadium || '')}</td>
-          <td>${esc(p.name || '–')}${p.nichtOeln ? ' <b>(nicht ÖLN)</b>' : ''}</td><td>${esc((prodOf(p) || {}).zulassung || '')}</td>
-          <td class="n">${p.menge != null ? fmtNum(p.menge) + ' ' + esc(p.einheit || '') : ''}</td><td>${i ? '' : esc([a.notiz, a.nichtOeln ? 'nicht ÖLN-konform' : ''].filter(Boolean).join(' · '))}</td></tr>`).join(''); }).join('')}
-      </tbody></table></div>`;
-  }).join('');
-}
-function nachweisContent() {
-  const S = App.spray, ys = yearsOf(); if (!S.ny) S.ny = ys[0] || new Date().getFullYear();
-  const list = nachweisRows(), kult = [...new Set(sprayOrders().filter(a => ernteOf(a) === +S.ny).map(a => a.kultur).filter(Boolean))].sort();
-  return `<div class="filters">
-      <select class="input" data-in="spNy" style="width:auto">${(ys.length ? ys : [S.ny]).map(v => `<option ${+S.ny === v ? 'selected' : ''}>${v}</option>`).join('')}</select>
-      <select class="input" data-in="spNk" style="width:auto;min-width:180px"><option value="">Alle Kunden</option>${kundenMitSpritz().map(k => `<option value="${k.id}" ${k.id === S.nk ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
-      <select class="input" data-in="spNc" style="width:auto"><option value="">Alle Kulturen</option>${kult.map(c => `<option ${c === S.nc ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
-      <label class="tog"><input type="checkbox" data-in="spNgep" ${S.ngep ? 'checked' : ''}> auch geplante</label></div>
-    <p class="nr">${list.length} Behandlungen · ${new Set(list.map(a => a.kunde)).size} Kunden${list.some(a => a.nichtOeln || prodList(a).some(p => p.nichtOeln)) ? ' · nicht ÖLN-konforme sind markiert' : ''}</p>
-    ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-act="spNwPrint">Drucken / PDF</button><button class="btn" data-act="spNwCsv">CSV</button></div><div class="panel">${nachweisHtml(list)}</div>` : '<div class="empty">Keine Behandlungen für diese Auswahl.</div>'}`;
-}
-function nachweisCsv() {
-  const rows = [['Erntejahr', 'Kunde', 'Ort', 'Datum', 'Parzelle', 'Kultur', 'Fläche ha', 'Stadium', 'Produkt', 'Zulassung', 'Menge/ha', 'Einheit', 'Nicht ÖLN-konform', 'Wasser l/ha', 'Düse', 'Bemerkung']];
-  nachweisRows().forEach(a => { const k = kundeOf(a); (prodList(a).length ? prodList(a) : [{}]).forEach(p => rows.push([ernteOf(a), k.name, k.ort, a.erledigtAm || a.datum, a.feld, a.kultur, flOf(a), a.stadium, p.name, (prodOf(p) || {}).zulassung, p.menge, p.einheit, (p.nichtOeln || a.nichtOeln) ? 'ja' : '', a.wasser, a.duese, a.notiz])); });
-  download(`OELN-Nachweis_${App.spray.ny}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
-}
 function printHtml(title, html) {
   let pa = $('#printArea'); if (!pa) { pa = document.createElement('div'); pa.id = 'printArea'; document.body.appendChild(pa); }
   pa.innerHTML = `<h1 class="ptitle">${esc(title)}</h1>${html}<p class="pfoot">Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · Lohnarbeit-Planer</p>`;
@@ -1874,7 +1759,7 @@ function stammContent() {
   const segs = `<div class="seg" style="margin-bottom:12px">${[['produkte', 'Produkte'], ['parzellen', 'Parzellen'], ['geraete', 'Düsen & Traktoren'], ['import', 'Import']].map(([k, l]) => `<button type="button" data-act="spStamm" data-v="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   if (sub === 'parzellen') {
     const list = Store.all('parzellen').filter(p => (!S.pk || p.kunde === S.pk) && (S.pall || p.aktiv !== false)).sort((a, b) => kundeName(a.kunde).localeCompare(kundeName(b.kunde), 'de') || byName(a, b));
-    return segs + `<div class="filters"><select class="input" data-in="spPk" style="width:auto;min-width:200px"><option value="">Alle Kunden</option>${Store.all('kunden').sort(byName).map(k => `<option value="${k.id}" ${k.id === S.pk ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
+    return segs + `<div class="filters"><select class="input" data-in="spPk" style="width:auto;min-width:200px"><option value="">Alle Kunden</option>${Store.all('kunden').filter(k => k.aktiv !== false || k.id === S.pk).sort(byName).map(k => `<option value="${k.id}" ${k.id === S.pk ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
         <label class="tog"><input type="checkbox" data-in="spPall" ${S.pall ? 'checked' : ''}> auch inaktive</label><button class="btn primary" data-act="parzAdd">＋ Parzelle</button></div>
       <div class="rows">${list.map(p => `<div class="rowi ${p.aktiv === false ? 'off' : ''}" data-act="parzEdit" data-id="${p.id}"><div class="grow"><div class="t">${esc(p.name)}</div><div class="s">${esc(kundeName(p.kunde))}${p.kultur ? ' · ' + esc(p.kultur) : ''}</div></div><span class="num" style="width:auto">${p.flaeche ? fmtNum(p.flaeche) + ' ha' : ''}</span></div>`).join('') || '<div class="empty">Keine Parzellen.</div>'}</div>`;
   }
@@ -1916,6 +1801,147 @@ async function importPS() {
   if (L.traktoren) Lists.ensure('traktoren', L.traktoren);
   Sync.schedule(); App.render();
   toast(`Import abgeschlossen: ${neu.auftraege} Spritzaufträge`, 5000);
+}
+
+// Kunden mit Spritzaufträgen – optional nur mit Daten in einem Zeitraum bzw. Erntejahr
+const dOf = a => a.erledigtAm || a.datum || '';
+function kundenMitSpritz(filter) {
+  const ids = new Set(sprayOrders().filter(a => dOf(a) && (!filter || filter(a))).map(a => a.kunde));
+  return Store.all('kunden').filter(k => ids.has(k.id)).sort(byName);
+}
+const billFilter = (S = App.spray) => a => dOf(a) >= S.av && dOf(a) <= S.ab && (['erledigt', 'verrechnet'].includes(statusOf(a)) || (S.ag && statusOf(a) === 'geplant'));
+const nwFilter = (S = App.spray) => a => ernteOf(a) === +S.ny && (S.ngep || statusOf(a) !== 'geplant');
+// Sortierung Kultur › Parzelle › Datum
+const byKulturParz = (a, b) => (a.kultur || '~').localeCompare(b.kultur || '~', 'de') || (a.feld || '~').localeCompare(b.feld || '~', 'de') || dOf(a).localeCompare(dOf(b));
+const groupBy = (list, key) => { const m = new Map(); list.forEach(x => { const k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); }); return [...m.entries()]; };
+
+// Journal: gegliedert nach Kultur und Parzelle
+function journalContent() {
+  const S = App.spray; if (S.jy == null) S.jy = String(yearsOf()[0] || '');
+  const q = norm(S.jq), y = S.jy;
+  const all = sprayOrders().filter(a => dOf(a)).filter(a => (!y || ernteOf(a) === +y) && (!q || [kundeName(a.kunde), a.feld, a.kultur, a.notiz, a.stadium, a.nr, ...prodNames(a)].join(' ').toLowerCase().includes(q)));
+  const list = all.slice().sort(byKulturParz), shown = list.slice(0, S.jlimit);
+  const row = a => `<div class="rowi" data-act="editOrder" data-id="${a.id}">
+      <span class="num" style="width:74px">${fmtDate(dOf(a), { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>
+      <div class="grow"><div class="t">${esc(kundeName(a.kunde))}</div>
+        <div class="s">${fmtNum(flOf(a))} ha${a.stadium ? ` · ${esc(a.stadium)}` : ''} · ${prodList(a).map(p => `${esc(p.name)} ${fmtNum(p.menge)} ${esc(p.einheit || '')}`).join(', ') || 'keine Produkte'}</div></div>
+      <span class="badge ${statusOf(a)}">${STATUS[statusOf(a)]}</span></div>`;
+  const ha = l => fmtNum(r2(l.reduce((s, a) => s + flOf(a), 0)));
+  const body = groupBy(shown, a => a.kultur || '').map(([k, ka]) => `<div class="grp"><div class="grp-k">${esc(k || 'ohne Kultur')} <small>${ka.length} · ${ha(ka)} ha</small></div>
+      ${groupBy(ka, a => a.feld || '').map(([p, pa]) => `<div class="grp-p">${esc(p || 'ohne Parzelle')} <small>${pa.length} · ${ha(pa)} ha</small></div><div class="rows">${pa.map(row).join('')}</div>`).join('')}</div>`).join('');
+  return `<div class="filters"><input class="input search" type="search" placeholder="Suchen: Kunde, Parzelle, Kultur, Produkt…" value="${esc(S.jq)}" data-in="spJq">
+      <select class="input" data-in="spJy" style="width:auto"><option value="">Alle Erntejahre</option>${yearsOf().map(v => `<option ${+y === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+    <p class="nr">${list.length} Spritzaufträge · ${ha(list)} ha</p>
+    ${body || '<div class="empty">Keine Treffer.</div>'}
+    ${list.length > shown.length ? `<div class="btns" style="margin-top:10px"><button class="btn" data-act="spMore">Weitere ${Math.min(200, list.length - shown.length)} anzeigen</button></div>` : ''}`;
+}
+
+// Abrechnung: gegliedert nach Kultur und Parzelle, ohne Preisherleitung
+function billing(kid, von, bis, mitGeplant) {
+  const k = Store.get('kunden', kid) || {};
+  const preisHa = (k.preisSpritze || 0) + (k.preisFahrer || 0) + (k.preisTraktor || 0), zu = k.zuschlag || 0;
+  const f = billFilter({ av: von, ab: bis, ag: mitGeplant });
+  const orders = sprayOrders().filter(a => a.kunde === kid && dOf(a) && f(a)).sort(byKulturParz);
+  let tA = 0, tM = 0;
+  const rows = orders.map(a => {
+    const fl = flOf(a), arbeit = round05(fl * preisHa);
+    const mittel = prodList(a).map(p => {
+      const pr = prodOf(p) || {}, preis = pr.preis || 0, preisZ = round05(preis * zu + preis), menge = (p.menge || 0) * fl, betrag = round05(menge * preisZ);
+      return { name: p.name, zulassung: pr.zulassung || '', mengeHa: p.menge, einheit: p.einheit || pr.einheit || '', menge, preis, preisZ, betrag };
+    });
+    const m = mittel.reduce((s, x) => s + x.betrag, 0); tA += arbeit; tM += m;
+    return { a, fl, arbeit, mittel, mittelTot: m };
+  });
+  return { k, preisHa, zu, rows, tA, tM, total: tA + tM };
+}
+function billingHtml(b, von, bis) {
+  const sum = rs => rs.reduce((s, r) => s + r.arbeit + r.mittelTot, 0);
+  const jobRows = r => `<tr class="job click" data-act="editOrder" data-id="${r.a.id}"><td>${fmtDate(dOf(r.a), { day: '2-digit', month: '2-digit', year: '2-digit' })}</td><td>Arbeit Spritzen</td><td></td>
+      <td class="n">${fmtNum(r.fl)} ha</td><td class="n">${chf(b.preisHa)}</td><td class="n"><b>${chf(r.arbeit)}</b></td></tr>
+    ${r.mittel.map(m => `<tr class="mit click" data-act="editOrder" data-id="${r.a.id}"><td></td><td>${esc(m.name)}</td><td class="nr">${esc(m.zulassung)}</td><td class="n">${fmtNum(r2(m.menge))} ${esc(m.einheit)}</td><td class="n">${chf(m.preisZ)}</td><td class="n">${chf(m.betrag)}</td></tr>`).join('')}`;
+  const body = groupBy(b.rows, r => r.a.kultur || '').map(([k, kr]) => `<tr class="gk"><td colspan="5">${esc(k || 'ohne Kultur')} · ${fmtNum(r2(kr.reduce((s, r) => s + r.fl, 0)))} ha</td><td class="n">${chf(sum(kr))}</td></tr>
+    ${groupBy(kr, r => r.a.feld || '').map(([p, pr]) => `<tr class="gp"><td colspan="6">${esc(p || 'ohne Parzelle')}</td></tr>${pr.map(jobRows).join('')}`).join('')}`).join('');
+  return `<div class="bill"><div class="bill-h"><div><b>${esc(b.k.anrede ? b.k.anrede + ' ' : '')}${esc(b.k.name || '')}</b><br>${esc(b.k.adresse || '')}<br>${esc([b.k.plz, b.k.ort].filter(Boolean).join(' '))}</div>
+      <div class="r">Spritzarbeiten ${fmtDate(von, { day: '2-digit', month: '2-digit', year: 'numeric' })} – ${fmtDate(bis, { day: '2-digit', month: '2-digit', year: 'numeric' })}</div></div>
+    <table class="btab"><thead><tr><th>Datum</th><th>Position</th><th>Zulassung</th><th class="n">Menge</th><th class="n">Ansatz</th><th class="n">Betrag CHF</th></tr></thead><tbody>${body}</tbody><tfoot>
+      <tr><td colspan="5">Total Arbeit (${fmtNum(r2(b.rows.reduce((s, r) => s + r.fl, 0)))} ha)</td><td class="n">${chf(b.tA)}</td></tr>
+      <tr><td colspan="5">Total Mittel</td><td class="n">${chf(b.tM)}</td></tr>
+      <tr class="tot"><td colspan="5">Total CHF</td><td class="n">${chf(b.total)}</td></tr></tfoot></table></div>`;
+}
+function abrechnungContent() {
+  const S = App.spray, ks = kundenMitSpritz(billFilter(S));
+  if (S.ak && !ks.some(k => k.id === S.ak)) S.ak = '';
+  const head = `<div class="filters">
+      <label class="fld inl"><span>Von</span><input class="input" type="date" value="${S.av}" data-in="spAv"></label>
+      <label class="fld inl"><span>Bis</span><input class="input" type="date" value="${S.ab}" data-in="spAb"></label>
+      <label class="tog"><input type="checkbox" data-in="spAg" ${S.ag ? 'checked' : ''}> auch geplante</label>
+      <select class="input" data-in="spAk" style="width:auto;min-width:200px"><option value="">Alle Kunden (Übersicht, ${ks.length})</option>${ks.map(k => `<option value="${k.id}" ${k.id === S.ak ? 'selected' : ''}>${esc(kundeLabel(k))}</option>`).join('')}</select></div>`;
+  if (!S.ak) {
+    const sums = ks.map(k => ({ k, b: billing(k.id, S.av, S.ab, S.ag) })).filter(x => x.b.rows.length);
+    const tot = sums.reduce((s, x) => s + x.b.total, 0);
+    return head + (sums.length ? `<div class="tscroll"><table class="need"><thead><tr><th>Kunde</th><th>Aufträge</th><th>Fläche ha</th><th>Arbeit</th><th>Mittel</th><th>Total CHF</th><th></th></tr></thead><tbody>
+      ${sums.map(x => `<tr class="click" data-act="spAkSel" data-id="${x.k.id}"><td>${esc(x.k.name)}</td><td>${x.b.rows.length}</td><td>${fmtNum(r2(x.b.rows.reduce((s, r) => s + r.fl, 0)))}</td><td>${chf(x.b.tA)}</td><td>${chf(x.b.tM)}</td><td><b>${chf(x.b.total)}</b></td><td></td></tr>`).join('')}
+      <tr class="area"><td>Total</td><td></td><td></td><td></td><td></td><td><b>${chf(tot)}</b></td><td></td></tr></tbody></table></div>
+      <div class="btns"><button class="btn" data-act="spBillCsv">CSV (alle)</button><button class="btn" data-act="spBillPrintAll">Alle drucken / PDF</button></div>`
+      : '<div class="empty">Keine erledigten Spritzaufträge in diesem Zeitraum.</div>');
+  }
+  const b = billing(S.ak, S.av, S.ab, S.ag);
+  const offen = b.rows.filter(r => statusOf(r.a) === 'erledigt').length;
+  return head + `${!b.preisHa ? '<p class="hintp panel">Für diesen Kunden sind keine Spritzpreise erfasst – unter <b>Kunden</b> ergänzen.</p>' : ''}
+    <p class="nr">Zeile antippen, um den Auftrag zu bearbeiten.</p>
+    <div class="panel">${billingHtml(b, S.av, S.ab)}
+    <div class="btns"><button class="btn primary" data-act="spBillPrint">Drucken / PDF</button><button class="btn" data-act="spBillCsv">CSV</button>
+      ${offen ? `<button class="btn" data-act="spBillMark">${offen} als verrechnet markieren</button>` : ''}</div></div>`;
+}
+function billingCsv() {
+  const S = App.spray, ids = S.ak ? [S.ak] : kundenMitSpritz(billFilter(S)).map(k => k.id);
+  const rows = [['Kunde', 'Kultur', 'Parzelle', 'Datum', 'Fläche ha', 'Position', 'Zulassung', 'Menge', 'Einheit', 'Ansatz CHF', 'Betrag CHF', 'Auftrag']];
+  ids.forEach(id => { const b = billing(id, S.av, S.ab, S.ag); b.rows.forEach(r => {
+    const d = dOf(r.a);
+    rows.push([b.k.name, r.a.kultur, r.a.feld, d, r.fl, 'Arbeit Spritzen', '', r.fl, 'ha', b.preisHa.toFixed(2), r.arbeit.toFixed(2), r.a.nr]);
+    r.mittel.forEach(m => rows.push([b.k.name, r.a.kultur, r.a.feld, d, r.fl, m.name, m.zulassung, r2(m.menge), m.einheit, m.preisZ.toFixed(2), m.betrag.toFixed(2), r.a.nr]));
+  }); });
+  download(`Abrechnung_Spritzen_${S.av}_bis_${S.ab}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+}
+
+// ÖLN-Nachweis: ohne Hinweise auf nicht ÖLN-konforme Behandlungen; Zeilen öffnen den Auftrag
+function nachweisRows() {
+  const S = App.spray, f = nwFilter(S);
+  return sprayOrders().filter(a => dOf(a) && f(a) && (!S.nk || a.kunde === S.nk) && (!S.nc || a.kultur === S.nc))
+    .sort((a, b) => kundeName(a.kunde).localeCompare(kundeName(b.kunde), 'de') || byKulturParz(a, b));
+}
+function nachweisHtml(list) {
+  return groupBy(list, a => a.kunde).map(([kid, ol]) => {
+    const k = Store.get('kunden', kid) || {};
+    return `<div class="bill nachweis"><div class="bill-h"><div><b>${esc(k.name || '')}</b>${k.ort ? ', ' + esc([k.plz, k.ort].filter(Boolean).join(' ')) : ''}</div>
+      <div class="r">Pflanzenschutz-Nachweis Erntejahr ${esc(App.spray.ny)}${App.spray.nc ? ' · ' + esc(App.spray.nc) : ''}</div></div>
+      <table class="btab"><thead><tr><th>Datum</th><th>Parzelle</th><th>Kultur</th><th class="n">ha</th><th>Stadium</th><th>Produkt</th><th>Zulassung</th><th class="n">Menge/ha</th><th>Bemerkung</th></tr></thead><tbody>
+      ${ol.map(a => { const ps = prodList(a).length ? prodList(a) : [{}]; return ps.map((p, i) => `<tr class="${i ? 'mit' : 'job'} click" data-act="editOrder" data-id="${a.id}">
+          <td>${i ? '' : fmtDate(dOf(a), { day: '2-digit', month: '2-digit', year: '2-digit' })}</td><td>${i ? '' : esc(a.feld || '')}</td><td>${i ? '' : esc(a.kultur || '')}</td>
+          <td class="n">${i ? '' : fmtNum(flOf(a))}</td><td>${i ? '' : esc(a.stadium || '')}</td>
+          <td>${esc(p.name || '–')}</td><td>${esc((prodOf(p) || {}).zulassung || '')}</td>
+          <td class="n">${p.menge != null ? fmtNum(p.menge) + ' ' + esc(p.einheit || '') : ''}</td><td>${i ? '' : esc(a.notiz || '')}</td></tr>`).join(''); }).join('')}
+      </tbody></table></div>`;
+  }).join('');
+}
+function nachweisContent() {
+  const S = App.spray, ys = yearsOf(); if (!S.ny) S.ny = ys[0] || new Date().getFullYear();
+  const f = nwFilter(S), ks = kundenMitSpritz(f);
+  if (S.nk && !ks.some(k => k.id === S.nk)) S.nk = '';
+  const list = nachweisRows(), kult = [...new Set(sprayOrders().filter(a => dOf(a) && f(a) && (!S.nk || a.kunde === S.nk)).map(a => a.kultur).filter(Boolean))].sort();
+  if (S.nc && !kult.includes(S.nc)) S.nc = '';
+  return `<div class="filters">
+      <select class="input" data-in="spNy" style="width:auto">${(ys.length ? ys : [S.ny]).map(v => `<option ${+S.ny === v ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      <select class="input" data-in="spNk" style="width:auto;min-width:180px"><option value="">Alle Kunden (${ks.length})</option>${ks.map(k => `<option value="${k.id}" ${k.id === S.nk ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
+      <select class="input" data-in="spNc" style="width:auto"><option value="">Alle Kulturen</option>${kult.map(c => `<option ${c === S.nc ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      <label class="tog"><input type="checkbox" data-in="spNgep" ${S.ngep ? 'checked' : ''}> auch geplante</label></div>
+    <p class="nr">${list.length} Behandlungen · ${new Set(list.map(a => a.kunde)).size} Kunden · Zeile antippen, um den Auftrag zu bearbeiten.</p>
+    ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-act="spNwPrint">Drucken / PDF</button><button class="btn" data-act="spNwCsv">CSV</button></div><div class="panel">${nachweisHtml(list)}</div>` : '<div class="empty">Keine Behandlungen für diese Auswahl.</div>'}`;
+}
+function nachweisCsv() {
+  const rows = [['Erntejahr', 'Kunde', 'Ort', 'Datum', 'Parzelle', 'Kultur', 'Fläche ha', 'Stadium', 'Produkt', 'Zulassung', 'Menge/ha', 'Einheit', 'Wasser l/ha', 'Düse', 'Bemerkung']];
+  nachweisRows().forEach(a => { const k = kundeOf(a); (prodList(a).length ? prodList(a) : [{}]).forEach(p => rows.push([ernteOf(a), k.name, k.ort, dOf(a), a.feld, a.kultur, flOf(a), a.stadium, p.name, (prodOf(p) || {}).zulassung, p.menge, p.einheit, a.wasser, a.duese, a.notiz])); });
+  download(`OELN-Nachweis_${App.spray.ny}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }
 function pickFile(accept) {
   return new Promise(res => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.onchange = () => res(i.files[0]); i.click(); });
@@ -2024,7 +2050,7 @@ document.addEventListener('click', async e => {
     case 'spAkSel': App.spray.ak = id; App.render(); window.scrollTo(0, 0); break;
     case 'spBillCsv': billingCsv(); break;
     case 'spBillPrint': { const S = App.spray, b = billing(S.ak, S.av, S.ab, S.ag); printHtml('Abrechnung Spritzarbeiten', billingHtml(b, S.av, S.ab)); break; }
-    case 'spBillPrintAll': { const S = App.spray; printHtml('Abrechnung Spritzarbeiten', kundenMitSpritz().map(k => billing(k.id, S.av, S.ab, S.ag)).filter(b => b.rows.length).map(b => billingHtml(b, S.av, S.ab)).join('')); break; }
+    case 'spBillPrintAll': { const S = App.spray; printHtml('Abrechnung Spritzarbeiten', kundenMitSpritz(billFilter(S)).map(k => billing(k.id, S.av, S.ab, S.ag)).filter(b => b.rows.length).map(b => billingHtml(b, S.av, S.ab)).join('')); break; }
     case 'spBillMark': {
       const S = App.spray, b = billing(S.ak, S.av, S.ab, S.ag), ch = b.rows.filter(r => statusOf(r.a) === 'erledigt').map(r => ({ ...r.a, status: 'verrechnet' }));
       if (ch.length && confirm(`${ch.length} Spritzaufträge als verrechnet markieren?`)) { Store.putMany('auftraege', ch); toast('Als verrechnet markiert'); } break;
@@ -2124,6 +2150,7 @@ document.addEventListener('change', e => {
   if (k === 'spBis' && e.target.value) { App.spray.bis = e.target.value; if (App.spray.bis < App.spray.von) App.spray.von = App.spray.bis; App.render(); return; }
   if (k === 'spDay') { if (e.target.checked) App.spray.off.delete(e.target.value); else App.spray.off.add(e.target.value); App.render(); return; }
   if (k === 'mpDate' && e.target.value) { machinePlanDialog(e.target.dataset.id, e.target.value); return; }
+  if (k === 'kAll') { App.filter.kall = e.target.checked; App.render(); return; }
   if (k === 'pDate' && e.target.value) { App.plan.date = parseDate(e.target.value); App.render(); }
   if (k === 'cfg') {
     const key = e.target.dataset.k, v = e.target.value.trim();

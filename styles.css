@@ -470,3 +470,13 @@ tr.click:hover td { background: var(--surface-2); }
   #printArea .pfoot { font-size: 8pt; color: #555; margin-top: 6mm; }
   @page { margin: 14mm; }
 }
+/* ---------- Berichte gegliedert nach Kultur › Parzelle ---------- */
+.grp { margin-bottom: 14px; }
+.grp-k { font-weight: 700; font-size: 16px; color: var(--accent); margin: 14px 0 6px; padding-bottom: 4px; border-bottom: 2px solid var(--accent); }
+.grp-p { font-weight: 650; font-size: 14px; margin: 10px 0 4px; }
+.grp-k small, .grp-p small { font-weight: 500; color: var(--muted); font-size: 12px; margin-left: 6px; }
+.btab tr.gk td { font-weight: 700; color: var(--accent); padding-top: 12px; border-bottom: 2px solid var(--accent); }
+.btab tr.gp td { font-weight: 650; padding-top: 8px; }
+.btab tr.click { cursor: pointer; }
+.btab tr.click:hover td { background: var(--surface-2); }
+@media print { #printArea .btab tr.gk td { color: #000; border-color: #000; } #printArea tr.click { cursor: default; } }
