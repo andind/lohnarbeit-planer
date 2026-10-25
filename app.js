@@ -322,9 +322,12 @@ const uniqKeep = arr => { const seen = new Set(); return arr.map(v => String(v |
 const Lists = {
   arbeitsarten() {
     const c = Store.cfg();
-    return Array.isArray(c.arbeitsarten) ? c.arbeitsarten.slice()
+    const l = Array.isArray(c.arbeitsarten) ? c.arbeitsarten.slice()
       : uniqSort([...ARBEITEN, ...Store.all('maschinen').flatMap(m => m.arbeitsarten || []), ...Store.all('auftraege').map(a => a.arbeit)]);
+    if (!l.some(x => /spritz|pflanzenschutz/i.test(x))) l.push('Spritzen'); // für das Modul Spritzen
+    return l;
   },
+  produkte() { const p = Store.cfg().produkte; return Array.isArray(p) ? p.filter(x => x && x.name) : []; },
   kulturen() {
     const c = Store.cfg();
     return Array.isArray(c.kulturen) ? c.kulturen.slice() : uniqSort([...KULTUREN, ...Store.all('auftraege').map(a => a.kultur)]);
@@ -377,18 +380,48 @@ function machinesFor(iso, arbeit, keepId) {
 function freezeDay(d, mid, exclude) {
   return schedule(d, mid).items.filter(it => !it.fixed && !exclude.includes(it.a.id)).map(it => ({ ...it.a, zeit: fromMin(it.start) }));
 }
+// Aufträge an einer Stelle einfügen; alle folgenden rutschen nach hinten.
+// opt: { minute } (Tagesansicht, Zeigerposition) | { beforeId } (auf einen Auftrag gezogen) | {} (am Ende anhängen)
+function insertAt(d, mid, list, opt = {}) {
+  const ids = list.map(a => a.id), b = toMin(Store.cfg().beginn) ?? 420;
+  const items = schedule(d, mid).items.filter(it => !ids.includes(it.a.id));
+  let idx = items.length, t0 = items.length ? items[items.length - 1].end : b;
+  if (opt.beforeId) {
+    const i = items.findIndex(it => it.a.id === opt.beforeId);
+    if (i >= 0) { idx = i; t0 = items[i].start; }
+  } else if (opt.minute != null) {
+    const m = opt.minute, hit = items.findIndex(it => m >= it.start && m < it.end);
+    if (hit >= 0) { const it = items[hit]; if (m < (it.start + it.end) / 2) { idx = hit; t0 = it.start; } else { idx = hit + 1; t0 = it.end; } }
+    else { idx = items.filter(it => it.start < m).length; t0 = snapStart(d, mid, ids, opt.top ?? m, lenOf(list[0])); }
+  }
+  if (idx > 0) t0 = Math.max(t0, items[idx - 1].end);
+  const out = [];
+  items.slice(0, idx).forEach(it => out.push({ ...it.a, zeit: fromMin(it.start) }));
+  let t = t0;
+  list.forEach(a => { Object.assign(a, { datum: d, maschine: mid, status: 'geplant', zeit: fromMin(Math.min(1425, t)) }); t += lenOf(a); out.push(a); });
+  items.slice(idx).forEach(it => { const s = Math.max(it.start, t); out.push({ ...it.a, zeit: fromMin(Math.min(1425, s)) }); t = s + lenOf(it.a); });
+  return out;
+}
+// nur geänderte Aufträge speichern
+function putChanged(list) {
+  const keys = ['datum', 'zeit', 'maschine', 'status', 'dauer', 'dauerManuell'];
+  const ch = list.filter(a => { const o = Store.get('auftraege', a.id); return !o || keys.some(k => (o[k] ?? '') !== (a[k] ?? '')); });
+  if (ch.length) Store.putMany('auftraege', ch); else App.render();
+}
+function setMachineDauer(a, mid) {
+  if ((a.maschine || '') !== mid || !a.dauerManuell) { a.dauer = defaultDauer(maschine(mid), a.flaeche); a.dauerManuell = false; }
+}
 /* ---------- Verschieben (einzeln oder mehrere) ---------- */
-// tgt: { unplan:true } | { datum, mid, minute? }  (minute nur in der Tagesansicht)
+// tgt: { unplan:true } | { datum, mid, minute?, top?, beforeId? }
 function moveOrders(ids, draggedId, tgt) {
   const list = ids.map(id => Store.get('auftraege', id)).filter(a => a && isOpen(a)).map(a => ({ ...a }));
   if (!list.length) return;
   if (tgt.unplan) { list.forEach(a => { a.datum = ''; a.zeit = ''; a.status = 'offen'; }); Store.putMany('auftraege', list); return; }
   const drag = list.find(a => a.id === draggedId) || list[0];
-  const starts = Object.fromEntries(list.map(a => [a.id, startOf(a)]));
-  const moving = list.map(a => a.id);
+  const groupShift = list.length > 1 && list.every(a => a.datum);
   const dragMid = drag.maschine || '';
-  const target = a => { // neue Maschine/Datum je Auftrag
-    if (!drag.datum || !a.datum) return { datum: tgt.datum, mid: tgt.mid };
+  const target = a => {
+    if (!groupShift) return { datum: tgt.datum, mid: tgt.mid };
     const delta = Math.round((parseDate(tgt.datum) - parseDate(drag.datum)) / 864e5);
     return { datum: isoDate(addDays(parseDate(a.datum), delta)), mid: (a.maschine || '') === dragMid ? tgt.mid : (a.maschine || '') };
   };
@@ -397,24 +430,32 @@ function moveOrders(ids, draggedId, tgt) {
   if (misfit.length && !confirm(misfit.length === 1
     ? `«${maschine(misfit[0].mid).name}» ist nicht für «${misfit[0].a.arbeit}» erfasst. Trotzdem einplanen?`
     : `${misfit.length} Aufträge passen nicht zur Arbeitsart der Maschine. Trotzdem verschieben?`)) return;
-  plan.forEach(p => {
-    const a = p.a, m = maschine(p.mid);
-    if ((a.maschine || '') !== p.mid || !a.dauerManuell) { a.dauer = defaultDauer(m, a.flaeche); a.dauerManuell = false; }
-    a.maschine = p.mid; a.datum = p.datum; a.status = 'geplant';
-  });
-  let frozen = [];
-  if (tgt.minute != null) { // Tagesansicht: Uhrzeit mit Magnet
-    const want = snapStart(tgt.datum, tgt.mid, moving, tgt.minute, lenOf(drag));
-    frozen = [...new Set(plan.map(p => p.datum + '|' + p.mid))].flatMap(k => { const [d, m] = k.split('|'); return freezeDay(d, m, moving); });
-    if (drag.datum && starts[drag.id] != null) {
-      const delta = want - starts[drag.id];  // alle geplanten um dieselbe Zeit verschieben
-      plan.forEach(p => { const s = starts[p.a.id]; p.a.zeit = s != null ? fromMin(Math.max(0, Math.min(1425, s + delta))) : ''; });
-    } else { // aus «nicht eingeplant»: nacheinander ab der Ablagestelle andocken
-      let t = want;
-      [drag, ...list.filter(a => a !== drag)].forEach(a => { a.zeit = fromMin(Math.min(1425, t)); t += lenOf(a); });
-    }
-  } else if (!drag.datum) list.forEach(a => { a.zeit = ''; });
+  if (!groupShift) { // einzeln oder aus «nicht eingeplant»: als Block einfügen, Folgende rutschen nach
+    const ordered = [drag, ...list.filter(a => a !== drag)];
+    ordered.forEach(a => setMachineDauer(a, tgt.mid));
+    putChanged(insertAt(tgt.datum, tgt.mid, ordered, { minute: tgt.minute, top: tgt.top, beforeId: tgt.beforeId }));
+    return;
+  }
+  // Gruppe bereits eingeplanter Aufträge: Abstände bleiben, danach Überlappungen nach hinten auflösen
+  const starts = Object.fromEntries(list.map(a => [a.id, startOf(a)]));
+  const moving = list.map(a => a.id);
+  plan.forEach(p => { setMachineDauer(p.a, p.mid); p.a.maschine = p.mid; p.a.datum = p.datum; p.a.status = 'geplant'; });
+  const keys = [...new Set(plan.map(p => p.datum + '|' + p.mid))];
+  const frozen = keys.flatMap(k => { const [d, m] = k.split('|'); return freezeDay(d, m, moving); });
+  if (tgt.minute != null && starts[drag.id] != null) {
+    const delta = snapStart(tgt.datum, tgt.mid, moving, tgt.top ?? tgt.minute, lenOf(drag)) - starts[drag.id];
+    plan.forEach(p => { const s = starts[p.a.id]; p.a.zeit = fromMin(Math.max(0, Math.min(1425, s + delta))); });
+  } else plan.forEach(p => { p.a.zeit = fromMin(starts[p.a.id] ?? (toMin(Store.cfg().beginn) ?? 420)); });
   Store.putMany('auftraege', [...frozen, ...list]);
+  const settled = keys.flatMap(k => { const [d, m] = k.split('|'); return schedule(d, m).items.filter(it => it.pushed).map(it => ({ ...it.a, zeit: fromMin(it.start) })); });
+  if (settled.length) Store.putMany('auftraege', settled);
+}
+// Nicht eingeplanten Auftrag an einer freien Stelle einsetzen (Auswahl nach langem Drücken)
+function placeFromPicker(id, d, mid, minute) {
+  const a = { ...Store.get('auftraege', id) }; if (!a.id) return;
+  setMachineDauer(a, mid);
+  putChanged(insertAt(d, mid, [a], minute == null ? {} : { minute, top: minute }));
+  toast(`${kundeName(a.kunde)} eingeplant`);
 }
 
 /* ================= App / Ansichten ================= */
@@ -425,6 +466,7 @@ const App = {
   filter: { auftraege: 'offen', q: '', kq: '' },
   plan: { mode: ls('lp_pmode') || 'woche', date: new Date(), aa: ls('lp_paa') || '', nurBelegt: ls('lp_pbel') === '1' },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false, zoom: +(ls('lp_zoom') || 1),
+  spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set() },
   go(v) { this.view = v; ls('lp_view', v); this.lastView = null; this.tlScroll = null; window.scrollTo(0, 0); this.render(); },
   render() {
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === this.view));
@@ -564,7 +606,7 @@ const Views = {
       const today = todayIso(), c = Store.cfg(), b = toMin(c.beginn) ?? 420, e = toMin(c.ende) ?? 1140, cap = capacity();
       const head = `<div class="g-corner"></div>` + cols.map(col => `<div class="g-head">${this.head(col)}</div>`).join('');
       const pct = m => (m / 1440 * 100).toFixed(2) + '%';
-      const rows = days.map(d => `<div class="g-day ${d === today ? 'today' : ''}"><b>${fmtDate(d, { weekday: 'short' })}</b><small>${fmtDate(d, { day: '2-digit', month: '2-digit' })}</small></div>` +
+      const rows = days.map(d => `<div class="g-day ${d === today ? 'today' : ''}" data-act="dayView" data-d="${d}" title="Tagesansicht"><b>${fmtDate(d, { weekday: 'short' })}</b><small>${fmtDate(d, { day: '2-digit', month: '2-digit' })}</small></div>` +
         cols.map(col => {
           const off = col.m && !inSeason(col.m, d);
           const { items } = schedule(d, col.id);
@@ -597,6 +639,7 @@ const Views = {
             <b>${fromMin(s)}–${fromMin(q)} ${esc(kundeName(a.kunde))}${it.fixed ? ' 📌' : ''}</b>
             ${h > 34 ? `<span>${artKultur(a)}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}${dauerOf(a) ? ` · ${hrs(dauerOf(a))}` : ''}${st === 'erledigt' || st === 'verrechnet' ? ' · ✓' : ''}</span>` : ''}
             ${h > 54 && info ? `<span class="w">${info}</span>` : ''}
+            ${h > 54 ? sprayShort(a) : ''}
             ${h > 70 && a.notiz ? `<span class="note">${esc(a.notiz)}</span>` : ''}
           </div>`;
         }).join('');
@@ -609,7 +652,7 @@ const Views = {
       });
       const cw = Math.round(170 * Math.max(0.5, Math.min(1.6, App.zoom)));
       return `<div class="tlwrap cal" id="tlwrap"><div class="tl" style="--hh:${60 * PX}px;grid-template-columns:52px repeat(${cols.length}, minmax(${cw}px, 1fr))">
-        <div class="tl-corner"></div>${heads.join('')}<div class="tl-axis" style="height:${H}px">${axis}</div>${bodies.join('')}
+        <div class="tl-corner" data-act="weekView" title="Wochenansicht">Woche</div>${heads.join('')}<div class="tl-axis" data-act="weekView" title="Wochenansicht" style="height:${H}px">${axis}</div>${bodies.join('')}
       </div></div>`;
     },
     after() {
@@ -636,13 +679,36 @@ const Views = {
           const ids = App.sel.has(id) && App.sel.size > 1 ? [...App.sel] : [id];
           if (!el.dataset.drop) { moveOrders(ids, id, { unplan: true }); return; }
           const [d, mid] = el.dataset.drop.split('|');
-          let minute = null;
-          if (el.dataset.tl) { const r = el.getBoundingClientRect(); minute = Math.max(0, (e.clientY - grabY - r.top) / PX); }
-          moveOrders(ids, id, { datum: d, mid, minute });
+          let minute = null, top = null, beforeId = null;
+          if (el.dataset.tl) { const r = el.getBoundingClientRect(); minute = Math.max(0, (e.clientY - r.top) / PX); top = Math.max(0, (e.clientY - grabY - r.top) / PX); }
+          else { const over = e.target.closest('.pcard[data-id]'); if (over && over.dataset.id !== id) beforeId = over.dataset.id; }
+          moveOrders(ids, id, { datum: d, mid, minute, top, beforeId });
         });
+      });
+      // Langes Drücken (bzw. Rechtsklick) auf freie Stelle → passende, nicht eingeplante Aufträge
+      $$('.tl-col[data-drop], .g-cell[data-drop]').forEach(el => {
+        let timer = null, sx = 0, sy = 0, fired = false;
+        const open = y => {
+          if (fired || Dlg.el.open) return; fired = true;
+          const [d, mid] = el.dataset.drop.split('|');
+          const minute = el.dataset.tl ? Math.max(0, (y - el.getBoundingClientRect().top) / PX) : null;
+          if (navigator.vibrate) try { navigator.vibrate(15); } catch { }
+          pickerDialog(d, mid, minute);
+        };
+        el.addEventListener('pointerdown', e => {
+          if ((e.pointerType === 'mouse' && e.button !== 0) || e.target.closest('.blk,.pcard,.load,.strip')) return;
+          sx = e.clientX; sy = e.clientY; fired = false; clearTimeout(timer);
+          timer = setTimeout(() => open(sy), 550);
+        });
+        el.addEventListener('pointermove', e => { if (Math.hypot(e.clientX - sx, e.clientY - sy) > 10) clearTimeout(timer); });
+        ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => el.addEventListener(n, () => clearTimeout(timer)));
+        el.addEventListener('contextmenu', e => { if (e.target.closest('.blk,.pcard')) return; e.preventDefault(); clearTimeout(timer); fired = false; open(e.clientY); });
       });
     }
   },
+
+  /* ---------- Spritzen ---------- */
+  spritzen: sprayView(),
 
   /* ---------- Kunden ---------- */
   kunden: {
@@ -751,7 +817,7 @@ function orderCard(a) {
   return `<article class="card" data-act="editOrder" data-id="${a.id}">
     <div class="row1"><div class="title">${esc(kundeName(a.kunde))}</div><span class="badge ${s}">${STATUS[s]}</span></div>
     <div class="sub">${artKultur(a) || '—'}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}</div>
-    ${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}
+    ${sprayShort(a)}${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}
     <div class="meta">${when}<span class="nr" style="margin-left:auto">${esc(a.nr || '')}</span></div>
     ${isOpen(a) ? `<div class="actions">
       ${!a.datum ? `<button class="btn small primary" data-act="planOrder" data-id="${a.id}">Einplanen</button>` : `<button class="btn small" data-act="done" data-id="${a.id}">✓ Erledigt</button>`}
@@ -766,6 +832,7 @@ function planCard(it) {
     <b>${esc(kundeName(a.kunde))}</b>
     <div class="sub">${artKultur(a)}</div>
     <div class="sub">${a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''}${a.flaeche && d ? ' · ' : ''}${d ? '⏱ ' + hrs(d) : '⏱ Dauer fehlt'}${s === 'erledigt' || s === 'verrechnet' ? ' · ✓' : ''}</div>
+    ${sprayShort(a)}${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}
   </div>`;
 }
 function unplCard(a) {
@@ -773,7 +840,7 @@ function unplCard(a) {
     <b>${esc(kundeName(a.kunde))}</b>
     <div class="sub">${artKultur(a)}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}</div>
     <div class="meta"><span class="chip ${wishLate(a) ? 'warn' : ''}">${wishTxt(a)}</span></div>
-    ${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}
+    ${sprayShort(a)}${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}
   </div>`;
 }
 
@@ -800,20 +867,15 @@ function machineOptions(iso, arbeit, selected) {
     (andere.length ? `<optgroup label="Andere Maschinen in Saison">${andere.map(opt).join('')}</optgroup>` : '');
 }
 
-function orderDialog(id, { plan, kunde: kundeId } = {}) {
+function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
   const isNew = !id;
-  const a = isNew ? { id: uid(), nr: Store.nextAuftragNr(), status: 'offen', kunde: kundeId || '' } : structuredClone(Store.get('auftraege', id));
+  const a = isNew ? { id: uid(), nr: Store.nextAuftragNr(), status: 'offen', kunde: kundeId || '', arbeit: arbeit || '' } : structuredClone(Store.get('auftraege', id));
   if (!a) return;
+  if (isNew && pre) { a.maschine = pre.maschine || ''; a.zeit = pre.zeit || ''; plan = true; }
   const k = a.kunde && Store.get('kunden', a.kunde);
   const s = statusOf(a), done = s === 'erledigt' || s === 'verrechnet';
-  const planDate = a.datum || (plan ? (a.wunsch && a.wunsch >= todayIso() ? a.wunsch : (App.view === 'plan' ? isoDate(App.plan.date) : todayIso())) : '');
-  const body = `${isNew ? `
-    <div class="dict">
-      <label class="fld" style="margin-bottom:8px"><span>🎤 Diktieren</span>
-        <textarea class="input" name="diktat" rows="2" placeholder="Ins Feld tippen, dann das Mikrofon der Tastatur – z.B. «Müller Fritz, säen, Weizen, 4,5 Hektaren, nächsten Dienstag, Bemerkung Saatgut liegt beim Hof»"></textarea></label>
-      <div class="dictbar"><button type="button" class="btn small primary" data-act="dictParse">Felder ausfüllen</button><span class="nr">Am PC: Windows-Taste + H</span></div>
-      <div id="dictRes"></div>
-    </div>` : ''}
+  const planDate = a.datum || pre?.datum || (plan ? (a.wunsch && a.wunsch >= todayIso() ? a.wunsch : (App.view === 'plan' ? isoDate(App.plan.date) : todayIso())) : '');
+  const body = `
     <label class="fld"><span>Kunde</span>
       <div class="withbtn">
         <input class="input" name="kunde" list="dlKunden" value="${esc(k ? kundeLabel(k) : '')}" placeholder="Name eingeben und aus der Liste wählen" autocomplete="off" required ${isNew && !kundeId ? 'autofocus' : ''}>
@@ -831,6 +893,7 @@ function orderDialog(id, { plan, kunde: kundeId } = {}) {
       <label class="fld"><span>Fläche (ha)</span><input class="input" name="flaeche" inputmode="decimal" value="${a.flaeche ?? ''}" placeholder="z.B. 4.5"></label>
       <label class="fld"><span>Wunschdatum</span><input class="input" type="date" name="wunsch" value="${a.wunsch || ''}"></label>
     </div>
+    ${sprayBox(a)}
     <label class="fld"><span>Bemerkungen</span><textarea class="input" name="notiz" placeholder="Zufahrt, Besonderheiten, Ansprechperson…">${esc(a.notiz || '')}</textarea></label>
 
     <details class="box" id="planBox" ${a.datum || plan ? 'open' : ''}>
@@ -871,7 +934,7 @@ function orderDialog(id, { plan, kunde: kundeId } = {}) {
       const m = maschine(fd.get('maschine')); const manual = num(fd.get('dauer'));
       Object.assign(o, { datum: fd.get('datum'), zeit: fd.get('zeit'), maschine: m?.id || '', dauerManuell: manual != null, dauer: manual ?? defaultDauer(m, o.flaeche) });
     } else if (!o.datum || planOpen) { Object.assign(o, { datum: '', zeit: '' }); }
-    if (!planOpen && isNew && num(fd.get('dauer')) != null) { o.dauer = num(fd.get('dauer')); o.dauerManuell = true; } // z.B. diktierte Stunden
+    if (isSpray(o)) Object.assign(o, readSpray(fd));
     if (!isNew) {
       o.status = fd.get('status');
       if (o.status === 'erledigt' || o.status === 'verrechnet') {
@@ -923,7 +986,7 @@ function orderDialog(id, { plan, kunde: kundeId } = {}) {
       if (!f.stundenEff.value) { const d = num(f.dauer.value) ?? defaultDauer(maschine(f.maschine.value), num(f.flaeche.value)); if (d != null) f.stundenEff.value = d; }
     }
   });
-  fillMachines(); checkKunde();
+  fillMachines(); checkKunde(); wireSpray(f);
   if (plan) setTimeout(() => $('#planBox', f)?.scrollIntoView({ block: 'nearest' }), 60);
 }
 
@@ -1207,6 +1270,10 @@ function drawDayPlan(mid, d) {
       ctx.font = F('600', 30);
       const work = [a.arbeit, a.kultur].filter(Boolean).join(' · ') + (a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : '') + (dauerOf(a) ? ` · ${hrs(dauerOf(a))}` : '');
       wrapLines(ctx, work, w).forEach(l => lines.push([l, F('600', 30), green, 42]));
+      if (isSpray(a)) {
+        if (a.feld) lines.push(['Feld: ' + a.feld, F('600', 28), ink, 40]);
+        sprayRows(a).forEach(r => { ctx.font = F('400', 28); wrapLines(ctx, `• ${r.name}: ${r.ha}${r.tot ? '  →  ' + r.tot : ''}`, w).forEach(l => lines.push([l, F('500', 28), ink, 38])); });
+      }
       if (a.notiz) { ctx.font = F('italic 400', 28); wrapLines(ctx, a.notiz, w).forEach(l => lines.push([l, F('italic 400', 28), ink, 38])); }
       const hBlock = Math.max(130, 24 + lines.reduce((s, l) => s + l[3], 0) + 20);
       if (draw) {
@@ -1229,20 +1296,11 @@ function drawDayPlan(mid, d) {
 function machinePlanDialog(mid, d) {
   const m = maschine(mid); if (!m) return;
   d = d || isoDate(App.plan.date);
-  const fname = `Tagesplan_${m.name.replace(/[^\wäöüÄÖÜ.-]+/g, '_')}_${d}.png`;
-  const cv = drawDayPlan(mid, d);
-  const canShare = !!(navigator.canShare && navigator.share);
-  const body = `<div class="weekhead" style="margin-bottom:10px">
+  const nav = `<div class="weekhead" style="margin-bottom:10px">
       <button type="button" class="btn small" data-act="mpNav" data-d="-1" data-id="${mid}" data-date="${d}">◀</button>
       <input class="input" type="date" value="${d}" data-in="mpDate" data-id="${mid}" style="width:auto;min-height:34px;padding:4px 8px">
-      <button type="button" class="btn small" data-act="mpNav" data-d="1" data-id="${mid}" data-date="${d}">▶</button></div>
-    <img class="planimg" alt="Tagesplan ${esc(m.name)}" src="${cv.toDataURL('image/png')}">`;
-  const footer = `<span class="spacer"></span>
-    ${canShare ? `<button type="button" class="btn primary" data-act="mpShare">Teilen…</button>` : ''}
-    <button type="button" class="btn ${canShare ? '' : 'primary'}" data-act="mpSave">Bild speichern</button>
-    ${navigator.clipboard && window.ClipboardItem ? '<button type="button" class="btn" data-act="mpCopy">Kopieren</button>' : ''}`;
-  Dlg.open(`Tagesplan ${esc(m.name)}`, body, footer, () => true);
-  Dlg.plan = { cv, fname, title: `Tagesplan ${m.name} ${fmtDate(d)}` };
+      <button type="button" class="btn small" data-act="mpNav" data-d="1" data-id="${mid}" data-date="${d}">▶</button></div>`;
+  showImage(`Tagesplan ${m.name}`, drawDayPlan(mid, d), `Tagesplan_${m.name.replace(/[^\wäöüÄÖÜ.-]+/g, '_')}_${d}.png`, `Tagesplan ${m.name} ${fmtDate(d)}`, nav);
 }
 async function machinePlanOut(kind) {
   const { cv, fname, title } = Dlg.plan || {}; if (!cv) return;
@@ -1263,175 +1321,305 @@ function exportCsv() {
     const d = a.erledigtAm || a.datum || ''; return d >= von && d <= bis;
   }).sort((x, y) => (x.erledigtAm || '').localeCompare(y.erledigtAm || ''));
   if (!list.length) { toast('Keine passenden erledigten Aufträge.'); return; }
-  const head = ['Auftrag-Nr', 'Datum', 'Kunden-Nr', 'Kunde', 'Ort Kunde', 'Arbeit', 'Kultur', 'Art.-Nr', 'Maschine', 'Fläche ha', 'Stunden h', 'Verrechnungsmenge', 'Einheit', 'Ansatz CHF', 'Betrag CHF', 'Status', 'Bemerkung'];
+  const head = ['Auftrag-Nr', 'Datum', 'Kunden-Nr', 'Kunde', 'Ort Kunde', 'Arbeit', 'Kultur', 'Feld', 'Produkte', 'Art.-Nr', 'Maschine', 'Fläche ha', 'Stunden h', 'Verrechnungsmenge', 'Einheit', 'Ansatz CHF', 'Betrag CHF', 'Status', 'Bemerkung'];
   const rows = [head];
   list.forEach(a => {
     const k = Store.get('kunden', a.kunde) || {}, m = maschine(a.maschine) || {};
     const fl = a.flaecheEff ?? a.flaeche, st = a.stundenEff ?? dauerOf(a);
     const menge = m.einheit === 'h' ? st : m.einheit === 'ha' ? fl : '';
     const betrag = m.ansatz && menge != null && menge !== '' ? Math.round(m.ansatz * menge * 100) / 100 : '';
-    rows.push([a.nr, a.erledigtAm || a.datum, k.nr, k.name, k.ort, a.arbeit, a.kultur, m.artNr, m.name, fl ?? '', st ?? '', menge ?? '', m.einheit, m.ansatz ?? '', betrag, STATUS[statusOf(a)], a.notiz]);
+    const prods = isSpray(a) ? [a.wasser ? `Wasser ${a.wasser} l/ha` : '', ...prodList(a).map(p => `${p.name} ${p.menge ?? ''} ${p.einheit || prodUnit(p.name)}/ha`)].filter(Boolean).join('; ') : '';
+    rows.push([a.nr, a.erledigtAm || a.datum, k.nr, k.name, k.ort, a.arbeit, a.kultur, isSpray(a) ? a.feld || '' : '', prods, m.artNr, m.name, fl ?? '', st ?? '', menge ?? '', m.einheit, m.ansatz ?? '', betrag, STATUS[statusOf(a)], a.notiz]);
   });
   const csv = '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n');
   download(`Lohnarbeiten_${von}_bis_${bis}.csv`, csv, 'text/csv;charset=utf-8');
   if (mark) { list.forEach(a => { if (statusOf(a) === 'erledigt') { a.status = 'verrechnet'; a.upd = Date.now(); } }); Store.save(); Sync.schedule(); App.render(); }
   toast(`${list.length} Aufträge exportiert`);
 }
-/* ================= Diktat: gesprochenen Satz in Auftragsfelder zerlegen ================= */
-const Dict = (() => {
-  const MONTHS = ['januar', 'februar', 'maerz', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'dezember'];
-  const WDAYS = ['sonntag', 'montag', 'dienstag', 'mittwoch', 'donnerstag', 'freitag', 'samstag'];
-  const ONES = ['', 'ein', 'zwei', 'drei', 'vier', 'fuenf', 'sechs', 'sieben', 'acht', 'neun'];
-  const TEENS = { 10: 'zehn', 11: 'elf', 12: 'zwoelf', 13: 'dreizehn', 14: 'vierzehn', 15: 'fuenfzehn', 16: 'sechzehn', 17: 'siebzehn', 18: 'achtzehn', 19: 'neunzehn' };
-  const TENS = { 20: 'zwanzig', 30: 'dreissig', 40: 'vierzig', 50: 'fuenfzig', 60: 'sechzig', 70: 'siebzig', 80: 'achtzig', 90: 'neunzig' };
-  const card = n => n < 10 ? ONES[n] : n < 20 ? TEENS[n] : (n % 10 ? ONES[n % 10] + 'und' : '') + TENS[n - n % 10];
-  const NUMW = {}; for (let n = 1; n < 100; n++) NUMW[card(n)] = n;
-  Object.assign(NUMW, { eins: 1, eine: 1, einen: 1, einer: 1, hundert: 100, null: 0 });
-  const ORD = {}; // erste(n) … einunddreissigste(n)
-  for (let n = 1; n <= 31; n++) {
-    const w = n === 1 ? 'erste' : n === 3 ? 'dritte' : n === 7 ? 'siebte' : n === 8 ? 'achte' : n < 20 ? card(n) + 'te' : card(n) + 'ste';
-    ORD[w] = n;
-  }
-  const norm2 = s => String(s || '').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').replace(/[éè]/g, 'e');
-  const tokens = s => norm2(s).split(/[^a-z0-9.]+/).filter(Boolean);
-  function lev(a, b) {
-    if (a === b) return 0; const m = a.length, n = b.length; if (!m || !n) return m || n;
-    let prev = Array.from({ length: n + 1 }, (_, j) => j);
-    for (let i = 1; i <= m; i++) { const cur = [i]; for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; }
-    return prev[n];
-  }
-  const sim = (a, b) => a === b ? 1 : 1 - lev(a, b) / Math.max(a.length, b.length);
-  // Zahlwörter → Ziffern («viereinhalb» → 4.5, «vier komma fünf» → 4.5)
-  function wordNum(w) {
-    if (/^\d+(\.\d+)?$/.test(w)) return +w;
-    if (w === 'anderthalb' || w === 'eineinhalb') return 1.5;
-    if (w === 'halb' || w === 'halbe' || w === 'halben') return 0.5;
-    const h = /^(.+)einhalb$/.exec(w); if (h && NUMW[h[1]] != null) return NUMW[h[1]] + 0.5;
-    return NUMW[w] ?? null;
-  }
-  function numbersToDigits(t) {
-    const tk = t.split(' '), out = [];
-    for (let i = 0; i < tk.length; i++) {
-      let v = wordNum(tk[i]);
-      if (v != null && tk[i + 1] === 'komma') { // «vier komma fünf (null)»
-        let dec = '', j = i + 2;
-        while (j < tk.length) { const d = wordNum(tk[j]); if (d == null || d > 99) break; dec += String(d); j++; }
-        if (dec) { out.push(`${v}.${dec}`); i = j - 1; continue; }
-      }
-      out.push(v != null && !/^\d/.test(tk[i]) ? String(v) : tk[i]);
-    }
-    return out.join(' ');
-  }
-  const nextWeekday = (from, wd, strict = true) => { const d = new Date(from); let k = (wd - d.getDay() + 7) % 7; if (k === 0 && strict) k = 7; d.setDate(d.getDate() + k); return d; };
-  function findDate(t) {
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    let m;
-    const mk = (d, mo, y) => { let dt = new Date(y || today.getFullYear(), mo, d); if (!y && dt < today) dt = new Date(today.getFullYear() + 1, mo, d); return dt; };
-    if ((m = /\b(\d{1,2})\.\s?(\d{1,2})\.(?:\s?(\d{2,4}))?/.exec(t)) && +m[2] >= 1 && +m[2] <= 12) return { d: mk(+m[1], +m[2] - 1, m[3] ? (+m[3] < 100 ? 2000 + +m[3] : +m[3]) : 0), hit: m[0] };
-    const monRe = MONTHS.join('|'), ordRe = Object.keys(ORD).sort((a, b) => b.length - a.length).join('|');
-    if ((m = new RegExp(`\\b(\\d{1,2})\\.?\\s*(${monRe})\\b(?:\\s+(\\d{4}))?`).exec(t))) return { d: mk(+m[1], MONTHS.indexOf(m[2]), +m[3] || 0), hit: m[0] };
-    if ((m = new RegExp(`\\b(${ordRe})[nrms]?\\s+(${monRe})\\b`).exec(t))) return { d: mk(ORD[m[1]], MONTHS.indexOf(m[2])), hit: m[0] };
-    if ((m = /\bueber\s?morgen\b/.exec(t))) return { d: addDays(today, 2), hit: m[0] };
-    if ((m = /\bmorgen\b/.exec(t))) return { d: addDays(today, 1), hit: m[0] };
-    if ((m = /\bheute\b/.exec(t))) return { d: today, hit: m[0] };
-    if ((m = /\bin\s+(\d+)\s+(tag|tagen|woche|wochen)\b/.exec(t))) return { d: addDays(today, +m[1] * (m[2].startsWith('woche') ? 7 : 1)), hit: m[0] };
-    if ((m = /\bende\s+(der\s+)?(naechste[nr]?\s+)?woche\b/.exec(t))) { const f = nextWeekday(today, 5, false); return { d: m[2] ? addDays(f, 7) : f, hit: m[0] }; }
-    if ((m = /\b(anfang\s+)?(ueber)?naechste[nr]?\s+woche\b/.exec(t))) return { d: addDays(mondayOf(today), m[2] ? 14 : 7), hit: m[0] };
-    if ((m = new RegExp(`\\b(naechste[nrms]?\\s+|kommende[nrms]?\\s+)?(${WDAYS.join('|')})\\b`).exec(t))) return { d: nextWeekday(today, WDAYS.indexOf(m[2]), true), hit: m[0] };
-    return null;
-  }
-  // bestes Listen-Element (Arbeitsart/Kultur) im Text: ganze Wörter, Wortstamm oder kleine Abweichung
-  function findListItem(list, tk) {
-    let best = null;
-    const nameTk = new Set(Store.all('kunden').flatMap(k => tokens(k.name)));
-    list.forEach(item => {
-      const words = tokens(item); if (!words.length) return;
-      const ok = words.every(w => tk.some(x => x === w || (!nameTk.has(x) && w.length >= 5 && x.length >= 4 && (x.startsWith(w.slice(0, Math.max(4, w.length - 2))) || sim(x, w) >= 0.8))));
-      const score = words.join('').length;
-      if (ok && (!best || score > best.score)) best = { item, score, words };
-    });
-    return best;
-  }
-  function findKunde(tk, used) {
-    const free = tk.filter(x => !used.has(x));
-    const res = Store.all('kunden').map(k => {
-      if (k.nr && free.includes(norm2(k.nr))) return { k, score: 2 };
-      const nameTk = tokens(k.name).filter(w => w.length >= 2 && !['ag', 'gmbh', 'und', 'von', 'der', 'die'].includes(w));
-      if (!nameTk.length) return { k, score: 0 };
-      let hit = 0, len = 0;
-      nameTk.forEach(w => { const s = Math.max(...free.map(x => sim(x, w)), 0); if (s >= (w.length <= 4 ? 1 : 0.8)) { hit++; len += w.length; } });
-      return { k, score: hit / nameTk.length + (hit ? len / 100 : 0), hit };
-    }).filter(r => r.score >= 0.5 && (r.score >= 2 || r.hit >= 1)).sort((a, b) => b.score - a.score);
-    if (!res.length) return { none: true };
-    const top = res.filter(r => Math.abs(r.score - res[0].score) < 0.001);
-    return top.length > 1 ? { ambiguous: top.map(r => r.k) } : { kunde: res[0].k };
-  }
-  function parse(raw) {
-    let text = String(raw || '').trim(), notiz = '';
-    const rm = /\b(Bemerkung(?:en)?|Notiz|Hinweis|Info)\b[:\s,]*(.*)$/is.exec(text);
-    if (rm) { notiz = rm[2].trim(); text = text.slice(0, rm.index).trim(); }
-    let t = norm2(text).replace(/(\d),(\d)/g, '$1.$2').replace(/[;,!?]/g, ' , ').replace(/\s+/g, ' ');
-    t = numbersToDigits(t);
-    const out = { notiz }, drop = new Set();
-    const eat = hit => { tokens(hit).forEach(x => drop.add(x)); t = t.replace(hit, ' , '); };
-    // Fläche zuerst (Zahl + Einheit), damit «4.5 ha» nicht als Datum gilt
-    let m = /\b(\d+(?:\.\d+)?)\s*(ha|hektar(?:e|en)?|hectare?n?)\b/.exec(t);
-    if (m) { out.flaeche = +m[1]; eat(m[0]); }
-    else if ((m = /\b(\d+(?:\.\d+)?)\s*(aren|are)\b/.exec(t))) { out.flaeche = +m[1] / 100; eat(m[0]); }
-    else if ((m = /\b(?:flaeche|feld)\s*(\d+(?:\.\d+)?)\b/.exec(t))) { out.flaeche = +m[1]; eat(m[0]); }
-    if ((m = /\b(\d+(?:\.\d+)?)\s*(stunden|stunde|std|h)\b/.exec(t))) { out.stunden = +m[1]; eat(m[0]); }
-    const dt = findDate(t); if (dt) { out.wunsch = isoDate(dt.d); eat(dt.hit); }
-    if (out.flaeche == null) { // einzelne Zahl ohne Einheit → Fläche
-      const nums = tokens(t).filter(x => /^\d+(\.\d+)?$/.test(x) && +x !== 1 && +x <= 500);
-      if (nums.length === 1 && !Store.all('kunden').some(k => norm2(k.nr) === nums[0])) { out.flaeche = +nums[0]; drop.add(nums[0]); }
-    }
-    const tk = tokens(t);
-    const used = new Set();
-    const ar = findListItem(Lists.arbeitsarten(), tk); if (ar) { out.arbeit = ar.item; ar.words.forEach(w => tk.filter(x => x === w || x.startsWith(w.slice(0, 4))).forEach(x => used.add(x))); }
-    const ku = findListItem(Lists.kulturen(), tk.filter(x => !used.has(x))); if (ku) { out.kultur = ku.item; ku.words.forEach(w => tk.filter(x => x === w || x.startsWith(w.slice(0, 4))).forEach(x => used.add(x))); }
-    out.kundeRes = findKunde(tk, used);
-    // Übrige Wörter (in Originalschreibweise): zusammenhängende Gruppen, Füllwörter nur am Rand entfernt
-    const filler = /^(fuer|bei|beim|am|an|ab|bis|auf|der|die|das|den|dem|des|ein|eine|einen|einem|und|mit|von|vom|zu|zum|im|in|ist|sind|kunde|kundin|auftrag|neuer|neu|wunsch|wunschtermin|wunschdatum|termin|datum|arbeit|kultur|flaeche|bitte|ca|circa|etwa|ungefaehr|so|es|soll|sollte|wird|werden|machen|gemacht|ha|hektar|hektaren|hektare|komma|stunden|stunde|std)$/;
-    const kNames = out.kundeRes.kunde ? [out.kundeRes.kunde] : (out.kundeRes.ambiguous || []);
-    const kTk = kNames.flatMap(k => tokens(k.name));
-    const hard = x => drop.has(x) || used.has(x) || wordNum(x) != null || /^\d/.test(x) || ORD[x.replace(/[nrms]$/, '')] || MONTHS.includes(x) || WDAYS.includes(x)
-      || kTk.some(w => sim(x, w) >= 0.8) || kNames.some(k => x === norm2(k.nr));
-    const words = text.split(/\s+/).filter(Boolean).map((w, idx) => {
-      const tt = tokens(w.replace(/(\d),(\d)/g, '$1.$2'));
-      return { w, idx, hard: !tt.length || tt.every(hard), soft: tt.length && tt.every(x => filler.test(x)) };
-    });
-    const runs = []; let cur = [];
-    words.forEach(x => { if (x.hard) { if (cur.length) runs.push(cur); cur = []; } else cur.push(x); });
-    if (cur.length) runs.push(cur);
-    const groups = runs.map(r => { while (r.length && r[0].soft) r.shift(); while (r.length && r[r.length - 1].soft) r.pop(); return r; })
-      .filter(r => r.some(x => !x.soft))
-      .map(r => ({ start: r[0].idx, text: r.map(x => x.w).join(' ').replace(/^[,.;:]+|[,;:]+$/g, '').trim() })).filter(g => g.text);
-    // unbekannter Kunde: Wortgruppe am Satzanfang als Name vorschlagen
-    if (out.kundeRes.none && groups.length && words.slice(0, groups[0].start).every(x => x.soft)) out.kundeText = groups.shift().text;
-    if (!notiz && groups.length) out.notizAuto = groups.map(g => g.text).join(', ');
-    return out;
-  }
-  return { parse };
-})();
+/* ================= Modul Spritzen ================= */
+const PROD_EINHEITEN = ['l', 'kg', 'g', 'ml'];
+const isSprayName = s => /spritz|pflanzenschutz/i.test(s || '');
+const isSpray = a => !!a && isSprayName(a.arbeit);
+const sprayArbeit = () => Lists.arbeitsarten().find(isSprayName) || 'Spritzen';
+const prodUnit = name => (Lists.produkte().find(p => p.name === name) || {}).einheit || 'l';
+const prodList = a => (a.produkte || []).filter(p => p.name);
+const prodNames = a => prodList(a).map(p => p.name);
+const r2 = n => Math.round(n * 100) / 100;
+// Anzeige in der Planung: nur Produktnamen, ohne Aufwandmengen
+function sprayShort(a) {
+  if (!isSpray(a)) return '';
+  const parts = [];
+  if (a.feld) parts.push(`Feld ${esc(a.feld)}`);
+  if (prodNames(a).length) parts.push('🧪 ' + prodNames(a).map(esc).join(', '));
+  return parts.length ? `<div class="prods">${parts.join(' · ')}</div>` : '';
+}
+// Detail mit Mengen (Modul Spritzen, Tagesplan-Bild)
+function sprayRows(a) {
+  const fl = a.flaeche || 0, rows = [];
+  if (a.wasser) rows.push({ name: 'Wasser', ha: `${fmtNum(a.wasser)} l/ha`, tot: fl ? `${fmtNum(r2(a.wasser * fl))} l` : '' });
+  prodList(a).forEach(p => { const u = p.einheit || prodUnit(p.name); rows.push({ name: p.name, ha: p.menge != null ? `${fmtNum(p.menge)} ${u}/ha` : '–', tot: fl && p.menge != null ? `${fmtNum(r2(p.menge * fl))} ${u}` : '' }); });
+  return rows;
+}
+function sprayTable(a) {
+  const rows = sprayRows(a); if (!rows.length) return '';
+  return `<table class="stab"><tbody>${rows.map(r => `<tr><td>${esc(r.name)}</td><td>${esc(r.ha)}</td><td><b>${esc(r.tot)}</b></td></tr>`).join('')}</tbody></table>`;
+}
 
-// Diktat ins Auftragsformular übernehmen und Ergebnis anzeigen
-function applyDictation() {
-  const f = Dlg.form, txt = f.diktat.value.trim();
-  if (!txt) { toast('Zuerst ins Feld tippen und auf das Mikrofon der Tastatur – dann sprechen.', 4000); f.diktat.focus(); return; }
-  const r = Dict.parse(txt), lines = [];
-  const ok = (l, v) => lines.push(`<li class="ok">✓ ${l}: <b>${esc(v)}</b></li>`), bad = (l, v) => lines.push(`<li class="bad">⚠ ${l}: ${v}</li>`);
-  if (r.kundeRes.kunde) { f.kunde.value = kundeLabel(r.kundeRes.kunde); f.kunde.dispatchEvent(new Event('input')); ok('Kunde', kundeLabel(r.kundeRes.kunde)); }
-  else if (r.kundeRes.ambiguous) bad('Kunde', 'mehrere passen – bitte wählen: ' + r.kundeRes.ambiguous.slice(0, 5).map(k => `<a href="#" data-act="dictKunde" data-id="${k.id}">${esc(kundeLabel(k))}</a>`).join(' · '));
-  else if (r.kundeText) { f.kunde.value = r.kundeText; f.kunde.dispatchEvent(new Event('input')); bad('Kunde', `«${esc(r.kundeText)}» ist noch nicht erfasst – mit <a href="#" data-act="quickKunde">＋ neu erfassen</a> oder anderen wählen`); }
-  else bad('Kunde', 'nicht erkannt – im Feld wählen oder mit ＋ neu erfassen');
-  if (r.arbeit) { f.arbeit.value = r.arbeit; f.arbeit.dispatchEvent(new Event('change')); ok('Arbeit', r.arbeit); } else bad('Arbeit', 'nicht erkannt – bitte wählen');
-  if (r.kultur) { f.kultur.value = r.kultur; ok('Kultur', r.kultur); }
-  if (r.flaeche != null) { f.flaeche.value = r.flaeche; f.flaeche.dispatchEvent(new Event('input')); ok('Fläche', fmtNum(r.flaeche) + ' ha'); }
-  if (r.stunden != null) { f.dauer.value = r.stunden; f.dauer.dispatchEvent(new Event('input')); ok('Dauer', hrs(r.stunden)); }
-  if (r.wunsch) { f.wunsch.value = r.wunsch; ok('Wunschdatum', fmtDate(r.wunsch, { weekday: 'short', day: 'numeric', month: 'long' })); }
-  const note = r.notiz || r.notizAuto;
-  if (note) { const cur = f.notiz.value.trim(); if (!cur.includes(note)) f.notiz.value = cur ? cur + ' ' + note : note; ok('Bemerkung', note); }
-  $('#dictRes', f).innerHTML = `<ul>${lines.join('')}</ul><p class="nr">Bitte kurz prüfen und dann speichern.</p>`;
+/* ---------- Auftragsdialog: Bereich Spritzen ---------- */
+const prodOptions = cur => { const names = Lists.produkte().map(p => p.name); return (cur && !names.includes(cur) ? [cur, ...names] : names).map(n => `<option ${n === cur ? 'selected' : ''}>${esc(n)}</option>`).join(''); };
+const prodRow = (p = {}) => `<div class="prow"><select class="input" name="pname"><option value="">— Produkt —</option>${prodOptions(p.name)}</select>
+  <input class="input" name="pmenge" inputmode="decimal" value="${p.menge ?? ''}" placeholder="Menge"><span class="u">${esc(p.name ? (p.einheit || prodUnit(p.name)) : 'l')}/ha</span>
+  <button type="button" class="x" data-act="prodDel" aria-label="Entfernen">×</button></div>`;
+function sprayBox(a) {
+  const ps = prodList(a);
+  return `<div class="box spraybox" id="sprayBox" ${isSpray(a) ? '' : 'hidden'}>
+    <h4>🧪 Spritzen</h4>
+    <div class="two">
+      <label class="fld"><span>Feld</span><input class="input" name="feld" value="${esc(a.feld || '')}" placeholder="z.B. Grossacker"></label>
+      <label class="fld"><span>Wassermenge (l/ha)</span><input class="input" name="wasser" inputmode="decimal" value="${a.wasser ?? ''}" placeholder="z.B. 200"></label>
+    </div>
+    <div class="fld" style="margin-bottom:6px"><span>Produkte und Aufwandmenge pro ha</span></div>
+    <div id="prodRows">${(ps.length ? ps : [{}]).map(prodRow).join('')}</div>
+    <div class="links" style="margin-top:4px"><a href="#" data-act="prodAdd">＋ weiteres Produkt</a><a href="#" data-act="prodNew">Neues Produkt erfassen</a></div>
+    <div id="sprayTot" class="sprtot"></div>
+  </div>`;
+}
+function readSpray(fd) {
+  const names = fd.getAll('pname'), mengen = fd.getAll('pmenge');
+  return {
+    feld: (fd.get('feld') || '').trim(), wasser: num(fd.get('wasser')),
+    produkte: names.map((n, i) => ({ name: n, menge: num(mengen[i]), einheit: n ? prodUnit(n) : '' })).filter(p => p.name)
+  };
+}
+function wireSpray(f) {
+  const box = $('#sprayBox', f); if (!box) return;
+  const upd = () => {
+    box.hidden = !isSprayName(f.arbeit.value);
+    $$('.prow', f).forEach(r => { const n = r.querySelector('select').value; r.querySelector('.u').textContent = (n ? prodUnit(n) : 'l') + '/ha'; });
+    const s = readSpray(new FormData(f)), fl = num(f.flaeche.value);
+    const tmp = { arbeit: 'Spritzen', flaeche: fl, ...s };
+    const rows = sprayRows(tmp).filter(r => r.tot);
+    $('#sprayTot', f).innerHTML = fl && rows.length ? `<b>Bedarf für ${fmtNum(fl)} ha:</b> ${rows.map(r => `${esc(r.name)} ${esc(r.tot)}`).join(' · ')}` : (rows.length || s.produkte.length ? '<span class="nr">Fläche eintragen, um den Bedarf zu berechnen.</span>' : '');
+  };
+  f.arbeit.addEventListener('change', upd);
+  f.addEventListener('input', e => { if (e.target.closest('#sprayBox') || e.target.name === 'flaeche') upd(); });
+  f.addEventListener('change', e => { if (e.target.name === 'pname') upd(); });
+  f._sprayUpd = upd; upd();
+}
+
+/* ---------- Kleines Zweitfenster (über einem offenen Dialog) ---------- */
+function smallDialog(title, body, okLabel, onSubmit) {
+  let d2 = $('#dlg2');
+  if (!d2) { d2 = document.createElement('dialog'); d2.id = 'dlg2'; document.body.appendChild(d2); }
+  d2.innerHTML = `<form id="dlg2Form"><div class="dh"><h2>${title}</h2><button type="button" class="x" data-k2="close" aria-label="Schliessen">×</button></div>
+    <div class="db">${body}</div>
+    <div class="df"><span class="spacer"></span><button type="button" class="btn" data-k2="close">Abbrechen</button><button type="submit" class="btn primary">${okLabel}</button></div></form>`;
+  const f2 = $('#dlg2Form');
+  f2.addEventListener('click', e => { if (e.target.closest('[data-k2="close"]')) d2.close(); });
+  f2.addEventListener('submit', e => { e.preventDefault(); if (onSubmit(new FormData(f2)) !== false) d2.close(); });
+  d2.showModal();
+  const first = f2.querySelector('input'); if (first && matchMedia('(pointer:fine)').matches) first.focus();
+}
+function newProductDialog() {
+  smallDialog('Neues Produkt', `<label class="fld"><span>Produktname *</span><input class="input" name="name" required></label>
+    <label class="fld"><span>Einheit</span><select class="input" name="einheit">${PROD_EINHEITEN.map(u => `<option>${u}</option>`).join('')}</select></label>`, 'Produkt speichern', fd => {
+    const name = fd.get('name').trim(); if (!name) return false;
+    if (Lists.produkte().some(p => norm(p.name) === norm(name))) { toast('Dieses Produkt gibt es schon'); return false; }
+    Store.setCfg({ produkte: [...Lists.produkte(), { name, einheit: fd.get('einheit') }] });
+    const f = Dlg.form;
+    if (Dlg.el.open && $('#prodRows', f)) {
+      $$('select[name="pname"]', f).forEach(s => { const v = s.value; s.innerHTML = `<option value="">— Produkt —</option>${prodOptions(v)}`; });
+      const empty = $$('select[name="pname"]', f).find(s => !s.value);
+      if (empty) empty.value = name; else { $('#prodRows', f).insertAdjacentHTML('beforeend', prodRow({ name })); }
+      f._sprayUpd && f._sprayUpd();
+    }
+    toast('Produkt erfasst');
+  });
+}
+function productsDialog() {
+  const row = (p, i) => `<div class="lrow"><span class="updown"><button type="button" class="x" data-act="lrowUp" aria-label="Nach oben">▲</button><button type="button" class="x" data-act="lrowDown" aria-label="Nach unten">▼</button></span>
+    <input class="input" name="v" value="${esc(p.name || '')}" data-orig="${i == null ? '' : esc(p.name)}" placeholder="Produktname">
+    <select class="input unit" name="u">${PROD_EINHEITEN.map(u => `<option ${u === (p.einheit || 'l') ? 'selected' : ''}>${u}</option>`).join('')}</select>
+    <button type="button" class="x" data-act="lrowDel" aria-label="Entfernen">×</button></div>`;
+  const body = `<div class="links" style="margin:0 0 10px"><a href="#" data-act="lrowSort">Alphabetisch sortieren</a></div>
+    <p class="nr" style="margin-top:0">Pflanzenschutz- und Düngerprodukte mit Einheit. Umbenennen ändert auch bestehende Spritzaufträge.</p>
+    <div id="lrows">${Lists.produkte().map((p, i) => row(p, i)).join('')}</div>
+    <button type="button" class="btn small" data-act="lrowAdd">＋ Produkt</button>`;
+  Dlg.open('Produkte', body, saveFooter(), () => {
+    const rows = $$('#lrows .lrow', Dlg.form).map(r => ({ el: r.querySelector('input'), name: r.querySelector('input').value.trim(), einheit: r.querySelector('select').value })).filter(r => r.name);
+    const seen = new Set(), list = rows.filter(r => !seen.has(norm(r.name)) && seen.add(norm(r.name)));
+    const ren = list.filter(r => r.el.dataset.orig && r.el.dataset.orig !== r.name).map(r => [r.el.dataset.orig, r.name]);
+    const units = Object.fromEntries(list.map(r => [r.name, r.einheit]));
+    const ch = Store.all('auftraege').filter(a => prodList(a).length).map(a => {
+      let changed = false;
+      const produkte = a.produkte.map(p => { const to = (ren.find(([f]) => f === p.name) || [])[1]; if (to) { changed = true; return { ...p, name: to, einheit: units[to] || p.einheit }; } return p; });
+      return changed ? { ...a, produkte } : null;
+    }).filter(Boolean);
+    if (ch.length) Store.putMany('auftraege', ch);
+    Store.setCfg({ produkte: list.map(r => ({ name: r.name, einheit: r.einheit })) }, { silent: false });
+    toast('Produkte gespeichert'); return true;
+  });
+  Dlg.form._row = (v, i) => row({ name: v }, i);
+}
+
+/* ---------- Ansicht «Spritzen» ---------- */
+function sprayDays() {
+  const S = App.spray, out = [];
+  let d = parseDate(S.von); const end = parseDate(S.bis < S.von ? S.von : S.bis);
+  while (d <= end && out.length < 62) { out.push(isoDate(d)); d = addDays(d, 1); }
+  return out;
+}
+function sprayNeed(days) { // { prods: [{name, einheit, perDay:{d:n}, tot}], wasser:{perDay,tot}, flaeche:{perDay,tot}, missing }
+  const prods = new Map(), wasser = { perDay: {}, tot: 0 }, flaeche = { perDay: {}, tot: 0 }; let missing = 0;
+  Store.all('auftraege').filter(a => isSpray(a) && isOpen(a) && a.datum && days.includes(a.datum)).forEach(a => {
+    const fl = a.flaeche; if (!fl) { missing++; return; }
+    flaeche.perDay[a.datum] = (flaeche.perDay[a.datum] || 0) + fl; flaeche.tot += fl;
+    if (a.wasser) { const w = a.wasser * fl; wasser.perDay[a.datum] = (wasser.perDay[a.datum] || 0) + w; wasser.tot += w; }
+    prodList(a).forEach(p => {
+      if (p.menge == null) return;
+      const u = p.einheit || prodUnit(p.name), key = p.name + '|' + u, v = p.menge * fl;
+      const e = prods.get(key) || { name: p.name, einheit: u, perDay: {}, tot: 0 };
+      e.perDay[a.datum] = (e.perDay[a.datum] || 0) + v; e.tot += v; prods.set(key, e);
+    });
+  });
+  const order = Lists.produkte().map(p => p.name);
+  const list = [...prods.values()].sort((x, y) => ((order.indexOf(x.name) + 1 || 999) - (order.indexOf(y.name) + 1 || 999)) || x.name.localeCompare(y.name, 'de'));
+  return { prods: list, wasser, flaeche, missing };
+}
+function sprayCard(a) {
+  const s = statusOf(a), m = maschine(a.maschine);
+  return `<article class="card" data-act="editOrder" data-id="${a.id}">
+    <div class="row1"><div class="title">${a.datum ? `<span class="tmx">${timeRange(a)}</span> ` : ''}${esc(kundeName(a.kunde))}</div><span class="badge ${s}">${STATUS[s]}</span></div>
+    <div class="sub">${a.feld ? `Feld <b>${esc(a.feld)}</b> · ` : ''}${a.kultur ? `<span class="kultur">${esc(a.kultur)}</span> · ` : ''}${a.flaeche ? fmtNum(a.flaeche) + ' ha' : '<span style="color:var(--warn)">Fläche fehlt</span>'}</div>
+    ${sprayTable(a) || '<div class="nr" style="margin-top:6px">Noch keine Produkte erfasst.</div>'}
+    ${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}
+    <div class="meta">${a.datum ? (m ? `<span class="chip">${esc(m.name)}</span>` : '<span class="chip warn">keine Maschine</span>') : `<span class="chip ${wishLate(a) ? 'warn' : ''}">${wishTxt(a)}</span>`}
+      <span class="nr" style="margin-left:auto">${esc(a.nr || '')}</span></div>
+    ${!a.datum ? `<div class="actions"><button class="btn small primary" data-act="planOrder" data-id="${a.id}">Einplanen</button></div>` : ''}
+  </article>`;
+}
+function sprayView() {
+  return {
+    toolbar() {
+      return `<h1>Spritzen</h1>
+        <button class="btn" data-act="prodManage">Produkte</button>
+        <button class="btn primary" data-act="newSpray">＋ Spritzauftrag</button>`;
+    },
+    content() {
+      const S = App.spray, days = sprayDays(), sel = days.filter(d => !S.off.has(d));
+      const need = sprayNeed(sel), showDays = sel.length > 1 && sel.length <= 7;
+      const dayHead = d => fmtDate(d, { weekday: 'short', day: '2-digit', month: '2-digit' });
+      const cell = (o, d, u) => o.perDay[d] ? `${fmtNum(r2(o.perDay[d]))}` : '';
+      const table = need.prods.length || need.wasser.tot
+        ? `<div class="tscroll"><table class="need"><thead><tr><th>Produkt</th>${showDays ? sel.map(d => `<th>${dayHead(d)}</th>`).join('') : ''}<th>Total</th><th></th></tr></thead><tbody>
+            ${need.prods.map(p => `<tr><td>${esc(p.name)}</td>${showDays ? sel.map(d => `<td>${cell(p, d)}</td>`).join('') : ''}<td><b>${fmtNum(r2(p.tot))}</b></td><td>${esc(p.einheit)}</td></tr>`).join('')}
+            ${need.wasser.tot ? `<tr class="water"><td>Wasser</td>${showDays ? sel.map(d => `<td>${cell(need.wasser, d)}</td>`).join('') : ''}<td><b>${fmtNum(r2(need.wasser.tot))}</b></td><td>l</td></tr>` : ''}
+            <tr class="area"><td>Fläche</td>${showDays ? sel.map(d => `<td>${cell(need.flaeche, d)}</td>`).join('') : ''}<td><b>${fmtNum(r2(need.flaeche.tot))}</b></td><td>ha</td></tr>
+          </tbody></table></div>`
+        : '<p class="nr">Für die ausgewählten Tage sind keine Spritzaufträge mit Produkten eingeplant.</p>';
+      const planned = Store.all('auftraege').filter(a => isSpray(a) && a.datum && sel.includes(a.datum) && statusOf(a) !== 'verrechnet')
+        .sort((x, y) => x.datum.localeCompare(y.datum) || (startOf(x) ?? 0) - (startOf(y) ?? 0));
+      const unpl = Store.all('auftraege').filter(a => isSpray(a) && isOpen(a) && !a.datum).sort((x, y) => (x.wunsch || '9999').localeCompare(y.wunsch || '9999'));
+      const noMachine = !Store.all('maschinen').some(m => m.aktiv !== false && (m.arbeitsarten || []).some(isSprayName));
+      const groups = sel.filter(d => planned.some(a => a.datum === d)).map(d => {
+        const list = planned.filter(a => a.datum === d), fl = list.reduce((s, a) => s + (a.flaeche || 0), 0);
+        return `<div class="section-h">${fmtDate(d, { weekday: 'long', day: 'numeric', month: 'long' })} · ${list.length} ${list.length > 1 ? 'Aufträge' : 'Auftrag'} · ${fmtNum(r2(fl))} ha</div>
+          <div class="list grid">${list.map(sprayCard).join('')}</div>`;
+      }).join('');
+      return `${noMachine ? '<div class="panel hintp">Tipp: Lege unter <b>Maschinen</b> eine Feldspritze mit der Arbeitsart «Spritzen» an – dann kannst du Spritzaufträge in der Planung einplanen.</div>' : ''}
+        <div class="cols"><div>
+          <div class="panel"><h2>Tage auswählen</h2>
+            <div class="two"><label class="fld"><span>Von</span><input class="input" type="date" value="${S.von}" data-in="spVon"></label>
+              <label class="fld"><span>Bis</span><input class="input" type="date" value="${S.bis}" data-in="spBis"></label></div>
+            <div class="seg" style="margin-bottom:10px">${[['heute', 'Heute'], ['morgen', 'Morgen'], ['woche', 'Diese Woche'], ['next', 'Nächste Woche']].map(([k, l]) => `<button type="button" data-act="spPreset" data-v="${k}">${l}</button>`).join('')}</div>
+            ${days.length > 1 ? `<div class="chips daychips">${days.map(d => `<label><input type="checkbox" data-in="spDay" value="${d}" ${S.off.has(d) ? '' : 'checked'}><span>${fmtDate(d, { weekday: 'short', day: 'numeric', month: 'numeric' })}</span></label>`).join('')}</div>` : ''}
+          </div>
+          <div class="panel"><h2>Produktbedarf</h2>
+            <p>${sel.length} ${sel.length === 1 ? 'Tag' : 'Tage'} · eingeplante, noch offene Spritzaufträge</p>
+            ${table}
+            ${need.missing ? `<p style="color:var(--warn)">⚠ ${need.missing} ${need.missing > 1 ? 'Aufträge ohne Fläche wurden' : 'Auftrag ohne Fläche wurde'} nicht mitgerechnet.</p>` : ''}
+            ${need.prods.length || need.wasser.tot ? `<div class="btns"><button class="btn" data-act="spImg">Als Bild teilen</button><button class="btn" data-act="spCsv">CSV</button></div>` : ''}
+          </div>
+        </div><div>
+          ${groups || '<div class="panel"><p>Keine Spritzaufträge an den ausgewählten Tagen eingeplant.</p></div>'}
+          ${unpl.length ? `<div class="section-h">Noch nicht eingeplant (${unpl.length})</div><div class="list grid">${unpl.map(sprayCard).join('')}</div>` : ''}
+        </div></div>`;
+    }
+  };
+}
+function sprayPreset(k) {
+  const t = new Date(); t.setHours(0, 0, 0, 0); let von = t, bis = t;
+  if (k === 'morgen') { von = bis = addDays(t, 1); }
+  if (k === 'woche') { von = mondayOf(t); bis = addDays(von, 6); }
+  if (k === 'next') { von = addDays(mondayOf(t), 7); bis = addDays(von, 6); }
+  App.spray.von = isoDate(von); App.spray.bis = isoDate(bis); App.spray.off.clear(); App.render();
+}
+function sprayNeedTable() {
+  const sel = sprayDays().filter(d => !App.spray.off.has(d)), need = sprayNeed(sel);
+  const rows = need.prods.map(p => [p.name, fmtNum(r2(p.tot)), p.einheit]);
+  if (need.wasser.tot) rows.push(['Wasser', fmtNum(r2(need.wasser.tot)), 'l']);
+  rows.push(['Fläche', fmtNum(r2(need.flaeche.tot)), 'ha']);
+  const range = sel.length === 1 ? fmtDate(sel[0], { weekday: 'long', day: 'numeric', month: 'long' }) : `${fmtDate(sel[0], { day: 'numeric', month: 'short' })} – ${fmtDate(sel[sel.length - 1], { day: 'numeric', month: 'short', year: 'numeric' })} (${sel.length} Tage)`;
+  return { sel, need, rows, range };
+}
+function sprayCsv() {
+  const { sel, need } = sprayNeedTable();
+  const head = ['Produkt', ...sel, 'Total', 'Einheit'];
+  const line = (n, o, u) => [n, ...sel.map(d => o.perDay[d] ? r2(o.perDay[d]) : ''), r2(o.tot), u];
+  const rows = [head, ...need.prods.map(p => line(p.name, p, p.einheit))];
+  if (need.wasser.tot) rows.push(line('Wasser', need.wasser, 'l'));
+  rows.push(line('Fläche', need.flaeche, 'ha'));
+  download(`Produktbedarf_${sel[0]}_bis_${sel[sel.length - 1]}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+}
+function sprayImage() {
+  const { rows, range, sel } = sprayNeedTable();
+  const W = 1080, P = 48, F = (w, s) => `${w} ${s}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+  const cv = document.createElement('canvas'), ctx = cv.getContext('2d');
+  cv.width = W; cv.height = 190 + 40 + rows.length * 64 + 90;
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, cv.height);
+  ctx.fillStyle = '#2f6b3a'; ctx.fillRect(0, 0, W, 190);
+  ctx.font = F('600', 30); ctx.fillStyle = '#d9ead9'; ctx.fillText('Produktbedarf Spritzen', P, 62);
+  ctx.font = F('700', 44); ctx.fillStyle = '#fff'; ctx.fillText(range, P, 128);
+  let y = 230;
+  rows.forEach(([n, v, u], i) => {
+    if (i % 2 === 0) { ctx.fillStyle = '#f6f5f1'; ctx.fillRect(0, y - 44, W, 64); }
+    const total = n === 'Fläche';
+    ctx.font = F(total ? '600' : '500', 34); ctx.fillStyle = total ? '#5c625d' : '#1d211e'; ctx.fillText(n, P, y);
+    ctx.font = F('700', 36); ctx.textAlign = 'right'; ctx.fillStyle = '#1d211e'; ctx.fillText(v, W - P - 110, y);
+    ctx.font = F('500', 32); ctx.textAlign = 'left'; ctx.fillStyle = '#5c625d'; ctx.fillText(u, W - P - 90, y);
+    y += 64;
+  });
+  ctx.font = F('400', 22); ctx.fillStyle = '#5c625d'; ctx.fillText(`Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · Lohnarbeit-Planer`, P, y + 30);
+  showImage('Produktbedarf', cv, `Produktbedarf_${sel[0]}_bis_${sel[sel.length - 1]}.png`, `Produktbedarf ${range}`);
+}
+function showImage(title, cv, fname, shareTitle, topHtml = '') {
+  const canShare = !!(navigator.canShare && navigator.share);
+  const body = `${topHtml}<img class="planimg" alt="${esc(title)}" src="${cv.toDataURL('image/png')}">`;
+  const footer = `<span class="spacer"></span>
+    ${canShare ? `<button type="button" class="btn primary" data-act="mpShare">Teilen…</button>` : ''}
+    <button type="button" class="btn ${canShare ? '' : 'primary'}" data-act="mpSave">Bild speichern</button>
+    ${navigator.clipboard && window.ClipboardItem ? '<button type="button" class="btn" data-act="mpCopy">Kopieren</button>' : ''}`;
+  Dlg.open(esc(title), body, footer, () => true);
+  Dlg.plan = { cv, fname, title: shareTitle || title };
+}
+
+/* ---------- Langes Drücken auf freie Stelle: passende, nicht eingeplante Aufträge ---------- */
+function pickerDialog(d, mid, minute, all = false) {
+  const m = maschine(mid);
+  const list = Store.all('auftraege').filter(a => isOpen(a) && !a.datum && (all || !m || fits(m, a.arbeit)))
+    .sort((x, y) => (x.wunsch || '9999').localeCompare(y.wunsch || '9999') || (x.nr || '').localeCompare(y.nr || ''));
+  const hidden = all ? 0 : Store.all('auftraege').filter(a => isOpen(a) && !a.datum).length - list.length;
+  const where = `${fmtDate(d, { weekday: 'short', day: '2-digit', month: '2-digit' })}${minute != null ? ' · ab ' + fromMin(Math.round(minute / 15) * 15) : ''} · ${esc(m ? m.name : 'ohne Maschine')}`;
+  const body = `<p style="margin-top:0" class="nr">${where}${m && !all && (m.arbeitsarten || []).length ? ` · nur ${esc(m.arbeitsarten.join(', '))}` : ''}</p>
+    ${list.length ? `<div class="rows">${list.map(a => `<div class="rowi" data-act="pickPlace" data-id="${a.id}">
+        <div class="grow"><div class="t">${esc(kundeName(a.kunde))}</div>
+          <div class="s">${artKultur(a)}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}${(defaultDauer(m, a.flaeche) ?? a.dauer) ? ` · ${hrs(defaultDauer(m, a.flaeche) ?? a.dauer)}` : ''}</div>
+          ${sprayShort(a)}${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}</div>
+        <span class="chip ${wishLate(a) ? 'warn' : ''}">${a.wunsch ? fmtDate(a.wunsch) : 'kein Wunsch'}</span></div>`).join('')}</div>`
+      : `<div class="empty" style="padding:20px">Keine passenden Aufträge offen.</div>`}
+    <div class="links" style="margin-top:12px">${hidden > 0 ? `<a href="#" data-act="pickAll">Alle ${hidden + list.length} offenen anzeigen</a>` : ''}<a href="#" data-act="pickNew">＋ Neuer Auftrag hier</a></div>`;
+  Dlg.open('Auftrag einsetzen', body, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button>`, () => true);
+  Dlg.pick = { d, mid, minute };
 }
 
 function pickFile(accept) {
@@ -1527,8 +1715,19 @@ document.addEventListener('click', async e => {
     case 'done': e.stopPropagation(); doneDialog(id); break;
     case 'unplan': f.datum.value = ''; f.zeit.value = ''; toast('Beim Speichern wird die Einplanung entfernt'); break;
     case 'quickKunde': quickKundeDialog(); break;
-    case 'dictParse': applyDictation(); break;
-    case 'dictKunde': { const k = Store.get('kunden', id); if (k) { f.kunde.value = kundeLabel(k); f.kunde.dispatchEvent(new Event('input')); t.closest('li').innerHTML = `✓ Kunde: <b>${esc(kundeLabel(k))}</b>`; } break; }
+    case 'dayView': App.plan.mode = 'tag'; ls('lp_pmode', 'tag'); App.plan.date = parseDate(t.dataset.d); App.resetScroll = true; App.render(); break;
+    case 'weekView': App.plan.mode = 'woche'; ls('lp_pmode', 'woche'); App.resetScroll = true; App.render(); break;
+    case 'pickPlace': { const p = Dlg.pick; Dlg.close(); placeFromPicker(id, p.d, p.mid, p.minute); break; }
+    case 'pickAll': { const p = Dlg.pick; pickerDialog(p.d, p.mid, p.minute, true); break; }
+    case 'pickNew': { const p = Dlg.pick; Dlg.close(); orderDialog(null, { pre: { datum: p.d, maschine: p.mid, zeit: p.minute != null ? fromMin(Math.round(p.minute / 15) * 15) : '' } }); break; }
+    case 'newSpray': orderDialog(null, { arbeit: sprayArbeit() }); break;
+    case 'prodManage': productsDialog(); break;
+    case 'prodAdd': $('#prodRows', f).insertAdjacentHTML('beforeend', prodRow()); break;
+    case 'prodDel': { const r = t.closest('.prow'); if ($$('.prow', f).length > 1) r.remove(); else { r.querySelector('select').value = ''; r.querySelector('input').value = ''; } f._sprayUpd && f._sprayUpd(); break; }
+    case 'prodNew': newProductDialog(); break;
+    case 'spPreset': sprayPreset(t.dataset.v); break;
+    case 'spCsv': sprayCsv(); break;
+    case 'spImg': sprayImage(); break;
     case 'dauerReset': f.dauer.value = ''; f.dauer.dispatchEvent(new Event('input')); break;
     case 'dupOrder': {
       const a = structuredClone(Store.get('auftraege', id));
@@ -1588,6 +1787,9 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('change', e => {
   const k = e.target.dataset.in; if (!k) return;
+  if (k === 'spVon' && e.target.value) { App.spray.von = e.target.value; if (App.spray.bis < App.spray.von) App.spray.bis = App.spray.von; App.render(); return; }
+  if (k === 'spBis' && e.target.value) { App.spray.bis = e.target.value; if (App.spray.bis < App.spray.von) App.spray.von = App.spray.bis; App.render(); return; }
+  if (k === 'spDay') { if (e.target.checked) App.spray.off.delete(e.target.value); else App.spray.off.add(e.target.value); App.render(); return; }
   if (k === 'mpDate' && e.target.value) { machinePlanDialog(e.target.dataset.id, e.target.value); return; }
   if (k === 'pDate' && e.target.value) { App.plan.date = parseDate(e.target.value); App.render(); }
   if (k === 'cfg') {

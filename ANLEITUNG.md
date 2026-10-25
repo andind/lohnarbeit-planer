@@ -86,24 +86,19 @@ Auf jedem Gerät **mit derselben Dropbox** anmelden. Die Anmeldung bleibt besteh
   danach gleich übernommen. Neue Arbeitsarten und Kulturen legst du unter *Mehr* an.
   Wer gleich einplanen will, klappt **Direkt einplanen** auf (Datum, Maschine; die Dauer wird vorgeschlagen
   und kann überschrieben werden).
-- **Diktieren:** Im neuen Auftrag oben ins Feld «🎤 Diktieren» tippen, am iPhone das **Mikrofon der Tastatur**
-  antippen (am PC **Windows-Taste + H**) und den Auftrag in einem Satz sprechen, z.B.
-  «Müller Fritz, säen, Weizen, 4,5 Hektaren, nächsten Dienstag, Bemerkung Saatgut liegt beim Hof».
-  Dann **«Felder ausfüllen»** – die App erkennt:
-  - Kunde (aus deiner Kundenliste, auch nur mit Nachnamen; bei mehreren Treffern zum Antippen),
-  - Arbeit und Kultur (aus deinen Listen),
-  - Fläche («4,5 Hektaren», «viereinhalb Hektar», «12 ha»; eine Zahl ohne Einheit gilt als Hektaren),
-  - Dauer («zweieinhalb Stunden»),
-  - Wunschdatum («heute», «morgen», «übermorgen», «Freitag», «nächsten Dienstag», «nächste Woche»,
-    «Ende Woche», «in 3 Tagen», «am dritten November», «5.11.»),
-  - Bemerkung: alles nach «Bemerkung …» bzw. «Notiz …» sowie übrige Satzteile.
-  Unbekannte Kunden werden vorgeschlagen und lassen sich mit ＋ gleich erfassen. Danach kurz prüfen und speichern.
-  Hochdeutsch wird am zuverlässigsten erkannt.
 - **Planung:** Tages- oder Wochenansicht, die in Saison verfügbaren Maschinen stehen nebeneinander –
   in der Reihenfolge ihrer **Priorität** (unter *Maschinen* mit ▲▼ festlegen, oder Zahl im Maschinen-Dialog).
   Rechts (am iPhone unten) stehen die noch nicht eingeplanten Aufträge mit Wunschdatum und Bemerkung;
   überfällige Wunschdaten sind orange markiert. Die Kultur ist grün hervorgehoben.
   - **Tagesansicht:** senkrechte Zeitachse 0–24 Uhr; jeder Auftrag ist ein Block von Start bis Ende.
+  - **Umschalten:** in der Woche auf einen **Wochentag** tippen → Tagesansicht dieses Tages;
+    in der Tagesansicht auf die **Zeitskala** (links) tippen → Wochenansicht.
+  - **Einfügen:** einen Auftrag auf einen anderen ziehen – obere Hälfte = davor, untere Hälfte = danach
+    (in der Woche: auf eine Karte ziehen = davor). Alle folgenden Aufträge rutschen nach hinten.
+  - **Langes Drücken auf eine freie Stelle** (am PC: Maustaste halten oder Rechtsklick) öffnet die noch
+    nicht eingeplanten Aufträge, gefiltert nach den Arbeitsarten dieser Maschine und sortiert nach Wunschdatum.
+    Antippen setzt den Auftrag an dieser Stelle ein. «Alle anzeigen» hebt den Filter auf, «＋ Neuer Auftrag hier»
+    erfasst direkt einen neuen Auftrag für diese Maschine und Uhrzeit.
   - **Wochenansicht:** pro Maschine und Tag eine kleine 24-Stunden-Leiste und die Aufträge mit Uhrzeit.
   - **Andocken (Magnet):** Beim Ablegen in der Tagesansicht rastet ein Auftrag ein, wenn er bis 30 Minuten
     neben dem Ende eines anderen Auftrags, dem Arbeitsbeginn oder so liegt, dass er bündig vor dem nächsten endet.
@@ -124,6 +119,16 @@ Auf jedem Gerät **mit derselben Dropbox** anmelden. Die Anmeldung bleibt besteh
     In der Tagesansicht wird die Zeitachse gestreckt, in der Wochenansicht der ganze Kalender.
   - Die Maschinennamen bleiben beim Scrollen oben stehen, die Tage bzw. Uhrzeiten links.
   - Filter: nach Arbeitsart oder «nur belegte Maschinen».
+- **Spritzen (eigenes Modul):** Ein Auftrag mit der Arbeit «Spritzen» hat zusätzlich **Feld, Wassermenge (l/ha)**
+  und **Produkte mit Aufwandmenge pro ha**. Die App rechnet den Bedarf für die Fläche gleich aus.
+  - Lege unter *Maschinen* eine Feldspritze mit der Arbeitsart «Spritzen» an.
+  - *Spritzen › Produkte*: Produktliste mit Einheit (l, kg, g, ml) pflegen und sortieren; neue Produkte auch
+    direkt im Auftrag mit «Neues Produkt erfassen».
+  - *Spritzen › Tage auswählen*: Zeitraum wählen (oder Heute/Morgen/Woche) und einzelne Tage an- oder abwählen.
+    **Produktbedarf** zeigt die Summen je Produkt (pro Tag und total), dazu Wasser und Fläche – als Bild zum
+    Teilen oder als CSV. Darunter die Detailplanung je Tag mit allen Mengen.
+  - In der Planung erscheinen bei Spritzaufträgen Feld und Produkte **ohne Mengen**, dazu die Bemerkung.
+    Der Tagesplan für den Fahrer (Maschinenname antippen) enthält alle Mengen pro ha und total.
 - **Arbeitsarten und Kulturen:** unter *Mehr* mit «Bearbeiten» umbenennen, ergänzen, entfernen und mit ▲▼
   sortieren (oder «Alphabetisch sortieren»). In dieser Reihenfolge erscheinen sie in den Auswahllisten.
   Umbenennen ändert auch bestehende Aufträge (und bei Arbeitsarten die Maschinen). Nur hier (und bei den
