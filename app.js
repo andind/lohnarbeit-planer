@@ -2038,12 +2038,43 @@ async function jdSyncOpen() {
   if (d.format !== 'jd-sync' || !Array.isArray(d.clients)) { toast('Keine gültige MyJohnDeere-Abgleichsdatei'); return; }
   jdSyncDialog(d, src);
 }
-function jdMatch(c) {
+// Wiedererkennung über die Felder: passen die Feldnamen des Mandanten zu den Feldern eines noch nicht verknüpften Kunden?
+// (z.B. wenn der Name in MyJohnDeere vor der ersten Verknüpfung geändert wurde)
+function jdFieldMatch(c, d, cand) {
+  const jf = (d && d.fields || []).filter(f => f.client === c.id && !f.archived); if (!jf.length) return '';
+  let best = '', bestN = 0, bestS = 0;
+  cand.forEach(k => {
+    const own = Store.all('felder').filter(x => x.kunde === k.id);
+    const hits = jf.filter(f => own.some(x => norm(x.jdName || x.name) === norm(f.name)
+      && (jf.length > 1 || (f.flaeche != null && x.flaeche != null && Math.abs(f.flaeche - x.flaeche) <= 0.05)))).length;
+    const sc = hits / jf.length;
+    if (sc > bestS || (sc === bestS && hits > bestN)) { best = k.id; bestS = sc; bestN = hits; }
+  });
+  return bestS >= 0.5 && (bestN >= 2 || jf.length === 1) ? best : '';
+}
+function jdMatch(c, d) {
   const ks = Store.all('kunden');
   const linked = ks.find(k => k.jdId === c.id); if (linked) return linked.id;
   const byName = ks.find(k => !k.jdId && k.jdName && norm(k.jdName) === norm(c.name)); if (byName) return byName.id; // aus Excel-Export übernommen
   const n = norm(c.name), sw = n.split(/\s+/).reverse().join(' ');
-  const hit = ks.find(k => !k.jdId && (norm(k.name) === n || norm(k.name) === sw)); return hit ? hit.id : '';
+  const hit = ks.find(k => !k.jdId && (norm(k.name) === n || norm(k.name) === sw)); if (hit) return hit.id;
+  return jdFieldMatch(c, d, ks.filter(k => !k.jdId));
+}
+// Vom Abgleich doppelt angelegte Kunden (Name in MyJohnDeere vor der ersten Verknüpfung geändert) zurückführen:
+// der neu angelegte Kunde wird entfernt, sofern er noch nicht verwendet wird; der bisherige Kunde übernimmt die Verknüpfung.
+function jdRepair(d) {
+  let n = 0;
+  (d.clients || []).forEach(c => {
+    const dup = Store.all('kunden').find(k => k.jdId === c.id && k.id.startsWith('jdk-')); if (!dup) return;
+    if (Store.all('auftraege').some(a => a.kunde === dup.id) || Store.all('parzellen').some(p => p.kunde === dup.id)) return;
+    const dupF = Store.all('felder').filter(f => f.kunde === dup.id);
+    if (dupF.some(f => Store.all('parzellen').some(p => p.feldId === f.id))) return;
+    const old = jdFieldMatch(c, d, Store.all('kunden').filter(k => !k.jdId && k.id !== dup.id)); if (!old) return;
+    if (dupF.length) Store.putMany('felder', dupF.map(f => ({ id: f.id, del: true })));
+    Store.putMany('kunden', [{ id: dup.id, del: true }]);
+    n++;
+  });
+  return n;
 }
 // Abgleich anwenden. map(c) → '+' (neu), '-' (überspringen) oder Kunden-ID
 function jdApply(d, map) {
@@ -2052,7 +2083,7 @@ function jdApply(d, map) {
   let neu = 0, fNeu = 0, fUpd = 0, fArch = 0, kInakt = 0;
   const same = (a, b, keys) => keys.every(x => (a[x] ?? '') === (b[x] ?? ''));
   d.clients.forEach(c => {
-    const v = map(c); if (!v || v === '-') return;
+    const v = map(c, d); if (!v || v === '-') return;
     const old = v === '+' ? null : Store.get('kunden', v);
     const k = old ? { ...old } : { id: 'jdk-' + c.id, aktiv: true };
     if (!old) neu++;
@@ -2083,9 +2114,11 @@ async function jdAuto() {
   if (!Auth.configured() || !Auth.hasSession() || !navigator.onLine) return;
   let d; try { d = await Drive.readJson('/jd-sync.json'); } catch { return; }
   if (!d || d.format !== 'jd-sync' || !Array.isArray(d.clients)) return;
-  if (Store.cfg().jdStand && d.stand <= Store.cfg().jdStand) return;
-  const r = jdApply(d, c => jdMatch(c) || '+');
-  if (r.changed) toast(`MyJohnDeere übernommen: ${jdSummary(r)}`, 6000);
+  const rep = jdRepair(d);
+  if (!rep && Store.cfg().jdStand && d.stand <= Store.cfg().jdStand) return;
+  const used = new Set();
+  const r = jdApply(d, c => { const m = jdMatch(c, d); if (!m || used.has(m)) return '+'; used.add(m); return m; });
+  if (r.changed || rep) toast(`MyJohnDeere übernommen: ${jdSummary(r)}${rep ? ` · ${rep} doppelte Kunden zusammengeführt` : ''}`, 6000);
 }
 // «Jetzt abgleichen»: Anfrage für den NAS-Dienst in den Dropbox-Ordner legen
 async function jdRequest() {
@@ -2097,12 +2130,13 @@ async function jdRequest() {
   jdRequest._t = setTimeout(poll, 90000);
 }
 function jdSyncDialog(d, src) {
+  const rep = jdRepair(d); if (rep) toast(`${rep} doppelte Kunden zusammengeführt`);
   const nF = c => (d.fields || []).filter(f => f.client === c.id && !f.archived).length;
   const ks = Store.all('kunden').sort(byName);
   const clients = d.clients.slice().sort(byName);
   const body = `<p class="nr" style="margin-top:0">Stand ${esc(d.stand ? new Date(d.stand).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '?')} · ${esc(d.org?.name || '')} · Quelle: ${esc(src)}</p>
     <p class="nr">Ordne jeden Mandanten einem Kunden zu. Kunden mit bisherigen Aufträgen (z.B. aus ErfassungPS) bitte zuordnen statt neu anlegen – die Zuordnung wird gespeichert.</p>
-    <div class="rows">${clients.map(c => { const m = jdMatch(c); return `<div class="rowi jdrow"><div class="grow"><div class="t">${esc(c.name)}</div><div class="s">${nF(c)} Felder</div></div>
+    <div class="rows">${clients.map(c => { const m = jdMatch(c, d); return `<div class="rowi jdrow"><div class="grow"><div class="t">${esc(c.name)}</div><div class="s">${nF(c)} Felder</div></div>
       <select class="input" name="map_${esc(c.id)}" style="max-width:260px"><option value="+" ${m ? '' : 'selected'}>＋ neu anlegen</option><option value="-">nicht übernehmen</option>
         ${ks.map(k => `<option value="${k.id}" ${k.id === m ? 'selected' : ''}>${esc(k.name)}${k.jdId && k.jdId !== c.id ? ' (bereits verknüpft)' : ''}</option>`).join('')}</select></div>`; }).join('')}</div>`;
   Dlg.open('MyJohnDeere-Abgleich', body, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">Übernehmen</button>`, fd => {
