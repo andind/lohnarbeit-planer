@@ -751,7 +751,7 @@ const Views = {
           <span class="num">${esc(k.nr || '')}</span>
           <div class="grow"><div class="t">${esc(k.name)}</div><div class="s">${esc([k.adresse, [k.plz, k.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))}</div>
             <div class="links">${k.tel ? `<a href="tel:${esc(k.tel.replace(/\s/g, ''))}" data-stop>📞 ${esc(k.tel)}</a>` : ''}${(k.adresse || k.ort) ? `<a href="${mapsUrl([k.adresse, k.plz, k.ort].filter(Boolean).join(', '))}" target="_blank" rel="noopener" data-stop>📍 Karte</a>` : ''}</div></div>
-          ${fl[k.id] ? `<span class="chip">🌾 ${fl[k.id].n} · ${fmtNum(r2(fl[k.id].ha))} ha</span>` : ''}${k.jdId ? '<span class="chip jd">JD</span>' : ''}
+          ${fl[k.id] ? `<span class="chip">🌾 ${fl[k.id].n} · ${fmtNum(r2(fl[k.id].ha))} ha</span>` : ''}${k.jdId || k.jdName ? '<span class="chip jd">JD</span>' : ''}
           ${open[k.id] ? `<span class="chip">${open[k.id]} offen</span>` : ''}
         </div>`).join('')}</div>`;
     }
@@ -1099,7 +1099,7 @@ function listDialog(kind) {
 function kundeDialog(id) {
   if (!id && jdLock()) { toast('Neue Kunden werden in MyJohnDeere erfasst.'); return; }
   const k = id ? { ...Store.get('kunden', id) } : { id: uid() };
-  const lock = jdLock() || !!k.jdId;
+  const lock = jdLock() || !!k.jdId || !!k.jdName;
   const body = `
     <div class="two"><label class="fld"><span>Kunden-Nr.</span><input class="input" name="nr" value="${esc(k.nr || '')}"></label>
       <label class="fld"><span>Anrede</span><input class="input" name="anrede" value="${esc(k.anrede || '')}" placeholder="Herr / Frau / Familie"></label></div>
@@ -2036,6 +2036,7 @@ async function jdSyncOpen() {
 function jdMatch(c) {
   const ks = Store.all('kunden');
   const linked = ks.find(k => k.jdId === c.id); if (linked) return linked.id;
+  const byName = ks.find(k => !k.jdId && k.jdName && norm(k.jdName) === norm(c.name)); if (byName) return byName.id; // aus Excel-Export übernommen
   const n = norm(c.name), sw = n.split(/\s+/).reverse().join(' ');
   const hit = ks.find(k => !k.jdId && (norm(k.name) === n || norm(k.name) === sw)); return hit ? hit.id : '';
 }
@@ -2058,17 +2059,19 @@ function jdSyncDialog(d, src) {
       if (v === '+') neu++;
       // eine Verknüpfung pro Mandant: alte lösen
       Store.all('kunden').filter(x => x.jdId === c.id && x.id !== k.id).forEach(x => kOut.push({ ...x, jdId: '' }));
-      Object.assign(k, { jdId: c.id, name: c.name });
+      Object.assign(k, { jdId: c.id, jdName: c.name, name: c.name });
       kOut.push(k);
       const seen = new Set();
       (d.fields || []).filter(f => f.client === c.id).forEach(f => {
-        const id = 'jdf-' + f.id; seen.add(id);
-        const old = Store.data.felder.find(x => x.id === id);
+        // bestehendes Feld per ID oder (aus dem Excel-Export) per Name wiederverwenden – Parzellen-Zuweisungen bleiben erhalten
+        const old = Store.data.felder.find(x => x.id === 'jdf-' + f.id && !x.del)
+          || Store.data.felder.find(x => !x.del && x.kunde === k.id && !x.jdId && norm(x.jdName || x.name) === norm(f.name));
+        const id = old ? old.id : 'jdf-' + f.id; seen.add(id);
         const nf = { ...(old && !old.del ? old : {}), id, kunde: k.id, jdId: f.id, name: f.name, betrieb: farms[f.farm] || '', flaeche: f.flaeche != null ? r2(+f.flaeche) : null, aktiv: !f.archived };
         if (!old || old.del) fNeu++; else if (['kunde', 'name', 'betrieb', 'flaeche', 'aktiv'].some(x => old[x] !== nf[x])) fUpd++; else return;
         fOut.push(nf);
       });
-      Store.all('felder').filter(x => x.kunde === k.id && x.jdId && !seen.has(x.id) && x.aktiv !== false).forEach(x => { fArch++; fOut.push({ ...x, aktiv: false }); });
+      Store.all('felder').filter(x => x.kunde === k.id && (x.jdId || x.jdName) && !seen.has(x.id) && x.aktiv !== false).forEach(x => { fArch++; fOut.push({ ...x, aktiv: false }); });
     });
     if (kOut.length) Store.putMany('kunden', kOut);
     if (fOut.length) Store.putMany('felder', fOut);

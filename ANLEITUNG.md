@@ -84,6 +84,8 @@ Auf jedem Gerät **mit derselben Dropbox** anmelden. Die Anmeldung bleibt besteh
   - Ab dem ersten Abgleich lassen sich **Kunden nicht mehr neu anlegen, umbenennen oder löschen** und **Felder nicht
     bearbeiten** – das geschieht in MyJohnDeere. Im Planer bleiben nur Zusatzangaben bearbeitbar, die MyJohnDeere
     nicht kennt: Kunden-Nr., Adresse/Telefon, Spritzpreise, Zuschlag, Notizen und «Aktiv».
+  - Kunden, die bereits aus dem MyJohnDeere-Feld-Export übernommen wurden, ordnet der erste automatische Abgleich
+    anhand des Namens zu; Felder und Parzellen-Zuweisungen bleiben erhalten.
   - Im Operations Center archivierte oder gelöschte Felder werden im Planer als «archiviert» ausgeblendet, nie gelöscht.
   - **Feld im Auftrag:** Nach der Kundenwahl lässt sich ein Feld wählen; die Fläche wird übernommen.
   - **Pflanzenschutz-Parzellen** bleiben separat (Spritzen › Stammdaten › Parzellen). Jede Parzelle kann einem Feld
