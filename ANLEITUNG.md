@@ -77,11 +77,21 @@ Auf jedem Gerät **mit derselben Dropbox** anmelden. Die Anmeldung bleibt besteh
   - Ansatz (CHF pro Einheit) ergänzen, dann rechnet der Export den Betrag gleich mit.
   Deine 12 Maschinen (Art.-Nr. 101–112) sind mit Einheit und einer ersten Arbeitsart vorerfasst – bitte prüfen
   und Flächenleistung sowie Saison ergänzen.
-- **Kunden:** nicht mehr aktive Kunden im Kunden-Dialog auf *inaktiv* setzen – sie verschwinden aus der Kundenliste
-  und der Auswahl bei neuen Aufträgen (alte Aufträge und Berichte bleiben erhalten; «auch inaktive» zeigt sie wieder).
-  *Kunden › Import (Excel/CSV)* liest z.B. deine `Kunden.xlsx` ein. Erkannt werden Spalten wie
-  Nr, Name, Vorname, Adresse/Strasse, PLZ, Ort, Telefon, E-Mail (erste Zeile = Überschriften).
-  Kunden mit gleicher Nummer werden aktualisiert statt doppelt angelegt.
+- **Kunden und Felder aus MyJohnDeere:** Kunden (Mandanten) und ihre Felder werden im Operations Center gepflegt und
+  mit *Kunden › MyJohnDeere-Abgleich* übernommen (Datei «jd-sync.json» im Dropbox-App-Ordner, später automatisch
+  vom NAS-Dienst geschrieben). Beim ersten Abgleich ordnest du jeden Mandanten einem bestehenden Kunden zu
+  (z.B. aus ErfassungPS, damit die Auftragshistorie erhalten bleibt) oder legst ihn neu an.
+  - Ab dem ersten Abgleich lassen sich **Kunden nicht mehr neu anlegen, umbenennen oder löschen** und **Felder nicht
+    bearbeiten** – das geschieht in MyJohnDeere. Im Planer bleiben nur Zusatzangaben bearbeitbar, die MyJohnDeere
+    nicht kennt: Kunden-Nr., Adresse/Telefon, Spritzpreise, Zuschlag, Notizen und «Aktiv».
+  - Im Operations Center archivierte oder gelöschte Felder werden im Planer als «archiviert» ausgeblendet, nie gelöscht.
+  - **Feld im Auftrag:** Nach der Kundenwahl lässt sich ein Feld wählen; die Fläche wird übernommen.
+  - **Pflanzenschutz-Parzellen** bleiben separat (Spritzen › Stammdaten › Parzellen). Jede Parzelle kann einem Feld
+    aus der Kundenkartei zugewiesen werden – mehrere Parzellen pro Feld sind möglich: in der Kundenkarte beim Feld
+    «Parzellen zuweisen» oder im Parzellen-Dialog. Wählt man im Spritzauftrag eine zugewiesene Parzelle, wird das Feld
+    automatisch gesetzt.
+- **Inaktive Kunden:** im Kunden-Dialog auf *inaktiv* setzen – sie verschwinden aus der Kundenliste und der Auswahl
+  bei neuen Aufträgen (alte Aufträge und Berichte bleiben erhalten; «auch inaktive» zeigt sie wieder).
 - **Auftrag erfassen:** ＋ oben rechts – Kunde, Arbeit (Pflichtfeld), Kultur, Fläche, Wunschdatum, Bemerkungen.
   Kunde, Arbeit und Kultur werden nur aus den bestehenden Listen gewählt – Tippfehler erzeugen so keine
   doppelten Einträge. Einen **neuen Kunden** erfasst du direkt mit dem **＋ neben dem Kundenfeld**; er wird

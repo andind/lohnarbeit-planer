@@ -3,7 +3,7 @@
 'use strict';
 
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
-const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte'];
+const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
 const EINHEITEN = ['ha', 'h', 'Stk', 'm³', 't', 'km', 'Ballen', 'pauschal'];
 const MONATE = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
@@ -234,6 +234,11 @@ const Drive = {
     if (!r2.ok) throw new Error('Dropbox: Laden fehlgeschlagen (' + r2.status + ')');
     const txt = await r2.text();
     return { data: JSON.parse(txt || '{}'), etag: meta.rev };
+  },
+  async readJson(path) { // beliebige Datei aus dem App-Ordner lesen (z.B. jd-sync.json)
+    const r = await this.req('https://content.dropboxapi.com/2/files/download', { headers: { 'Dropbox-API-Arg': dbxArg({ path }) } });
+    if (!r.ok) throw new Error('nicht gefunden');
+    return JSON.parse(await r.text());
   },
   async save(data, rev) {
     const arg = { path: this.path(), mode: rev ? { '.tag': 'update', update: rev } : 'add', autorename: false, mute: true };
@@ -727,21 +732,26 @@ const Views = {
       return `<h1>Kunden</h1>
         <input class="input search" type="search" placeholder="Kunde suchen…" value="${esc(App.filter.kq)}" data-in="kSearch">
         <label class="tog"><input type="checkbox" data-in="kAll" ${App.filter.kall ? 'checked' : ''}> auch inaktive</label>
-        <button class="btn" data-act="importKunden">Import (Excel/CSV)</button>
-        <button class="btn primary" data-act="editKunde">＋ Kunde</button>`;
+        <button class="btn" data-act="jdSync">MyJohnDeere-Abgleich</button>
+        ${jdLock() ? '' : `<button class="btn" data-act="importKunden">Import (Excel/CSV)</button>
+        <button class="btn primary" data-act="editKunde">＋ Kunde</button>`}`;
     },
     content() {
       const q = norm(App.filter.kq);
       const list = Store.all('kunden').filter(k => (App.filter.kall || k.aktiv !== false) && (!q || [k.nr, k.name, k.adresse, k.ort, k.tel].join(' ').toLowerCase().includes(q)))
         .sort((a, b) => a.name.localeCompare(b.name, 'de'));
-      if (!list.length) return `<div class="empty">${q ? 'Keine Treffer.' : 'Noch keine Kunden.<br>Lege Kunden an oder importiere deine Kundenliste (Excel/CSV).'}</div>`;
+      const st = Store.cfg().jdStand;
+      const info = st ? `<p class="nr">Kunden und Felder werden in MyJohnDeere gepflegt · letzter Abgleich ${new Date(st).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}</p>` : '';
+      if (!list.length) return info + `<div class="empty">${q ? 'Keine Treffer.' : 'Noch keine Kunden.<br>Kunden und Felder kommen über den MyJohnDeere-Abgleich.'}</div>`;
       const open = {};
       Store.all('auftraege').forEach(a => { if (isOpen(a)) open[a.kunde] = (open[a.kunde] || 0) + 1; });
-      return `<div class="rows">${list.map(k => `
+      const fl = {}; Store.all('felder').forEach(f => { if (f.aktiv !== false) { const x = fl[f.kunde] || (fl[f.kunde] = { n: 0, ha: 0 }); x.n++; x.ha += f.flaeche || 0; } });
+      return info + `<div class="rows">${list.map(k => `
         <div class="rowi ${k.aktiv === false ? 'off' : ''}" data-act="editKunde" data-id="${k.id}">
           <span class="num">${esc(k.nr || '')}</span>
           <div class="grow"><div class="t">${esc(k.name)}</div><div class="s">${esc([k.adresse, [k.plz, k.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))}</div>
             <div class="links">${k.tel ? `<a href="tel:${esc(k.tel.replace(/\s/g, ''))}" data-stop>📞 ${esc(k.tel)}</a>` : ''}${(k.adresse || k.ort) ? `<a href="${mapsUrl([k.adresse, k.plz, k.ort].filter(Boolean).join(', '))}" target="_blank" rel="noopener" data-stop>📍 Karte</a>` : ''}</div></div>
+          ${fl[k.id] ? `<span class="chip">🌾 ${fl[k.id].n} · ${fmtNum(r2(fl[k.id].ha))} ha</span>` : ''}${k.jdId ? '<span class="chip jd">JD</span>' : ''}
           ${open[k.id] ? `<span class="chip">${open[k.id]} offen</span>` : ''}
         </div>`).join('')}</div>`;
     }
@@ -828,7 +838,7 @@ function orderCard(a) {
     : `<span class="chip ${wishLate(a) ? 'warn' : ''}">${wishTxt(a)}</span>`;
   return `<article class="card" data-act="editOrder" data-id="${a.id}">
     <div class="row1"><div class="title">${esc(kundeName(a.kunde))}</div><span class="badge ${s}">${STATUS[s]}</span></div>
-    <div class="sub">${artKultur(a) || '—'}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}</div>
+    <div class="sub">${artKultur(a) || '—'}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}${feldById(a.kfeld) ? ` · 🌾 ${esc(feldById(a.kfeld).name)}` : ''}</div>
     ${sprayShort(a)}${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}
     <div class="meta">${when}<span class="nr" style="margin-left:auto">${esc(a.nr || '')}</span></div>
     ${isOpen(a) ? `<div class="actions">
@@ -891,10 +901,11 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
     <label class="fld"><span>Kunde</span>
       <div class="withbtn">
         <input class="input" name="kunde" list="dlKunden" value="${esc(k ? kundeLabel(k) : '')}" placeholder="Name eingeben und aus der Liste wählen" autocomplete="off" required ${isNew && !kundeId ? 'autofocus' : ''}>
-        <button type="button" class="btn" data-act="quickKunde" title="Neuen Kunden erfassen" aria-label="Neuen Kunden erfassen">＋</button>
+        ${jdLock() ? '' : '<button type="button" class="btn" data-act="quickKunde" title="Neuen Kunden erfassen" aria-label="Neuen Kunden erfassen">＋</button>'}
       </div>
       <datalist id="dlKunden">${kundenOptions()}</datalist>
       <div class="hint" id="kHint"></div></label>
+    <label class="fld" hidden><span>Feld</span><select class="input" name="kfeld"></select></label>
     <div class="two">
       <label class="fld"><span>Arbeit *</span><select class="input" name="arbeit" required>
         <option value="">— bitte wählen —</option>${listOptions(Lists.arbeitsarten(), a.arbeit)}</select></label>
@@ -940,7 +951,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
     const planOpen = $('#planBox', Dlg.form).open;
     const o = Object.assign(a, {
       kunde: kunde.id, arbeit: fd.get('arbeit'), kultur: fd.get('kultur'),
-      flaeche: num(fd.get('flaeche')), wunsch: fd.get('wunsch'), notiz: fd.get('notiz').trim()
+      flaeche: num(fd.get('flaeche')), wunsch: fd.get('wunsch'), notiz: fd.get('notiz').trim(), kfeld: fd.get('kfeld') || ''
     });
     if (planOpen && fd.get('datum')) {
       const m = maschine(fd.get('maschine')); const manual = num(fd.get('dauer'));
@@ -998,7 +1009,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
       if (!f.stundenEff.value) { const d = num(f.dauer.value) ?? defaultDauer(maschine(f.maschine.value), num(f.flaeche.value)); if (d != null) f.stundenEff.value = d; }
     }
   });
-  fillMachines(); checkKunde(); wireSpray(f);
+  fillMachines(); checkKunde(); wireSpray(f); wireFeld(f, a);
   if (plan) setTimeout(() => $('#planBox', f)?.scrollIntoView({ block: 'nearest' }), 60);
 }
 
@@ -1086,11 +1097,14 @@ function listDialog(kind) {
 }
 
 function kundeDialog(id) {
+  if (!id && jdLock()) { toast('Neue Kunden werden in MyJohnDeere erfasst.'); return; }
   const k = id ? { ...Store.get('kunden', id) } : { id: uid() };
+  const lock = jdLock() || !!k.jdId;
   const body = `
     <div class="two"><label class="fld"><span>Kunden-Nr.</span><input class="input" name="nr" value="${esc(k.nr || '')}"></label>
       <label class="fld"><span>Anrede</span><input class="input" name="anrede" value="${esc(k.anrede || '')}" placeholder="Herr / Frau / Familie"></label></div>
-    <label class="fld"><span>Name / Betrieb</span><input class="input" name="name" value="${esc(k.name || '')}" required autofocus></label>
+    <label class="fld"><span>Name / Betrieb${lock ? ' <small class="nr">(aus MyJohnDeere)</small>' : ''}</span><input class="input" name="name" value="${esc(k.name || '')}" required ${lock ? 'readonly' : 'autofocus'}></label>
+    ${id ? `<div id="felderBox">${felderSection(k.id)}</div>` : ''}
     <div class="two"><label class="fld"><span>Telefon</span><input class="input" name="tel" type="tel" value="${esc(k.tel || '')}"></label>
       <label class="fld"><span>Handy</span><input class="input" name="handy" type="tel" value="${esc(k.handy || '')}"></label></div>
     <label class="fld"><span>Adresse</span><input class="input" name="adresse" value="${esc(k.adresse || '')}"></label>
@@ -1103,10 +1117,12 @@ function kundeDialog(id) {
         <label class="fld"><span>Fahrer CHF</span><input class="input" name="preisFahrer" inputmode="decimal" value="${k.preisFahrer ?? ''}"></label>
         <label class="fld"><span>Traktor CHF</span><input class="input" name="preisTraktor" inputmode="decimal" value="${k.preisTraktor ?? ''}"></label></div>
       <label class="fld" style="margin:0"><span>Zuschlag Mittel (%)</span><input class="input" name="zuschlag" inputmode="decimal" value="${k.zuschlag != null ? r2(k.zuschlag * 100) : ''}" style="max-width:140px"></label></div>
-    <label class="tog"><input type="checkbox" name="aktiv" ${k.aktiv !== false ? 'checked' : ''}> Aktiv (inaktive Kunden werden in Listen und bei neuen Aufträgen nicht mehr angezeigt)</label>`;
-  Dlg.open(id ? 'Kunde bearbeiten' : 'Neuer Kunde', body,
-    saveFooter(id ? `<button type="button" class="btn danger" data-act="delKunde" data-id="${k.id}">Löschen</button><button type="button" class="btn" data-act="newOrderFor" data-id="${k.id}">＋ Auftrag</button>` : ''), fd => {
-      ['nr', 'anrede', 'name', 'adresse', 'plz', 'ort', 'tel', 'handy', 'mail', 'notiz'].forEach(x => { k[x] = (fd.get(x) || '').trim(); });
+    <label class="tog"><input type="checkbox" name="aktiv" ${k.aktiv !== false ? 'checked' : ''}> Aktiv (inaktive Kunden werden in Listen und bei neuen Aufträgen nicht mehr angezeigt)</label>
+`;
+  Dlg.open(id ? (lock ? 'Kunde' : 'Kunde bearbeiten') : 'Neuer Kunde', body,
+    saveFooter(id ? `${lock ? '' : `<button type="button" class="btn danger" data-act="delKunde" data-id="${k.id}">Löschen</button>`}<button type="button" class="btn" data-act="newOrderFor" data-id="${k.id}">＋ Auftrag</button>` : ''), fd => {
+      if (!lock) k.name = (fd.get('name') || '').trim();
+      ['nr', 'anrede', 'adresse', 'plz', 'ort', 'tel', 'handy', 'mail', 'notiz'].forEach(x => { k[x] = (fd.get(x) || '').trim(); });
       ['preisSpritze', 'preisFahrer', 'preisTraktor'].forEach(x => { k[x] = num(fd.get(x)); });
       k.zuschlag = num(fd.get('zuschlag')) != null ? num(fd.get('zuschlag')) / 100 : null;
       k.aktiv = !!fd.get('aktiv');
@@ -1717,9 +1733,10 @@ function parzelleDialog(id, { kunde, fromOrder } = {}) {
       <label class="fld"><span>Kultur</span><select class="input" name="kultur"><option value="">—</option>${optList(Lists.kulturen(), p.kultur)}</select></label>
       <label class="fld"><span>Fläche (ha)</span><input class="input" name="flaeche" inputmode="decimal" value="${p.flaeche ?? ''}"></label>
     </div>
+    <label class="fld" id="pfFeld"><span>Feld aus der Kundenkartei</span><select class="input" name="feldId">${feldOptions(p.kunde, p.feldId)}</select></label>
     <label class="tog"><input type="checkbox" name="aktiv" ${p.aktiv !== false ? 'checked' : ''}> Aktiv (in der Auswahl anzeigen)</label>`;
   const save = fd => {
-    Object.assign(p, { kunde: fd.get('kunde'), name: String(fd.get('name') || '').trim(), kultur: fd.get('kultur'), flaeche: num(fd.get('flaeche')), aktiv: !!fd.get('aktiv') });
+    Object.assign(p, { feldId: fd.get('feldId') || '', kunde: fd.get('kunde'), name: String(fd.get('name') || '').trim(), kultur: fd.get('kultur'), flaeche: num(fd.get('flaeche')), aktiv: !!fd.get('aktiv') });
     if (!p.kunde || !p.name) { toast('Kunde und Name angeben'); return false; }
     Store.put('parzellen', p, { silent: !!fromOrder }); return p;
   };
@@ -1732,6 +1749,7 @@ function parzelleDialog(id, { kunde, fromOrder } = {}) {
   }
   Dlg.open(id ? 'Parzelle bearbeiten' : 'Neue Parzelle', body,
     saveFooter(id ? `<button type="button" class="btn danger" data-act="parzDelete" data-id="${p.id}">Löschen</button>` : ''), fd => !!save(fd));
+  const f = Dlg.form; f.kunde.addEventListener('change', () => { f.feldId.innerHTML = feldOptions(f.kunde.value, ''); });
 }
 
 /* ---------- Unteransichten des Moduls ---------- */
@@ -1761,7 +1779,7 @@ function stammContent() {
     const list = Store.all('parzellen').filter(p => (!S.pk || p.kunde === S.pk) && (S.pall || p.aktiv !== false)).sort((a, b) => kundeName(a.kunde).localeCompare(kundeName(b.kunde), 'de') || byName(a, b));
     return segs + `<div class="filters"><select class="input" data-in="spPk" style="width:auto;min-width:200px"><option value="">Alle Kunden</option>${Store.all('kunden').filter(k => k.aktiv !== false || k.id === S.pk).sort(byName).map(k => `<option value="${k.id}" ${k.id === S.pk ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
         <label class="tog"><input type="checkbox" data-in="spPall" ${S.pall ? 'checked' : ''}> auch inaktive</label><button class="btn primary" data-act="parzAdd">＋ Parzelle</button></div>
-      <div class="rows">${list.map(p => `<div class="rowi ${p.aktiv === false ? 'off' : ''}" data-act="parzEdit" data-id="${p.id}"><div class="grow"><div class="t">${esc(p.name)}</div><div class="s">${esc(kundeName(p.kunde))}${p.kultur ? ' · ' + esc(p.kultur) : ''}</div></div><span class="num" style="width:auto">${p.flaeche ? fmtNum(p.flaeche) + ' ha' : ''}</span></div>`).join('') || '<div class="empty">Keine Parzellen.</div>'}</div>`;
+      <div class="rows">${list.map(p => `<div class="rowi ${p.aktiv === false ? 'off' : ''}" data-act="parzEdit" data-id="${p.id}"><div class="grow"><div class="t">${esc(p.name)}</div><div class="s">${esc(kundeName(p.kunde))}${p.kultur ? ' · ' + esc(p.kultur) : ''}${feldById(p.feldId) ? ` · 🌾 Feld ${esc(feldById(p.feldId).name)}` : ''}</div></div><span class="num" style="width:auto">${p.flaeche ? fmtNum(p.flaeche) + ' ha' : ''}</span></div>`).join('') || '<div class="empty">Keine Parzellen.</div>'}</div>`;
   }
   if (sub === 'geraete') {
     const panel = (kind, title) => `<div class="panel"><h2>${title}</h2><div class="chips static">${Lists[kind]().map(x => `<span class="chip">${esc(x)}</span>`).join('') || '<span class="nr">Keine Einträge</span>'}</div>
@@ -1943,6 +1961,122 @@ function nachweisCsv() {
   nachweisRows().forEach(a => { const k = kundeOf(a); (prodList(a).length ? prodList(a) : [{}]).forEach(p => rows.push([ernteOf(a), k.name, k.ort, dOf(a), a.feld, a.kultur, flOf(a), a.stadium, p.name, (prodOf(p) || {}).zulassung, p.menge, p.einheit, a.wasser, a.duese, a.notiz])); });
   download(`OELN-Nachweis_${App.spray.ny}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }
+/* ================= Kunden und Felder aus MyJohnDeere ================= */
+// Sobald ein Abgleich mit MyJohnDeere eingelesen wurde, werden Kunden und Felder nur noch dort gepflegt.
+const jdLock = () => !!Store.cfg().jdStand;
+const felderOf = (kid, alle) => Store.all('felder').filter(f => f.kunde === kid && (alle || f.aktiv !== false)).sort(byName);
+const feldById = id => id ? Store.get('felder', id) : null;
+const feldLabel = f => `${f.name}${f.flaeche ? ` · ${fmtNum(f.flaeche)} ha` : ''}${f.betrieb ? ` · ${f.betrieb}` : ''}`;
+function feldOptions(kid, cur) {
+  const list = Store.all('felder').filter(f => f.kunde === kid && (f.aktiv !== false || f.id === cur)).sort(byName);
+  return `<option value="">— kein Feld —</option>` + list.map(f => `<option value="${f.id}" ${f.id === cur ? 'selected' : ''}>${esc(feldLabel(f))}</option>`).join('');
+}
+const parzOfFeld = fid => Store.all('parzellen').filter(p => p.feldId === fid).sort(byName);
+
+// Feld-Auswahl im Auftrag
+function wireFeld(f, a) {
+  const sel = f.kfeld; if (!sel) return;
+  const box = sel.closest('.fld');
+  const refresh = () => {
+    const k = findKunde(f.kunde.value), cur = sel.value || a.kfeld || '';
+    sel.innerHTML = feldOptions(k ? k.id : '', cur);
+    box.hidden = !(k && Store.all('felder').some(x => x.kunde === k.id && (x.aktiv !== false || x.id === cur)));
+  };
+  f.kunde.addEventListener('input', refresh);
+  sel.addEventListener('change', () => {
+    const fd = feldById(sel.value);
+    if (fd && fd.flaeche && !f.flaeche.value) { f.flaeche.value = fd.flaeche; f.flaeche.dispatchEvent(new Event('input', { bubbles: true })); }
+  });
+  if (f.parzelle) f.parzelle.addEventListener('change', () => { const p = Store.get('parzellen', f.parzelle.value); if (p && p.feldId && feldById(p.feldId)) { refresh(); sel.value = p.feldId; } });
+  refresh();
+}
+
+// Kundenkarte: Felder anzeigen, Pflanzenschutz-Parzellen zuweisen
+function felderSection(kid) {
+  const fs = felderOf(kid, true).sort((a, b) => (a.aktiv === false) - (b.aktiv === false));
+  if (!fs.length) return `<div class="box"><h4>🌾 Felder</h4><p class="nr" style="margin:0">${jdLock() ? 'Für diesen Kunden sind in MyJohnDeere keine Felder erfasst.' : 'Felder werden aus MyJohnDeere übernommen (Kunden › MyJohnDeere-Abgleich).'}</p></div>`;
+  const tot = fs.filter(f => f.aktiv !== false).reduce((s, f) => s + (f.flaeche || 0), 0);
+  return `<div class="box"><h4>🌾 Felder aus MyJohnDeere <small class="nr">${fs.filter(f => f.aktiv !== false).length} · ${fmtNum(r2(tot))} ha</small></h4>
+    <div class="feldlist">${fs.map(f => { const ps = parzOfFeld(f.id); return `<div class="feldrow ${f.aktiv === false ? 'off' : ''}">
+      <div class="grow"><b>${esc(f.name)}</b> <span class="nr">${f.flaeche ? fmtNum(f.flaeche) + ' ha' : ''}${f.betrieb ? ' · ' + esc(f.betrieb) : ''}${f.aktiv === false ? ' · archiviert' : ''}</span>
+        <div class="s">${ps.length ? '🧪 ' + ps.map(p => esc(p.name)).join(', ') : '<span class="nr">keine Pflanzenschutz-Parzelle zugewiesen</span>'}</div></div>
+      <button type="button" class="btn small" data-act="feldAssign" data-id="${f.id}">Parzellen zuweisen</button></div>`; }).join('')}</div></div>`;
+}
+function feldAssignDialog(fid) {
+  const fd = feldById(fid); if (!fd) return;
+  const ps = Store.all('parzellen').filter(p => p.kunde === fd.kunde && (p.aktiv !== false || p.feldId === fid)).sort(byName);
+  const body = ps.length ? `<p class="nr" style="margin-top:0">Pflanzenschutz-Parzellen von ${esc(kundeName(fd.kunde))}, die zum Feld <b>${esc(fd.name)}</b> gehören. Mehrere sind möglich.</p>
+    <div class="checklist">${ps.map(p => { const other = p.feldId && p.feldId !== fid ? feldById(p.feldId) : null; return `<label><input type="checkbox" name="p" value="${p.id}" ${p.feldId === fid ? 'checked' : ''}>
+      <span><b>${esc(p.name)}</b> <span class="nr">${p.flaeche ? fmtNum(p.flaeche) + ' ha' : ''}${p.kultur ? ' · ' + esc(p.kultur) : ''}${other ? ` · zurzeit bei «${esc(other.name)}»` : ''}</span></span></label>`; }).join('')}</div>`
+    : '<p>Dieser Kunde hat noch keine Pflanzenschutz-Parzellen (Spritzen › Stammdaten › Parzellen).</p>';
+  smallDialog(`Parzellen → ${esc(fd.name)}`, body, 'Zuweisen', data => {
+    const on = new Set(data.getAll('p'));
+    const ch = ps.filter(p => on.has(p.id) !== (p.feldId === fid)).map(p => ({ ...p, feldId: on.has(p.id) ? fid : '' }));
+    if (ch.length) Store.putMany('parzellen', ch);
+    const box = Dlg.el.open && $('#felderBox', Dlg.form); if (box) box.innerHTML = felderSection(fd.kunde);
+    toast(ch.length ? 'Zuweisung gespeichert' : 'Keine Änderung');
+  });
+}
+
+/* ---------- Abgleich: Datei «jd-sync.json» (vom NAS-Dienst in den Dropbox-Ordner geschrieben) ---------- */
+// Format: { format:'jd-sync', stand, org:{id,name}, clients:[{id,name}], farms:[{id,name,client}], fields:[{id,name,client,farm,flaeche,archived}] }
+async function jdSyncOpen() {
+  let d = null, src = '';
+  if (Auth.configured() && Auth.hasSession() && navigator.onLine) {
+    try { d = await Drive.readJson('/jd-sync.json'); src = 'Dropbox'; } catch (e) { d = null; }
+  }
+  if (!d) {
+    if (!confirm('Im Dropbox-Ordner wurde keine Abgleichsdatei «jd-sync.json» gefunden. Datei manuell wählen?')) return;
+    const file = await pickFile('.json,application/json'); if (!file) return;
+    try { d = JSON.parse(await readText(file)); src = file.name; } catch { toast('Datei konnte nicht gelesen werden'); return; }
+  }
+  if (d.format !== 'jd-sync' || !Array.isArray(d.clients)) { toast('Keine gültige MyJohnDeere-Abgleichsdatei'); return; }
+  jdSyncDialog(d, src);
+}
+function jdMatch(c) {
+  const ks = Store.all('kunden');
+  const linked = ks.find(k => k.jdId === c.id); if (linked) return linked.id;
+  const n = norm(c.name), sw = n.split(/\s+/).reverse().join(' ');
+  const hit = ks.find(k => !k.jdId && (norm(k.name) === n || norm(k.name) === sw)); return hit ? hit.id : '';
+}
+function jdSyncDialog(d, src) {
+  const farms = Object.fromEntries((d.farms || []).map(f => [f.id, f.name]));
+  const nF = c => (d.fields || []).filter(f => f.client === c.id && !f.archived).length;
+  const ks = Store.all('kunden').sort(byName);
+  const clients = d.clients.slice().sort(byName);
+  const body = `<p class="nr" style="margin-top:0">Stand ${esc(d.stand ? new Date(d.stand).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '?')} · ${esc(d.org?.name || '')} · Quelle: ${esc(src)}</p>
+    <p class="nr">Ordne jeden Mandanten einem Kunden zu. Kunden mit bisherigen Aufträgen (z.B. aus ErfassungPS) bitte zuordnen statt neu anlegen – die Zuordnung wird gespeichert.</p>
+    <div class="rows">${clients.map(c => { const m = jdMatch(c); return `<div class="rowi jdrow"><div class="grow"><div class="t">${esc(c.name)}</div><div class="s">${nF(c)} Felder</div></div>
+      <select class="input" name="map_${esc(c.id)}" style="max-width:260px"><option value="+" ${m ? '' : 'selected'}>＋ neu anlegen</option><option value="-">nicht übernehmen</option>
+        ${ks.map(k => `<option value="${k.id}" ${k.id === m ? 'selected' : ''}>${esc(k.name)}${k.jdId && k.jdId !== c.id ? ' (bereits verknüpft)' : ''}</option>`).join('')}</select></div>`; }).join('')}</div>`;
+  Dlg.open('MyJohnDeere-Abgleich', body, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">Übernehmen</button>`, fd => {
+    const now = Date.now(), kOut = [], fOut = [];
+    let neu = 0, fNeu = 0, fUpd = 0, fArch = 0;
+    clients.forEach(c => {
+      const v = fd.get('map_' + c.id); if (!v || v === '-') return;
+      let k = v === '+' ? { id: 'jdk-' + c.id, aktiv: true } : { ...Store.get('kunden', v) };
+      if (v === '+') neu++;
+      // eine Verknüpfung pro Mandant: alte lösen
+      Store.all('kunden').filter(x => x.jdId === c.id && x.id !== k.id).forEach(x => kOut.push({ ...x, jdId: '' }));
+      Object.assign(k, { jdId: c.id, name: c.name });
+      kOut.push(k);
+      const seen = new Set();
+      (d.fields || []).filter(f => f.client === c.id).forEach(f => {
+        const id = 'jdf-' + f.id; seen.add(id);
+        const old = Store.data.felder.find(x => x.id === id);
+        const nf = { ...(old && !old.del ? old : {}), id, kunde: k.id, jdId: f.id, name: f.name, betrieb: farms[f.farm] || '', flaeche: f.flaeche != null ? r2(+f.flaeche) : null, aktiv: !f.archived };
+        if (!old || old.del) fNeu++; else if (['kunde', 'name', 'betrieb', 'flaeche', 'aktiv'].some(x => old[x] !== nf[x])) fUpd++; else return;
+        fOut.push(nf);
+      });
+      Store.all('felder').filter(x => x.kunde === k.id && x.jdId && !seen.has(x.id) && x.aktiv !== false).forEach(x => { fArch++; fOut.push({ ...x, aktiv: false }); });
+    });
+    if (kOut.length) Store.putMany('kunden', kOut);
+    if (fOut.length) Store.putMany('felder', fOut);
+    Store.setCfg({ jdStand: d.stand || new Date(now).toISOString(), jdOrg: d.org?.name || '' }, { silent: false });
+    toast(`Abgleich: ${neu} Kunden neu, ${fNeu} Felder neu, ${fUpd} geändert, ${fArch} archiviert`, 6000);
+    return true;
+  });
+}
 function pickFile(accept) {
   return new Promise(res => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.onchange = () => res(i.files[0]); i.click(); });
 }
@@ -2035,7 +2169,9 @@ document.addEventListener('click', async e => {
     case 'planOrder': e.stopPropagation(); orderDialog(id, { plan: true }); break;
     case 'done': e.stopPropagation(); doneDialog(id); break;
     case 'unplan': f.datum.value = ''; f.zeit.value = ''; toast('Beim Speichern wird die Einplanung entfernt'); break;
-    case 'quickKunde': quickKundeDialog(); break;
+    case 'quickKunde': if (jdLock()) toast('Neue Kunden werden in MyJohnDeere erfasst.'); else quickKundeDialog(); break;
+    case 'feldAssign': feldAssignDialog(id); break;
+    case 'jdSync': jdSyncOpen(); break;
     case 'dayView': App.plan.mode = 'tag'; ls('lp_pmode', 'tag'); App.plan.date = parseDate(t.dataset.d); App.resetScroll = true; App.render(); break;
     case 'weekView': App.plan.mode = 'woche'; ls('lp_pmode', 'woche'); App.resetScroll = true; App.render(); break;
     case 'pickPlace': { const p = Dlg.pick; Dlg.close(); placeFromPicker(id, p.d, p.mid, p.minute); break; }
@@ -2100,7 +2236,7 @@ document.addEventListener('click', async e => {
       const n = Store.all('auftraege').filter(a => a.kunde === id).length;
       if (confirm(n ? `Dieser Kunde hat ${n} Aufträge. Trotzdem löschen?` : 'Kunde löschen?')) { Store.remove('kunden', id); Dlg.close(); } break;
     }
-    case 'importKunden': importKunden(); break;
+    case 'importKunden': if (!jdLock()) importKunden(); break;
     case 'editMaschine': maschineDialog(id); break;
     case 'delMaschine': if (confirm('Maschine löschen? (Tipp: «Aktiv» ausschalten behält sie in alten Aufträgen sichtbar)')) { Store.remove('maschinen', id); Dlg.close(); } break;
     case 'monAll': $$('input[name="mon"]', f).forEach(i => { i.checked = true; }); break;
