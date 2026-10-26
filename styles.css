@@ -493,3 +493,28 @@ tr.click:hover td { background: var(--surface-2); }
 .chip.jd { background: #367c2b; color: #ffde00; border-color: transparent; font-weight: 700; }
 .jdrow select { flex: none; }
 @media (max-width: 560px) { .jdrow { flex-wrap: wrap; } .jdrow select { max-width: none !important; width: 100%; } }
+/* ---------- Kundenvorschläge im Auftrag ---------- */
+.ksug { display: grid; margin-top: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; box-shadow: 0 6px 18px rgba(0,0,0,.08); }
+.ksug button { all: unset; box-sizing: border-box; display: block; width: 100%; padding: 9px 12px; cursor: pointer; border-bottom: 1px solid var(--line); font-size: 15px; overflow-wrap: anywhere; }
+.ksug button:last-child { border-bottom: 0; }
+.ksug button span { color: var(--muted); font-size: 13px; margin-left: 4px; }
+.ksug button.on, .ksug button:hover { background: var(--accent-soft, var(--surface-2)); }
+/* ---------- Journal: chronologisch mit Direktbearbeitung ---------- */
+.jrow .jd { width: 78px; }
+.jedit { display: flex; gap: 6px; flex: none; }
+.jedit label { display: grid; gap: 1px; font-size: 10.5px; color: var(--muted); text-align: right; }
+.jedit .input { width: 72px; min-height: 32px; padding: 4px 6px; text-align: right; font-variant-numeric: tabular-nums; transition: background .3s; }
+.jedit .input.saved { background: color-mix(in srgb, var(--s-erledigt) 22%, transparent); }
+@media (max-width: 560px) { .jrow { flex-wrap: wrap; } .jrow .grow { flex-basis: calc(100% - 90px); } .jedit { margin-left: 88px; } .jedit .input { width: 64px; } }
+.btab tr.gj td { font-weight: 800; font-size: 15px; padding-top: 14px; border-bottom: 2px solid var(--text); }
+@media print { #printArea .btab tr.gj td { border-color: #000; } }
+/* ---------- Auswahlfelder mit Suche ---------- */
+.combo { position: relative; min-width: 0; }
+.combo .combo-in { width: 100%; padding-right: 30px; text-overflow: ellipsis;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23888' stroke-width='1.8'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 11px center; }
+.withbtn > .combo { flex: 1; }
+.filters > .combo { flex: 0 1 auto; min-width: 170px; }
+.combo-sug { position: absolute; left: 0; right: 0; top: calc(100% + 2px); z-index: 60; margin-top: 0; max-height: min(300px, 50vh); overflow-y: auto; }
+.combo-sug .none { padding: 9px 12px; color: var(--muted); font-size: 14px; }
+.ksug button.blank { color: var(--muted); }

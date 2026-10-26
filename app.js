@@ -905,10 +905,9 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
   const body = `
     <label class="fld"><span>Kunde</span>
       <div class="withbtn">
-        <input class="input" name="kunde" list="dlKunden" value="${esc(k ? kundeLabel(k) : '')}" placeholder="Name eingeben und aus der Liste wählen" autocomplete="off" required ${isNew && !kundeId ? 'autofocus' : ''}>
-        ${jdLock() ? '' : '<button type="button" class="btn" data-act="quickKunde" title="Neuen Kunden erfassen" aria-label="Neuen Kunden erfassen">＋</button>'}
+        <input class="input" name="kunde" value="${esc(k ? kundeLabel(k) : '')}" placeholder="Name, Ort oder Nr. eingeben" autocomplete="off" autocapitalize="words" spellcheck="false" required ${isNew && !kundeId ? 'autofocus' : ''}>
       </div>
-      <datalist id="dlKunden">${kundenOptions()}</datalist>
+      <div class="ksug" id="kSug" hidden></div>
       <div class="hint" id="kHint"></div></label>
     <label class="fld" hidden><span>Feld</span><select class="input" name="kfeld"></select></label>
     <div class="two">
@@ -952,7 +951,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
   Dlg.open(isNew ? 'Neuer Auftrag' : 'Auftrag', body, footer, fd => {
     const kTxt = (fd.get('kunde') || '').trim();
     const kunde = findKunde(kTxt);
-    if (!kunde) { toast('Kunde nicht gefunden – aus der Liste wählen oder mit ＋ neu erfassen.', 4000); Dlg.form.kunde.focus(); return false; }
+    if (!kunde) { toast('Kunde nicht gefunden – bitte aus den Vorschlägen wählen.', 4000); Dlg.form.kunde.focus(); return false; }
     const planOpen = $('#planBox', Dlg.form).open;
     const o = Object.assign(a, {
       kunde: kunde.id, arbeit: fd.get('arbeit'), kultur: fd.get('kultur'),
@@ -996,9 +995,9 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
   };
   const checkKunde = () => {
     const t = f.kunde.value.trim();
-    $('#kHint', f).textContent = !t || findKunde(t) ? '' : 'Kein Kunde mit diesem Namen – aus der Liste wählen oder mit ＋ neu erfassen.';
+    $('#kHint', f).textContent = !t || findKunde(t) || !$('#kSug', f).hidden ? '' : 'Kein ähnlicher Kunde gefunden. Neue Kunden werden in MyJohnDeere erfasst.';
   };
-  f.kunde.addEventListener('input', checkKunde);
+  wireKundeSuggest(f, checkKunde);
   f.arbeit.addEventListener('change', fillMachines);
   f.datum.addEventListener('change', fillMachines);
   f.maschine.addEventListener('change', showDauer);
@@ -1017,6 +1016,137 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
   fillMachines(); checkKunde(); wireSpray(f); wireFeld(f, a);
   if (plan) setTimeout(() => $('#planBox', f)?.scrollIntoView({ block: 'nearest' }), 60);
 }
+
+/* ---------- Kundensuche mit Vorschlägen ähnlicher Kunden ---------- */
+const fold = s => String(s || '').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+function lev(a, b) { // Tippfehler-Abstand
+  if (Math.abs(a.length - b.length) > 2) return 9;
+  let p = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) { const c = [i]; for (let j = 1; j <= b.length; j++) c[j] = Math.min(p[j] + 1, c[j - 1] + 1, p[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); p = c; }
+  return p[b.length];
+}
+// Ähnlichkeit: jedes eingegebene Wort muss zu einem Wort von Name, Ort, Nr. passen (Anfang, enthalten oder Tippfehler); Reihenfolge egal
+const kundeScore = (k, toks) => textScore([k.name, k.ort, k.nr, k.jdName !== k.name ? k.jdName : ''].join(' '), toks);
+const tokensOf = t => fold(t).split(' ').filter(Boolean);
+function textScore(text, toks) {
+  const ws = fold(text).split(' ').filter(Boolean);
+  const words = [...new Set([...ws, ...ws.map(w => w.replace(/([aou])e/g, '$1'))])]; // «Häni» passt auf «haeni» und «hani»
+  let s = 0;
+  for (const t of toks) {
+    let best = 0;
+    for (const w of words) {
+      if (w === t) best = Math.max(best, 4);
+      else if (w.startsWith(t)) best = Math.max(best, 3);
+      else if (t.length >= 3 && w.includes(t)) best = Math.max(best, 2);
+      else if (t.length >= 3) { const d = Math.min(lev(t, w), lev(t, w.slice(0, t.length))); if (d <= (t.length >= 6 ? 2 : 1)) best = Math.max(best, 1.5 - d * 0.4); }
+    }
+    if (!best) return 0;
+    s += best;
+  }
+  return s;
+}
+function similarKunden(text, n = 6) {
+  const toks = fold(text).split(' ').filter(Boolean); if (!toks.length) return [];
+  return Store.all('kunden').filter(k => k.aktiv !== false).map(k => ({ k, s: kundeScore(k, toks) })).filter(x => x.s > 0)
+    .sort((a, b) => b.s - a.s || a.k.name.localeCompare(b.k.name, 'de')).slice(0, n).map(x => x.k);
+}
+function wireKundeSuggest(f, after) {
+  const inp = f.kunde, box = $('#kSug', f); let hits = [], idx = -1;
+  const show = () => {
+    const t = inp.value.trim(), exact = findKunde(t);
+    hits = t && !(exact && kundeLabel(exact) === t) ? similarKunden(t) : [];
+    idx = hits.length && document.activeElement === inp ? 0 : -1;
+    box.innerHTML = hits.map((k, i) => `<button type="button" class="${i === idx ? 'on' : ''}" data-ki="${i}"><b>${esc(k.name)}</b>${k.ort || k.nr ? ` <span>${esc([k.ort, k.nr].filter(Boolean).join(' · '))}</span>` : ''}</button>`).join('');
+    box.hidden = !hits.length; after && after();
+  };
+  const pick = k => { inp.value = kundeLabel(k); box.hidden = true; hits = []; inp.dispatchEvent(new Event('input', { bubbles: true })); box.hidden = true; after && after(); };
+  const mark = () => [...box.children].forEach((b, i) => b.classList.toggle('on', i === idx));
+  inp.addEventListener('input', e => { if (e.isTrusted) show(); });
+  inp.addEventListener('focus', () => { if (inp.value.trim() && !findKunde(inp.value)) show(); });
+  inp.addEventListener('blur', () => setTimeout(() => { box.hidden = true; after && after(); }, 150));
+  inp.addEventListener('keydown', e => {
+    if (box.hidden || !hits.length) return;
+    if (e.key === 'ArrowDown') { idx = (idx + 1) % hits.length; mark(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { idx = (idx - 1 + hits.length) % hits.length; mark(); e.preventDefault(); }
+    else if (e.key === 'Enter' || e.key === 'Tab') { if (idx >= 0) { if (e.key === 'Enter') e.preventDefault(); pick(hits[idx]); } }
+    else if (e.key === 'Escape') { box.hidden = true; e.preventDefault(); e.stopPropagation(); }
+  });
+  box.addEventListener('pointerdown', e => e.preventDefault()); // Fokus im Feld behalten
+  box.addEventListener('click', e => { const b = e.target.closest('[data-ki]'); if (b) pick(hits[+b.dataset.ki]); });
+}
+
+/* ---------- Auswahlfelder mit Suche und Vorschlägen (gleiches Prinzip wie beim Kunden) ----------
+   Ersetzt die Anzeige eines <select> durch ein Suchfeld; das <select> bleibt (versteckt) Träger des Werts,
+   damit Formulare und bestehende Logik unverändert funktionieren. */
+const Combo = {
+  eligible: sel => sel.matches('dialog select.input, select[data-combo]') && !sel.matches('[data-plain], [multiple], [name="status"]'),
+  scan(root) { (root.matches?.('select') ? [root] : [...(root.querySelectorAll?.('select') || [])]).forEach(s => { if (!s._combo && Combo.eligible(s)) Combo.enhance(s); }); },
+  enhance(sel) {
+    sel._combo = true;
+    const wrap = document.createElement('div'); wrap.className = 'combo';
+    if (sel.style.width) wrap.style.width = sel.style.width; if (sel.style.minWidth) wrap.style.minWidth = sel.style.minWidth; if (sel.style.maxWidth) wrap.style.maxWidth = sel.style.maxWidth;
+    sel.parentNode.insertBefore(wrap, sel); wrap.appendChild(sel);
+    const inp = document.createElement('input');
+    inp.className = 'input combo-in'; inp.autocomplete = 'off'; inp.spellcheck = false; inp.setAttribute('autocapitalize', 'off'); inp.setAttribute('enterkeyhint', 'done');
+    if (sel.getAttribute('aria-label')) inp.setAttribute('aria-label', sel.getAttribute('aria-label'));
+    const box = document.createElement('div'); box.className = 'ksug combo-sug'; box.hidden = true;
+    wrap.prepend(inp); wrap.append(box); // Suchfeld zuerst, damit ein Klick auf die Beschriftung es fokussiert
+    sel.hidden = true; sel.tabIndex = -1;
+    if (sel.required) { sel.required = false; inp.required = true; }
+    const blank = () => [...sel.options].find(o => o.value === '');
+    const label = o => !o || o.value === '' ? '' : o.textContent.trim();
+    const sync = () => { if (document.activeElement !== inp) inp.value = label(sel.options[sel.selectedIndex]); const b = blank(); inp.placeholder = b ? b.textContent.trim() : 'Suchen…'; };
+    // programmatische Änderungen (sel.value = …, neue Optionen) übernehmen
+    const P = HTMLSelectElement.prototype;
+    ['value', 'selectedIndex'].forEach(k => { const d = Object.getOwnPropertyDescriptor(P, k); Object.defineProperty(sel, k, { configurable: true, get() { return d.get.call(this); }, set(v) { d.set.call(this, v); sync(); } }); });
+    new MutationObserver(() => { sync(); if (!box.hidden) show(inp.value.trim() === label(sel.options[sel.selectedIndex]) ? '' : inp.value); }).observe(sel, { childList: true, subtree: true });
+    sel.addEventListener('change', sync);
+    let hits = [], idx = -1;
+    const show = q => {
+      const opts = [...sel.options].filter(o => !o.disabled), toks = tokensOf(q || '');
+      hits = !toks.length ? opts : opts.map((o, i) => ({ o, i, s: textScore(o.textContent, toks) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s || a.i - b.i).map(x => x.o);
+      hits = hits.slice(0, 100);
+      idx = toks.length ? (hits.length ? 0 : -1) : hits.indexOf(sel.options[sel.selectedIndex]);
+      box.innerHTML = hits.map((o, i) => { const g = o.parentElement.tagName === 'OPTGROUP' ? o.parentElement.label : ''; return `<button type="button" tabindex="-1" class="${i === idx ? 'on' : ''}${o.value === '' ? ' blank' : ''}" data-ki="${i}">${esc(o.textContent.trim())}${g && toks.length ? ` <span>${esc(g)}</span>` : ''}</button>`; }).join('')
+        || '<div class="none">Keine Übereinstimmung</div>';
+      box.hidden = false;
+      box.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+    };
+    const pick = o => {
+      box.hidden = true; hits = [];
+      const changed = sel.value !== o.value || sel.options[sel.selectedIndex] !== o;
+      o.selected = true; inp.value = label(o);
+      if (changed) sel.dispatchEvent(new Event('change', { bubbles: true }));
+      sync();
+    };
+    const mark = () => { [...box.children].forEach((b, i) => b.classList.toggle('on', i === idx)); box.children[idx]?.scrollIntoView({ block: 'nearest' }); };
+    inp.addEventListener('focus', () => { show(''); setTimeout(() => inp.select(), 0); });
+    inp.addEventListener('click', () => { if (box.hidden) show(''); });
+    inp.addEventListener('input', () => show(inp.value));
+    inp.addEventListener('blur', () => setTimeout(() => {
+      if (document.activeElement === inp) return;
+      box.hidden = true;
+      const t = inp.value.trim(), cur = sel.options[sel.selectedIndex];
+      if (!t) { const b = blank(); if (b && cur !== b) pick(b); else sync(); return; }
+      if (t === label(cur)) return;
+      const exact = [...sel.options].find(o => fold(o.textContent) === fold(t));
+      const best = exact || (similarHits(sel, t).length === 1 ? similarHits(sel, t)[0] : null);
+      if (best) pick(best); else { inp.value = label(cur); toast('Bitte einen Eintrag aus der Liste wählen'); }
+    }, 150));
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { if (box.hidden) show(''); else if (hits.length) { idx = (idx + (e.key === 'ArrowDown' ? 1 : -1) + hits.length) % hits.length; mark(); } e.preventDefault(); }
+      else if (e.key === 'Enter') { if (!box.hidden) { e.preventDefault(); if (hits[idx]) pick(hits[idx]); } }
+      else if (e.key === 'Tab') { if (!box.hidden && hits[idx] && fold(inp.value) && fold(inp.value) !== fold(label(sel.options[sel.selectedIndex]))) pick(hits[idx]); }
+      else if (e.key === 'Escape' && !box.hidden) { box.hidden = true; inp.value = label(sel.options[sel.selectedIndex]); e.preventDefault(); e.stopPropagation(); }
+    });
+    box.addEventListener('pointerdown', e => e.preventDefault());
+    box.addEventListener('click', e => { const b = e.target.closest('[data-ki]'); if (b) pick(hits[+b.dataset.ki]); });
+    sync();
+  }
+};
+const similarHits = (sel, t) => { const toks = tokensOf(t); return [...sel.options].filter(o => o.value !== '' && textScore(o.textContent, toks) > 0); };
+new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => n.nodeType === 1 && Combo.scan(n)))).observe(document.documentElement, { childList: true, subtree: true });
 
 /* ---------- Auswahllisten im Auftrag (nur bestehende Einträge) ---------- */
 const findKunde = t => { t = String(t || '').trim(); if (!t) return null; const all = Store.all('kunden').sort((a, b) => (a.aktiv === false) - (b.aktiv === false)); return all.find(k => kundeLabel(k) === t) || all.find(k => norm(k.name) === norm(t)) || null; };
@@ -1048,7 +1178,7 @@ function quickKundeDialog() {
     const dup = Store.all('kunden').find(x => norm(x.name) === norm(k.name) && (!k.ort || norm(x.ort) === norm(k.ort)));
     if (dup && !confirm(`«${kundeLabel(dup)}» gibt es schon. Trotzdem neu anlegen?`)) return;
     Store.put('kunden', k, { silent: true });
-    const f = Dlg.form; f.kunde.value = kundeLabel(k); $('#dlKunden', f).innerHTML = kundenOptions();
+    const f = Dlg.form; f.kunde.value = kundeLabel(k); $('#kHint', f).textContent = ''; $('#kSug', f).hidden = true;
     f.kunde.dispatchEvent(new Event('input')); d2.close(); toast('Kunde angelegt');
   });
   d2.showModal();
@@ -1599,7 +1729,8 @@ const prodOf = p => prodById(p.pid) || prodByName(p.name);
 const prodUnit = name => (prodByName(name) || {}).einheit || 'l';
 const byName = (a, b) => (a.name || '').localeCompare(b.name || '', 'de');
 const kundeOf = a => Store.get('kunden', a.kunde) || {};
-const ernteDefault = (iso, kultur) => { if (!iso) return null; const d = parseDate(iso), y = d.getFullYear(); return d.getMonth() >= 7 && /^(winter|triticale|korn)/i.test(kultur || '') ? y + 1 : y; };
+// Erntejahr: ab 1. September zählt das Folgejahr
+const ernteDefault = iso => { if (!iso) return null; const d = parseDate(iso), y = d.getFullYear(); return d.getMonth() >= 8 ? y + 1 : y; };
 const ernteOf = a => a.erntejahr || ernteDefault(a.erledigtAm || a.datum, a.kultur);
 const flOf = a => a.flaecheEff ?? a.flaeche ?? 0;
 const sprayOrders = () => Store.all('auftraege').filter(isSpray);
@@ -1638,7 +1769,7 @@ function sprayBox(a) {
     <div class="three">
       <label class="fld"><span>Düse</span><select class="input" name="duese"><option value="">—</option>${optList(Lists.duesen(), a.duese)}</select></label>
       <label class="fld"><span>Traktor</span><select class="input" name="traktor"><option value="">—</option>${optList(Lists.traktoren(), a.traktor)}</select></label>
-      <label class="fld"><span>Erntejahr</span><input class="input" name="erntejahr" inputmode="numeric" value="${a.erntejahr ?? ''}" placeholder="${ernteDefault(a.datum || todayIso(), a.kultur) || ''}"></label>
+      <label class="fld"><span>Erntejahr</span><input class="input" name="erntejahr" inputmode="numeric" value="${a.erntejahr ?? ernteDefault(a.datum || a.wunsch || todayIso()) ?? ''}" data-auto="${a.erntejahr == null ? 1 : 0}"></label>
     </div>
     <div class="checks"><label><input type="checkbox" name="nichtOeln" ${a.nichtOeln ? 'checked' : ''}> Nicht ÖLN-konform</label></div>
     <div class="fld" style="margin:10px 0 6px"><span>Produkte und Aufwandmenge pro ha</span></div>
@@ -1668,7 +1799,8 @@ function wireSpray(f) {
     const s = readSpray(f), fl = num(f.flaeche.value);
     const rows = sprayRows({ arbeit: 'Spritzen', flaeche: fl, ...s }).filter(r => r.tot);
     $('#sprayTot', f).innerHTML = fl && rows.length ? `<b>Bedarf für ${fmtNum(fl)} ha:</b> ${rows.map(r => `${esc(r.name)} ${esc(r.tot)}`).join(' · ')}` : (s.produkte.length ? '<span class="nr">Fläche eintragen, um den Bedarf zu berechnen.</span>' : '');
-    f.erntejahr.placeholder = ernteDefault(f.datum.value || f.wunsch.value || todayIso(), f.kultur.value) || '';
+    const ej = ernteDefault(f.datum.value || f.wunsch.value || todayIso());
+    if (f.erntejahr.dataset.auto === '1') f.erntejahr.value = ej ?? ''; else f.erntejahr.placeholder = ej ?? '';
   };
   const refreshParz = () => { const k = findKunde(f.kunde.value); const cur = f.parzelle.value; f.parzelle.innerHTML = parzOptions(k ? k.id : '', cur); };
   f.arbeit.addEventListener('change', upd);
@@ -1680,8 +1812,9 @@ function wireSpray(f) {
     if (p.flaeche && !f.flaeche.value) { f.flaeche.value = p.flaeche; f.flaeche.dispatchEvent(new Event('input', { bubbles: true })); }
     upd();
   });
+  f.erntejahr.addEventListener('input', () => { f.erntejahr.dataset.auto = f.erntejahr.value.trim() ? '0' : '1'; });
   f.addEventListener('input', e => { if (e.target.closest('#sprayBox') || e.target.name === 'flaeche') upd(); });
-  f.addEventListener('change', e => { if (e.target.name === 'pname' || e.target.name === 'kultur' || e.target.name === 'datum') upd(); });
+  f.addEventListener('change', e => { if (['pname', 'kultur', 'datum', 'wunsch', 'erledigtAm'].includes(e.target.name)) upd(); });
   f._sprayUpd = upd; f._refreshParz = refreshParz; upd();
 }
 
@@ -1782,7 +1915,7 @@ function stammContent() {
   const segs = `<div class="seg" style="margin-bottom:12px">${[['produkte', 'Produkte'], ['parzellen', 'Parzellen'], ['geraete', 'Düsen & Traktoren'], ['import', 'Import']].map(([k, l]) => `<button type="button" data-act="spStamm" data-v="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   if (sub === 'parzellen') {
     const list = Store.all('parzellen').filter(p => (!S.pk || p.kunde === S.pk) && (S.pall || p.aktiv !== false)).sort((a, b) => kundeName(a.kunde).localeCompare(kundeName(b.kunde), 'de') || byName(a, b));
-    return segs + `<div class="filters"><select class="input" data-in="spPk" style="width:auto;min-width:200px"><option value="">Alle Kunden</option>${Store.all('kunden').filter(k => k.aktiv !== false || k.id === S.pk).sort(byName).map(k => `<option value="${k.id}" ${k.id === S.pk ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
+    return segs + `<div class="filters"><select class="input" data-combo data-in="spPk" style="width:auto;min-width:200px"><option value="">Alle Kunden</option>${Store.all('kunden').filter(k => k.aktiv !== false || k.id === S.pk).sort(byName).map(k => `<option value="${k.id}" ${k.id === S.pk ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
         <label class="tog"><input type="checkbox" data-in="spPall" ${S.pall ? 'checked' : ''}> auch inaktive</label><button class="btn primary" data-act="parzAdd">＋ Parzelle</button></div>
       <div class="rows">${list.map(p => `<div class="rowi ${p.aktiv === false ? 'off' : ''}" data-act="parzEdit" data-id="${p.id}"><div class="grow"><div class="t">${esc(p.name)}</div><div class="s">${esc(kundeName(p.kunde))}${p.kultur ? ' · ' + esc(p.kultur) : ''}${feldById(p.feldId) ? ` · 🌾 Feld ${esc(feldById(p.feldId).name)}` : ''}</div></div><span class="num" style="width:auto">${p.flaeche ? fmtNum(p.flaeche) + ' ha' : ''}</span></div>`).join('') || '<div class="empty">Keine Parzellen.</div>'}</div>`;
   }
@@ -1834,32 +1967,54 @@ function kundenMitSpritz(filter) {
 }
 const billFilter = (S = App.spray) => a => dOf(a) >= S.av && dOf(a) <= S.ab && (['erledigt', 'verrechnet'].includes(statusOf(a)) || (S.ag && statusOf(a) === 'geplant'));
 const nwFilter = (S = App.spray) => a => ernteOf(a) === +S.ny && (S.ngep || statusOf(a) !== 'geplant');
-// Sortierung Kultur › Parzelle › Datum
-const byKulturParz = (a, b) => (a.kultur || '~').localeCompare(b.kultur || '~', 'de') || (a.feld || '~').localeCompare(b.feld || '~', 'de') || dOf(a).localeCompare(dOf(b));
+// Sortierung Erntejahr › Kultur › Parzelle › Datum
+const byKulturParz = (a, b) => (ernteOf(a) || 0) - (ernteOf(b) || 0) || (a.kultur || '~').localeCompare(b.kultur || '~', 'de') || (a.feld || '~').localeCompare(b.feld || '~', 'de') || dOf(a).localeCompare(dOf(b));
 const groupBy = (list, key) => { const m = new Map(); list.forEach(x => { const k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); }); return [...m.entries()]; };
 
-// Journal: gegliedert nach Kultur und Parzelle
+const MONATE_LANG = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+// Journal: chronologisch nach Ausführung; Erntejahr und Fläche direkt bearbeitbar
+const byWhen = (a, b) => dOf(a).localeCompare(dOf(b)) || (a.zeit || '').localeCompare(b.zeit || '') || (a.nr || '').localeCompare(b.nr || '');
 function journalContent() {
   const S = App.spray; if (S.jy == null) S.jy = String(yearsOf()[0] || '');
-  const q = norm(S.jq), y = S.jy;
+  const q = norm(S.jq), y = S.jy, desc = S.jsort === 'desc';
   const all = sprayOrders().filter(a => dOf(a)).filter(a => (!y || ernteOf(a) === +y) && (!q || [kundeName(a.kunde), a.feld, a.kultur, a.notiz, a.stadium, a.nr, ...prodNames(a)].join(' ').toLowerCase().includes(q)));
-  const list = all.slice().sort(byKulturParz), shown = list.slice(0, S.jlimit);
-  const row = a => `<div class="rowi" data-act="editOrder" data-id="${a.id}">
-      <span class="num" style="width:74px">${fmtDate(dOf(a), { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>
-      <div class="grow"><div class="t">${esc(kundeName(a.kunde))}</div>
-        <div class="s">${fmtNum(flOf(a))} ha${a.stadium ? ` · ${esc(a.stadium)}` : ''} · ${prodList(a).map(p => `${esc(p.name)} ${fmtNum(p.menge)} ${esc(p.einheit || '')}`).join(', ') || 'keine Produkte'}</div></div>
+  const list = all.slice().sort((a, b) => desc ? byWhen(b, a) : byWhen(a, b)), shown = list.slice(0, S.jlimit);
+  const row = a => `<div class="rowi jrow" data-act="editOrder" data-id="${a.id}">
+      <span class="num jd">${fmtDate(dOf(a), { weekday: 'short', day: '2-digit', month: '2-digit' })}</span>
+      <div class="grow"><div class="t">${esc(kundeName(a.kunde))}${a.feld ? ` <span class="nr">· ${esc(a.feld)}</span>` : ''}</div>
+        <div class="s">${esc(a.kultur || 'ohne Kultur')}${a.stadium ? ` · ${esc(a.stadium)}` : ''} · ${prodList(a).map(p => `${esc(p.name)} ${fmtNum(p.menge)} ${esc(p.einheit || '')}`).join(', ') || 'keine Produkte'}</div></div>
+      <div class="jedit" data-stop>
+        <label><span>Erntejahr</span><input class="input" data-in="spJEj" data-id="${a.id}" inputmode="numeric" value="${ernteOf(a) ?? ''}"></label>
+        <label><span>Fläche ha</span><input class="input" data-in="spJFl" data-id="${a.id}" inputmode="decimal" value="${flOf(a) || ''}"></label>
+      </div>
       <span class="badge ${statusOf(a)}">${STATUS[statusOf(a)]}</span></div>`;
   const ha = l => fmtNum(r2(l.reduce((s, a) => s + flOf(a), 0)));
-  const body = groupBy(shown, a => a.kultur || '').map(([k, ka]) => `<div class="grp"><div class="grp-k">${esc(k || 'ohne Kultur')} <small>${ka.length} · ${ha(ka)} ha</small></div>
-      ${groupBy(ka, a => a.feld || '').map(([p, pa]) => `<div class="grp-p">${esc(p || 'ohne Parzelle')} <small>${pa.length} · ${ha(pa)} ha</small></div><div class="rows">${pa.map(row).join('')}</div>`).join('')}</div>`).join('');
+  const body = groupBy(shown, a => dOf(a).slice(0, 7)).map(([m, ma]) => `<div class="grp"><div class="grp-p">${esc(m ? MONATE_LANG[+m.slice(5, 7) - 1] + ' ' + m.slice(0, 4) : '')} <small>${ma.length} · ${ha(ma)} ha</small></div>
+      <div class="rows">${ma.map(row).join('')}</div></div>`).join('');
   return `<div class="filters"><input class="input search" type="search" placeholder="Suchen: Kunde, Parzelle, Kultur, Produkt…" value="${esc(S.jq)}" data-in="spJq">
-      <select class="input" data-in="spJy" style="width:auto"><option value="">Alle Erntejahre</option>${yearsOf().map(v => `<option ${+y === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-    <p class="nr">${list.length} Spritzaufträge · ${ha(list)} ha</p>
+      <select class="input" data-in="spJy" style="width:auto"><option value="">Alle Erntejahre</option>${yearsOf().map(v => `<option ${+y === v ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      <select class="input" data-in="spJsort" style="width:auto"><option value="asc" ${desc ? '' : 'selected'}>Älteste zuerst</option><option value="desc" ${desc ? 'selected' : ''}>Neueste zuerst</option></select></div>
+    <p class="nr">${list.length} Spritzaufträge · ${ha(list)} ha · Erntejahr und Fläche direkt ändern, übrige Angaben durch Antippen der Zeile.</p>
     ${body || '<div class="empty">Keine Treffer.</div>'}
     ${list.length > shown.length ? `<div class="btns" style="margin-top:10px"><button class="btn" data-act="spMore">Weitere ${Math.min(200, list.length - shown.length)} anzeigen</button></div>` : ''}`;
 }
+// Direktbearbeitung im Journal
+function journalEdit(el) {
+  const a = Store.get('auftraege', el.dataset.id); if (!a) return;
+  const v = num(el.value);
+  if (el.dataset.in === 'spJEj') {
+    if (!v || v < 1990 || v > 2100 || v !== Math.round(v)) { toast('Erntejahr bitte vierstellig eingeben, z.B. 2027'); el.value = ernteOf(a) ?? ''; return; }
+    a.erntejahr = v;
+  } else {
+    if (v == null || v < 0) { toast('Fläche bitte als Zahl eingeben'); el.value = flOf(a) || ''; return; }
+    if (a.flaecheEff != null || ['erledigt', 'verrechnet'].includes(statusOf(a))) a.flaecheEff = v; else a.flaeche = v;
+    el.value = v;
+  }
+  Store.put('auftraege', { ...a }, { silent: true });
+  el.classList.add('saved'); setTimeout(() => el.classList.remove('saved'), 900);
+}
 
-// Abrechnung: gegliedert nach Kultur und Parzelle, ohne Preisherleitung
+// Abrechnung: gegliedert nach Erntejahr, Kultur und Parzelle, ohne Preisherleitung
 function billing(kid, von, bis, mitGeplant) {
   const k = Store.get('kunden', kid) || {};
   const preisHa = (k.preisSpritze || 0) + (k.preisFahrer || 0) + (k.preisTraktor || 0), zu = k.zuschlag || 0;
@@ -1882,8 +2037,10 @@ function billingHtml(b, von, bis) {
   const jobRows = r => `<tr class="job click" data-act="editOrder" data-id="${r.a.id}"><td>${fmtDate(dOf(r.a), { day: '2-digit', month: '2-digit', year: '2-digit' })}</td><td>Arbeit Spritzen</td><td></td>
       <td class="n">${fmtNum(r.fl)} ha</td><td class="n">${chf(b.preisHa)}</td><td class="n"><b>${chf(r.arbeit)}</b></td></tr>
     ${r.mittel.map(m => `<tr class="mit click" data-act="editOrder" data-id="${r.a.id}"><td></td><td>${esc(m.name)}</td><td class="nr">${esc(m.zulassung)}</td><td class="n">${fmtNum(r2(m.menge))} ${esc(m.einheit)}</td><td class="n">${chf(m.preisZ)}</td><td class="n">${chf(m.betrag)}</td></tr>`).join('')}`;
-  const body = groupBy(b.rows, r => r.a.kultur || '').map(([k, kr]) => `<tr class="gk"><td colspan="5">${esc(k || 'ohne Kultur')} · ${fmtNum(r2(kr.reduce((s, r) => s + r.fl, 0)))} ha</td><td class="n">${chf(sum(kr))}</td></tr>
-    ${groupBy(kr, r => r.a.feld || '').map(([p, pr]) => `<tr class="gp"><td colspan="6">${esc(p || 'ohne Parzelle')}</td></tr>${pr.map(jobRows).join('')}`).join('')}`).join('');
+  const fl = rs => fmtNum(r2(rs.reduce((s, r) => s + r.fl, 0)));
+  const body = groupBy(b.rows, r => ernteOf(r.a) || '').map(([j, jr]) => `<tr class="gj"><td colspan="5">Erntejahr ${esc(j || '–')} · ${fl(jr)} ha</td><td class="n">${chf(sum(jr))}</td></tr>
+    ${groupBy(jr, r => r.a.kultur || '').map(([k, kr]) => `<tr class="gk"><td colspan="5">${esc(k || 'ohne Kultur')} · ${fl(kr)} ha</td><td class="n">${chf(sum(kr))}</td></tr>
+    ${groupBy(kr, r => r.a.feld || '').map(([p, pr]) => `<tr class="gp"><td colspan="6">${esc(p || 'ohne Parzelle')}</td></tr>${pr.map(jobRows).join('')}`).join('')}`).join('')}`).join('');
   return `<div class="bill"><div class="bill-h"><div><b>${esc(b.k.anrede ? b.k.anrede + ' ' : '')}${esc(b.k.name || '')}</b><br>${esc(b.k.adresse || '')}<br>${esc([b.k.plz, b.k.ort].filter(Boolean).join(' '))}</div>
       <div class="r">Spritzarbeiten ${fmtDate(von, { day: '2-digit', month: '2-digit', year: 'numeric' })} – ${fmtDate(bis, { day: '2-digit', month: '2-digit', year: 'numeric' })}</div></div>
     <table class="btab"><thead><tr><th>Datum</th><th>Position</th><th>Zulassung</th><th class="n">Menge</th><th class="n">Ansatz</th><th class="n">Betrag CHF</th></tr></thead><tbody>${body}</tbody><tfoot>
@@ -1898,7 +2055,7 @@ function abrechnungContent() {
       <label class="fld inl"><span>Von</span><input class="input" type="date" value="${S.av}" data-in="spAv"></label>
       <label class="fld inl"><span>Bis</span><input class="input" type="date" value="${S.ab}" data-in="spAb"></label>
       <label class="tog"><input type="checkbox" data-in="spAg" ${S.ag ? 'checked' : ''}> auch geplante</label>
-      <select class="input" data-in="spAk" style="width:auto;min-width:200px"><option value="">Alle Kunden (Übersicht, ${ks.length})</option>${ks.map(k => `<option value="${k.id}" ${k.id === S.ak ? 'selected' : ''}>${esc(kundeLabel(k))}</option>`).join('')}</select></div>`;
+      <select class="input" data-combo data-in="spAk" style="width:auto;min-width:200px"><option value="">Alle Kunden (Übersicht, ${ks.length})</option>${ks.map(k => `<option value="${k.id}" ${k.id === S.ak ? 'selected' : ''}>${esc(kundeLabel(k))}</option>`).join('')}</select></div>`;
   if (!S.ak) {
     const sums = ks.map(k => ({ k, b: billing(k.id, S.av, S.ab, S.ag) })).filter(x => x.b.rows.length);
     const tot = sums.reduce((s, x) => s + x.b.total, 0);
@@ -1918,11 +2075,11 @@ function abrechnungContent() {
 }
 function billingCsv() {
   const S = App.spray, ids = S.ak ? [S.ak] : kundenMitSpritz(billFilter(S)).map(k => k.id);
-  const rows = [['Kunde', 'Kultur', 'Parzelle', 'Datum', 'Fläche ha', 'Position', 'Zulassung', 'Menge', 'Einheit', 'Ansatz CHF', 'Betrag CHF', 'Auftrag']];
+  const rows = [['Kunde', 'Erntejahr', 'Kultur', 'Parzelle', 'Datum', 'Fläche ha', 'Position', 'Zulassung', 'Menge', 'Einheit', 'Ansatz CHF', 'Betrag CHF', 'Auftrag']];
   ids.forEach(id => { const b = billing(id, S.av, S.ab, S.ag); b.rows.forEach(r => {
     const d = dOf(r.a);
-    rows.push([b.k.name, r.a.kultur, r.a.feld, d, r.fl, 'Arbeit Spritzen', '', r.fl, 'ha', b.preisHa.toFixed(2), r.arbeit.toFixed(2), r.a.nr]);
-    r.mittel.forEach(m => rows.push([b.k.name, r.a.kultur, r.a.feld, d, r.fl, m.name, m.zulassung, r2(m.menge), m.einheit, m.preisZ.toFixed(2), m.betrag.toFixed(2), r.a.nr]));
+    rows.push([b.k.name, ernteOf(r.a), r.a.kultur, r.a.feld, d, r.fl, 'Arbeit Spritzen', '', r.fl, 'ha', b.preisHa.toFixed(2), r.arbeit.toFixed(2), r.a.nr]);
+    r.mittel.forEach(m => rows.push([b.k.name, ernteOf(r.a), r.a.kultur, r.a.feld, d, r.fl, m.name, m.zulassung, r2(m.menge), m.einheit, m.preisZ.toFixed(2), m.betrag.toFixed(2), r.a.nr]));
   }); });
   download(`Abrechnung_Spritzen_${S.av}_bis_${S.ab}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }
@@ -1938,12 +2095,15 @@ function nachweisHtml(list) {
     const k = Store.get('kunden', kid) || {};
     return `<div class="bill nachweis"><div class="bill-h"><div><b>${esc(k.name || '')}</b>${k.ort ? ', ' + esc([k.plz, k.ort].filter(Boolean).join(' ')) : ''}</div>
       <div class="r">Pflanzenschutz-Nachweis Erntejahr ${esc(App.spray.ny)}${App.spray.nc ? ' · ' + esc(App.spray.nc) : ''}</div></div>
-      <table class="btab"><thead><tr><th>Datum</th><th>Parzelle</th><th>Kultur</th><th class="n">ha</th><th>Stadium</th><th>Produkt</th><th>Zulassung</th><th class="n">Menge/ha</th><th>Bemerkung</th></tr></thead><tbody>
-      ${ol.map(a => { const ps = prodList(a).length ? prodList(a) : [{}]; return ps.map((p, i) => `<tr class="${i ? 'mit' : 'job'} click" data-act="editOrder" data-id="${a.id}">
-          <td>${i ? '' : fmtDate(dOf(a), { day: '2-digit', month: '2-digit', year: '2-digit' })}</td><td>${i ? '' : esc(a.feld || '')}</td><td>${i ? '' : esc(a.kultur || '')}</td>
+      <table class="btab"><thead><tr><th>Datum</th><th class="n">ha</th><th>Stadium</th><th>Produkt</th><th>Zulassung</th><th class="n">Menge/ha</th><th>Bemerkung</th></tr></thead><tbody>
+      ${groupBy(ol, a => ernteOf(a) || '').map(([j, ja]) => `<tr class="gj"><td colspan="7">Erntejahr ${esc(j || '–')}</td></tr>
+      ${groupBy(ja, a => a.kultur || '').map(([kk, ka]) => `<tr class="gk"><td colspan="7">${esc(kk || 'ohne Kultur')} · ${fmtNum(r2(ka.reduce((s, a) => s + flOf(a), 0)))} ha</td></tr>
+      ${groupBy(ka, a => a.feld || '').map(([pp, pa]) => `<tr class="gp"><td colspan="7">${esc(pp || 'ohne Parzelle')}</td></tr>
+      ${pa.map(a => { const ps = prodList(a).length ? prodList(a) : [{}]; return ps.map((p, i) => `<tr class="${i ? 'mit' : 'job'} click" data-act="editOrder" data-id="${a.id}">
+          <td>${i ? '' : fmtDate(dOf(a), { day: '2-digit', month: '2-digit', year: '2-digit' })}</td>
           <td class="n">${i ? '' : fmtNum(flOf(a))}</td><td>${i ? '' : esc(a.stadium || '')}</td>
           <td>${esc(p.name || '–')}</td><td>${esc((prodOf(p) || {}).zulassung || '')}</td>
-          <td class="n">${p.menge != null ? fmtNum(p.menge) + ' ' + esc(p.einheit || '') : ''}</td><td>${i ? '' : esc(a.notiz || '')}</td></tr>`).join(''); }).join('')}
+          <td class="n">${p.menge != null ? fmtNum(p.menge) + ' ' + esc(p.einheit || '') : ''}</td><td>${i ? '' : esc(a.notiz || '')}</td></tr>`).join(''); }).join('')}`).join('')}`).join('')}`).join('')}
       </tbody></table></div>`;
   }).join('');
 }
@@ -1955,8 +2115,8 @@ function nachweisContent() {
   if (S.nc && !kult.includes(S.nc)) S.nc = '';
   return `<div class="filters">
       <select class="input" data-in="spNy" style="width:auto">${(ys.length ? ys : [S.ny]).map(v => `<option ${+S.ny === v ? 'selected' : ''}>${v}</option>`).join('')}</select>
-      <select class="input" data-in="spNk" style="width:auto;min-width:180px"><option value="">Alle Kunden (${ks.length})</option>${ks.map(k => `<option value="${k.id}" ${k.id === S.nk ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
-      <select class="input" data-in="spNc" style="width:auto"><option value="">Alle Kulturen</option>${kult.map(c => `<option ${c === S.nc ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      <select class="input" data-combo data-in="spNk" style="width:auto;min-width:180px"><option value="">Alle Kunden (${ks.length})</option>${ks.map(k => `<option value="${k.id}" ${k.id === S.nk ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
+      <select class="input" data-combo data-in="spNc" style="width:auto"><option value="">Alle Kulturen</option>${kult.map(c => `<option ${c === S.nc ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
       <label class="tog"><input type="checkbox" data-in="spNgep" ${S.ngep ? 'checked' : ''}> auch geplante</label></div>
     <p class="nr">${list.length} Behandlungen · ${new Set(list.map(a => a.kunde)).size} Kunden · Zeile antippen, um den Auftrag zu bearbeiten.</p>
     ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-act="spNwPrint">Drucken / PDF</button><button class="btn" data-act="spNwCsv">CSV</button></div><div class="panel">${nachweisHtml(list)}</div>` : '<div class="empty">Keine Behandlungen für diese Auswahl.</div>'}`;
@@ -2332,6 +2492,7 @@ document.addEventListener('click', async e => {
   }
 });
 document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.target.dataset?.in === 'spJEj' || e.target.dataset?.in === 'spJFl')) { e.preventDefault(); e.target.blur(); return; }
   if (e.key !== 'Escape' || Dlg.el.open) return;
   if (App.sel.size) clearSel(); else if (App.fs) { App.fs = false; App.render(); }
 });
@@ -2346,7 +2507,8 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('change', e => {
   const k = e.target.dataset.in; if (!k) return;
-  const SP = { spAk: 'ak', spAv: 'av', spAb: 'ab', spNy: 'ny', spNk: 'nk', spNc: 'nc', spJy: 'jy', spPk: 'pk' };
+  if (k === 'spJEj' || k === 'spJFl') { journalEdit(e.target); return; }
+  const SP = { spAk: 'ak', spAv: 'av', spAb: 'ab', spNy: 'ny', spNk: 'nk', spNc: 'nc', spJy: 'jy', spPk: 'pk', spJsort: 'jsort' };
   if (SP[k]) { App.spray[SP[k]] = e.target.value; if (k === 'spJy') App.spray.jlimit = 200; App.render(); return; }
   const SPB = { spAg: 'ag', spNgep: 'ngep', spPall: 'pall', spPrall: 'prall' };
   if (SPB[k]) { App.spray[SPB[k]] = e.target.checked; App.render(); return; }
