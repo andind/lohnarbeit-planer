@@ -240,6 +240,10 @@ const Drive = {
     if (!r.ok) throw new Error('nicht gefunden');
     return JSON.parse(await r.text());
   },
+  async writeJson(path, obj) {
+    const r = await this.req('https://content.dropboxapi.com/2/files/upload', { headers: { 'Content-Type': 'application/octet-stream', 'Dropbox-API-Arg': dbxArg({ path, mode: 'overwrite', mute: true }) }, body: JSON.stringify(obj) });
+    if (!r.ok) throw new Error('Dropbox ' + r.status);
+  },
   async save(data, rev) {
     const arg = { path: this.path(), mode: rev ? { '.tag': 'update', update: rev } : 'add', autorename: false, mute: true };
     const r = await this.req('https://content.dropboxapi.com/2/files/upload', {
@@ -732,7 +736,8 @@ const Views = {
       return `<h1>Kunden</h1>
         <input class="input search" type="search" placeholder="Kunde suchen…" value="${esc(App.filter.kq)}" data-in="kSearch">
         <label class="tog"><input type="checkbox" data-in="kAll" ${App.filter.kall ? 'checked' : ''}> auch inaktive</label>
-        <button class="btn" data-act="jdSync">MyJohnDeere-Abgleich</button>
+        <button class="btn primary" data-act="jdRequest" title="Fordert beim NAS-Dienst einen Abgleich mit MyJohnDeere an">⟳ Jetzt abgleichen</button>
+        <button class="btn" data-act="jdSync">Abgleich prüfen…</button>
         ${jdLock() ? '' : `<button class="btn" data-act="importKunden">Import (Excel/CSV)</button>
         <button class="btn primary" data-act="editKunde">＋ Kunde</button>`}`;
     },
@@ -741,7 +746,7 @@ const Views = {
       const list = Store.all('kunden').filter(k => (App.filter.kall || k.aktiv !== false) && (!q || [k.nr, k.name, k.adresse, k.ort, k.tel].join(' ').toLowerCase().includes(q)))
         .sort((a, b) => a.name.localeCompare(b.name, 'de'));
       const st = Store.cfg().jdStand;
-      const info = st ? `<p class="nr">Kunden und Felder werden in MyJohnDeere gepflegt · letzter Abgleich ${new Date(st).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}</p>` : '';
+      const info = st ? `<p class="nr">Kunden und Felder werden in MyJohnDeere gepflegt · Stand ${new Date(st).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}</p>` : '';
       if (!list.length) return info + `<div class="empty">${q ? 'Keine Treffer.' : 'Noch keine Kunden.<br>Kunden und Felder kommen über den MyJohnDeere-Abgleich.'}</div>`;
       const open = {};
       Store.all('auftraege').forEach(a => { if (isOpen(a)) open[a.kunde] = (open[a.kunde] || 0) + 1; });
@@ -2040,8 +2045,58 @@ function jdMatch(c) {
   const n = norm(c.name), sw = n.split(/\s+/).reverse().join(' ');
   const hit = ks.find(k => !k.jdId && (norm(k.name) === n || norm(k.name) === sw)); return hit ? hit.id : '';
 }
-function jdSyncDialog(d, src) {
+// Abgleich anwenden. map(c) → '+' (neu), '-' (überspringen) oder Kunden-ID
+function jdApply(d, map) {
   const farms = Object.fromEntries((d.farms || []).map(f => [f.id, f.name]));
+  const kOut = [], fOut = [], ids = new Set((d.clients || []).map(c => c.id));
+  let neu = 0, fNeu = 0, fUpd = 0, fArch = 0, kInakt = 0;
+  const same = (a, b, keys) => keys.every(x => (a[x] ?? '') === (b[x] ?? ''));
+  d.clients.forEach(c => {
+    const v = map(c); if (!v || v === '-') return;
+    const old = v === '+' ? null : Store.get('kunden', v);
+    const k = old ? { ...old } : { id: 'jdk-' + c.id, aktiv: true };
+    if (!old) neu++;
+    Store.all('kunden').filter(x => x.jdId === c.id && x.id !== k.id).forEach(x => kOut.push({ ...x, jdId: '' }));
+    Object.assign(k, { jdId: c.id, jdName: c.name, name: c.name });
+    if (!old || !same(old, k, ['jdId', 'jdName', 'name'])) kOut.push(k);
+    const seen = new Set();
+    (d.fields || []).filter(f => f.client === c.id).forEach(f => {
+      // bestehendes Feld per ID oder (aus dem Excel-Export) per Name wiederverwenden – Parzellen-Zuweisungen bleiben erhalten
+      const of = Store.data.felder.find(x => x.id === 'jdf-' + f.id && !x.del) || Store.data.felder.find(x => !x.del && x.jdId === f.id)
+        || Store.data.felder.find(x => !x.del && x.kunde === k.id && !x.jdId && !seen.has(x.id) && norm(x.jdName || x.name) === norm(f.name));
+      const id = of ? of.id : 'jdf-' + f.id; seen.add(id);
+      const nf = { ...(of || {}), id, kunde: k.id, jdId: f.id, jdName: f.name, name: f.name, betrieb: farms[f.farm] || '', flaeche: f.flaeche != null ? r2(+f.flaeche) : (of ? of.flaeche ?? null : null), aktiv: !f.archived };
+      if (!of) fNeu++; else if (!same(of, nf, ['kunde', 'jdId', 'name', 'betrieb', 'flaeche', 'aktiv'])) fUpd++; else return;
+      fOut.push(nf);
+    });
+    Store.all('felder').filter(x => x.kunde === k.id && (x.jdId || x.jdName) && !seen.has(x.id) && x.aktiv !== false).forEach(x => { fArch++; fOut.push({ ...x, aktiv: false }); });
+  });
+  if (d.full !== false) Store.all('kunden').filter(k => k.jdId && !ids.has(k.jdId) && k.aktiv !== false && !kOut.some(x => x.id === k.id)).forEach(k => { kInakt++; kOut.push({ ...k, aktiv: false }); });
+  if (kOut.length) Store.putMany('kunden', kOut);
+  if (fOut.length) Store.putMany('felder', fOut);
+  Store.setCfg({ jdStand: d.stand || new Date().toISOString(), jdOrg: d.org?.name || '' }, { silent: false });
+  return { neu, fNeu, fUpd, fArch, kInakt, changed: kOut.length + fOut.length };
+}
+const jdSummary = r => `${r.neu} Kunden neu${r.kInakt ? `, ${r.kInakt} inaktiv` : ''}, ${r.fNeu} Felder neu, ${r.fUpd} geändert, ${r.fArch} archiviert`;
+// Beim Start: neue Abgleichsdatei vom NAS automatisch übernehmen
+async function jdAuto() {
+  if (!Auth.configured() || !Auth.hasSession() || !navigator.onLine) return;
+  let d; try { d = await Drive.readJson('/jd-sync.json'); } catch { return; }
+  if (!d || d.format !== 'jd-sync' || !Array.isArray(d.clients)) return;
+  if (Store.cfg().jdStand && d.stand <= Store.cfg().jdStand) return;
+  const r = jdApply(d, c => jdMatch(c) || '+');
+  if (r.changed) toast(`MyJohnDeere übernommen: ${jdSummary(r)}`, 6000);
+}
+// «Jetzt abgleichen»: Anfrage für den NAS-Dienst in den Dropbox-Ordner legen
+async function jdRequest() {
+  if (!Auth.configured() || !Auth.hasSession()) { toast('Zuerst mit Dropbox verbinden (Mehr › Dropbox)'); return; }
+  try { await Drive.writeJson('/jd-sync-request.json', { at: new Date().toISOString() }); toast('Anfrage gesendet – der NAS-Dienst gleicht in den nächsten Minuten ab und der Planer übernimmt es danach automatisch.', 6000); }
+  catch (e) { toast('Anfrage fehlgeschlagen: ' + e.message, 5000); }
+  clearTimeout(jdRequest._t); let n = 0;
+  const poll = async () => { const before = Store.cfg().jdStand; await jdAuto(); if (Store.cfg().jdStand !== before || ++n > 12) return; jdRequest._t = setTimeout(poll, 60000); };
+  jdRequest._t = setTimeout(poll, 90000);
+}
+function jdSyncDialog(d, src) {
   const nF = c => (d.fields || []).filter(f => f.client === c.id && !f.archived).length;
   const ks = Store.all('kunden').sort(byName);
   const clients = d.clients.slice().sort(byName);
@@ -2051,33 +2106,8 @@ function jdSyncDialog(d, src) {
       <select class="input" name="map_${esc(c.id)}" style="max-width:260px"><option value="+" ${m ? '' : 'selected'}>＋ neu anlegen</option><option value="-">nicht übernehmen</option>
         ${ks.map(k => `<option value="${k.id}" ${k.id === m ? 'selected' : ''}>${esc(k.name)}${k.jdId && k.jdId !== c.id ? ' (bereits verknüpft)' : ''}</option>`).join('')}</select></div>`; }).join('')}</div>`;
   Dlg.open('MyJohnDeere-Abgleich', body, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">Übernehmen</button>`, fd => {
-    const now = Date.now(), kOut = [], fOut = [];
-    let neu = 0, fNeu = 0, fUpd = 0, fArch = 0;
-    clients.forEach(c => {
-      const v = fd.get('map_' + c.id); if (!v || v === '-') return;
-      let k = v === '+' ? { id: 'jdk-' + c.id, aktiv: true } : { ...Store.get('kunden', v) };
-      if (v === '+') neu++;
-      // eine Verknüpfung pro Mandant: alte lösen
-      Store.all('kunden').filter(x => x.jdId === c.id && x.id !== k.id).forEach(x => kOut.push({ ...x, jdId: '' }));
-      Object.assign(k, { jdId: c.id, jdName: c.name, name: c.name });
-      kOut.push(k);
-      const seen = new Set();
-      (d.fields || []).filter(f => f.client === c.id).forEach(f => {
-        // bestehendes Feld per ID oder (aus dem Excel-Export) per Name wiederverwenden – Parzellen-Zuweisungen bleiben erhalten
-        const old = Store.data.felder.find(x => x.id === 'jdf-' + f.id && !x.del)
-          || Store.data.felder.find(x => !x.del && x.kunde === k.id && !x.jdId && norm(x.jdName || x.name) === norm(f.name));
-        const id = old ? old.id : 'jdf-' + f.id; seen.add(id);
-        const nf = { ...(old && !old.del ? old : {}), id, kunde: k.id, jdId: f.id, name: f.name, betrieb: farms[f.farm] || '', flaeche: f.flaeche != null ? r2(+f.flaeche) : null, aktiv: !f.archived };
-        if (!old || old.del) fNeu++; else if (['kunde', 'name', 'betrieb', 'flaeche', 'aktiv'].some(x => old[x] !== nf[x])) fUpd++; else return;
-        fOut.push(nf);
-      });
-      Store.all('felder').filter(x => x.kunde === k.id && (x.jdId || x.jdName) && !seen.has(x.id) && x.aktiv !== false).forEach(x => { fArch++; fOut.push({ ...x, aktiv: false }); });
-    });
-    if (kOut.length) Store.putMany('kunden', kOut);
-    if (fOut.length) Store.putMany('felder', fOut);
-    Store.setCfg({ jdStand: d.stand || new Date(now).toISOString(), jdOrg: d.org?.name || '' }, { silent: false });
-    toast(`Abgleich: ${neu} Kunden neu, ${fNeu} Felder neu, ${fUpd} geändert, ${fArch} archiviert`, 6000);
-    return true;
+    const r = jdApply({ ...d, full: false }, c => fd.get('map_' + c.id));
+    toast(`Abgleich: ${jdSummary(r)}`, 6000); return true;
   });
 }
 function pickFile(accept) {
@@ -2175,6 +2205,7 @@ document.addEventListener('click', async e => {
     case 'quickKunde': if (jdLock()) toast('Neue Kunden werden in MyJohnDeere erfasst.'); else quickKundeDialog(); break;
     case 'feldAssign': feldAssignDialog(id); break;
     case 'jdSync': jdSyncOpen(); break;
+    case 'jdRequest': jdRequest(); break;
     case 'dayView': App.plan.mode = 'tag'; ls('lp_pmode', 'tag'); App.plan.date = parseDate(t.dataset.d); App.resetScroll = true; App.render(); break;
     case 'weekView': App.plan.mode = 'woche'; ls('lp_pmode', 'woche'); App.resetScroll = true; App.render(); break;
     case 'pickPlace': { const p = Dlg.pick; Dlg.close(); placeFromPicker(id, p.d, p.mid, p.minute); break; }
@@ -2312,7 +2343,7 @@ document.addEventListener('change', e => {
   App.render();
   try { await Auth.handleRedirect(); } catch (e) { toast('Anmeldung fehlgeschlagen: ' + e.message, 6000); }
   App.render();
-  Sync.run();
+  Sync.run().then(() => jdAuto()).catch(() => { });
   addEventListener('online', () => Sync.run());
   addEventListener('offline', () => Sync.setState('offline'));
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') Sync.run(); });

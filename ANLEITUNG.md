@@ -77,7 +77,9 @@ Auf jedem Gerät **mit derselben Dropbox** anmelden. Die Anmeldung bleibt besteh
   - Ansatz (CHF pro Einheit) ergänzen, dann rechnet der Export den Betrag gleich mit.
   Deine 12 Maschinen (Art.-Nr. 101–112) sind mit Einheit und einer ersten Arbeitsart vorerfasst – bitte prüfen
   und Flächenleistung sowie Saison ergänzen.
-- **Kunden und Felder aus MyJohnDeere:** Kunden (Mandanten) und ihre Felder werden im Operations Center gepflegt und
+- **Kunden und Felder aus MyJohnDeere:** (NAS-Dienst einrichten: siehe ANLEITUNG-NAS.md im Paket jd-sync)
+  *Kunden › ⟳ Jetzt abgleichen* fordert einen sofortigen Abgleich an; neue Daten übernimmt der Planer beim Öffnen automatisch.
+  **Kunden und Felder aus MyJohnDeere:** Kunden (Mandanten) und ihre Felder werden im Operations Center gepflegt und
   mit *Kunden › MyJohnDeere-Abgleich* übernommen (Datei «jd-sync.json» im Dropbox-App-Ordner, später automatisch
   vom NAS-Dienst geschrieben). Beim ersten Abgleich ordnest du jeden Mandanten einem bestehenden Kunden zu
   (z.B. aus ErfassungPS, damit die Auftragshistorie erhalten bleibt) oder legst ihn neu an.
