@@ -483,7 +483,7 @@ const App = {
   filter: { auftraege: 'offen', q: '', kq: '' },
   plan: { mode: ls('lp_pmode') || 'woche', date: new Date(), aa: ls('lp_paa') || '', nurBelegt: ls('lp_pbel') === '1' },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false, zoom: +(ls('lp_zoom') || 1),
-  spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: null, jlimit: 200,
+  spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jsort: 'desc', jhide: false, jlimit: 200,
     ak: '', av: `${new Date().getFullYear()}-01-01`, ab: todayIso(), ag: false, ny: 0, nk: '', nc: '', ngep: false, pk: '', pall: false, prq: '', prall: false },
   alimit: 150,
   go(v) { this.view = v; ls('lp_view', v); this.lastView = null; this.tlScroll = null; window.scrollTo(0, 0); this.render(); },
@@ -904,10 +904,10 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
   const planDate = a.datum || pre?.datum || (plan ? (a.wunsch && a.wunsch >= todayIso() ? a.wunsch : (App.view === 'plan' ? isoDate(App.plan.date) : todayIso())) : '');
   const body = `
     <label class="fld"><span>Kunde</span>
-      <div class="withbtn">
-        <input class="input" name="kunde" value="${esc(k ? kundeLabel(k) : '')}" placeholder="Name, Ort oder Nr. eingeben" autocomplete="off" autocapitalize="words" spellcheck="false" required ${isNew && !kundeId ? 'autofocus' : ''}>
+      <div class="combo">
+        <input class="input combo-in" name="kunde" value="${esc(k ? kundeLabel(k) : '')}" placeholder="Name, Ort oder Nr. eingeben" autocomplete="off" autocapitalize="words" spellcheck="false" required ${isNew && !kundeId ? 'autofocus' : ''}>
+        <div class="ksug combo-sug" id="kSug" hidden></div>
       </div>
-      <div class="ksug" id="kSug" hidden></div>
       <div class="hint" id="kHint"></div></label>
     <label class="fld" hidden><span>Feld</span><select class="input" name="kfeld"></select></label>
     <div class="two">
@@ -1052,20 +1052,23 @@ function similarKunden(text, n = 6) {
     .sort((a, b) => b.s - a.s || a.k.name.localeCompare(b.k.name, 'de')).slice(0, n).map(x => x.k);
 }
 function wireKundeSuggest(f, after) {
+  // Tippen → ähnliche Kunden; Antippen bzw. Pfeil nach unten → ganze Kundenliste wie ein Dropdown
   const inp = f.kunde, box = $('#kSug', f); let hits = [], idx = -1;
-  const show = () => {
-    const t = inp.value.trim(), exact = findKunde(t);
-    hits = t && !(exact && kundeLabel(exact) === t) ? similarKunden(t) : [];
-    idx = hits.length && document.activeElement === inp ? 0 : -1;
-    box.innerHTML = hits.map((k, i) => `<button type="button" class="${i === idx ? 'on' : ''}" data-ki="${i}"><b>${esc(k.name)}</b>${k.ort || k.nr ? ` <span>${esc([k.ort, k.nr].filter(Boolean).join(' · '))}</span>` : ''}</button>`).join('');
-    box.hidden = !hits.length; after && after();
+  const allK = () => Store.all('kunden').filter(k => k.aktiv !== false).sort((x, y) => x.name.localeCompare(y.name, 'de'));
+  const show = full => {
+    const t = inp.value.trim(), exact = findKunde(t), isExact = exact && kundeLabel(exact) === t;
+    hits = full || !t ? (full ? allK() : []) : isExact ? [] : similarKunden(t, 30);
+    idx = full ? hits.findIndex(k => exact && k.id === exact.id) : (hits.length ? 0 : -1);
+    box.innerHTML = hits.map((k, i) => `<button type="button" tabindex="-1" class="${i === idx ? 'on' : ''}" data-ki="${i}"><b>${esc(k.name)}</b>${k.ort || k.nr ? ` <span>${esc([k.ort, k.nr].filter(Boolean).join(' · '))}</span>` : ''}</button>`).join('');
+    box.hidden = !hits.length; box.querySelector('.on')?.scrollIntoView({ block: 'nearest' }); after && after();
   };
   const pick = k => { inp.value = kundeLabel(k); box.hidden = true; hits = []; inp.dispatchEvent(new Event('input', { bubbles: true })); box.hidden = true; after && after(); };
-  const mark = () => [...box.children].forEach((b, i) => b.classList.toggle('on', i === idx));
-  inp.addEventListener('input', e => { if (e.isTrusted) show(); });
-  inp.addEventListener('focus', () => { if (inp.value.trim() && !findKunde(inp.value)) show(); });
-  inp.addEventListener('blur', () => setTimeout(() => { box.hidden = true; after && after(); }, 150));
+  const mark = () => { [...box.children].forEach((b, i) => b.classList.toggle('on', i === idx)); box.children[idx]?.scrollIntoView({ block: 'nearest' }); };
+  inp.addEventListener('input', e => { if (e.isTrusted) show(false); });
+  inp.addEventListener('pointerdown', () => { if (!box.hidden && document.activeElement === inp) { box.hidden = true; return; } setTimeout(() => show(!inp.value.trim() || !!findKunde(inp.value)), 0); });
+  inp.addEventListener('blur', () => setTimeout(() => { if (document.activeElement === inp) return; box.hidden = true; after && after(); }, 150));
   inp.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown' && box.hidden) { show(true); e.preventDefault(); return; }
     if (box.hidden || !hits.length) return;
     if (e.key === 'ArrowDown') { idx = (idx + 1) % hits.length; mark(); e.preventDefault(); }
     else if (e.key === 'ArrowUp') { idx = (idx - 1 + hits.length) % hits.length; mark(); e.preventDefault(); }
@@ -1975,16 +1978,16 @@ const MONATE_LANG = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli
 // Journal: chronologisch nach Ausführung; Erntejahr und Fläche direkt bearbeitbar
 const byWhen = (a, b) => dOf(a).localeCompare(dOf(b)) || (a.zeit || '').localeCompare(b.zeit || '') || (a.nr || '').localeCompare(b.nr || '');
 function journalContent() {
-  const S = App.spray; if (S.jy == null) S.jy = String(yearsOf()[0] || '');
-  const q = norm(S.jq), y = S.jy, desc = S.jsort === 'desc';
-  const all = sprayOrders().filter(a => dOf(a)).filter(a => (!y || ernteOf(a) === +y) && (!q || [kundeName(a.kunde), a.feld, a.kultur, a.notiz, a.stadium, a.nr, ...prodNames(a)].join(' ').toLowerCase().includes(q)));
+  const S = App.spray;
+  const q = norm(S.jq), y = S.jy || '', desc = S.jsort !== 'asc';
+  const all = sprayOrders().filter(a => dOf(a) && !(S.jhide && statusOf(a) === 'geplant')).filter(a => (!y || ernteOf(a) === +y) && (!q || [kundeName(a.kunde), a.feld, a.kultur, a.notiz, a.stadium, a.nr, ...prodNames(a)].join(' ').toLowerCase().includes(q)));
   const list = all.slice().sort((a, b) => desc ? byWhen(b, a) : byWhen(a, b)), shown = list.slice(0, S.jlimit);
   const row = a => `<div class="rowi jrow" data-act="editOrder" data-id="${a.id}">
       <span class="num jd">${fmtDate(dOf(a), { weekday: 'short', day: '2-digit', month: '2-digit' })}</span>
       <div class="grow"><div class="t">${esc(kundeName(a.kunde))}${a.feld ? ` <span class="nr">· ${esc(a.feld)}</span>` : ''}</div>
         <div class="s">${esc(a.kultur || 'ohne Kultur')}${a.stadium ? ` · ${esc(a.stadium)}` : ''} · ${prodList(a).map(p => `${esc(p.name)} ${fmtNum(p.menge)} ${esc(p.einheit || '')}`).join(', ') || 'keine Produkte'}</div></div>
       <div class="jedit" data-stop>
-        <label><span>Erntejahr</span><input class="input" data-in="spJEj" data-id="${a.id}" inputmode="numeric" value="${ernteOf(a) ?? ''}"></label>
+        <label><span>Erntejahr</span><span class="jstep"><button type="button" class="jsb" data-act="spJEjStep" data-id="${a.id}" data-d="-1" aria-label="Erntejahr minus 1">−</button><input class="input" data-in="spJEj" data-id="${a.id}" inputmode="numeric" value="${ernteOf(a) ?? ''}" title="Pfeiltasten ↑ ↓ ändern das Jahr"><button type="button" class="jsb" data-act="spJEjStep" data-id="${a.id}" data-d="1" aria-label="Erntejahr plus 1">+</button></span></label>
         <label><span>Fläche ha</span><input class="input" data-in="spJFl" data-id="${a.id}" inputmode="decimal" value="${flOf(a) || ''}"></label>
       </div>
       <span class="badge ${statusOf(a)}">${STATUS[statusOf(a)]}</span></div>`;
@@ -1993,10 +1996,16 @@ function journalContent() {
       <div class="rows">${ma.map(row).join('')}</div></div>`).join('');
   return `<div class="filters"><input class="input search" type="search" placeholder="Suchen: Kunde, Parzelle, Kultur, Produkt…" value="${esc(S.jq)}" data-in="spJq">
       <select class="input" data-in="spJy" style="width:auto"><option value="">Alle Erntejahre</option>${yearsOf().map(v => `<option ${+y === v ? 'selected' : ''}>${v}</option>`).join('')}</select>
-      <select class="input" data-in="spJsort" style="width:auto"><option value="asc" ${desc ? '' : 'selected'}>Älteste zuerst</option><option value="desc" ${desc ? 'selected' : ''}>Neueste zuerst</option></select></div>
+      <select class="input" data-in="spJsort" style="width:auto"><option value="desc" ${desc ? 'selected' : ''}>Neueste zuerst</option><option value="asc" ${desc ? '' : 'selected'}>Älteste zuerst</option></select>
+      <label class="tog"><input type="checkbox" data-in="spJhide" ${S.jhide ? 'checked' : ''}> geplante ausblenden</label></div>
     <p class="nr">${list.length} Spritzaufträge · ${ha(list)} ha · Erntejahr und Fläche direkt ändern, übrige Angaben durch Antippen der Zeile.</p>
     ${body || '<div class="empty">Keine Treffer.</div>'}
     ${list.length > shown.length ? `<div class="btns" style="margin-top:10px"><button class="btn" data-act="spMore">Weitere ${Math.min(200, list.length - shown.length)} anzeigen</button></div>` : ''}`;
+}
+// Erntejahr im Journal per Pfeiltaste bzw. −/+ um ein Jahr ändern (speichert sofort)
+function journalStep(inp, d) {
+  const cur = num(inp.value) || ernteDefault(todayIso());
+  inp.value = cur + d; journalEdit(inp);
 }
 // Direktbearbeitung im Journal
 function journalEdit(el) {
@@ -2376,6 +2385,7 @@ async function restoreBackup() {
 
 /* ================= Ereignisse ================= */
 document.addEventListener('click', async e => {
+  const stp = e.target.closest('[data-act="spJEjStep"]'); if (stp) { journalStep(stp.parentElement.querySelector('input'), +stp.dataset.d); return; }
   if (e.target.closest('[data-stop]')) return; // Links (Telefon, Karte) nicht als Kartenklick werten
   const t = e.target.closest('[data-act],[data-view]'); if (!t) return;
   if (t.dataset.view) { App.go(t.dataset.view); return; }
@@ -2493,6 +2503,7 @@ document.addEventListener('click', async e => {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && (e.target.dataset?.in === 'spJEj' || e.target.dataset?.in === 'spJFl')) { e.preventDefault(); e.target.blur(); return; }
+  if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.target.dataset?.in === 'spJEj') { e.preventDefault(); journalStep(e.target, e.key === 'ArrowUp' ? 1 : -1); return; }
   if (e.key !== 'Escape' || Dlg.el.open) return;
   if (App.sel.size) clearSel(); else if (App.fs) { App.fs = false; App.render(); }
 });
@@ -2510,7 +2521,7 @@ document.addEventListener('change', e => {
   if (k === 'spJEj' || k === 'spJFl') { journalEdit(e.target); return; }
   const SP = { spAk: 'ak', spAv: 'av', spAb: 'ab', spNy: 'ny', spNk: 'nk', spNc: 'nc', spJy: 'jy', spPk: 'pk', spJsort: 'jsort' };
   if (SP[k]) { App.spray[SP[k]] = e.target.value; if (k === 'spJy') App.spray.jlimit = 200; App.render(); return; }
-  const SPB = { spAg: 'ag', spNgep: 'ngep', spPall: 'pall', spPrall: 'prall' };
+  const SPB = { spJhide: 'jhide', spAg: 'ag', spNgep: 'ngep', spPall: 'pall', spPrall: 'prall' };
   if (SPB[k]) { App.spray[SPB[k]] = e.target.checked; App.render(); return; }
   if (k === 'spVon' && e.target.value) { App.spray.von = e.target.value; if (App.spray.bis < App.spray.von) App.spray.bis = App.spray.von; App.render(); return; }
   if (k === 'spBis' && e.target.value) { App.spray.bis = e.target.value; if (App.spray.bis < App.spray.von) App.spray.von = App.spray.bis; App.render(); return; }

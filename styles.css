@@ -518,3 +518,8 @@ tr.click:hover td { background: var(--surface-2); }
 .combo-sug { position: absolute; left: 0; right: 0; top: calc(100% + 2px); z-index: 60; margin-top: 0; max-height: min(300px, 50vh); overflow-y: auto; }
 .combo-sug .none { padding: 9px 12px; color: var(--muted); font-size: 14px; }
 .ksug button.blank { color: var(--muted); }
+.jstep { display: flex; align-items: center; gap: 2px; }
+.jstep .jsb { width: 26px; height: 32px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 17px; line-height: 1; cursor: pointer; padding: 0; }
+.jstep .jsb:active { background: var(--surface-2); }
+.jedit .jstep .input { width: 60px; text-align: center; }
+@media (max-width: 560px) { .jedit .jstep .input { width: 56px; } }
