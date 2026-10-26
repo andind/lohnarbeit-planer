@@ -523,3 +523,6 @@ tr.click:hover td { background: var(--surface-2); }
 .jstep .jsb:active { background: var(--surface-2); }
 .jedit .jstep .input { width: 60px; text-align: center; }
 @media (max-width: 560px) { .jedit .jstep .input { width: 56px; } }
+/* ---------- Briefkopf auf Abrechnung und Nachweis ---------- */
+.bill .lhead { display: block; width: 100%; max-width: 640px; height: auto; margin: 0 0 16px; background: #fff; border-radius: 4px; }
+@media print { #printArea .bill .lhead { max-width: none; width: 100%; margin: 0 0 9mm; border-radius: 0; } }

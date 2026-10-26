@@ -1903,13 +1903,18 @@ const yearsOf = () => [...new Set(sprayOrders().map(ernteOf).filter(Boolean))].s
 // Abrechnung pro Kunde und Zeitraum (Formeln wie ErfassungPS)
 
 // ÖLN-Nachweis / Spritzprotokoll
-function printHtml(title, html) {
+// Briefkopf (Logo mit Adresse) oben auf der ersten Seite jedes Berichts
+const LETTERHEAD = '<img class="lhead" src="logo.jpg" alt="Indermühle Lohnarbeiten · Maschinenvermietung">';
+function printHtml(title, html, { noTitle } = {}) {
   let pa = $('#printArea'); if (!pa) { pa = document.createElement('div'); pa.id = 'printArea'; document.body.appendChild(pa); }
-  pa.innerHTML = `<h1 class="ptitle">${esc(title)}</h1>${html}<p class="pfoot">Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · Lohnarbeit-Planer</p>`;
+  pa.innerHTML = `${noTitle ? '' : `<h1 class="ptitle">${esc(title)}</h1>`}${html}<p class="pfoot">Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · Lohnarbeit-Planer</p>`;
   document.body.classList.add('printing');
   const done = () => { document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); };
   window.addEventListener('afterprint', done);
-  setTimeout(() => { window.print(); setTimeout(done, 1000); }, 50);
+  // erst drucken, wenn das Logo geladen ist
+  const imgs = [...pa.querySelectorAll('img')].filter(i => !i.complete);
+  Promise.race([Promise.all(imgs.map(i => new Promise(r => { i.onload = i.onerror = r; }))), new Promise(r => setTimeout(r, 3000))])
+    .then(() => setTimeout(() => { window.print(); setTimeout(done, 1000); }, 50));
 }
 
 // Stammdaten
@@ -2050,7 +2055,7 @@ function billingHtml(b, von, bis) {
   const body = groupBy(b.rows, r => ernteOf(r.a) || '').map(([j, jr]) => `<tr class="gj"><td colspan="5">Erntejahr ${esc(j || '–')} · ${fl(jr)} ha</td><td class="n">${chf(sum(jr))}</td></tr>
     ${groupBy(jr, r => r.a.kultur || '').map(([k, kr]) => `<tr class="gk"><td colspan="5">${esc(k || 'ohne Kultur')} · ${fl(kr)} ha</td><td class="n">${chf(sum(kr))}</td></tr>
     ${groupBy(kr, r => r.a.feld || '').map(([p, pr]) => `<tr class="gp"><td colspan="6">${esc(p || 'ohne Parzelle')}</td></tr>${pr.map(jobRows).join('')}`).join('')}`).join('')}`).join('');
-  return `<div class="bill"><div class="bill-h"><div><b>${esc(b.k.anrede ? b.k.anrede + ' ' : '')}${esc(b.k.name || '')}</b><br>${esc(b.k.adresse || '')}<br>${esc([b.k.plz, b.k.ort].filter(Boolean).join(' '))}</div>
+  return `<div class="bill">${LETTERHEAD}<div class="bill-h"><div><b>${esc(b.k.anrede ? b.k.anrede + ' ' : '')}${esc(b.k.name || '')}</b><br>${esc(b.k.adresse || '')}<br>${esc([b.k.plz, b.k.ort].filter(Boolean).join(' '))}</div>
       <div class="r">Spritzarbeiten ${fmtDate(von, { day: '2-digit', month: '2-digit', year: 'numeric' })} – ${fmtDate(bis, { day: '2-digit', month: '2-digit', year: 'numeric' })}</div></div>
     <table class="btab"><thead><tr><th>Datum</th><th>Position</th><th>Zulassung</th><th class="n">Menge</th><th class="n">Ansatz</th><th class="n">Betrag CHF</th></tr></thead><tbody>${body}</tbody><tfoot>
       <tr><td colspan="5">Total Arbeit (${fmtNum(r2(b.rows.reduce((s, r) => s + r.fl, 0)))} ha)</td><td class="n">${chf(b.tA)}</td></tr>
@@ -2102,7 +2107,7 @@ function nachweisRows() {
 function nachweisHtml(list) {
   return groupBy(list, a => a.kunde).map(([kid, ol]) => {
     const k = Store.get('kunden', kid) || {};
-    return `<div class="bill nachweis"><div class="bill-h"><div><b>${esc(k.name || '')}</b>${k.ort ? ', ' + esc([k.plz, k.ort].filter(Boolean).join(' ')) : ''}</div>
+    return `<div class="bill nachweis">${LETTERHEAD}<div class="bill-h"><div><b>${esc(k.name || '')}</b>${k.ort ? ', ' + esc([k.plz, k.ort].filter(Boolean).join(' ')) : ''}</div>
       <div class="r">Pflanzenschutz-Nachweis Erntejahr ${esc(App.spray.ny)}${App.spray.nc ? ' · ' + esc(App.spray.nc) : ''}</div></div>
       <table class="btab"><thead><tr><th>Datum</th><th class="n">ha</th><th>Stadium</th><th>Produkt</th><th>Zulassung</th><th class="n">Menge/ha</th><th>Bemerkung</th></tr></thead><tbody>
       ${groupBy(ol, a => ernteOf(a) || '').map(([j, ja]) => `<tr class="gj"><td colspan="7">Erntejahr ${esc(j || '–')}</td></tr>
@@ -2423,13 +2428,13 @@ document.addEventListener('click', async e => {
     case 'spMore': App.spray.jlimit += 200; App.render(); break;
     case 'spAkSel': App.spray.ak = id; App.render(); window.scrollTo(0, 0); break;
     case 'spBillCsv': billingCsv(); break;
-    case 'spBillPrint': { const S = App.spray, b = billing(S.ak, S.av, S.ab, S.ag); printHtml('Abrechnung Spritzarbeiten', billingHtml(b, S.av, S.ab)); break; }
-    case 'spBillPrintAll': { const S = App.spray; printHtml('Abrechnung Spritzarbeiten', kundenMitSpritz(billFilter(S)).map(k => billing(k.id, S.av, S.ab, S.ag)).filter(b => b.rows.length).map(b => billingHtml(b, S.av, S.ab)).join('')); break; }
+    case 'spBillPrint': { const S = App.spray, b = billing(S.ak, S.av, S.ab, S.ag); printHtml('Abrechnung Spritzarbeiten', billingHtml(b, S.av, S.ab), { noTitle: true }); break; }
+    case 'spBillPrintAll': { const S = App.spray; printHtml('Abrechnung Spritzarbeiten', kundenMitSpritz(billFilter(S)).map(k => billing(k.id, S.av, S.ab, S.ag)).filter(b => b.rows.length).map(b => billingHtml(b, S.av, S.ab)).join(''), { noTitle: true }); break; }
     case 'spBillMark': {
       const S = App.spray, b = billing(S.ak, S.av, S.ab, S.ag), ch = b.rows.filter(r => statusOf(r.a) === 'erledigt').map(r => ({ ...r.a, status: 'verrechnet' }));
       if (ch.length && confirm(`${ch.length} Spritzaufträge als verrechnet markieren?`)) { Store.putMany('auftraege', ch); toast('Als verrechnet markiert'); } break;
     }
-    case 'spNwPrint': printHtml('Pflanzenschutz-Nachweis', nachweisHtml(nachweisRows())); break;
+    case 'spNwPrint': printHtml('Pflanzenschutz-Nachweis', nachweisHtml(nachweisRows()), { noTitle: true }); break;
     case 'spNwCsv': nachweisCsv(); break;
     case 'psImport': importPS(); break;
     case 'prodEdit': productDialog(id); break;

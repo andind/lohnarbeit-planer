@@ -15,8 +15,8 @@ Die App braucht eine https-Adresse, damit iPhone und Dropbox-Anmeldung funktioni
 
 1. Auf <https://github.com> ein Konto anlegen (falls noch keines).
 2. Oben rechts **＋ › New repository**. Name: `lohnarbeit-planer`, **Public**, dann **Create repository**.
-3. Auf der neuen Seite **uploading an existing file** anklicken und **alle Dateien und den Ordner `icons`**
-   aus diesem ZIP hineinziehen (nicht den übergeordneten Ordner). **Commit changes**.
+3. Auf der neuen Seite **uploading an existing file** anklicken und **alle Dateien** aus diesem ZIP
+   hineinziehen (nicht den übergeordneten Ordner). **Commit changes**.
 4. **Settings › Pages**: bei *Branch* `main` und `/ (root)` wählen, **Save**.
 5. Nach 1–2 Minuten ist die App erreichbar unter
    `https://DEIN-GITHUB-NAME.github.io/lohnarbeit-planer/`

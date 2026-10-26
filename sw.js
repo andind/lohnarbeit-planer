@@ -1,8 +1,9 @@
 // Service Worker: App offline verfügbar machen (Netz zuerst, sonst Zwischenspeicher)
-const CACHE = 'lohnarbeit-v20';
+const CACHE = 'lohnarbeit-v21';
 const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest',
-  'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
-self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
+  'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'logo.jpg'];
+// einzeln laden: fehlt eine Datei, wird der Rest trotzdem offline verfügbar
+self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => Promise.all(FILES.map(f => c.add(f).catch(() => null))))); self.skipWaiting(); });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))));
   self.clients.claim();
