@@ -2368,7 +2368,7 @@ function impMatch(rows, hi, map, { neu }) {
   const ps = Store.all('produkte'), byZ = new Map(), dupZ = new Set();
   ps.forEach(p => { const z = zulKey(p.zulassung); if (!z) return; if (byZ.has(z)) dupZ.add(z); byZ.set(z, p); });
   const used = new Set();
-  return rows.slice(hi + 1).map(r => {
+  return rows.slice(hi + 1).map((r, i) => {
     const cell = k => map[k] >= 0 ? String(r[map[k]] ?? '').trim() : '';
     const name = cell('name'); if (!name) return null;
     const zul = cell('zulassung'), preis = map.preis >= 0 ? parsePrice(r[map.preis]) : null, einheit = cell('einheit');
@@ -2378,7 +2378,7 @@ function impMatch(rows, hi, map, { neu }) {
     if (p) used.add(p.id);
     const zulCh = p && zul && (zulKey(zul) || zulKey(p.zulassung) ? zulKey(zul) !== zulKey(p.zulassung) : fold(zul) !== fold(p.zulassung));
     const ch = p ? [name !== p.name && 'Name', zulCh && 'Zulassung', preis != null && Math.abs(preis - (p.preis || 0)) > 0.0001 && 'Preis'].filter(Boolean) : [];
-    return { name, zul, preis, einheit, p, ch, art: p ? (ch.length ? 'aendern' : 'gleich') : (neu ? 'neu' : 'ohne') };
+    return { ri: hi + 1 + i, name, zul, preis, einheit, p, ch, art: p ? (ch.length ? 'aendern' : 'gleich') : (neu ? 'neu' : 'ohne') };
   }).filter(Boolean);
 }
 async function prodImportStart() {
@@ -2397,7 +2397,15 @@ async function prodImportStart() {
     <div id="impPrev"></div>`;
   Dlg.open('Produkte aktualisieren', body, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">Übernehmen</button>`, fd => {
     const st = read(); if (!st.ab) { toast('Gültig-ab-Datum angeben'); return false; }
-    const res = impMatch(rows, st.hi, st.map, { neu: st.neu });
+    const all = impMatch(rows, st.hi, st.map, { neu: st.neu });
+    // Abwahl merken: beim nächsten Import sind dieselben Produkte wieder abgewählt
+    const mem = Store.cfg().impSkip || { ids: [], names: [] }, ids = new Set(mem.ids), names = new Set(mem.names);
+    all.filter(r => r.art === 'aendern' || r.art === 'neu').forEach(r => {
+      const off = skip.has(r.ri);
+      if (r.p) off ? ids.add(r.p.id) : ids.delete(r.p.id); else off ? names.add(fold(r.name)) : names.delete(fold(r.name));
+    });
+    Store.setCfg({ impSkip: { ids: [...ids], names: [...names] } });
+    const res = all.filter(r => !skip.has(r.ri));
     const upd = [], ren = [];
     res.filter(r => r.art === 'aendern').forEach(r => {
       const vals = { name: r.name }; if (r.ch.includes('Zulassung')) vals.zulassung = r.zul; if (r.ch.includes('Preis')) vals.preis = r.preis;
@@ -2417,24 +2425,40 @@ async function prodImportStart() {
     return true;
   });
   const f = Dlg.form;
+  // abgewählte Zeilen (Zeilennummer der Datei); Vorbelegung aus dem letzten Import
+  const mem = Store.cfg().impSkip || { ids: [], names: [] }, memIds = new Set(mem.ids), memNames = new Set(mem.names);
+  const skip = new Set(impMatch(rows, g.hi, g.map, { neu: true }).filter(r => r.p ? memIds.has(r.p.id) : memNames.has(fold(r.name))).map(r => r.ri));
   const read = () => ({ ab: f.ab.value, hi: Math.max(0, (num(f.hi.value) || 1)) - 1, neu: f.neu.checked, alt: f.alt.checked,
     map: Object.fromEntries(IMP_FIELDS.map(([k]) => [k, +f['col_' + k].value])) });
   const prev = () => {
     const st = read();
     if (st.map.name < 0) { $('#impPrev', f).innerHTML = '<p class="hintp panel">Bitte die Spalte mit dem Produktnamen wählen.</p>'; return; }
-    const res = impMatch(rows, st.hi, st.map, { neu: st.neu }), cnt = k => res.filter(r => r.art === k).length;
+    const res = impMatch(rows, st.hi, st.map, { neu: st.neu }).map(r => (r.art === 'aendern' || r.art === 'neu') && skip.has(r.ri) ? { ...r, aus: r.art, art: 'aus' } : r);
+    const cnt = k => res.filter(r => r.art === k).length, wahl = res.filter(r => r.art === 'aendern' || r.art === 'neu' || r.art === 'aus');
     const future = st.ab > todayIso();
-    const line = r => `<tr class="${r.art}"><td>${r.p && r.name !== r.p.name ? `${esc(r.p.name)} → <b>${esc(r.name)}</b>` : esc(r.name)}</td>
+    const cb = r => r.art === 'aendern' || r.art === 'neu' || r.art === 'aus' ? `<input type="checkbox" data-ri="${r.ri}" ${r.art === 'aus' ? '' : 'checked'} aria-label="übernehmen">` : '';
+    const line = r => `<tr class="${r.art}"><td class="cbx">${cb(r)}</td><td>${r.p && r.name !== r.p.name ? `${esc(r.p.name)} → <b>${esc(r.name)}</b>` : esc(r.name)}</td>
       <td class="nr">${r.ch.includes('Zulassung') ? `${esc(r.p.zulassung || '–')} → <b>${esc(r.zul)}</b>` : esc(r.zul || r.p?.zulassung || '')}</td>
       <td class="n">${r.preis == null ? '' : r.p && Math.abs(r.preis - (r.p.preis || 0)) > 0.0001 ? `${chf(r.p.preis)} → <b>${chf(r.preis)}</b>` : chf(r.preis)}</td>
-      <td>${{ aendern: 'ändern', gleich: 'unverändert', neu: 'neu', ohne: 'übersprungen' }[r.art]}</td></tr>`;
-    const order = { aendern: 0, neu: 1, ohne: 2, gleich: 3 };
-    $('#impPrev', f).innerHTML = `<p><b>${cnt('aendern')} ändern</b> · ${cnt('neu')} neu · ${cnt('gleich')} unverändert${cnt('ohne') ? ` · ${cnt('ohne')} übersprungen` : ''}${future ? ` · gilt erst ab ${fmtDate(st.ab, { day: '2-digit', month: '2-digit', year: 'numeric' })}, bis dahin bleiben die bisherigen Angaben` : ''}</p>
-      <p class="nr">Abrechnungen verwenden den Preis, der am Tag des Auftrags gültig war. Aufträge ab dem Gültigkeitsdatum erhalten den neuen Produktnamen.</p>
-      <div class="tscroll"><table class="btab imptab"><thead><tr><th>Produkt</th><th>Zulassung</th><th class="n">Preis CHF</th><th></th></tr></thead><tbody>
-      ${res.slice().sort((a, b) => order[a.art] - order[b.art]).slice(0, 300).map(line).join('')}</tbody></table></div>`;
+      <td>${r.art === 'aus' ? `ausgeschlossen <span class="nr">(${r.aus === 'neu' ? 'neu' : 'ändern'})</span>` : { aendern: 'ändern', gleich: 'unverändert', neu: 'neu', ohne: 'übersprungen' }[r.art]}</td></tr>`;
+    const order = { aendern: 0, neu: 1, aus: 2, ohne: 3, gleich: 4 };
+    const shown = res.slice().sort((a, b) => order[a.art] - order[b.art] || a.ri - b.ri);
+    const act = shown.filter(r => r.art !== 'gleich' && r.art !== 'ohne'), rest = shown.filter(r => r.art === 'gleich' || r.art === 'ohne').slice(0, 150);
+    const allOn = wahl.length && wahl.every(r => r.art !== 'aus');
+    $('#impPrev', f).innerHTML = `<p><b>${cnt('aendern')} ändern</b> · ${cnt('neu')} neu${cnt('aus') ? ` · <b>${cnt('aus')} ausgeschlossen</b>` : ''} · ${cnt('gleich')} unverändert${cnt('ohne') ? ` · ${cnt('ohne')} übersprungen` : ''}${future ? ` · gilt erst ab ${fmtDate(st.ab, { day: '2-digit', month: '2-digit', year: 'numeric' })}, bis dahin bleiben die bisherigen Angaben` : ''}</p>
+      <p class="nr">Häkchen entfernen, um ein Produkt von der Aktualisierung bzw. Neuerfassung auszuschliessen – die Abwahl bleibt für den nächsten Import gespeichert.
+        Abrechnungen verwenden den Preis, der am Tag des Auftrags gültig war; Aufträge ab dem Gültigkeitsdatum erhalten den neuen Produktnamen.</p>
+      <div class="tscroll"><table class="btab imptab"><thead><tr><th class="cbx">${wahl.length ? `<input type="checkbox" data-riall ${allOn ? 'checked' : ''} aria-label="alle übernehmen" title="alle an/aus">` : ''}</th><th>Produkt</th><th>Zulassung</th><th class="n">Preis CHF</th><th></th></tr></thead><tbody>
+      ${[...act, ...rest].map(line).join('')}</tbody></table></div>`;
+    const ha = $('input[data-riall]', f); if (ha) ha.indeterminate = !allOn && wahl.some(r => r.art !== 'aus');
   };
-  f.addEventListener('input', prev); f.addEventListener('change', prev); prev();
+  f.addEventListener('input', e => { if (e.target.dataset.ri == null && e.target.dataset.riall == null) prev(); });
+  f.addEventListener('change', e => {
+    if (e.target.dataset.ri != null) { const ri = +e.target.dataset.ri; e.target.checked ? skip.delete(ri) : skip.add(ri); }
+    else if (e.target.dataset.riall != null) { const st = read(); impMatch(rows, st.hi, st.map, { neu: st.neu }).filter(r => r.art === 'aendern' || r.art === 'neu').forEach(r => e.target.checked ? skip.delete(r.ri) : skip.add(r.ri)); }
+    const db = f.querySelector('.db'), y = db && db.scrollTop; prev(); if (db) db.scrollTop = y;
+  });
+  prev();
 }
 
 /* ---------- Preisverlauf im Produktfenster ---------- */

@@ -545,3 +545,8 @@ tr.click:hover td { background: var(--surface-2); }
 .imptab tr.gleich td, .imptab tr.ohne td { color: var(--muted); }
 .bill.inv td.cnt { min-width: 70px; border-bottom: 1px solid var(--muted); }
 .btab tr.invsum td { border-top: 2px solid var(--text); font-size: 14px; padding-top: 6px; }
+.imptab .cbx { width: 28px; text-align: center; }
+.imptab .cbx input { width: 18px; height: 18px; cursor: pointer; }
+.imptab tr.neu td { background: color-mix(in srgb, var(--s-geplant) 8%, transparent); }
+.imptab tr.aus td { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+.imptab tr.aus td.cbx, .imptab tr.aus td:last-child { text-decoration: none; }
