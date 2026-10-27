@@ -709,7 +709,7 @@ const Views = {
         const open = y => {
           if (fired || Dlg.el.open) return; fired = true;
           const [d, mid] = el.dataset.drop.split('|');
-          const minute = el.dataset.tl ? Math.max(0, (y - el.getBoundingClientRect().top) / PX) : null;
+          const minute = el.dataset.tl ? Math.max(0, (y - el.getBoundingClientRect().top) / UIZ() / PX) : null;
           if (navigator.vibrate) try { navigator.vibrate(15); } catch { }
           pickerDialog(d, mid, minute);
         };
@@ -750,7 +750,7 @@ const Views = {
       const open = {};
       Store.all('auftraege').forEach(a => { if (isOpen(a)) open[a.kunde] = (open[a.kunde] || 0) + 1; });
       const fl = {}; Store.all('felder').forEach(f => { if (f.aktiv !== false) { const x = fl[f.kunde] || (fl[f.kunde] = { n: 0, ha: 0 }); x.n++; x.ha += f.flaeche || 0; } });
-      return info + `<div class="rows">${list.map(k => `
+      return info + `<div class="rows kgrid">${list.map(k => `
         <div class="rowi ${k.aktiv === false ? 'off' : ''}" data-act="editKunde" data-id="${k.id}">
           <span class="num">${esc(k.nr || '')}</span>
           <div class="grow"><div class="t">${esc(k.name)}</div><div class="s">${esc([k.adresse, [k.plz, k.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))}</div>
@@ -805,6 +805,7 @@ const Views = {
             <label class="fld"><span>Arbeitsende</span><input class="input" type="time" value="${esc(c.ende)}" data-in="cfg" data-k="ende"></label>
           </div>
           <p>Aufträge ohne feste Startzeit docken ab Arbeitsbeginn aneinander.</p></div>
+        ${uiScalePanel()}
         ${listPanel('arbeitsarten', 'Arbeitsarten', 'Auswahl bei Aufträgen und Maschinen. Umbenennen ändert auch bestehende Aufträge und Maschinen.')}
         ${listPanel('kulturen', 'Kulturen', 'Auswahl bei Aufträgen. Umbenennen ändert auch bestehende Aufträge.')}
       </div><div>
@@ -2725,7 +2726,7 @@ function planDrop(el, id, clientY, grabY, target) {
   if (!el.dataset.drop) { moveOrders(ids, id, { unplan: true }); return; }
   const [d, mid] = el.dataset.drop.split('|');
   let minute = null, top = null, beforeId = null;
-  if (el.dataset.tl) { const r = el.getBoundingClientRect(); minute = Math.max(0, (clientY - r.top) / PX); top = Math.max(0, (clientY - grabY - r.top) / PX); }
+  if (el.dataset.tl) { const r = el.getBoundingClientRect(); const z = UIZ(); minute = Math.max(0, (clientY - r.top) / z / PX); top = Math.max(0, (clientY - grabY - r.top) / z / PX); }
   else { const over = target && target.closest && target.closest('.pcard[data-id]'); if (over && over.dataset.id !== id) beforeId = over.dataset.id; }
   moveOrders(ids, id, { datum: d, mid, minute, top, beforeId });
 }
@@ -2739,7 +2740,7 @@ function touchDrag(el) {
       on = true; App.tdrag = true;
       try { navigator.vibrate && navigator.vibrate(15); } catch { }
       ghost = el.cloneNode(true); ghost.classList.add('tghost');
-      Object.assign(ghost.style, { position: 'fixed', left: r0.left + 'px', top: r0.top + 'px', width: r0.width + 'px', height: el.classList.contains('blk') ? r0.height + 'px' : '', margin: 0, zIndex: 80, pointerEvents: 'none' });
+      const z = UIZ(); Object.assign(ghost.style, { position: 'fixed', left: r0.left / z + 'px', top: r0.top / z + 'px', width: r0.width / z + 'px', height: el.classList.contains('blk') ? r0.height / z + 'px' : '', margin: 0, zIndex: 80, pointerEvents: 'none' });
       const n = App.sel.has(el.dataset.id) ? App.sel.size : 1;
       if (n > 1) ghost.insertAdjacentHTML('afterbegin', `<span class="tcount">${n}</span>`);
       document.body.appendChild(ghost); el.classList.add('dragging');
@@ -2748,7 +2749,7 @@ function touchDrag(el) {
     const move = ev => {
       lx = ev.clientX; ly = ev.clientY;
       if (!on) { if (Math.hypot(lx - sx, ly - sy) > 8) end(false); return; }
-      ghost.style.transform = `translate(${lx - sx}px, ${ly - sy}px)`;
+      ghost.style.transform = `translate(${(lx - sx) / UIZ()}px, ${(ly - sy) / UIZ()}px)`;
       const t = document.elementFromPoint(lx, ly), d = t && t.closest('[data-drop]');
       if (d !== over) { over && over.classList.remove('drop'); over = d; over && over.classList.add('drop'); }
       const c = $('.cal'); // am Rand automatisch weiterscrollen
@@ -3176,6 +3177,27 @@ function jdBerichtView() {
     }
   };
 }
+/* ================= Grosse Bildschirme (z.B. 27" 4K): Anzeigegrösse ================= */
+const UI_SCALES = [['auto', 'Automatisch'], ['0.9', '90 %'], ['1', '100 %'], ['1.1', '110 %'], ['1.25', '125 %'], ['1.5', '150 %'], ['1.75', '175 %'], ['2', '200 %']];
+// Bei 4K ohne Windows-Skalierung (3840 px Fensterbreite) wird automatisch auf 150 % vergrössert; mit 150 % Windows-Skalierung (2560 px) bleibt es bei 100 %.
+const uiAutoScale = () => { const w = window.innerWidth || 0; return w < 2800 ? 1 : Math.min(2, Math.round(w / 2560 * 4) / 4); };
+const uiScaleSetting = () => ls('lp_uiscale') || 'auto';
+const UIZ = () => App.uiz || 1;
+function applyUiScale() {
+  const v = uiScaleSetting(), z = v === 'auto' ? uiAutoScale() : (+v || 1);
+  if (z === App.uiz) return;
+  App.uiz = z; const r = document.documentElement;
+  if (z === 1) { r.style.removeProperty('zoom'); r.style.removeProperty('--uz'); } else { r.style.zoom = z; r.style.setProperty('--uz', z); }
+}
+function uiScaleSet(v) { ls('lp_uiscale', v); applyUiScale(); App.render(); }
+App.uiz = 1; applyUiScale();
+window.addEventListener('resize', () => { if (uiScaleSetting() === 'auto') { const z0 = App.uiz; applyUiScale(); if (z0 !== App.uiz && App.view === 'mehr') App.render(); } });
+function uiScalePanel() {
+  const v = uiScaleSetting();
+  return `<div class="panel"><h2>Anzeige</h2>
+    <label class="fld"><span>Anzeigegrösse auf diesem Gerät</span><select class="input" data-plain data-in="uiScale">${UI_SCALES.map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${l}${k === 'auto' ? ` (zurzeit ${Math.round(uiAutoScale() * 100)} %)` : ''}</option>`).join('')}</select></label>
+    <p class="nr">Für grosse Bildschirme (z.B. 27 Zoll mit 3840 × 2160). «Automatisch» vergrössert, wenn Windows den Bildschirm nicht selbst skaliert. Die Einstellung gilt nur für dieses Gerät und diesen Browser; Ausdrucke und PDF bleiben unverändert.</p></div>`;
+}
 function pickFile(accept) {
   return new Promise(res => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.onchange = () => res(i.files[0]); i.click(); });
 }
@@ -3428,6 +3450,7 @@ document.addEventListener('change', e => {
   if (k === 'spInv') { invEdit(e.target); return; }
   if (k === 'spPrAkt') { prodAktToggle(e.target); return; }
   if (k === 'spPrSeit') { if (e.target.value) { App.spray.prseit = e.target.value; App.render(); } return; }
+  if (k === 'uiScale') { uiScaleSet(e.target.value); return; }
   if (k === 'alSel' || k === 'alSelAll') { alSelToggle(e.target); return; }
   if (k === 'al') { App.al[e.target.dataset.k] = e.target.value; App.al.limit = 300; App.render(); return; }
   if (k === 'jb') { App.jdb[e.target.dataset.k] = e.target.value; App.jdb.limit = 300; App.render(); return; }
