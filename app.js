@@ -483,7 +483,7 @@ const App = {
   filter: { auftraege: 'offen', q: '', kq: '', aview: ls('lp_aview') || 'karten' },
   al: { von: '', bis: '', k: '', a: '', c: '', m: '', f: '', grp: '', sort: 'desc', limit: 300 },
   jdb: { rows: null, meta: null, von: null, bis: null, k: '', a: '', f: '', m: '', c: '', q: '', grp: '', sort: 'desc', limit: 300 },
-  plan: { mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
+  plan: { side: ls('lp_pside') !== '0', mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false, zoom: +(ls('lp_zoom') || 1),
   spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jsort: 'desc', jf: null, jfOpen: false, jlimit: 200,
     ak: '', av: `${new Date().getFullYear()}-01-01`, ab: todayIso(), ag: false, ny: 0, nk: '', nc: '', ngep: false, pk: '', pall: false, prq: '', prall: false },
@@ -560,6 +560,7 @@ const Views = {
           <span class="zoomctl"><button class="btn small" data-act="zoom" data-d="-1" aria-label="Verkleinern">−</button><span class="zv" id="zv"></span><button class="btn small" data-act="zoom" data-d="1" aria-label="Vergrössern">＋</button></span>
           <button class="btn small" data-act="fs" title="Kalender im Vollbild">⛶ Vollbild</button>
           <button class="btn small" data-act="planExport" title="Aktuelle Ansicht als PDF oder Bild">⤓ Export</button>
+          <button class="btn small sidebtn" data-act="pSide" title="Nicht eingeplante Aufträge ein-/ausblenden">◧ Offene</button>
         </div>`;
     },
     refreshToolbar() {
@@ -569,6 +570,7 @@ const Views = {
       $('#pLbl').textContent = this.label();
       $('#zv').textContent = Math.round(App.zoom * 100) + ' %';
       $('#pDate').value = isoDate(P.date);
+      $('.sidebtn')?.classList.toggle('primary', P.side !== false);
       const sb = $('#selModeBtn'); sb.classList.toggle('primary', App.selMode); sb.textContent = App.selMode ? '☑ Auswahl aktiv' : '☐ Mehrere auswählen';
     },
     label(short) {
@@ -616,7 +618,7 @@ const Views = {
           <span class="zoomctl"><button class="btn small" data-act="zoom" data-d="-1" aria-label="Verkleinern">−</button><span class="zv">${Math.round(App.zoom * 100)} %</span><button class="btn small" data-act="zoom" data-d="1" aria-label="Vergrössern">＋</button></span>
           <button class="btn small fsclose" data-act="fs" aria-label="Vollbild schliessen">✕</button>
         </div>${grid}</div>`;
-      return `<div class="planwrap">
+      return `<div class="planwrap ${App.plan.side === false ? 'noside' : ''}">
         <div>${grid}</div>
         <aside class="unplanned" data-drop="">
           <h3>Noch nicht eingeplant (${unpl.length})</h3>
@@ -696,16 +698,11 @@ const Views = {
         el.addEventListener('dragleave', () => el.classList.remove('drop'));
         el.addEventListener('drop', e => {
           e.preventDefault(); el.classList.remove('drop');
-          const id = e.dataTransfer.getData('text/plain'); if (!Store.get('auftraege', id)) return;
-          const ids = App.sel.has(id) && App.sel.size > 1 ? [...App.sel] : [id];
-          if (!el.dataset.drop) { moveOrders(ids, id, { unplan: true }); return; }
-          const [d, mid] = el.dataset.drop.split('|');
-          let minute = null, top = null, beforeId = null;
-          if (el.dataset.tl) { const r = el.getBoundingClientRect(); minute = Math.max(0, (e.clientY - r.top) / PX); top = Math.max(0, (e.clientY - grabY - r.top) / PX); }
-          else { const over = e.target.closest('.pcard[data-id]'); if (over && over.dataset.id !== id) beforeId = over.dataset.id; }
-          moveOrders(ids, id, { datum: d, mid, minute, top, beforeId });
+          planDrop(el, e.dataTransfer.getData('text/plain'), e.clientY, grabY, e.target);
         });
       });
+      // Tablet/Handy: Ziehen mit dem Finger (lange drücken, dann ziehen)
+      if (matchMedia('(pointer: coarse)').matches) $$('[draggable="true"]').forEach(el => { el.removeAttribute('draggable'); touchDrag(el); });
       // Langes Drücken (bzw. Rechtsklick) auf freie Stelle → passende, nicht eingeplante Aufträge
       $$('.tl-col[data-drop], .g-cell[data-drop]').forEach(el => {
         let timer = null, sx = 0, sy = 0, fired = false;
@@ -1939,8 +1936,8 @@ function printHtml(title, html, { noTitle } = {}) {
 
 // Stammdaten
 function stammContent() {
-  const S = App.spray, sub = S.stamm;
-  const segs = `<div class="seg" style="margin-bottom:12px">${[['produkte', 'Produkte'], ['inventar', 'Inventar'], ['parzellen', 'Parzellen'], ['geraete', 'Düsen & Traktoren'], ['import', 'Preisliste']].map(([k, l]) => `<button type="button" data-act="spStamm" data-v="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const S = App.spray; if (S.stamm === 'import') S.stamm = 'produkte'; const sub = S.stamm;
+  const segs = `<div class="seg" style="margin-bottom:12px">${[['produkte', 'Produkte'], ['inventar', 'Inventar'], ['parzellen', 'Parzellen'], ['geraete', 'Düsen & Traktoren']].map(([k, l]) => `<button type="button" data-act="spStamm" data-v="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   if (sub === 'inventar') return segs + invStockContent();
   if (sub === 'parzellen') {
     const list = Store.all('parzellen').filter(p => (!S.pk || p.kunde === S.pk) && (S.pall || p.aktiv !== false)).sort((a, b) => kundeName(a.kunde).localeCompare(kundeName(b.kunde), 'de') || byName(a, b));
@@ -1952,13 +1949,6 @@ function stammContent() {
     const panel = (kind, title) => `<div class="panel"><h2>${title}</h2><div class="chips static">${Lists[kind]().map(x => `<span class="chip">${esc(x)}</span>`).join('') || '<span class="nr">Keine Einträge</span>'}</div>
       <div class="btns"><button class="btn" data-act="editList" data-kind="${kind}">Bearbeiten</button></div></div>`;
     return segs + `<div class="cols"><div>${panel('duesen', 'Düsen')}</div><div>${panel('traktoren', 'Traktoren')}</div></div>`;
-  }
-  if (sub === 'import') {
-    return segs + `<div class="panel"><h2>Produkte aktualisieren (Preisliste)</h2>
-      <p>Liest eine Excel- (.xlsx) oder CSV-Datei, z.B. die Preisliste des Lieferanten, und aktualisiert <b>Produktname, Zulassungs-Nr. und Preis</b> ab einem wählbaren Datum.
-        Die Spalten werden automatisch erkannt und lassen sich anpassen; vor dem Übernehmen siehst du alle Änderungen.</p>
-      <p class="nr">Zuordnung über den Produktnamen, sonst über die Zulassungs-Nr. (z.B. W-7294). Bisherige Aufträge behalten den Preis, der an ihrem Datum galt.</p>
-      <div class="btns"><button class="btn primary" data-act="prodImport">Preisliste wählen…</button></div></div>`;
   }
   const q = norm(S.prq);
   const use = prodUsage(), U = id => use.get(id) || { last: '', n: 0 };
@@ -2684,6 +2674,55 @@ function planExportImg() {
   const fname = `${x.title.replace(/[^\wäöüÄÖÜ.-]+/g, '_')}.png`;
   showImage(x.title, drawPlanOverview(x), fname, x.title);
 }
+/* ================= Tablet/Handy: Aufträge mit dem Finger ziehen ================= */
+function planDrop(el, id, clientY, grabY, target) {
+  if (!Store.get('auftraege', id)) return;
+  const ids = App.sel.has(id) && App.sel.size > 1 ? [...App.sel] : [id];
+  if (!el.dataset.drop) { moveOrders(ids, id, { unplan: true }); return; }
+  const [d, mid] = el.dataset.drop.split('|');
+  let minute = null, top = null, beforeId = null;
+  if (el.dataset.tl) { const r = el.getBoundingClientRect(); minute = Math.max(0, (clientY - r.top) / PX); top = Math.max(0, (clientY - grabY - r.top) / PX); }
+  else { const over = target && target.closest && target.closest('.pcard[data-id]'); if (over && over.dataset.id !== id) beforeId = over.dataset.id; }
+  moveOrders(ids, id, { datum: d, mid, minute, top, beforeId });
+}
+function touchDrag(el) {
+  el.classList.add('tdrag');
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' || App.selMode) return;
+    const sx = e.clientX, sy = e.clientY, r0 = el.getBoundingClientRect(), grab = el.classList.contains('blk') ? e.clientY - r0.top : 0;
+    let on = false, ghost = null, over = null, lx = sx, ly = sy;
+    const timer = setTimeout(() => {
+      on = true; App.tdrag = true;
+      try { navigator.vibrate && navigator.vibrate(15); } catch { }
+      ghost = el.cloneNode(true); ghost.classList.add('tghost');
+      Object.assign(ghost.style, { position: 'fixed', left: r0.left + 'px', top: r0.top + 'px', width: r0.width + 'px', height: el.classList.contains('blk') ? r0.height + 'px' : '', margin: 0, zIndex: 80, pointerEvents: 'none' });
+      const n = App.sel.has(el.dataset.id) ? App.sel.size : 1;
+      if (n > 1) ghost.insertAdjacentHTML('afterbegin', `<span class="tcount">${n}</span>`);
+      document.body.appendChild(ghost); el.classList.add('dragging');
+    }, 320);
+    const cal = el.closest('.cal');
+    const move = ev => {
+      lx = ev.clientX; ly = ev.clientY;
+      if (!on) { if (Math.hypot(lx - sx, ly - sy) > 8) end(false); return; }
+      ghost.style.transform = `translate(${lx - sx}px, ${ly - sy}px)`;
+      const t = document.elementFromPoint(lx, ly), d = t && t.closest('[data-drop]');
+      if (d !== over) { over && over.classList.remove('drop'); over = d; over && over.classList.add('drop'); }
+      const c = $('.cal'); // am Rand automatisch weiterscrollen
+      if (c) { const r = c.getBoundingClientRect(), m = 48; if (ly > r.bottom - m) c.scrollTop += 14; else if (ly < r.top + m) c.scrollTop -= 14; if (lx > r.right - m) c.scrollLeft += 14; else if (lx < r.left + m) c.scrollLeft -= 14; }
+    };
+    const end = drop => {
+      clearTimeout(timer);
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', cancel);
+      if (!on) return;
+      App.tdrag = false; App.noClickUntil = Date.now() + 450;
+      ghost && ghost.remove(); el.classList.remove('dragging'); over && over.classList.remove('drop');
+      if (drop && over && Math.hypot(lx - sx, ly - sy) > 12) { const t = document.elementFromPoint(lx, ly); planDrop(over, el.dataset.id, ly, grab, t); }
+    };
+    const up = () => end(true), cancel = () => end(false);
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', cancel);
+  });
+  el.addEventListener('contextmenu', e => e.preventDefault());
+}
 /* ================= Kunden und Felder aus MyJohnDeere ================= */
 // Sobald ein Abgleich mit MyJohnDeere eingelesen wurde, werden Kunden und Felder nur noch dort gepflegt.
 const jdLock = () => !!Store.cfg().jdStand;
@@ -3084,6 +3123,7 @@ async function restoreBackup() {
 
 /* ================= Ereignisse ================= */
 document.addEventListener('click', async e => {
+  if (App.noClickUntil && Date.now() < App.noClickUntil) { e.preventDefault(); e.stopPropagation(); return; } // nach dem Ziehen mit dem Finger
   const stp = e.target.closest('[data-act="spJEjStep"]'); if (stp) { journalStep(stp.parentElement.querySelector('input'), +stp.dataset.d); return; }
   if (e.target.closest('[data-stop]')) return; // Links (Telefon, Karte) nicht als Kartenklick werten
   const t = e.target.closest('[data-act],[data-view]'); if (!t) return;
@@ -3188,6 +3228,7 @@ document.addEventListener('click', async e => {
     case 'pMode': App.plan.mode = t.dataset.v; ls('lp_pmode', t.dataset.v); App.resetScroll = true; App.render(); break;
     case 'zoom': setZoom(App.zoom * (+t.dataset.d > 0 ? 1.25 : 0.8)); break;
     case 'fs': App.fs = !App.fs; App.render(); break;
+    case 'pSide': App.plan.side = App.plan.side === false; ls('lp_pside', App.plan.side ? '1' : '0'); App.render(); break;
     case 'pNav': {
       const d = +t.dataset.d;
       App.plan.date = d ? addDays(App.plan.date, d * (App.plan.mode === 'tag' ? 1 : 7)) : new Date();
@@ -3228,6 +3269,17 @@ document.addEventListener('click', async e => {
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && ['spJEj', 'spJFl', 'spInv'].includes(e.target.dataset?.in)) { e.preventDefault(); e.target.blur(); return; }
   if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.target.dataset?.in === 'spJEj') { e.preventDefault(); journalStep(e.target, e.key === 'ArrowUp' ? 1 : -1); return; }
+  // Tastenkürzel (PC und iPad mit Tastatur), nicht beim Schreiben in einem Feld
+  const typing = e.target.closest?.('input, textarea, select, [contenteditable]');
+  if (!typing && !Dlg.el.open && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    const k = e.key.toLowerCase();
+    if (k === 'n') { e.preventDefault(); orderDialog(); return; }
+    if (App.view === 'plan' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); App.plan.date = addDays(App.plan.date, (e.key === 'ArrowRight' ? 1 : -1) * (App.plan.mode === 'tag' ? 1 : 7)); App.render(); return; }
+    if (App.view === 'plan' && k === 'h') { App.plan.date = new Date(); App.render(); return; }
+    if (App.view === 'plan' && (k === 't' || k === 'w')) { App.plan.mode = k === 't' ? 'tag' : 'woche'; ls('lp_pmode', App.plan.mode); App.resetScroll = true; App.render(); return; }
+    const nav = { 1: 'auftraege', 2: 'plan', 3: 'spritzen', 4: 'jdbericht', 5: 'kunden', 6: 'maschinen', 7: 'mehr' }[e.key];
+    if (nav) { App.go(nav); return; }
+  }
   if (e.key !== 'Escape' || Dlg.el.open) return;
   if (App.sel.size) clearSel(); else if (App.fs) { App.fs = false; App.render(); }
 });
@@ -3270,6 +3322,8 @@ document.addEventListener('change', e => {
 });
 
 /* ================= Start ================= */
+// Ziehen mit dem Finger: Bildlauf verhindern, solange ein Auftrag gezogen wird
+document.addEventListener('touchmove', e => { if (App.tdrag) e.preventDefault(); }, { passive: false });
 (async function init() {
   Dlg.el = $('#dlg'); Dlg.form = $('#dlgForm');
   Dlg.el.addEventListener('submit', e => { // am Dialog, damit das Formular bei jedem Öffnen frisch ersetzt werden kann

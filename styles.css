@@ -90,7 +90,7 @@ main {
   padding: 14px max(16px, env(safe-area-inset-right)) calc(var(--tabh) + 24px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   max-width: 1500px; margin: 0 auto;
 }
-@media (min-width: 900px) {
+@media (min-width: 600px) {
   .tabs {
     position: fixed; top: 57px; bottom: 0; right: auto; width: 96px;
     grid-template-columns: 1fr; grid-auto-rows: 72px; align-content: start;
@@ -252,7 +252,7 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
   opacity: 0; pointer-events: none; transition: .2s; z-index: 50; max-width: calc(100vw - 32px);
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-@media (min-width: 900px) { #toast { bottom: 24px; } }
+@media (min-width: 600px) { #toast { bottom: 24px; } }
 .day, .slot > *, .week > * { min-width: 0; }
 .pcard .chip { white-space: normal; overflow-wrap: anywhere; }
 
@@ -352,7 +352,7 @@ details.box > summary { cursor: pointer; }
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; max-width: calc(100vw - 24px);
   background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.18); }
 #selbar[hidden] { display: none; }
-@media (min-width: 900px) { #selbar { bottom: 20px; left: 108px; } }
+@media (min-width: 600px) { #selbar { bottom: 20px; left: 108px; } }
 .mh { cursor: pointer; }
 .mh:hover b { color: var(--accent); text-decoration: underline; }
 .mh .pic { font-size: 12px; opacity: .7; }
@@ -366,7 +366,7 @@ details.box > summary { cursor: pointer; }
 .g-head { position: sticky; top: 0; z-index: 3; }
 .g-corner { position: sticky; top: 0; left: 0; z-index: 4; }
 .g-day { z-index: 2; }
-@media (max-width: 899px) {
+@media (max-width: 599px) {
   .gridwrap, .tlwrap { max-height: calc(100dvh - var(--tabh) - 90px - env(safe-area-inset-bottom)); }
 }
 
@@ -599,7 +599,7 @@ tr.click:hover td { background: var(--surface-2); }
 .seg.mini button { padding: 5px 10px; font-size: 13px; }
 @media print { #printArea .jdbtab { min-width: 0; font-size: 8.5pt; } #printArea .jdbprint { overflow: visible; } }
 /* Navigation mit 7 Modulen */
-@media (max-width: 899px) {
+@media (max-width: 599px) {
   .tabs { grid-template-columns: repeat(7, minmax(0, 1fr)); }
   .tabs button { font-size: 10px; letter-spacing: -0.1px; padding: 8px 0 6px; min-width: 0; }
   .tabs button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -634,3 +634,48 @@ tr.click:hover td { background: var(--surface-2); }
 .planexp .pxt td { vertical-align: top; border: 0.6pt solid #ccc; }
 .planexp .pxi { margin-bottom: 5px; break-inside: avoid; } .planexp .pxi span { color: #555; } .planexp .pxp { font-style: italic; }
 .planexp .pxd { white-space: nowrap; } .planexp .pxh { font-size: 11pt; margin: 12px 0 4px; }
+
+/* ================= Tablets (iPad mini, Galaxy Tab Active3) ================= */
+/* schmale Seitenleiste im Hochformat */
+@media (min-width: 600px) and (max-width: 899px) {
+  .tabs { width: 76px; grid-auto-rows: 64px; }
+  .tabs button { font-size: 10.5px; padding: 6px 2px; }
+  main { margin-left: 76px; padding: 16px 16px 32px; }
+  #selbar { left: 88px; }
+}
+/* Planung: Liste «Noch nicht eingeplant» ab 940 px neben dem Kalender, ein- und ausblendbar */
+@media (min-width: 940px) {
+  .planwrap { grid-template-columns: minmax(0,1fr) 250px; align-items: start; }
+  .unplanned { position: sticky; top: 76px; max-height: calc(100vh - 100px); overflow: auto; }
+  .unplanned summary { pointer-events: none; list-style: none; }
+}
+.planwrap.noside { grid-template-columns: minmax(0, 1fr); }
+.planwrap.noside .unplanned { display: none; }
+@media (max-width: 939px) { .sidebtn { display: none; } }
+/* Ziehen mit dem Finger */
+.tdrag { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.tghost { opacity: .92; box-shadow: 0 12px 30px rgba(0,0,0,.28); transform-origin: 0 0; border-radius: 10px; }
+.tghost .tcount { position: absolute; top: -10px; right: -10px; background: var(--accent); color: var(--accent-ink); border-radius: 12px; padding: 2px 8px; font-size: 13px; font-weight: 700; }
+.dragging { opacity: .35; }
+/* Finger, Handschuh, Stift: grössere Griffflächen */
+@media (pointer: coarse) {
+  .btn { min-height: 44px; }
+  .btn.small { min-height: 40px; min-width: 40px; }
+  .input, select.input { min-height: 44px; }
+  .seg button { min-height: 38px; padding-left: 12px; padding-right: 12px; }
+  .ksug button, .combo-sug button { padding: 12px 14px; }
+  .tog input[type="checkbox"], .checks input[type="checkbox"], .chips input[type="checkbox"] { width: 20px; height: 20px; }
+  .rowi { min-height: 52px; }
+  .btab tr.click td { padding-top: 7px; padding-bottom: 7px; }
+  .jstep .jsb { width: 36px; height: 38px; }
+  .jedit .input { min-height: 38px; }
+  .dh .x { min-width: 44px; min-height: 44px; font-size: 22px; }
+  .pcard, .blk { touch-action: manipulation; }
+  .updown .x { font-size: 15px; padding: 8px 10px; }
+}
+/* Tablet quer: Fenster als Seitenblatt rechts, die Liste bleibt sichtbar */
+@media (pointer: coarse) and (min-width: 900px) {
+  dialog#dlg { margin: 0 0 0 auto; height: 100dvh; max-height: 100dvh; width: min(560px, 50vw); border-radius: 16px 0 0 16px; }
+  dialog#dlg::backdrop { background: rgba(0,0,0,.18); }
+  dialog#dlg #dlgForm { height: 100%; }
+}
