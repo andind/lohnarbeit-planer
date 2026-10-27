@@ -483,7 +483,7 @@ const App = {
   filter: { auftraege: 'offen', q: '', kq: '' },
   plan: { mode: ls('lp_pmode') || 'woche', date: new Date(), aa: ls('lp_paa') || '', nurBelegt: ls('lp_pbel') === '1' },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false, zoom: +(ls('lp_zoom') || 1),
-  spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jsort: 'desc', jhide: false, jlimit: 200,
+  spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jsort: 'desc', jf: null, jfOpen: false, jlimit: 200,
     ak: '', av: `${new Date().getFullYear()}-01-01`, ab: todayIso(), ag: false, ny: 0, nk: '', nc: '', ngep: false, pk: '', pall: false, prq: '', prall: false },
   alimit: 150,
   go(v) { this.view = v; ls('lp_view', v); this.lastView = null; this.tlScroll = null; window.scrollTo(0, 0); this.render(); },
@@ -875,6 +875,8 @@ function unplCard(a) {
 const Dlg = {
   el: null, form: null, onSubmit: null,
   open(title, body, footer, onSubmit) {
+    // frisches Formular: Ereignisse früherer Fenster wirken nicht nach
+    const nf = this.form.cloneNode(false); this.form.replaceWith(nf); this.form = nf;
     this.form.innerHTML = `<div class="dh"><h2>${title}</h2><button type="button" class="x" data-act="close" aria-label="Schliessen">×</button></div>
       <div class="db">${body}</div><div class="df">${footer}</div>`;
     this.onSubmit = onSubmit;
@@ -1832,20 +1834,26 @@ function productDialog(id, { fromOrder } = {}) {
       <label class="fld"><span>Preis CHF / Einheit</span><input class="input" name="preis" inputmode="decimal" value="${p.preis ?? ''}"></label>
       <label class="fld"><span>Inventar</span><input class="input" name="inventar" inputmode="decimal" value="${p.inventar ?? ''}"></label>
     </div>
-    <label class="tog"><input type="checkbox" name="aktuell" ${p.aktuell !== false ? 'checked' : ''}> Aktuell (in der Auswahl anzeigen)</label>`;
+    ${id ? `<label class="fld"><span>Änderungen von Name, Zulassung und Preis gelten ab</span><input class="input" type="date" name="ab" value="${todayIso()}" style="max-width:220px"></label>
+    ${prodNext(p) ? `<p class="hintp panel">Geplante Änderung ab ${fmtDate(prodNext(p).ab, { day: '2-digit', month: '2-digit', year: 'numeric' })}: ${esc(prodNext(p).name)} · CHF ${chf(prodNext(p).preis)}</p>` : ''}` : ''}
+    <label class="tog"><input type="checkbox" name="aktuell" ${p.aktuell !== false ? 'checked' : ''}> Aktuell (in der Auswahl anzeigen)</label>
+    <div id="verlauf">${id ? verlaufHtml(p) : ''}</div>`;
   const save = fd => {
     const name = String(fd.get('name') || '').trim(); if (!name) return false;
     if (Store.all('produkte').some(x => x.id !== p.id && norm(x.name) === norm(name)) && !confirm(`«${name}» gibt es schon. Trotzdem speichern?`)) return false;
-    const old = p.name;
-    Object.assign(p, { name, zulassung: String(fd.get('zulassung') || '').trim(), einheit: fd.get('einheit'), preis: num(fd.get('preis')) ?? 0,
-      inventar: num(fd.get('inventar')), aktuell: !!fd.get('aktuell'), geaendert: todayIso() });
-    if (old && old !== name) { // Umbenennen in Aufträgen nachführen
-      const ch = Store.all('auftraege').filter(a => prodList(a).some(x => x.pid === p.id || x.name === old))
-        .map(a => ({ ...a, produkte: a.produkte.map(x => (x.pid === p.id || x.name === old) ? { ...x, pid: p.id, name, einheit: p.einheit } : x) }));
-      if (ch.length) Store.putMany('auftraege', ch);
+    const old = p.name, zulassung = String(fd.get('zulassung') || '').trim(), preis = num(fd.get('preis')) ?? 0;
+    let q = { ...p, einheit: fd.get('einheit'), inventar: num(fd.get('inventar')), aktuell: !!fd.get('aktuell') };
+    if (!id) Object.assign(q, { name, zulassung, preis, geaendert: todayIso() });
+    else if (name !== p.name || zulassung !== (p.zulassung || '') || Math.abs(preis - (p.preis || 0)) > 0.0001 || p._vchanged) {
+      // Änderung mit Gültigkeitsdatum: frühere Aufträge behalten Preis und Namen von damals
+      const ab = fd.get('ab') || todayIso();
+      q = name !== p.name || zulassung !== (p.zulassung || '') || Math.abs(preis - (p.preis || 0)) > 0.0001 ? prodSetFrom(q, ab, { name, zulassung, preis }) : q;
+      if (old !== q.name || prodAt(q, ab).name !== old) prodRenameOrders([{ p: q, ab: ab < todayIso() ? ab : VERLAUF_START, oldName: old }]);
     }
-    Store.put('produkte', p, { silent: !!fromOrder });
-    return p;
+    delete q._vchanged;
+    if (q.inventar !== p.inventar) q.inventarAm = todayIso();
+    Store.put('produkte', q, { silent: !!fromOrder });
+    return q;
   };
   if (fromOrder) {
     smallDialog('Neues Produkt', body, 'Produkt speichern', fd => {
@@ -1860,6 +1868,15 @@ function productDialog(id, { fromOrder } = {}) {
   }
   Dlg.open(id ? 'Produkt bearbeiten' : 'Neues Produkt', body,
     saveFooter(id ? `<button type="button" class="btn danger" data-act="prodDelete" data-id="${p.id}">Löschen</button>` : ''), fd => !!save(fd));
+  // Verlaufseintrag löschen (wird beim Speichern übernommen)
+  $('#verlauf', Dlg.form)?.addEventListener('click', e => {
+    const b = e.target.closest('[data-vdel]'); if (!b) return;
+    if (!confirm('Diesen Eintrag aus dem Verlauf löschen?')) return;
+    p.verlauf = (p.verlauf || []).filter(x => x.ab !== b.dataset.vdel);
+    const cur = prodAt(p, todayIso()); Object.assign(p, { name: cur.name, zulassung: cur.zulassung, preis: cur.preis, _vchanged: true });
+    const f = Dlg.form; f.name.value = p.name; f.zulassung.value = p.zulassung || ''; f.preis.value = p.preis ?? '';
+    $('#verlauf', f).innerHTML = verlaufHtml(p);
+  });
 }
 function newProductDialog() { productDialog(null, { fromOrder: true }); }
 function productsDialog() { App.spray.tab = 'stamm'; App.spray.stamm = 'produkte'; App.go('spritzen'); }
@@ -1936,16 +1953,23 @@ function stammContent() {
     return segs + `<div class="panel"><h2>Daten aus ErfassungPS (Access) übernehmen</h2>
       <p>Importiert die Datei <b>ErfassungPS-Import.json</b>: Kunden mit Spritzpreisen, Parzellen, Produkte mit Zulassung, Preis und Inventar, Kulturen, Düsen, Traktoren und alle bisherigen Spritzaufträge.</p>
       <p>Mehrfaches Importieren ist unbedenklich: bereits vorhandene Einträge werden nicht überschrieben.</p>
-      <div class="btns"><button class="btn primary" data-act="psImport">Importdatei wählen…</button></div></div>`;
+      <div class="btns"><button class="btn primary" data-act="psImport">Importdatei wählen…</button></div></div>
+      <div class="panel"><h2>Produkte aktualisieren (Preisliste)</h2>
+      <p>Liest eine Excel- (.xlsx) oder CSV-Datei, z.B. die Preisliste des Lieferanten, und aktualisiert <b>Produktname, Zulassungs-Nr. und Preis</b> ab einem wählbaren Datum.
+        Die Spalten werden automatisch erkannt und lassen sich anpassen; vor dem Übernehmen siehst du alle Änderungen.</p>
+      <p class="nr">Zuordnung über den Produktnamen, sonst über die Zulassungs-Nr. (z.B. W-7294). Bisherige Aufträge behalten den Preis, der an ihrem Datum galt.</p>
+      <div class="btns"><button class="btn primary" data-act="prodImport">Preisliste wählen…</button></div></div>`;
   }
   const q = norm(S.prq);
   const list = Store.all('produkte').filter(p => (S.prall || p.aktuell !== false) && (!q || [p.name, p.zulassung].join(' ').toLowerCase().includes(q))).sort(byName);
-  const inv = Store.all('produkte').reduce((s, p) => s + (p.inventar > 0 ? p.inventar * (p.preis || 0) : 0), 0);
   return segs + `<div class="filters"><input class="input search" type="search" placeholder="Produkt suchen…" value="${esc(S.prq)}" data-in="spPrq">
       <label class="tog"><input type="checkbox" data-in="spPrall" ${S.prall ? 'checked' : ''}> auch nicht aktuelle</label><button class="btn primary" data-act="prodAddNew">＋ Produkt</button></div>
-    <p class="nr">${list.length} Produkte${inv ? ` · Lagerwert Inventar CHF ${chf(inv)}` : ''}</p>
-    <div class="rows">${list.map(p => `<div class="rowi ${p.aktuell === false ? 'off' : ''}" data-act="prodEdit" data-id="${p.id}"><div class="grow"><div class="t">${esc(p.name)}</div><div class="s">${esc(p.zulassung || '')}${p.inventar ? ` · Inventar ${fmtNum(p.inventar)} ${esc(p.einheit)}` : ''}</div></div>
-      <span class="num" style="width:auto;white-space:nowrap">CHF ${chf(p.preis)} / ${esc(p.einheit)}</span></div>`).join('') || '<div class="empty">Keine Produkte.</div>'}</div>`;
+    <div class="btns" style="margin:0 0 10px"><button class="btn" data-act="invPrint">Inventarliste drucken / PDF</button><button class="btn" data-act="invCsv">Inventar CSV</button><button class="btn" data-act="prodImport">Preisliste importieren…</button></div>
+    <p class="nr">${list.length} Produkte · Lagerwert Inventar CHF <span id="invTot">${chf(invTotal())}</span> · Bestand direkt eintragen, übrige Angaben durch Antippen der Zeile.</p>
+    <div class="rows">${list.map(p => { const nx = prodNext(p); return `<div class="rowi prow2 ${p.aktuell === false ? 'off' : ''}" data-act="prodEdit" data-id="${p.id}"><div class="grow"><div class="t">${esc(p.name) || '<i class="nr">(ohne Name)</i>'}</div>
+        <div class="s">${esc(p.zulassung || '')}${p.zulassung ? ' · ' : ''}CHF ${chf(p.preis)} / ${esc(p.einheit)}${nx ? ` · <span class="nxt">ab ${fmtDate(nx.ab, { day: '2-digit', month: '2-digit', year: '2-digit' })}: CHF ${chf(nx.preis)}${nx.name !== p.name ? ' · ' + esc(nx.name) : ''}</span>` : ''}</div></div>
+      <div class="jedit" data-stop><label><span>Inventar ${esc(p.einheit || '')}</span><input class="input" data-in="spInv" data-id="${p.id}" inputmode="decimal" value="${p.inventar ?? ''}"></label></div>
+      <span class="num invw">${p.inventar > 0 && p.preis ? 'CHF ' + chf(p.inventar * p.preis) : ''}</span></div>`; }).join('') || '<div class="empty">Keine Produkte.</div>'}</div>`;
 }
 
 /* ---------- Import aus ErfassungPS ---------- */
@@ -1974,7 +1998,10 @@ function kundenMitSpritz(filter) {
   return Store.all('kunden').filter(k => ids.has(k.id)).sort(byName);
 }
 const billFilter = (S = App.spray) => a => dOf(a) >= S.av && dOf(a) <= S.ab && (['erledigt', 'verrechnet'].includes(statusOf(a)) || (S.ag && statusOf(a) === 'geplant'));
-const nwFilter = (S = App.spray) => a => ernteOf(a) === +S.ny && (S.ngep || statusOf(a) !== 'geplant');
+// Nachweis: nicht ÖLN-konforme Aufträge und Produkte erscheinen nur in der Abrechnung
+const nwProds = a => prodList(a).filter(p => !p.nichtOeln);
+const nwOk = a => !a.nichtOeln && !(prodList(a).length && !nwProds(a).length);
+const nwFilter = (S = App.spray) => a => ernteOf(a) === +S.ny && (S.ngep || statusOf(a) !== 'geplant') && nwOk(a);
 // Sortierung Erntejahr › Kultur › Parzelle › Datum
 const byKulturParz = (a, b) => (ernteOf(a) || 0) - (ernteOf(b) || 0) || (a.kultur || '~').localeCompare(b.kultur || '~', 'de') || (a.feld || '~').localeCompare(b.feld || '~', 'de') || dOf(a).localeCompare(dOf(b));
 const groupBy = (list, key) => { const m = new Map(); list.forEach(x => { const k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); }); return [...m.entries()]; };
@@ -1982,10 +2009,25 @@ const groupBy = (list, key) => { const m = new Map(); list.forEach(x => { const 
 const MONATE_LANG = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 // Journal: chronologisch nach Ausführung; Erntejahr und Fläche direkt bearbeitbar
 const byWhen = (a, b) => dOf(a).localeCompare(dOf(b)) || (a.zeit || '').localeCompare(b.zeit || '') || (a.nr || '').localeCompare(b.nr || '');
+// Filter im Journal (Standard: geplante Aufträge ausgeblendet)
+const JF_DEFAULT = { k: '', p: '', f: '', c: '', pr: '', st: 'ohne', von: '', bis: '' };
+const jFeldOf = a => a.kfeld || (Store.get('parzellen', a.parzelle) || {}).feldId || '';
+function journalFilter(S, skip = '') {
+  const F = S.jf, y = S.jy || '';
+  return a => (skip === 'k' || !F.k || a.kunde === F.k)
+    && (skip === 'p' || !F.p || (a.feld || '') === F.p)
+    && (skip === 'f' || !F.f || jFeldOf(a) === F.f)
+    && (skip === 'c' || !F.c || (a.kultur || '') === F.c)
+    && (skip === 'pr' || !F.pr || prodNames(a).includes(F.pr))
+    && (skip === 'y' || !y || ernteOf(a) === +y)
+    && (skip === 'st' || !F.st || (F.st === 'ohne' ? statusOf(a) !== 'geplant' : statusOf(a) === F.st))
+    && (!F.von || dOf(a) >= F.von) && (!F.bis || dOf(a) <= F.bis);
+}
 function journalContent() {
-  const S = App.spray;
-  const q = norm(S.jq), y = S.jy || '', desc = S.jsort !== 'asc';
-  const all = sprayOrders().filter(a => dOf(a) && !(S.jhide && statusOf(a) === 'geplant')).filter(a => (!y || ernteOf(a) === +y) && (!q || [kundeName(a.kunde), a.feld, a.kultur, a.notiz, a.stadium, a.nr, ...prodNames(a)].join(' ').toLowerCase().includes(q)));
+  const S = App.spray; S.jf = S.jf || { ...JF_DEFAULT };
+  const F = S.jf, q = norm(S.jq), y = S.jy || '', desc = S.jsort !== 'asc';
+  const base = sprayOrders().filter(a => dOf(a));
+  const all = base.filter(journalFilter(S)).filter(a => !q || [kundeName(a.kunde), a.feld, a.kultur, a.notiz, a.stadium, a.nr, ...prodNames(a)].join(' ').toLowerCase().includes(q));
   const list = all.slice().sort((a, b) => desc ? byWhen(b, a) : byWhen(a, b)), shown = list.slice(0, S.jlimit);
   const row = a => `<div class="rowi jrow" data-act="editOrder" data-id="${a.id}">
       <span class="num jd">${fmtDate(dOf(a), { weekday: 'short', day: '2-digit', month: '2-digit' })}</span>
@@ -1999,11 +2041,32 @@ function journalContent() {
   const ha = l => fmtNum(r2(l.reduce((s, a) => s + flOf(a), 0)));
   const body = groupBy(shown, a => dOf(a).slice(0, 7)).map(([m, ma]) => `<div class="grp"><div class="grp-p">${esc(m ? MONATE_LANG[+m.slice(5, 7) - 1] + ' ' + m.slice(0, 4) : '')} <small>${ma.length} · ${ha(ma)} ha</small></div>
       <div class="rows">${ma.map(row).join('')}</div></div>`).join('');
+  // Auswahllisten nur mit Werten, die bei den übrigen Filtern vorkommen
+  const pool = k => base.filter(journalFilter(S, k));
+  const uniq = arr => [...new Set(arr.filter(Boolean))].sort((x, z) => String(x).localeCompare(String(z), 'de'));
+  const opt = (list, cur, label = x => x, val = x => x) => list.map(x => `<option value="${esc(val(x))}" ${String(val(x)) === String(cur) ? 'selected' : ''}>${esc(label(x))}</option>`).join('');
+  const kList = uniq(pool('k').map(a => a.kunde)).map(id => Store.get('kunden', id)).filter(Boolean).sort(byName);
+  const fList = uniq(pool('f').map(jFeldOf)).map(feldById).filter(Boolean).sort(byName);
+  const sel = (k, label, opts, all = 'Alle', combo = true) => `<label class="fld"><span>${label}</span><select class="input" ${combo ? 'data-combo' : ''} data-in="spJf" data-k="${k}"><option value="">${all}</option>${opts}</select></label>`;
+  const active = [F.k && 'Kunde', F.p && 'Parzelle', F.f && 'Feld', F.c && 'Kultur', F.pr && 'Produkt', y && 'Erntejahr', F.st !== 'ohne' && 'Status', (F.von || F.bis) && 'Zeitraum'].filter(Boolean);
+  const panel = `<div class="panel jfilter">
+      <div class="jfgrid">
+        ${sel('k', 'Kunde', opt(kList, F.k, k => k.name, k => k.id), 'Alle Kunden')}
+        ${sel('p', 'Parzelle', opt(uniq(pool('p').map(a => a.feld)), F.p), 'Alle Parzellen')}
+        ${sel('f', 'Feld (MyJohnDeere)', opt(fList, F.f, f => f.name + (F.k ? '' : ' · ' + kundeName(f.kunde)), f => f.id), 'Alle Felder')}
+        ${sel('c', 'Kultur', opt(uniq(pool('c').map(a => a.kultur)), F.c), 'Alle Kulturen')}
+        ${sel('pr', 'Produkt', opt(uniq(pool('pr').flatMap(prodNames)), F.pr), 'Alle Produkte')}
+        <label class="fld"><span>Erntejahr</span><select class="input" data-in="spJy"><option value="">Alle Erntejahre</option>${uniq(pool('y').map(ernteOf)).sort((x, z) => z - x).map(v => `<option ${+y === v ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <label class="fld"><span>Status</span><select class="input" data-plain data-in="spJf" data-k="st">${[['ohne', 'Ohne geplante'], ['', 'Alle'], ['geplant', 'Nur geplante'], ['erledigt', 'Nur erledigte'], ['verrechnet', 'Nur verrechnete']].map(([v, l]) => `<option value="${v}" ${F.st === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <label class="fld"><span>Von</span><input class="input" type="date" data-in="spJf" data-k="von" value="${esc(F.von)}"></label>
+        <label class="fld"><span>Bis</span><input class="input" type="date" data-in="spJf" data-k="bis" value="${esc(F.bis)}"></label>
+      </div>
+      <div class="btns"><button class="btn" data-act="spJfReset" ${active.length ? '' : 'disabled'}>Filter zurücksetzen</button></div></div>`;
   return `<div class="filters"><input class="input search" type="search" placeholder="Suchen: Kunde, Parzelle, Kultur, Produkt…" value="${esc(S.jq)}" data-in="spJq">
-      <select class="input" data-in="spJy" style="width:auto"><option value="">Alle Erntejahre</option>${yearsOf().map(v => `<option ${+y === v ? 'selected' : ''}>${v}</option>`).join('')}</select>
-      <select class="input" data-in="spJsort" style="width:auto"><option value="desc" ${desc ? 'selected' : ''}>Neueste zuerst</option><option value="asc" ${desc ? '' : 'selected'}>Älteste zuerst</option></select>
-      <label class="tog"><input type="checkbox" data-in="spJhide" ${S.jhide ? 'checked' : ''}> geplante ausblenden</label></div>
-    <p class="nr">${list.length} Spritzaufträge · ${ha(list)} ha · Erntejahr und Fläche direkt ändern, übrige Angaben durch Antippen der Zeile.</p>
+      <button class="btn ${S.jfOpen ? 'primary' : ''}" data-act="spJfToggle">☰ Filter${active.length ? ` (${active.length})` : ''}</button>
+      <select class="input" data-in="spJsort" style="width:auto"><option value="desc" ${desc ? 'selected' : ''}>Neueste zuerst</option><option value="asc" ${desc ? '' : 'selected'}>Älteste zuerst</option></select></div>
+    ${S.jfOpen ? panel : ''}
+    <p class="nr">${list.length} Spritzaufträge · ${ha(list)} ha${active.length ? ` · gefiltert nach ${active.join(', ')}` : ''}${F.st === 'ohne' ? ' · ohne geplante' : ''} · Erntejahr und Fläche direkt ändern, übrige Angaben durch Antippen der Zeile.</p>
     ${body || '<div class="empty">Keine Treffer.</div>'}
     ${list.length > shown.length ? `<div class="btns" style="margin-top:10px"><button class="btn" data-act="spMore">Weitere ${Math.min(200, list.length - shown.length)} anzeigen</button></div>` : ''}`;
 }
@@ -2038,7 +2101,7 @@ function billing(kid, von, bis, mitGeplant) {
   const rows = orders.map(a => {
     const fl = flOf(a), arbeit = round05(fl * preisHa);
     const mittel = prodList(a).map(p => {
-      const pr = prodOf(p) || {}, preis = pr.preis || 0, preisZ = round05(preis * zu + preis), menge = (p.menge || 0) * fl, betrag = round05(menge * preisZ);
+      const pr = prodAt(prodOf(p), dOf(a)) || {}, preis = pr.preis || 0, preisZ = round05(preis * zu + preis), menge = (p.menge || 0) * fl, betrag = round05(menge * preisZ);
       return { name: p.name, zulassung: pr.zulassung || '', mengeHa: p.menge, einheit: p.einheit || pr.einheit || '', menge, preis, preisZ, betrag };
     });
     const m = mittel.reduce((s, x) => s + x.betrag, 0); tA += arbeit; tM += m;
@@ -2113,10 +2176,10 @@ function nachweisHtml(list) {
       ${groupBy(ol, a => ernteOf(a) || '').map(([j, ja]) => `<tr class="gj"><td colspan="7">Erntejahr ${esc(j || '–')}</td></tr>
       ${groupBy(ja, a => a.kultur || '').map(([kk, ka]) => `<tr class="gk"><td colspan="7">${esc(kk || 'ohne Kultur')} · ${fmtNum(r2(ka.reduce((s, a) => s + flOf(a), 0)))} ha</td></tr>
       ${groupBy(ka, a => a.feld || '').map(([pp, pa]) => `<tr class="gp"><td colspan="7">${esc(pp || 'ohne Parzelle')}</td></tr>
-      ${pa.map(a => { const ps = prodList(a).length ? prodList(a) : [{}]; return ps.map((p, i) => `<tr class="${i ? 'mit' : 'job'} click" data-act="editOrder" data-id="${a.id}">
+      ${pa.map(a => { const ps = nwProds(a).length ? nwProds(a) : [{}]; return ps.map((p, i) => `<tr class="${i ? 'mit' : 'job'} click" data-act="editOrder" data-id="${a.id}">
           <td>${i ? '' : fmtDate(dOf(a), { day: '2-digit', month: '2-digit', year: '2-digit' })}</td>
           <td class="n">${i ? '' : fmtNum(flOf(a))}</td><td>${i ? '' : esc(a.stadium || '')}</td>
-          <td>${esc(p.name || '–')}</td><td>${esc((prodOf(p) || {}).zulassung || '')}</td>
+          <td>${esc(p.name || '–')}</td><td>${esc(prodAt(prodOf(p), dOf(a)).zulassung || '')}</td>
           <td class="n">${p.menge != null ? fmtNum(p.menge) + ' ' + esc(p.einheit || '') : ''}</td><td>${i ? '' : esc(a.notiz || '')}</td></tr>`).join(''); }).join('')}`).join('')}`).join('')}`).join('')}
       </tbody></table></div>`;
   }).join('');
@@ -2137,8 +2200,251 @@ function nachweisContent() {
 }
 function nachweisCsv() {
   const rows = [['Erntejahr', 'Kunde', 'Ort', 'Datum', 'Parzelle', 'Kultur', 'Fläche ha', 'Stadium', 'Produkt', 'Zulassung', 'Menge/ha', 'Einheit', 'Wasser l/ha', 'Düse', 'Bemerkung']];
-  nachweisRows().forEach(a => { const k = kundeOf(a); (prodList(a).length ? prodList(a) : [{}]).forEach(p => rows.push([ernteOf(a), k.name, k.ort, dOf(a), a.feld, a.kultur, flOf(a), a.stadium, p.name, (prodOf(p) || {}).zulassung, p.menge, p.einheit, a.wasser, a.duese, a.notiz])); });
+  nachweisRows().forEach(a => { const k = kundeOf(a); (nwProds(a).length ? nwProds(a) : [{}]).forEach(p => rows.push([ernteOf(a), k.name, k.ort, dOf(a), a.feld, a.kultur, flOf(a), a.stadium, p.name, (prodOf(p) || {}).zulassung, p.menge, p.einheit, a.wasser, a.duese, a.notiz])); });
   download(`OELN-Nachweis_${App.spray.ny}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+}
+/* ================= Produkte: Preisverlauf mit Gültigkeit, Import von Preislisten, Inventar ================= */
+// Verlauf je Produkt: p.verlauf = [{ ab:'YYYY-MM-DD', name, zulassung, preis }], ältester Eintrag ab '1900-01-01' = bisheriger Stand.
+const VERLAUF_START = '1900-01-01';
+function prodAt(pr, iso) {
+  if (!pr) return {};
+  const d = iso || todayIso();
+  const v = (pr.verlauf || []).filter(e => e.ab <= d).sort((a, b) => a.ab.localeCompare(b.ab)).pop();
+  return v ? { ...pr, name: v.name ?? pr.name, zulassung: v.zulassung ?? pr.zulassung, preis: v.preis ?? pr.preis } : pr;
+}
+const prodNext = pr => (pr.verlauf || []).filter(e => e.ab > todayIso()).sort((a, b) => a.ab.localeCompare(b.ab))[0] || null;
+// neuen Stand ab Datum eintragen; Aufträge ab diesem Datum erhalten den neuen Namen
+function prodSetFrom(pr, ab, vals) {
+  const p = { ...pr, verlauf: (pr.verlauf || []).map(e => ({ ...e })) };
+  if (!p.verlauf.length) p.verlauf.push({ ab: VERLAUF_START, name: pr.name, zulassung: pr.zulassung || '', preis: pr.preis || 0 });
+  const prev = prodAt(p, ab);
+  const e = { ab, name: vals.name ?? prev.name, zulassung: vals.zulassung ?? prev.zulassung, preis: vals.preis ?? prev.preis };
+  const i = p.verlauf.findIndex(x => x.ab === ab);
+  if (i >= 0) p.verlauf[i] = e; else p.verlauf.push(e);
+  p.verlauf.sort((a, b) => a.ab.localeCompare(b.ab));
+  const cur = prodAt(p, todayIso());
+  Object.assign(p, { name: cur.name, zulassung: cur.zulassung, preis: cur.preis, geaendert: todayIso() });
+  return p;
+}
+// Namensänderung in Aufträgen ab dem Gültigkeitsdatum nachführen (frühere Aufträge behalten den damaligen Namen)
+function prodRenameOrders(list) {
+  const ch = new Map();
+  list.forEach(({ p, ab, oldName }) => {
+    Store.all('auftraege').forEach(a => {
+      if (!prodList(a).some(x => x.pid === p.id || (!x.pid && x.name === oldName))) return;
+      const d = dOf(a) || a.wunsch || todayIso(); const nm = prodAt(p, d).name;
+      const cur = ch.get(a.id) || a;
+      const produkte = cur.produkte.map(x => (x.pid === p.id || (!x.pid && x.name === oldName)) && x.name !== nm && d >= ab ? { ...x, pid: p.id, name: nm } : x);
+      if (produkte.some((x, i) => x !== cur.produkte[i])) ch.set(a.id, { ...cur, produkte });
+    });
+  });
+  if (ch.size) Store.putMany('auftraege', [...ch.values()]);
+  return ch.size;
+}
+// beim Start: fällig gewordene Änderungen übernehmen
+function prodApplyDue() {
+  const due = Store.all('produkte').filter(p => p.verlauf && p.verlauf.length).map(p => ({ p, cur: prodAt(p, todayIso()) }))
+    .filter(({ p, cur }) => cur.name !== p.name || (cur.zulassung || '') !== (p.zulassung || '') || (cur.preis || 0) !== (p.preis || 0));
+  if (!due.length) return 0;
+  const ren = due.filter(({ p, cur }) => cur.name !== p.name).map(({ p, cur }) => ({ p: { ...p, name: cur.name }, ab: (p.verlauf.filter(e => e.ab <= todayIso()).pop() || {}).ab || todayIso(), oldName: p.name }));
+  Store.putMany('produkte', due.map(({ p, cur }) => ({ ...p, name: cur.name, zulassung: cur.zulassung, preis: cur.preis })));
+  if (ren.length) prodRenameOrders(ren);
+  return due.length;
+}
+
+/* ---------- Inventar ---------- */
+const invProducts = all => Store.all('produkte').filter(p => (p.name || '').trim() && (all || p.aktuell !== false || p.inventar > 0)).sort(byName);
+const invTotal = () => Store.all('produkte').reduce((s, p) => s + (p.inventar > 0 ? p.inventar * (p.preis || 0) : 0), 0);
+function invEdit(el) {
+  const p = Store.get('produkte', el.dataset.id); if (!p) return;
+  const t = el.value.trim(), v = t === '' ? null : num(t);
+  if (t !== '' && (v == null || v < 0)) { toast('Inventar bitte als Zahl eingeben'); el.value = p.inventar ?? ''; return; }
+  Store.put('produkte', { ...p, inventar: v, inventarAm: todayIso() }, { silent: true });
+  el.classList.add('saved'); setTimeout(() => el.classList.remove('saved'), 900);
+  const tot = $('#invTot'); if (tot) tot.textContent = chf(invTotal());
+  const w = el.closest('.rowi')?.querySelector('.invw'); if (w) w.textContent = v > 0 && p.preis ? 'CHF ' + chf(v * p.preis) : '';
+}
+function inventoryHtml() {
+  const list = invProducts(App.spray.invAll).filter(p => App.spray.invAll || p.inventar > 0 || p.aktuell !== false);
+  const rows = list.map(p => `<tr><td>${esc(p.name)}</td><td class="nr">${esc(p.zulassung || '')}</td><td class="n">${p.inventar != null ? fmtNum(p.inventar) : ''}</td><td>${esc(p.einheit || '')}</td>
+    <td class="n">${chf(p.preis)}</td><td class="n">${p.inventar > 0 ? chf(p.inventar * (p.preis || 0)) : ''}</td><td class="cnt"></td></tr>`).join('');
+  return `<div class="bill inv"><div class="bill-h"><div><b>Inventarliste Pflanzenschutzmittel</b></div><div class="r">Stand ${fmtDate(todayIso(), { day: '2-digit', month: '2-digit', year: 'numeric' })}</div></div>
+    <table class="btab"><thead><tr><th>Produkt</th><th>Zulassung</th><th class="n">Bestand</th><th>Einheit</th><th class="n">Preis CHF</th><th class="n">Wert CHF</th><th>Gezählt</th></tr></thead>
+    <tbody>${rows}<tr class="tot invsum"><td colspan="5"><b>Lagerwert total</b></td><td class="n"><b>${chf(invTotal())}</b></td><td></td></tr></tbody></table></div>`;
+}
+function inventoryCsv() {
+  const rows = [['Produkt', 'Zulassung', 'Bestand', 'Einheit', 'Preis CHF', 'Wert CHF', 'Inventar erfasst am']];
+  invProducts(true).forEach(p => rows.push([p.name, p.zulassung, p.inventar ?? '', p.einheit, (p.preis || 0).toFixed(2), p.inventar > 0 ? (p.inventar * (p.preis || 0)).toFixed(2) : '', p.inventarAm || '']));
+  download(`Inventar_${todayIso()}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+}
+
+/* ---------- Dateien lesen: Excel (.xlsx) und CSV ---------- */
+async function inflateRaw(bytes) {
+  const ds = new DecompressionStream('deflate-raw');
+  const buf = await new Response(new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer();
+  return new Uint8Array(buf);
+}
+async function unzip(buf) { // minimaler ZIP-Leser (Zentralverzeichnis)
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  let eocd = -1; for (let i = u8.length - 22; i >= Math.max(0, u8.length - 66000); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('Keine gültige Excel-Datei');
+  const n = dv.getUint16(eocd + 10, true); let off = dv.getUint32(eocd + 16, true); const out = {};
+  for (let k = 0; k < n; k++) {
+    const method = dv.getUint16(off + 10, true), csize = dv.getUint32(off + 20, true), nlen = dv.getUint16(off + 28, true), xlen = dv.getUint16(off + 30, true), clen = dv.getUint16(off + 32, true), loc = dv.getUint32(off + 42, true);
+    const name = new TextDecoder().decode(u8.subarray(off + 46, off + 46 + nlen));
+    out[name] = { method, csize, loc };
+    off += 46 + nlen + xlen + clen;
+  }
+  return async name => {
+    const e = out[name]; if (!e) return null;
+    const start = e.loc + 30 + dv.getUint16(e.loc + 26, true) + dv.getUint16(e.loc + 28, true);
+    const data = u8.subarray(start, start + e.csize);
+    return new TextDecoder().decode(e.method === 0 ? data : await inflateRaw(data));
+  };
+}
+async function readXlsx(buf) {
+  const get = await unzip(buf), xml = s => new DOMParser().parseFromString(s, 'application/xml');
+  const ss = await get('xl/sharedStrings.xml');
+  const strings = ss ? [...xml(ss).getElementsByTagName('si')].map(si => [...si.getElementsByTagName('t')].map(t => t.textContent).join('')) : [];
+  // erstes Tabellenblatt laut Arbeitsmappe
+  let sheet = 'xl/worksheets/sheet1.xml';
+  try {
+    const wb = xml(await get('xl/workbook.xml')), rels = xml(await get('xl/_rels/workbook.xml.rels'));
+    const rid = wb.getElementsByTagName('sheet')[0].getAttribute('r:id') || wb.getElementsByTagName('sheet')[0].getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+    const t = [...rels.getElementsByTagName('Relationship')].find(r => r.getAttribute('Id') === rid)?.getAttribute('Target');
+    if (t) sheet = 'xl/' + t.replace(/^\/?xl\//, '').replace(/^\//, '');
+  } catch { }
+  const sx = await get(sheet); if (!sx) throw new Error('Tabellenblatt nicht gefunden');
+  const col = r => { let c = 0; for (const ch of r.replace(/\d+$/, '')) c = c * 26 + ch.charCodeAt(0) - 64; return c - 1; };
+  return [...xml(sx).getElementsByTagName('row')].map(row => {
+    const out = [];
+    [...row.getElementsByTagName('c')].forEach(c => {
+      const t = c.getAttribute('t'), v = c.getElementsByTagName('v')[0]?.textContent ?? '';
+      const val = t === 's' ? strings[+v] ?? '' : t === 'inlineStr' ? [...c.getElementsByTagName('t')].map(x => x.textContent).join('') : v;
+      out[col(c.getAttribute('r') || 'A1')] = val;
+    });
+    return Array.from(out, x => x ?? '');
+  });
+}
+function readCsv(text) {
+  const first = text.split(/\r?\n/).find(l => l.trim()) || '';
+  const sep = [';', '\t', ','].sort((a, b) => first.split(b).length - first.split(a).length)[0];
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === sep) { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+async function readTable(file) {
+  const buf = await file.arrayBuffer();
+  const sig = new Uint8Array(buf.slice(0, 4)); // ZIP-Kennung «PK\3\4» = Excel
+  if (sig[0] === 0x50 && sig[1] === 0x4b && sig[2] === 3 && sig[3] === 4) return readXlsx(buf);
+  if (/\.xlsx?$/i.test(file.name)) throw new Error(/\.xls$/i.test(file.name) ? 'Bitte in Excel als .xlsx oder .csv speichern' : 'Keine gültige Excel-Datei');
+  let text = new TextDecoder('utf-8').decode(buf);
+  if (text.includes('�')) text = new TextDecoder('windows-1252').decode(buf);
+  return readCsv(text.replace(/^﻿/, ''));
+}
+
+/* ---------- Import Preisliste: Produktname, Zulassung, Preis ab Datum ---------- */
+const parsePrice = v => { if (v == null || v === '') return null; if (typeof v === 'number') return v; const s = String(v).replace(/CHF|Fr\.?|\s|'|’/gi, ''); const m = s.match(/-?\d+(?:[.,]\d+)?/); return m ? +m[0].replace(',', '.') : null; };
+const zulKey = z => { const m = String(z || '').toUpperCase().replace(/\s/g, '').match(/[A-Z]{0,2}-?\d{3,6}(?:-\d+)?/); return m ? m[0].replace(/^([A-Z]+)(\d)/, '$1-$2') : ''; };
+const IMP_FIELDS = [['name', 'Produktname *', /produkt|bezeichnung|handelsname|artikel(?!.*n(r|um))|^name/i], ['zulassung', 'Zulassungs-Nr.', /zulass|bewillig|w-?nr|kenn|reg/i],
+  ['preis', 'Preis CHF', /preis|chf|netto|betrag|fr\./i], ['einheit', 'Einheit', /einheit|^me$|unit|^eh$/i]];
+function impGuess(rows) {
+  let hi = 0, best = -1;
+  rows.slice(0, 15).forEach((r, i) => { const sc = IMP_FIELDS.filter(([, , re]) => r.some(c => re.test(String(c || '').trim()))).length; if (sc > best) { best = sc; hi = i; } });
+  const head = rows[hi] || [], map = {};
+  IMP_FIELDS.forEach(([k, , re]) => { const i = head.findIndex((c, j) => re.test(String(c || '').trim()) && !Object.values(map).includes(j)); map[k] = i; });
+  if (best < 1) { map.name = 0; return { hi: -1, map }; }
+  return { hi, map };
+}
+function impMatch(rows, hi, map, { neu }) {
+  const ps = Store.all('produkte'), byZ = new Map(), dupZ = new Set();
+  ps.forEach(p => { const z = zulKey(p.zulassung); if (!z) return; if (byZ.has(z)) dupZ.add(z); byZ.set(z, p); });
+  const used = new Set();
+  return rows.slice(hi + 1).map(r => {
+    const cell = k => map[k] >= 0 ? String(r[map[k]] ?? '').trim() : '';
+    const name = cell('name'); if (!name) return null;
+    const zul = cell('zulassung'), preis = map.preis >= 0 ? parsePrice(r[map.preis]) : null, einheit = cell('einheit');
+    const zk = zulKey(zul);
+    let p = ps.find(x => !used.has(x.id) && fold(x.name) === fold(name));
+    if (!p && zk && byZ.has(zk) && !dupZ.has(zk) && !used.has(byZ.get(zk).id)) p = byZ.get(zk);
+    if (p) used.add(p.id);
+    const zulCh = p && zul && (zulKey(zul) || zulKey(p.zulassung) ? zulKey(zul) !== zulKey(p.zulassung) : fold(zul) !== fold(p.zulassung));
+    const ch = p ? [name !== p.name && 'Name', zulCh && 'Zulassung', preis != null && Math.abs(preis - (p.preis || 0)) > 0.0001 && 'Preis'].filter(Boolean) : [];
+    return { name, zul, preis, einheit, p, ch, art: p ? (ch.length ? 'aendern' : 'gleich') : (neu ? 'neu' : 'ohne') };
+  }).filter(Boolean);
+}
+async function prodImportStart() {
+  const file = await pickFile('.xlsx,.csv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); if (!file) return;
+  let rows; try { rows = await readTable(file); while (rows.length && !rows[rows.length - 1].some(c => String(c ?? '').trim())) rows.pop(); } catch (e) { toast('Datei konnte nicht gelesen werden: ' + e.message, 5000); return; }
+  if (!rows.length) { toast('Die Datei enthält keine Daten'); return; }
+  const g = impGuess(rows), cols = Math.max(...rows.slice(0, 50).map(r => r.length));
+  const head = g.hi >= 0 ? rows[g.hi] : [];
+  const colOpt = (k, cur) => `<option value="-1">— keine —</option>` + Array.from({ length: cols }, (_, i) => `<option value="${i}" ${i === cur ? 'selected' : ''}>${esc(String(head[i] || '').trim() || 'Spalte ' + String.fromCharCode(65 + i))}</option>`).join('');
+  const body = `<p class="nr" style="margin-top:0">${esc(file.name)} · ${rows.slice(g.hi + 1).filter(r => r.some(c => String(c ?? '').trim())).length} Zeilen</p>
+    <div class="two"><label class="fld"><span>Gültig ab *</span><input class="input" type="date" name="ab" value="${todayIso()}" required></label>
+      <label class="fld"><span>Überschriften in Zeile</span><input class="input" name="hi" inputmode="numeric" value="${g.hi + 1}"></label></div>
+    <div class="two">${IMP_FIELDS.map(([k, l]) => `<label class="fld"><span>${l}</span><select class="input" data-plain name="col_${k}">${colOpt(k, g.map[k])}</select></label>`).join('')}</div>
+    <div class="checks"><label><input type="checkbox" name="neu" checked> Produkte, die es noch nicht gibt, neu anlegen</label>
+      <label><input type="checkbox" name="alt"> Produkte, die nicht in der Liste stehen, auf «nicht aktuell» setzen</label></div>
+    <div id="impPrev"></div>`;
+  Dlg.open('Produkte aktualisieren', body, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">Übernehmen</button>`, fd => {
+    const st = read(); if (!st.ab) { toast('Gültig-ab-Datum angeben'); return false; }
+    const res = impMatch(rows, st.hi, st.map, { neu: st.neu });
+    const upd = [], ren = [];
+    res.filter(r => r.art === 'aendern').forEach(r => {
+      const vals = { name: r.name }; if (r.ch.includes('Zulassung')) vals.zulassung = r.zul; if (r.ch.includes('Preis')) vals.preis = r.preis;
+      const np = prodSetFrom(r.p, st.ab, vals); if (r.einheit && !r.p.einheit) np.einheit = r.einheit;
+      np.aktuell = true; upd.push(np); if (r.name !== r.p.name) ren.push({ p: np, ab: st.ab, oldName: r.p.name });
+    });
+    const neu = res.filter(r => r.art === 'neu').map(r => {
+      const base = { id: uid(), name: r.name, zulassung: r.zul, preis: r.preis || 0, einheit: r.einheit || 'l', aktuell: true };
+      return st.ab > todayIso() ? { ...base, verlauf: [{ ab: VERLAUF_START, name: r.name, zulassung: r.zul, preis: 0 }, { ab: st.ab, name: r.name, zulassung: r.zul, preis: r.preis || 0 }], preis: 0 } : base;
+    });
+    const inList = new Set(res.filter(r => r.p).map(r => r.p.id));
+    const alt = st.alt ? Store.all('produkte').filter(p => !inList.has(p.id) && p.aktuell !== false).map(p => ({ ...p, aktuell: false })) : [];
+    if (!upd.length && !neu.length && !alt.length) { toast('Keine Änderungen'); return true; }
+    Store.putMany('produkte', [...upd, ...neu, ...alt]);
+    const nr = ren.length ? prodRenameOrders(ren) : 0;
+    toast(`Produkte aktualisiert ab ${fmtDate(st.ab, { day: '2-digit', month: '2-digit', year: 'numeric' })}: ${upd.length} geändert, ${neu.length} neu${alt.length ? `, ${alt.length} nicht mehr aktuell` : ''}${nr ? ` · ${nr} Aufträge umbenannt` : ''}`, 6000);
+    return true;
+  });
+  const f = Dlg.form;
+  const read = () => ({ ab: f.ab.value, hi: Math.max(0, (num(f.hi.value) || 1)) - 1, neu: f.neu.checked, alt: f.alt.checked,
+    map: Object.fromEntries(IMP_FIELDS.map(([k]) => [k, +f['col_' + k].value])) });
+  const prev = () => {
+    const st = read();
+    if (st.map.name < 0) { $('#impPrev', f).innerHTML = '<p class="hintp panel">Bitte die Spalte mit dem Produktnamen wählen.</p>'; return; }
+    const res = impMatch(rows, st.hi, st.map, { neu: st.neu }), cnt = k => res.filter(r => r.art === k).length;
+    const future = st.ab > todayIso();
+    const line = r => `<tr class="${r.art}"><td>${r.p && r.name !== r.p.name ? `${esc(r.p.name)} → <b>${esc(r.name)}</b>` : esc(r.name)}</td>
+      <td class="nr">${r.ch.includes('Zulassung') ? `${esc(r.p.zulassung || '–')} → <b>${esc(r.zul)}</b>` : esc(r.zul || r.p?.zulassung || '')}</td>
+      <td class="n">${r.preis == null ? '' : r.p && Math.abs(r.preis - (r.p.preis || 0)) > 0.0001 ? `${chf(r.p.preis)} → <b>${chf(r.preis)}</b>` : chf(r.preis)}</td>
+      <td>${{ aendern: 'ändern', gleich: 'unverändert', neu: 'neu', ohne: 'übersprungen' }[r.art]}</td></tr>`;
+    const order = { aendern: 0, neu: 1, ohne: 2, gleich: 3 };
+    $('#impPrev', f).innerHTML = `<p><b>${cnt('aendern')} ändern</b> · ${cnt('neu')} neu · ${cnt('gleich')} unverändert${cnt('ohne') ? ` · ${cnt('ohne')} übersprungen` : ''}${future ? ` · gilt erst ab ${fmtDate(st.ab, { day: '2-digit', month: '2-digit', year: 'numeric' })}, bis dahin bleiben die bisherigen Angaben` : ''}</p>
+      <p class="nr">Abrechnungen verwenden den Preis, der am Tag des Auftrags gültig war. Aufträge ab dem Gültigkeitsdatum erhalten den neuen Produktnamen.</p>
+      <div class="tscroll"><table class="btab imptab"><thead><tr><th>Produkt</th><th>Zulassung</th><th class="n">Preis CHF</th><th></th></tr></thead><tbody>
+      ${res.slice().sort((a, b) => order[a.art] - order[b.art]).slice(0, 300).map(line).join('')}</tbody></table></div>`;
+  };
+  f.addEventListener('input', prev); f.addEventListener('change', prev); prev();
+}
+
+/* ---------- Preisverlauf im Produktfenster ---------- */
+function verlaufHtml(p) {
+  const v = (p.verlauf || []).slice().sort((a, b) => b.ab.localeCompare(a.ab));
+  if (v.length < 2) return '';
+  return `<div class="fld" style="margin-top:10px"><span>Verlauf (Abrechnungen verwenden den am Auftragstag gültigen Stand)</span></div>
+    <div class="tscroll"><table class="btab vtab"><thead><tr><th>Gültig ab</th><th>Name</th><th>Zulassung</th><th class="n">Preis CHF</th><th></th></tr></thead><tbody>
+    ${v.map(e => `<tr class="${e.ab > todayIso() ? 'future' : ''}"><td>${e.ab === VERLAUF_START ? 'bisher' : fmtDate(e.ab, { day: '2-digit', month: '2-digit', year: 'numeric' })}</td><td>${esc(e.name || '')}</td><td>${esc(e.zulassung || '')}</td><td class="n">${chf(e.preis)}</td>
+      <td>${e.ab === VERLAUF_START ? '' : `<button type="button" class="x" data-vdel="${esc(e.ab)}" aria-label="Eintrag löschen">×</button>`}</td></tr>`).join('')}</tbody></table></div>`;
 }
 /* ================= Kunden und Felder aus MyJohnDeere ================= */
 // Sobald ein Abgleich mit MyJohnDeere eingelesen wurde, werden Kunden und Felder nur noch dort gepflegt.
@@ -2425,6 +2731,11 @@ document.addEventListener('click', async e => {
     case 'aMore': App.alimit += 150; App.render(); break;
     case 'spTab': App.spray.tab = t.dataset.v; App.render(); window.scrollTo(0, 0); break;
     case 'spStamm': App.spray.stamm = t.dataset.v; App.render(); break;
+    case 'spJfToggle': App.spray.jfOpen = !App.spray.jfOpen; App.render(); break;
+    case 'spJfReset': App.spray.jf = { ...JF_DEFAULT }; App.spray.jy = ''; App.spray.jlimit = 200; App.render(); break;
+    case 'prodImport': prodImportStart(); break;
+    case 'invPrint': printHtml('Inventarliste', inventoryHtml(), { noTitle: true }); break;
+    case 'invCsv': inventoryCsv(); break;
     case 'spMore': App.spray.jlimit += 200; App.render(); break;
     case 'spAkSel': App.spray.ak = id; App.render(); window.scrollTo(0, 0); break;
     case 'spBillCsv': billingCsv(); break;
@@ -2507,7 +2818,7 @@ document.addEventListener('click', async e => {
   }
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && (e.target.dataset?.in === 'spJEj' || e.target.dataset?.in === 'spJFl')) { e.preventDefault(); e.target.blur(); return; }
+  if (e.key === 'Enter' && ['spJEj', 'spJFl', 'spInv'].includes(e.target.dataset?.in)) { e.preventDefault(); e.target.blur(); return; }
   if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.target.dataset?.in === 'spJEj') { e.preventDefault(); journalStep(e.target, e.key === 'ArrowUp' ? 1 : -1); return; }
   if (e.key !== 'Escape' || Dlg.el.open) return;
   if (App.sel.size) clearSel(); else if (App.fs) { App.fs = false; App.render(); }
@@ -2524,9 +2835,11 @@ document.addEventListener('input', e => {
 document.addEventListener('change', e => {
   const k = e.target.dataset.in; if (!k) return;
   if (k === 'spJEj' || k === 'spJFl') { journalEdit(e.target); return; }
+  if (k === 'spInv') { invEdit(e.target); return; }
+  if (k === 'spJf') { const S = App.spray, fk = e.target.dataset.k; S.jf[fk] = e.target.value; if (fk === 'k') { S.jf.p = ''; S.jf.f = ''; } S.jlimit = 200; App.render(); return; }
   const SP = { spAk: 'ak', spAv: 'av', spAb: 'ab', spNy: 'ny', spNk: 'nk', spNc: 'nc', spJy: 'jy', spPk: 'pk', spJsort: 'jsort' };
   if (SP[k]) { App.spray[SP[k]] = e.target.value; if (k === 'spJy') App.spray.jlimit = 200; App.render(); return; }
-  const SPB = { spJhide: 'jhide', spAg: 'ag', spNgep: 'ngep', spPall: 'pall', spPrall: 'prall' };
+  const SPB = { spAg: 'ag', spNgep: 'ngep', spPall: 'pall', spPrall: 'prall' };
   if (SPB[k]) { App.spray[SPB[k]] = e.target.checked; App.render(); return; }
   if (k === 'spVon' && e.target.value) { App.spray.von = e.target.value; if (App.spray.bis < App.spray.von) App.spray.bis = App.spray.von; App.render(); return; }
   if (k === 'spBis' && e.target.value) { App.spray.bis = e.target.value; if (App.spray.bis < App.spray.von) App.spray.von = App.spray.bis; App.render(); return; }
@@ -2546,7 +2859,8 @@ document.addEventListener('change', e => {
 /* ================= Start ================= */
 (async function init() {
   Dlg.el = $('#dlg'); Dlg.form = $('#dlgForm');
-  Dlg.form.addEventListener('submit', e => {
+  Dlg.el.addEventListener('submit', e => { // am Dialog, damit das Formular bei jedem Öffnen frisch ersetzt werden kann
+    if (e.target !== Dlg.form) return;
     e.preventDefault();
     if (Dlg.onSubmit && Dlg.onSubmit(new FormData(Dlg.form)) !== false) Dlg.close();
   });
@@ -2555,7 +2869,8 @@ document.addEventListener('change', e => {
   App.render();
   try { await Auth.handleRedirect(); } catch (e) { toast('Anmeldung fehlgeschlagen: ' + e.message, 6000); }
   App.render();
-  Sync.run().then(() => jdAuto()).catch(() => { });
+  try { prodApplyDue(); } catch { }
+  Sync.run().then(() => jdAuto()).then(() => prodApplyDue()).catch(() => { });
   addEventListener('online', () => Sync.run());
   addEventListener('offline', () => Sync.setState('offline'));
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') Sync.run(); });

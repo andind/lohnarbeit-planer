@@ -526,3 +526,22 @@ tr.click:hover td { background: var(--surface-2); }
 /* ---------- Briefkopf auf Abrechnung und Nachweis ---------- */
 .bill .lhead { display: block; width: 100%; max-width: 640px; height: auto; margin: 0 0 16px; background: #fff; border-radius: 4px; }
 @media print { #printArea .bill .lhead { max-width: none; width: 100%; margin: 0 0 9mm; border-radius: 0; } }
+/* Logo nur im Ausdruck / PDF */
+.bill .lhead { display: none; }
+@media print { #printArea .bill .lhead { display: block; } }
+/* ---------- Journal-Filter ---------- */
+.jfilter { margin-bottom: 12px; }
+.jfgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 10px; }
+.jfgrid .fld { margin-bottom: 6px; }
+.jfilter .btns { margin-top: 4px; }
+/* ---------- Produkte: Inventar, Verlauf, Import ---------- */
+.prow2 .jedit .input { width: 86px; }
+.prow2 .invw { width: 96px; text-align: right; white-space: nowrap; font-size: 13px; }
+.prow2 .nxt { color: var(--accent); font-weight: 600; }
+@media (max-width: 560px) { .prow2 { flex-wrap: wrap; } .prow2 .grow { flex-basis: 100%; } .prow2 .jedit { margin-left: 0; } }
+.vtab tr.future td { color: var(--accent); font-weight: 600; }
+.vtab .x, .imptab .x { border: 0; background: none; font-size: 18px; color: var(--muted); cursor: pointer; }
+.imptab tr.aendern td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.imptab tr.gleich td, .imptab tr.ohne td { color: var(--muted); }
+.bill.inv td.cnt { min-width: 70px; border-bottom: 1px solid var(--muted); }
+.btab tr.invsum td { border-top: 2px solid var(--text); font-size: 14px; padding-top: 6px; }
