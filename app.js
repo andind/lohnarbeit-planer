@@ -746,7 +746,8 @@ const Views = {
         .sort((a, b) => a.name.localeCompare(b.name, 'de'));
       const st = Store.cfg().jdStand;
       const info = st ? `<p class="nr">Kunden und Felder werden in MyJohnDeere gepflegt · Stand ${new Date(st).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}</p>` : '';
-      if (!list.length) return info + `<div class="empty">${q ? 'Keine Treffer.' : 'Noch keine Kunden.<br>Kunden und Felder kommen über den MyJohnDeere-Abgleich.'}</div>`;
+      const nInakt = Store.all('kunden').filter(k => k.aktiv === false).length;
+      if (!list.length) return info + `<div class="empty">${q ? 'Keine Treffer.' : nInakt && !App.filter.kall ? `Alle ${nInakt} Kunden sind inaktiv gesetzt.<br>«auch inaktive» oben ankreuzen, um sie anzuzeigen.` : 'Noch keine Kunden.<br>Kunden und Felder kommen über den MyJohnDeere-Abgleich.'}</div>`;
       const open = {};
       Store.all('auftraege').forEach(a => { if (isOpen(a)) open[a.kunde] = (open[a.kunde] || 0) + 1; });
       const fl = {}; Store.all('felder').forEach(f => { if (f.aktiv !== false) { const x = fl[f.kunde] || (fl[f.kunde] = { n: 0, ha: 0 }); x.n++; x.ha += f.flaeche || 0; } });
@@ -1267,7 +1268,7 @@ function kundeDialog(id) {
       ['nr', 'anrede', 'adresse', 'plz', 'ort', 'tel', 'handy', 'mail', 'notiz'].forEach(x => { k[x] = (fd.get(x) || '').trim(); });
       ['preisSpritze', 'preisFahrer', 'preisTraktor'].forEach(x => { k[x] = num(fd.get(x)); });
       k.zuschlag = num(fd.get('zuschlag')) != null ? num(fd.get('zuschlag')) / 100 : null;
-      k.aktiv = !!fd.get('aktiv');
+      const war = k.aktiv !== false; k.aktiv = !!fd.get('aktiv'); if (k.aktiv) delete k.manInaktiv; else if (war) k.manInaktiv = true; // von Hand inaktiv gesetzt: der MyJohnDeere-Abgleich aktiviert ihn nicht wieder
       Store.put('kunden', k); return true;
     });
 }
@@ -2963,7 +2964,7 @@ function jdRepair(d) {
 function jdApply(d, map) {
   const farms = Object.fromEntries((d.farms || []).map(f => [f.id, f.name]));
   const kOut = [], fOut = [], ids = new Set((d.clients || []).map(c => c.id));
-  let neu = 0, fNeu = 0, fUpd = 0, fArch = 0, kInakt = 0;
+  let neu = 0, fNeu = 0, fUpd = 0, fArch = 0, kInakt = 0, react = 0;
   const same = (a, b, keys) => keys.every(x => (a[x] ?? '') === (b[x] ?? ''));
   d.clients.forEach(c => {
     const v = map(c, d); if (!v || v === '-') return;
@@ -2972,7 +2973,9 @@ function jdApply(d, map) {
     if (!old) neu++;
     Store.all('kunden').filter(x => x.jdId === c.id && x.id !== k.id).forEach(x => kOut.push({ ...x, jdId: '' }));
     Object.assign(k, { jdId: c.id, jdName: c.name, name: c.name });
-    if (!old || !same(old, k, ['jdId', 'jdName', 'name'])) kOut.push(k);
+    // in MyJohnDeere vorhanden → aktiv (ausser von Hand inaktiv gesetzt); vom Abgleich inaktiv gesetzte Kunden kommen so zurück
+    if (c.archived) k.aktiv = false; else if (!k.manInaktiv && k.aktiv === false) { k.aktiv = true; react++; }
+    if (!old || !same(old, k, ['jdId', 'jdName', 'name', 'aktiv'])) kOut.push(k);
     const seen = new Set();
     (d.fields || []).filter(f => f.client === c.id).forEach(f => {
       // bestehendes Feld per ID oder (aus dem Excel-Export) per Name wiederverwenden – Parzellen-Zuweisungen bleiben erhalten
@@ -2985,20 +2988,30 @@ function jdApply(d, map) {
     });
     Store.all('felder').filter(x => x.kunde === k.id && (x.jdId || x.jdName) && !seen.has(x.id) && x.aktiv !== false).forEach(x => { fArch++; fOut.push({ ...x, aktiv: false }); });
   });
-  if (d.full !== false) Store.all('kunden').filter(k => k.jdId && !ids.has(k.jdId) && k.aktiv !== false && !kOut.some(x => x.id === k.id)).forEach(k => { kInakt++; kOut.push({ ...k, aktiv: false }); });
+  if (d.full !== false && d.clients.length) Store.all('kunden').filter(k => k.jdId && !ids.has(k.jdId) && k.aktiv !== false && !kOut.some(x => x.id === k.id)).forEach(k => { kInakt++; kOut.push({ ...k, aktiv: false }); });
   if (kOut.length) Store.putMany('kunden', kOut);
   if (fOut.length) Store.putMany('felder', fOut);
   Store.setCfg({ jdStand: d.stand || new Date().toISOString(), jdOrg: d.org?.name || '' }, { silent: false });
-  return { neu, fNeu, fUpd, fArch, kInakt, changed: kOut.length + fOut.length };
+  Store.setCfg({ jdEbene: d.kundenEbene || '' }, { silent: true });
+  return { neu, fNeu, fUpd, fArch, kInakt, react, changed: kOut.length + fOut.length };
 }
-const jdSummary = r => `${r.neu} Kunden neu${r.kInakt ? `, ${r.kInakt} inaktiv` : ''}, ${r.fNeu} Felder neu, ${r.fUpd} geändert, ${r.fArch} archiviert`;
+const jdSummary = r => `${r.neu} Kunden neu${r.react ? `, ${r.react} wieder aktiv` : ''}${r.kInakt ? `, ${r.kInakt} inaktiv` : ''}, ${r.fNeu} Felder neu, ${r.fUpd} geändert, ${r.fArch} archiviert`;
 // Beim Start: neue Abgleichsdatei vom NAS automatisch übernehmen
 async function jdAuto() {
   if (!Auth.configured() || !Auth.hasSession() || !navigator.onLine) return;
   let d; try { d = await Drive.readJson('/jd-sync.json'); } catch { return; }
   if (!d || d.format !== 'jd-sync' || !Array.isArray(d.clients)) return;
+  // Schutz: Datei mit anderer Kundenebene (Mandanten statt Betriebe) oder in der viele bisherige Kunden fehlen,
+  // wird nicht automatisch übernommen – sonst würden Felder umgehängt und Kunden inaktiv gesetzt.
+  const ids = new Set(d.clients.map(c => c.id)), linked = Store.all('kunden').filter(k => k.jdId && k.aktiv !== false);
+  const fehlen = linked.filter(k => !ids.has(k.jdId)).length, cE = Store.cfg().jdEbene;
+  if ((cE && d.kundenEbene && cE !== d.kundenEbene) || (linked.length >= 5 && fehlen > linked.length * 0.3)) {
+    if (d.stand !== jdAuto._warned) { jdAuto._warned = d.stand; toast(`MyJohnDeere-Abgleich NICHT übernommen: ${cE && cE !== d.kundenEbene ? `die Datei enthält ${d.kundenEbene === 'farms' ? 'Betriebe' : 'Mandanten'} statt ${cE === 'farms' ? 'Betriebe' : 'Mandanten'} als Kunden` : `${fehlen} von ${linked.length} Kunden fehlen in der Datei`}. Bitte im NAS-Dienst prüfen; übernehmen nur über «Abgleich prüfen…».`, 12000); }
+    return;
+  }
   const rep = jdRepair(d);
-  if (!rep && Store.cfg().jdStand && d.stand <= Store.cfg().jdStand) return;
+  const inaktivDa = Store.all('kunden').some(k => k.jdId && ids.has(k.jdId) && k.aktiv === false && !k.manInaktiv && !d.clients.find(c => c.id === k.jdId)?.archived);
+  if (!rep && !inaktivDa && Store.cfg().jdStand && d.stand <= Store.cfg().jdStand) return;
   const used = new Set();
   const r = jdApply(d, c => { const m = jdMatch(c, d); if (!m || used.has(m)) return '+'; used.add(m); return m; });
   if (r.changed || rep) toast(`MyJohnDeere übernommen: ${jdSummary(r)}${rep ? ` · ${rep} doppelte Kunden zusammengeführt` : ''}`, 6000);

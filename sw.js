@@ -1,5 +1,5 @@
 // Service Worker: App offline verfügbar machen (Netz zuerst, sonst Zwischenspeicher)
-const CACHE = 'lohnarbeit-v34';
+const CACHE = 'lohnarbeit-v35';
 const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest',
   'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'logo.jpg'];
 // einzeln laden: fehlt eine Datei, wird der Rest trotzdem offline verfügbar
