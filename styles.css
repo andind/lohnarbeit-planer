@@ -587,3 +587,22 @@ tr.click:hover td { background: var(--surface-2); }
 .prow2 .s .old { color: var(--warn); }
 .prow2 .jedit label.akt { text-align: center; }
 .prow2 .jedit label.akt input { width: 20px; height: 20px; margin: 6px auto 0; display: block; cursor: pointer; }
+/* Datums-/Wochenwahl: feste Breite, damit die Pfeile beim Weiterschalten nicht springen */
+.weekhead .lbl { flex: none; width: 17.5em; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.fsbar .lbl { flex: none; width: 11.5em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; font-variant-numeric: tabular-nums; }
+@media (max-width: 480px) { .weekhead .lbl { width: 14.5em; font-size: 14px; } }
+/* ---------- JD-Arbeitsbericht ---------- */
+.jdbtab { min-width: 860px; }
+.jdbtab td { white-space: normal; }
+.jdbtab td:first-child { white-space: nowrap; }
+.btab.kv td:first-child { width: 38%; }
+.seg.mini button { padding: 5px 10px; font-size: 13px; }
+@media print { #printArea .jdbtab { min-width: 0; font-size: 8.5pt; } #printArea .jdbprint { overflow: visible; } }
+/* Navigation mit 7 Modulen */
+@media (max-width: 899px) {
+  .tabs { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .tabs button { font-size: 10px; letter-spacing: -0.1px; padding: 8px 0 6px; min-width: 0; }
+  .tabs button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tabs svg { width: 22px; height: 22px; }
+}
+.seg.mini { flex-wrap: wrap; overflow: visible; }
