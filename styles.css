@@ -550,3 +550,40 @@ tr.click:hover td { background: var(--surface-2); }
 .imptab tr.neu td { background: color-mix(in srgb, var(--s-geplant) 8%, transparent); }
 .imptab tr.aus td { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent); }
 .imptab tr.aus td.cbx, .imptab tr.aus td:last-child { text-decoration: none; }
+/* ---------- Berichte: klare Gliederung Erntejahr › Kultur › Parzelle ---------- */
+.bill { overflow-x: auto; }
+.btab.fx { table-layout: fixed; min-width: 600px; }
+.btab.fx td { overflow-wrap: anywhere; }
+.bill .jblk { margin-top: 22px; }
+.bill .bill-h + .jblk { margin-top: 10px; }
+.bill h3.gj { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 8px; padding: 7px 10px; border-radius: 6px;
+  background: var(--accent); color: #fff; font-size: 15px; font-weight: 800; min-width: 600px; box-sizing: border-box; }
+.bill h3.gj span:last-child { font-weight: 600; font-size: 13.5px; }
+.bill .kblk { margin: 0 0 14px; }
+.bill .kblk:last-child { margin-bottom: 0; }
+.btab.fx tr.gk td { background: var(--accent-soft); color: var(--accent); font-weight: 750; font-size: 14px; padding: 6px 8px; border-bottom: 2px solid var(--accent); border-top: 0; }
+.btab.fx tr.gp td { font-weight: 650; font-size: 13px; padding: 9px 6px 3px; border-bottom: 1px solid var(--line); color: var(--text); }
+.btab.fx tbody.pblk tr.gp td::before { content: '▸ '; color: var(--muted); }
+.btab.fx thead th { padding-top: 2px; }
+.bill .totblk { margin-top: 18px; }
+.btab .tots td { font-weight: 600; border-bottom: 0; padding-top: 5px; }
+.btab .tots tr.tot td { font-size: 15px; border-top: 2px solid var(--text); padding-top: 7px; }
+@media print {
+  #printArea .bill h3.gj, #printArea .btab.fx tr.gk td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #printArea .bill h3.gj { background: #2f6b3a !important; color: #fff !important; min-width: 0; }
+  #printArea .btab.fx tr.gk td { background: #e6efe7 !important; color: #1f4f29 !important; border-bottom-color: #2f6b3a !important; }
+  #printArea .btab.fx { min-width: 0; }
+  #printArea .bill { overflow: visible; }
+  /* Umbrüche: Parzelle nie trennen, Kultur möglichst zusammen, Überschriften nicht allein am Seitenende */
+  #printArea .bill-h, #printArea .lhead, #printArea h3.gj { break-after: avoid; page-break-after: avoid; }
+  #printArea .kblk, #printArea .totblk { break-inside: avoid; page-break-inside: avoid; }
+  #printArea tbody.pblk, #printArea .btab tr { break-inside: avoid; page-break-inside: avoid; }
+}
+.panel.deact { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; margin-bottom: 10px; padding: 10px 14px; }
+.panel.deact .fld { margin: 0; }
+.panel.deact input[type="date"] { width: auto; }
+.panel.deact .btn { margin: 0; }
+.panel.deact .nr { flex-basis: 100%; margin: 0; }
+.prow2 .s .old { color: var(--warn); }
+.prow2 .jedit label.akt { text-align: center; }
+.prow2 .jedit label.akt input { width: 20px; height: 20px; margin: 6px auto 0; display: block; cursor: pointer; }

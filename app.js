@@ -1961,14 +1961,23 @@ function stammContent() {
       <div class="btns"><button class="btn primary" data-act="prodImport">Preisliste wählen…</button></div></div>`;
   }
   const q = norm(S.prq);
-  const list = Store.all('produkte').filter(p => (S.prall || p.aktuell !== false) && (!q || [p.name, p.zulassung].join(' ').toLowerCase().includes(q))).sort(byName);
+  const use = prodUsage(), U = id => use.get(id) || { last: '', n: 0 };
+  const srt = S.prs || 'name';
+  const list = Store.all('produkte').filter(p => (S.prall || p.aktuell !== false) && (!q || [p.name, p.zulassung].join(' ').toLowerCase().includes(q)))
+    .sort(srt === 'name' ? byName : srt === 'alt' ? (a, b) => U(a.id).last.localeCompare(U(b.id).last) || byName(a, b) : (a, b) => U(b.id).last.localeCompare(U(a.id).last) || byName(a, b));
+  const seit = S.prseit || isoDate(addDays(new Date(), -730));
+  const alte = prodUnused(seit, use);
   return segs + `<div class="filters"><input class="input search" type="search" placeholder="Produkt suchen…" value="${esc(S.prq)}" data-in="spPrq">
+      <select class="input" data-plain data-in="spPrs" style="width:auto"><option value="name" ${srt === 'name' ? 'selected' : ''}>Sortierung: Name</option><option value="alt" ${srt === 'alt' ? 'selected' : ''}>Letzter Einsatz: am längsten her zuerst</option><option value="neu" ${srt === 'neu' ? 'selected' : ''}>Letzter Einsatz: neueste zuerst</option></select>
       <label class="tog"><input type="checkbox" data-in="spPrall" ${S.prall ? 'checked' : ''}> auch nicht aktuelle</label><button class="btn primary" data-act="prodAddNew">＋ Produkt</button></div>
+    ${srt !== 'name' ? `<div class="panel deact"><label class="fld inl"><span>Nicht mehr verwendet seit</span><input class="input" type="date" data-in="spPrSeit" value="${seit}"></label>
+      <button class="btn ${alte.length ? 'primary' : ''}" data-act="prodDeactOld" ${alte.length ? '' : 'disabled'}>${alte.length} Produkte auf «nicht aktuell» setzen</button>
+      <span class="nr">Produkte mit Inventar-Bestand bleiben aktuell. Einzelne Produkte mit dem Schalter «aktuell» in der Zeile.</span></div>` : ''}
     <div class="btns" style="margin:0 0 10px"><button class="btn" data-act="invPrint">Inventarliste drucken / PDF</button><button class="btn" data-act="invCsv">Inventar CSV</button><button class="btn" data-act="prodImport">Preisliste importieren…</button></div>
     <p class="nr">${list.length} Produkte · Lagerwert Inventar CHF <span id="invTot">${chf(invTotal())}</span> · Bestand direkt eintragen, übrige Angaben durch Antippen der Zeile.</p>
     <div class="rows">${list.map(p => { const nx = prodNext(p); return `<div class="rowi prow2 ${p.aktuell === false ? 'off' : ''}" data-act="prodEdit" data-id="${p.id}"><div class="grow"><div class="t">${esc(p.name) || '<i class="nr">(ohne Name)</i>'}</div>
-        <div class="s">${esc(p.zulassung || '')}${p.zulassung ? ' · ' : ''}CHF ${chf(p.preis)} / ${esc(p.einheit)}${nx ? ` · <span class="nxt">ab ${fmtDate(nx.ab, { day: '2-digit', month: '2-digit', year: '2-digit' })}: CHF ${chf(nx.preis)}${nx.name !== p.name ? ' · ' + esc(nx.name) : ''}</span>` : ''}</div></div>
-      <div class="jedit" data-stop><label><span>Inventar ${esc(p.einheit || '')}</span><input class="input" data-in="spInv" data-id="${p.id}" inputmode="decimal" value="${p.inventar ?? ''}"></label></div>
+        <div class="s">${esc(p.zulassung || '')}${p.zulassung ? ' · ' : ''}CHF ${chf(p.preis)} / ${esc(p.einheit)} · <span class="${U(p.id).last && U(p.id).last >= seit ? '' : 'old'}">${U(p.id).last ? `zuletzt ${fmtDate(U(p.id).last, { day: '2-digit', month: '2-digit', year: 'numeric' })} (${U(p.id).n}×)` : 'nie verwendet'}</span>${nx ? ` · <span class="nxt">ab ${fmtDate(nx.ab, { day: '2-digit', month: '2-digit', year: '2-digit' })}: CHF ${chf(nx.preis)}${nx.name !== p.name ? ' · ' + esc(nx.name) : ''}</span>` : ''}</div></div>
+      <div class="jedit" data-stop><label class="akt"><span>aktuell</span><input type="checkbox" data-in="spPrAkt" data-id="${p.id}" ${p.aktuell !== false ? 'checked' : ''}></label><label><span>Inventar ${esc(p.einheit || '')}</span><input class="input" data-in="spInv" data-id="${p.id}" inputmode="decimal" value="${p.inventar ?? ''}"></label></div>
       <span class="num invw">${p.inventar > 0 && p.preis ? 'CHF ' + chf(p.inventar * p.preis) : ''}</span></div>`; }).join('') || '<div class="empty">Keine Produkte.</div>'}</div>`;
 }
 
@@ -2109,21 +2118,30 @@ function billing(kid, von, bis, mitGeplant) {
   });
   return { k, preisHa, zu, rows, tA, tM, total: tA + tM };
 }
+// Gliederung Erntejahr › Kultur › Parzelle: je Kultur eine eigene Tabelle (bleibt im Ausdruck möglichst auf einer Seite),
+// je Parzelle ein Block, der nie getrennt wird – lieber eine Seite mehr als ein unübersichtlicher Umbruch
+const BILL_COLS = '<colgroup><col style="width:11%"><col style="width:32%"><col style="width:18%"><col style="width:13%"><col style="width:11%"><col style="width:15%"></colgroup>';
+const NW_COLS = '<colgroup><col style="width:10%"><col style="width:7%"><col style="width:11%"><col style="width:26%"><col style="width:16%"><col style="width:12%"><col style="width:18%"></colgroup>';
 function billingHtml(b, von, bis) {
   const sum = rs => rs.reduce((s, r) => s + r.arbeit + r.mittelTot, 0);
+  const fl = rs => fmtNum(r2(rs.reduce((s, r) => s + r.fl, 0)));
   const jobRows = r => `<tr class="job click" data-act="editOrder" data-id="${r.a.id}"><td>${fmtDate(dOf(r.a), { day: '2-digit', month: '2-digit', year: '2-digit' })}</td><td>Arbeit Spritzen</td><td></td>
       <td class="n">${fmtNum(r.fl)} ha</td><td class="n">${chf(b.preisHa)}</td><td class="n"><b>${chf(r.arbeit)}</b></td></tr>
     ${r.mittel.map(m => `<tr class="mit click" data-act="editOrder" data-id="${r.a.id}"><td></td><td>${esc(m.name)}</td><td class="nr">${esc(m.zulassung)}</td><td class="n">${fmtNum(r2(m.menge))} ${esc(m.einheit)}</td><td class="n">${chf(m.preisZ)}</td><td class="n">${chf(m.betrag)}</td></tr>`).join('')}`;
-  const fl = rs => fmtNum(r2(rs.reduce((s, r) => s + r.fl, 0)));
-  const body = groupBy(b.rows, r => ernteOf(r.a) || '').map(([j, jr]) => `<tr class="gj"><td colspan="5">Erntejahr ${esc(j || '–')} · ${fl(jr)} ha</td><td class="n">${chf(sum(jr))}</td></tr>
-    ${groupBy(jr, r => r.a.kultur || '').map(([k, kr]) => `<tr class="gk"><td colspan="5">${esc(k || 'ohne Kultur')} · ${fl(kr)} ha</td><td class="n">${chf(sum(kr))}</td></tr>
-    ${groupBy(kr, r => r.a.feld || '').map(([p, pr]) => `<tr class="gp"><td colspan="6">${esc(p || 'ohne Parzelle')}</td></tr>${pr.map(jobRows).join('')}`).join('')}`).join('')}`).join('');
+  const head = `<thead><tr><th>Datum</th><th>Position</th><th>Zulassung</th><th class="n">Menge</th><th class="n">Ansatz</th><th class="n">Betrag CHF</th></tr></thead>`;
+  const body = groupBy(b.rows, r => ernteOf(r.a) || '').map(([j, jr]) => `<section class="jblk">
+      <h3 class="gj"><span>Erntejahr ${esc(j || '–')}</span><span>${fl(jr)} ha · CHF ${chf(sum(jr))}</span></h3>
+      ${groupBy(jr, r => r.a.kultur || '').map(([k, kr], ki) => `<div class="kblk"><table class="btab fx">${BILL_COLS}${ki === 0 ? head : ''}
+        <tbody><tr class="gk"><td colspan="3">${esc(k || 'ohne Kultur')}</td><td class="n">${fl(kr)} ha</td><td></td><td class="n">${chf(sum(kr))}</td></tr></tbody>
+        ${groupBy(kr, r => r.a.feld || '').map(([p, pr]) => `<tbody class="pblk"><tr class="gp"><td colspan="6">${esc(p || 'ohne Parzelle')}</td></tr>${pr.map(jobRows).join('')}</tbody>`).join('')}
+      </table></div>`).join('')}</section>`).join('');
   return `<div class="bill">${LETTERHEAD}<div class="bill-h"><div><b>${esc(b.k.anrede ? b.k.anrede + ' ' : '')}${esc(b.k.name || '')}</b><br>${esc(b.k.adresse || '')}<br>${esc([b.k.plz, b.k.ort].filter(Boolean).join(' '))}</div>
       <div class="r">Spritzarbeiten ${fmtDate(von, { day: '2-digit', month: '2-digit', year: 'numeric' })} – ${fmtDate(bis, { day: '2-digit', month: '2-digit', year: 'numeric' })}</div></div>
-    <table class="btab"><thead><tr><th>Datum</th><th>Position</th><th>Zulassung</th><th class="n">Menge</th><th class="n">Ansatz</th><th class="n">Betrag CHF</th></tr></thead><tbody>${body}</tbody><tfoot>
-      <tr><td colspan="5">Total Arbeit (${fmtNum(r2(b.rows.reduce((s, r) => s + r.fl, 0)))} ha)</td><td class="n">${chf(b.tA)}</td></tr>
+    ${body}
+    <div class="totblk"><table class="btab fx">${BILL_COLS}<tbody class="tots">
+      <tr><td colspan="5">Total Arbeit (${fl(b.rows)} ha)</td><td class="n">${chf(b.tA)}</td></tr>
       <tr><td colspan="5">Total Mittel</td><td class="n">${chf(b.tM)}</td></tr>
-      <tr class="tot"><td colspan="5">Total CHF</td><td class="n">${chf(b.total)}</td></tr></tfoot></table></div>`;
+      <tr class="tot"><td colspan="5">Total CHF</td><td class="n">${chf(b.total)}</td></tr></tbody></table></div></div>`;
 }
 function abrechnungContent() {
   const S = App.spray, ks = kundenMitSpritz(billFilter(S));
@@ -2168,20 +2186,24 @@ function nachweisRows() {
     .sort((a, b) => kundeName(a.kunde).localeCompare(kundeName(b.kunde), 'de') || byKulturParz(a, b));
 }
 function nachweisHtml(list) {
+  const head = `<thead><tr><th>Datum</th><th class="n">ha</th><th>Stadium</th><th>Produkt</th><th>Zulassung</th><th class="n">Menge/ha</th><th>Bemerkung</th></tr></thead>`;
+  const ha = l => fmtNum(r2(l.reduce((s, a) => s + flOf(a), 0)));
+  const job = a => { const ps = nwProds(a).length ? nwProds(a) : [{}]; return ps.map((p, i) => `<tr class="${i ? 'mit' : 'job'} click" data-act="editOrder" data-id="${a.id}">
+      <td>${i ? '' : fmtDate(dOf(a), { day: '2-digit', month: '2-digit', year: '2-digit' })}</td>
+      <td class="n">${i ? '' : fmtNum(flOf(a))}</td><td>${i ? '' : esc(a.stadium || '')}</td>
+      <td>${esc(p.name || '–')}</td><td>${esc(prodAt(prodOf(p), dOf(a)).zulassung || '')}</td>
+      <td class="n">${p.menge != null ? fmtNum(p.menge) + ' ' + esc(p.einheit || '') : ''}</td><td>${i ? '' : esc(a.notiz || '')}</td></tr>`).join(''); };
   return groupBy(list, a => a.kunde).map(([kid, ol]) => {
     const k = Store.get('kunden', kid) || {};
     return `<div class="bill nachweis">${LETTERHEAD}<div class="bill-h"><div><b>${esc(k.name || '')}</b>${k.ort ? ', ' + esc([k.plz, k.ort].filter(Boolean).join(' ')) : ''}</div>
       <div class="r">Pflanzenschutz-Nachweis Erntejahr ${esc(App.spray.ny)}${App.spray.nc ? ' · ' + esc(App.spray.nc) : ''}</div></div>
-      <table class="btab"><thead><tr><th>Datum</th><th class="n">ha</th><th>Stadium</th><th>Produkt</th><th>Zulassung</th><th class="n">Menge/ha</th><th>Bemerkung</th></tr></thead><tbody>
-      ${groupBy(ol, a => ernteOf(a) || '').map(([j, ja]) => `<tr class="gj"><td colspan="7">Erntejahr ${esc(j || '–')}</td></tr>
-      ${groupBy(ja, a => a.kultur || '').map(([kk, ka]) => `<tr class="gk"><td colspan="7">${esc(kk || 'ohne Kultur')} · ${fmtNum(r2(ka.reduce((s, a) => s + flOf(a), 0)))} ha</td></tr>
-      ${groupBy(ka, a => a.feld || '').map(([pp, pa]) => `<tr class="gp"><td colspan="7">${esc(pp || 'ohne Parzelle')}</td></tr>
-      ${pa.map(a => { const ps = nwProds(a).length ? nwProds(a) : [{}]; return ps.map((p, i) => `<tr class="${i ? 'mit' : 'job'} click" data-act="editOrder" data-id="${a.id}">
-          <td>${i ? '' : fmtDate(dOf(a), { day: '2-digit', month: '2-digit', year: '2-digit' })}</td>
-          <td class="n">${i ? '' : fmtNum(flOf(a))}</td><td>${i ? '' : esc(a.stadium || '')}</td>
-          <td>${esc(p.name || '–')}</td><td>${esc(prodAt(prodOf(p), dOf(a)).zulassung || '')}</td>
-          <td class="n">${p.menge != null ? fmtNum(p.menge) + ' ' + esc(p.einheit || '') : ''}</td><td>${i ? '' : esc(a.notiz || '')}</td></tr>`).join(''); }).join('')}`).join('')}`).join('')}`).join('')}
-      </tbody></table></div>`;
+      ${groupBy(ol, a => ernteOf(a) || '').map(([j, ja]) => `<section class="jblk">
+        <h3 class="gj"><span>Erntejahr ${esc(j || '–')}</span><span>${ja.length} Behandlungen · ${ha(ja)} ha</span></h3>
+        ${groupBy(ja, a => a.kultur || '').map(([kk, ka], ki) => `<div class="kblk"><table class="btab fx">${NW_COLS}${ki === 0 ? head : ''}
+          <tbody><tr class="gk"><td colspan="5">${esc(kk || 'ohne Kultur')}</td><td class="n" colspan="2">${ka.length} × · ${ha(ka)} ha</td></tr></tbody>
+          ${groupBy(ka, a => a.feld || '').map(([pp, pa]) => `<tbody class="pblk"><tr class="gp"><td colspan="7">${esc(pp || 'ohne Parzelle')}</td></tr>${pa.map(job).join('')}</tbody>`).join('')}
+        </table></div>`).join('')}</section>`).join('')}
+    </div>`;
   }).join('');
 }
 function nachweisContent() {
@@ -2250,6 +2272,26 @@ function prodApplyDue() {
   Store.putMany('produkte', due.map(({ p, cur }) => ({ ...p, name: cur.name, zulassung: cur.zulassung, preis: cur.preis })));
   if (ren.length) prodRenameOrders(ren);
   return due.length;
+}
+
+/* ---------- Verwendung der Produkte (letzter Einsatz) ---------- */
+function prodUsage() {
+  const byN = new Map(Store.all('produkte').map(p => [fold(p.name), p.id])), m = new Map();
+  sprayOrders().forEach(a => { const d = dOf(a); if (!d) return; prodList(a).forEach(x => { const id = x.pid && Store.get('produkte', x.pid) ? x.pid : byN.get(fold(x.name)); if (!id) return; const u = m.get(id) || { last: '', n: 0 }; u.n++; if (d > u.last) u.last = d; m.set(id, u); }); });
+  return m;
+}
+const prodUnused = (seit, use = prodUsage()) => Store.all('produkte').filter(p => p.aktuell !== false && !(p.inventar > 0) && !((use.get(p.id) || {}).last >= seit));
+function prodDeactOld() {
+  const seit = App.spray.prseit || isoDate(addDays(new Date(), -730)), list = prodUnused(seit);
+  if (!list.length) return;
+  if (!confirm(`${list.length} Produkte, die seit ${fmtDate(seit, { day: '2-digit', month: '2-digit', year: 'numeric' })} nicht mehr verwendet wurden, auf «nicht aktuell» setzen?\n\nSie erscheinen dann nicht mehr in der Auswahl beim Erfassen; bestehende Aufträge und Berichte bleiben unverändert.`)) return;
+  Store.putMany('produkte', list.map(p => ({ ...p, aktuell: false })));
+  toast(`${list.length} Produkte auf «nicht aktuell» gesetzt`);
+}
+function prodAktToggle(el) {
+  const p = Store.get('produkte', el.dataset.id); if (!p) return;
+  Store.put('produkte', { ...p, aktuell: el.checked }, { silent: true });
+  el.closest('.rowi')?.classList.toggle('off', !el.checked);
 }
 
 /* ---------- Inventar ---------- */
@@ -2760,6 +2802,7 @@ document.addEventListener('click', async e => {
     case 'prodImport': prodImportStart(); break;
     case 'invPrint': printHtml('Inventarliste', inventoryHtml(), { noTitle: true }); break;
     case 'invCsv': inventoryCsv(); break;
+    case 'prodDeactOld': prodDeactOld(); break;
     case 'spMore': App.spray.jlimit += 200; App.render(); break;
     case 'spAkSel': App.spray.ak = id; App.render(); window.scrollTo(0, 0); break;
     case 'spBillCsv': billingCsv(); break;
@@ -2860,8 +2903,10 @@ document.addEventListener('change', e => {
   const k = e.target.dataset.in; if (!k) return;
   if (k === 'spJEj' || k === 'spJFl') { journalEdit(e.target); return; }
   if (k === 'spInv') { invEdit(e.target); return; }
+  if (k === 'spPrAkt') { prodAktToggle(e.target); return; }
+  if (k === 'spPrSeit') { if (e.target.value) { App.spray.prseit = e.target.value; App.render(); } return; }
   if (k === 'spJf') { const S = App.spray, fk = e.target.dataset.k; S.jf[fk] = e.target.value; if (fk === 'k') { S.jf.p = ''; S.jf.f = ''; } S.jlimit = 200; App.render(); return; }
-  const SP = { spAk: 'ak', spAv: 'av', spAb: 'ab', spNy: 'ny', spNk: 'nk', spNc: 'nc', spJy: 'jy', spPk: 'pk', spJsort: 'jsort' };
+  const SP = { spAk: 'ak', spAv: 'av', spAb: 'ab', spNy: 'ny', spNk: 'nk', spNc: 'nc', spJy: 'jy', spPk: 'pk', spJsort: 'jsort', spPrs: 'prs' };
   if (SP[k]) { App.spray[SP[k]] = e.target.value; if (k === 'spJy') App.spray.jlimit = 200; App.render(); return; }
   const SPB = { spAg: 'ag', spNgep: 'ngep', spPall: 'pall', spPrall: 'prall' };
   if (SPB[k]) { App.spray[SPB[k]] = e.target.checked; App.render(); return; }
