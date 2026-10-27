@@ -468,7 +468,12 @@ tr.click:hover td { background: var(--surface-2); }
   #printArea .btab th, #printArea .btab td { color: #000; border-color: #999; }
   #printArea .nr { color: #444; }
   #printArea .pfoot { font-size: 8pt; color: #555; margin-top: 6mm; }
-  @page { margin: 14mm; }
+  @page {
+    margin: 14mm 14mm 16mm;
+    /* Seitenzahlen unten rechts (Chrome/Edge ab Version 131) */
+    @bottom-right { content: "Seite " counter(page) " von " counter(pages); font: 8pt -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #555; }
+    @bottom-left { content: "Indermühle Lohnarbeiten · Maschinenvermietung"; font: 8pt -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #888; }
+  }
 }
 /* ---------- Berichte gegliedert nach Kultur › Parzelle ---------- */
 .grp { margin-bottom: 14px; }

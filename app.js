@@ -2630,7 +2630,7 @@ function planExportPdf() {
   const table = `<table class="btab pxt"><thead><tr>${x.mode === 'woche' ? '<th style="width:86px">Tag</th>' : ''}${x.cols.map(c => `<th>${esc(mLabel(c.m))}</th>`).join('')}</tr></thead><tbody>
     ${x.rows.map(r => `<tr>${x.mode === 'woche' ? `<td class="pxd"><b>${esc(dayLbl(r.d))}</b></td>` : ''}${r.cells.map(c => `<td>${c.map(it).join('') || ''}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   const un = x.unpl.length ? `<h3 class="pxh">Noch nicht eingeplant (${x.unpl.length})</h3><table class="btab"><tbody>${x.unpl.map(a => `<tr><td>${a.wunsch ? fmtDate(a.wunsch, { day: '2-digit', month: '2-digit' }) : '–'}</td><td>${esc(kundeName(a.kunde))}</td><td>${esc([a.arbeit, a.kultur, a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''].filter(Boolean).join(' · '))}</td><td class="nr">${esc(a.notiz || '')}</td></tr>`).join('')}</tbody></table>` : '';
-  printHtml(x.title, `<style>@page { size: A4 landscape; margin: 10mm; }</style><div class="planexp"><div class="bill-h"><div><b>${esc(x.title)}</b></div><div class="r">Stand ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}</div></div>${table}${un}</div>`, { noTitle: true });
+  printHtml(x.title, `<style>@page { size: A4 landscape; margin: 10mm 10mm 14mm; }</style><div class="planexp"><div class="bill-h"><div><b>${esc(x.title)}</b></div><div class="r">Stand ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}</div></div>${table}${un}</div>`, { noTitle: true });
 }
 function drawPlanOverview(x) {
   const F = (w, s) => `${w} ${s}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
