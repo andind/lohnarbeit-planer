@@ -559,6 +559,7 @@ const Views = {
           <button class="btn small" id="selModeBtn" data-act="selMode">☐ Mehrere auswählen</button>
           <span class="zoomctl"><button class="btn small" data-act="zoom" data-d="-1" aria-label="Verkleinern">−</button><span class="zv" id="zv"></span><button class="btn small" data-act="zoom" data-d="1" aria-label="Vergrössern">＋</button></span>
           <button class="btn small" data-act="fs" title="Kalender im Vollbild">⛶ Vollbild</button>
+          <button class="btn small" data-act="planExport" title="Aktuelle Ansicht als PDF oder Bild">⤓ Export</button>
         </div>`;
     },
     refreshToolbar() {
@@ -593,7 +594,9 @@ const Views = {
     },
     head(c) {
       return c.m
-        ? `<div class="mh" data-act="machinePlan" data-id="${c.m.id}" title="Tagesplan als Bild für den Fahrer"><b>${esc(c.m.name)} <span class="pic">🖼</span></b><small>${esc((c.m.arbeitsarten || []).join(', ') || '—')}${c.m.leistung ? ` · ${fmtNum(c.m.leistung)} ha/h` : ''}</small></div>`
+        ? (c.m.kurz
+          ? `<div class="mh kurz" data-act="machinePlan" data-id="${c.m.id}" title="${esc(c.m.name)} – Tagesplan als Bild für den Fahrer"><b>${esc(c.m.kurz)} <span class="pic">🖼</span></b></div>`
+          : `<div class="mh" data-act="machinePlan" data-id="${c.m.id}" title="Tagesplan als Bild für den Fahrer"><b>${esc(c.m.name)} <span class="pic">🖼</span></b><small>${esc((c.m.arbeitsarten || []).join(', ') || '—')}${c.m.leistung ? ` · ${fmtNum(c.m.leistung)} ha/h` : ''}</small></div>`)
         : '<b>Ohne Maschine</b><small>Datum gesetzt, Maschine fehlt</small>';
     },
     content() {
@@ -773,7 +776,7 @@ const Views = {
         return `<div class="rowi ${m.aktiv === false ? 'off' : ''}" data-act="editMaschine" data-id="${m.id}">
           <span class="updown"><button type="button" class="x" data-act="mUp" data-id="${m.id}" aria-label="Nach oben">▲</button><button type="button" class="x" data-act="mDown" data-id="${m.id}" aria-label="Nach unten">▼</button></span>
           <span class="num">${esc(m.artNr || '')}</span>
-          <div class="grow"><div class="t">${esc(m.name)}</div>
+          <div class="grow"><div class="t">${esc(m.name)}${m.kurz ? ` <span class="chip">${esc(m.kurz)}</span>` : ''}</div>
             <div class="s">${esc((m.arbeitsarten || []).join(', ') || 'keine Arbeitsart')}${m.leistung ? ` · ${fmtNum(m.leistung)} ha/h` : ''} · pro ${esc(m.einheit || '—')}${m.ansatz ? ` CHF ${fmtNum(m.ansatz)}` : ''}</div></div>
           <span class="chip ${season ? '' : 'muted'}" title="Saison">${esc(monthsLabel(m.monate))}</span>
         </div>`; }).join('')}</div>
@@ -1277,7 +1280,8 @@ function maschineDialog(id) {
     <div class="three"><label class="fld"><span>Art.-Nr.</span><input class="input" name="artNr" value="${esc(m.artNr || '')}"></label>
       <label class="fld"><span>Priorität (1 = zuerst)</span><input class="input" name="prio" inputmode="numeric" value="${m.prio ?? ''}"></label>
       <label class="fld"><span>Verrechnung pro</span><select class="input" name="einheit">${EINHEITEN.map(e => `<option ${m.einheit === e ? 'selected' : ''}>${e}</option>`).join('')}</select></label></div>
-    <label class="fld"><span>Bezeichnung</span><input class="input" name="name" value="${esc(m.name || '')}" required ${id ? '' : 'autofocus'}></label>
+    <div class="two"><label class="fld"><span>Bezeichnung</span><input class="input" name="name" value="${esc(m.name || '')}" required ${id ? '' : 'autofocus'}></label>
+      <label class="fld"><span>Kurzname für die Planung</span><input class="input" name="kurz" maxlength="14" value="${esc(m.kurz || '')}" placeholder="z.B. Spritze, 6R"></label></div>
     <div class="two">
       <label class="fld"><span>Flächenleistung (ha/h)</span><input class="input" name="leistung" inputmode="decimal" value="${m.leistung ?? ''}" placeholder="z.B. 2.5"></label>
       <label class="fld"><span>Ansatz CHF pro ${esc(m.einheit || 'Einheit')}</span><input class="input" name="ansatz" inputmode="decimal" value="${m.ansatz ?? ''}"></label>
@@ -1295,7 +1299,7 @@ function maschineDialog(id) {
       const monate = fd.getAll('mon').map(Number);
       if (!monate.length && !confirm('Keine Monate gewählt – die Maschine wäre nie verfügbar. Als «ganzes Jahr» speichern?')) return false;
       Object.assign(m, {
-        artNr: fd.get('artNr').trim(), prio: num(fd.get('prio')), name: fd.get('name').trim(), einheit: fd.get('einheit'), leistung: num(fd.get('leistung')),
+        artNr: fd.get('artNr').trim(), prio: num(fd.get('prio')), name: fd.get('name').trim(), kurz: String(fd.get('kurz') || '').trim(), einheit: fd.get('einheit'), leistung: num(fd.get('leistung')),
         ansatz: num(fd.get('ansatz')), aktiv: !!fd.get('aktiv'),
         arbeitsarten: uniqSort([...fd.getAll('aa'), ...fd.get('aaNeu').split(',')]),
         monate: monate.length === 12 || !monate.length ? [] : monate.sort((x, y) => x - y)
@@ -2599,6 +2603,87 @@ function invStockContent() {
     <p class="nr">Bestand wird in der Produkteliste eingetragen. Zeile antippen, um das Produkt zu öffnen.</p>
     ${rows.length ? `<div class="panel tscroll">${invStockHtml()}</div>` : '<div class="empty">Kein Produkt mit Bestand erfasst.</div>'}`;
 }
+/* ================= Planung exportieren: aktuelle Ansicht als PDF oder Bild ================= */
+const mLabel = m => m ? (m.kurz || m.name) : 'Ohne Maschine';
+function planExportData() {
+  const V = Views.plan, days = V.days(), cols = V.columns(days);
+  const cell = (d, col) => schedule(d, col.id).items.map(it => {
+    const a = it.a;
+    return { zeit: `${fromMin(it.start)}–${fromMin(it.end)}`, kunde: kundeName(a.kunde),
+      info: [a.arbeit, a.kultur, a.flaeche ? fmtNum(a.flaeche) + ' ha' : '', isSpray(a) && a.feld ? a.feld : ''].filter(Boolean).join(' · '),
+      prod: isSpray(a) ? prodNames(a).join(', ') : '', status: statusOf(a) };
+  });
+  const rows = days.map(d => ({ d, cells: cols.map(col => cell(d, col)) }));
+  const unpl = Store.all('auftraege').filter(a => isOpen(a) && !a.datum).sort((x, y) => (x.wunsch || '9999').localeCompare(y.wunsch || '9999'));
+  return { title: `Planung ${V.label()}`, mode: App.plan.mode, days, cols, rows, unpl };
+}
+function planExportDialog() {
+  const body = `<p style="margin-top:0">Exportiert die aktuelle Ansicht <b>${esc(Views.plan.label())}</b> mit allen Maschinen und Aufträgen.</p>
+    <label class="tog"><input type="checkbox" name="unpl" ${App.plan.expUnpl ? 'checked' : ''}> Nicht eingeplante Aufträge anhängen</label>
+    <label class="tog"><input type="checkbox" name="leer" ${App.plan.expLeer ? 'checked' : ''}> Auch Maschinen ohne Aufträge zeigen</label>`;
+  Dlg.open('Planung exportieren', body, `<span class="spacer"></span><button type="button" class="btn" data-act="planExpImg">Als Bild</button><button type="button" class="btn primary" data-act="planExpPdf">Als PDF / Drucken</button>`, () => true);
+}
+function planExportOpts() { const f = Dlg.form; App.plan.expUnpl = !!f.unpl?.checked; App.plan.expLeer = !!f.leer?.checked; }
+function planExportFiltered() {
+  const x = planExportData();
+  if (!App.plan.expLeer) {
+    const keep = x.cols.map((c, i) => x.rows.some(r => r.cells.at(i).length));
+    if (keep.some(Boolean)) { x.cols = x.cols.filter((c, i) => keep.at(i)); x.rows = x.rows.map(r => ({ ...r, cells: r.cells.filter((c, i) => keep.at(i)) })); }
+  }
+  if (!App.plan.expUnpl) x.unpl = [];
+  return x;
+}
+function planExportPdf() {
+  planExportOpts(); const x = planExportFiltered(); Dlg.close();
+  const dayLbl = d => fmtDate(d, { weekday: 'short', day: '2-digit', month: '2-digit' });
+  const it = c => `<div class="pxi"><b>${esc(c.zeit)}</b> ${esc(c.kunde)}<br><span>${esc(c.info)}</span>${c.prod ? `<br><span class="pxp">${esc(c.prod)}</span>` : ''}</div>`;
+  const table = `<table class="btab pxt"><thead><tr>${x.mode === 'woche' ? '<th style="width:86px">Tag</th>' : ''}${x.cols.map(c => `<th>${esc(mLabel(c.m))}</th>`).join('')}</tr></thead><tbody>
+    ${x.rows.map(r => `<tr>${x.mode === 'woche' ? `<td class="pxd"><b>${esc(dayLbl(r.d))}</b></td>` : ''}${r.cells.map(c => `<td>${c.map(it).join('') || ''}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  const un = x.unpl.length ? `<h3 class="pxh">Noch nicht eingeplant (${x.unpl.length})</h3><table class="btab"><tbody>${x.unpl.map(a => `<tr><td>${a.wunsch ? fmtDate(a.wunsch, { day: '2-digit', month: '2-digit' }) : '–'}</td><td>${esc(kundeName(a.kunde))}</td><td>${esc([a.arbeit, a.kultur, a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''].filter(Boolean).join(' · '))}</td><td class="nr">${esc(a.notiz || '')}</td></tr>`).join('')}</tbody></table>` : '';
+  printHtml(x.title, `<style>@page { size: A4 landscape; margin: 10mm; }</style><div class="planexp"><div class="bill-h"><div><b>${esc(x.title)}</b></div><div class="r">Stand ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}</div></div>${table}${un}</div>`, { noTitle: true });
+}
+function drawPlanOverview(x) {
+  const F = (w, s) => `${w} ${s}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+  const green = '#2f6b3a', ink = '#1d211e', muted = '#5c625d', line = '#dedbd3', soft = '#f6f5f1';
+  const week = x.mode === 'woche', DW = week ? 150 : 0, P = 32, n = Math.max(1, x.cols.length);
+  const CW = Math.max(240, Math.min(n <= 3 ? 420 : 320, Math.floor((1200 - 2 * P - DW) / n)));
+  const W = P * 2 + DW + CW * Math.max(1, x.cols.length);
+  const cv = document.createElement('canvas'), ctx = cv.getContext('2d');
+  const cellLines = c => { const out = []; c.forEach(i => { out.push([i.zeit, F('700', 22), green, 30]); ctx.font = F('600', 22); wrapLines(ctx, i.kunde, CW - 28).forEach(l => out.push([l, F('600', 22), ink, 28])); ctx.font = F('400', 19); wrapLines(ctx, i.info, CW - 28).forEach(l => out.push([l, F('400', 19), muted, 25])); if (i.prod) { ctx.font = F('italic 400', 18); wrapLines(ctx, i.prod, CW - 28).forEach(l => out.push([l, F('italic 400', 18), muted, 24])); } out.push(['', '', '', 12]); }); return out; };
+  const run = draw => {
+    let y = 0;
+    if (draw) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, cv.height); ctx.fillStyle = green; ctx.fillRect(0, 0, W, 110); ctx.font = F('700', 34); ctx.fillStyle = '#fff'; ctx.fillText(x.title, P, 54); ctx.font = F('400', 20); ctx.fillStyle = '#d9ead9'; ctx.fillText(`Stand ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}`, P, 88); }
+    y = 110;
+    // Kopfzeile mit Maschinen
+    const hh = 56;
+    if (draw) { ctx.fillStyle = soft; ctx.fillRect(0, y, W, hh); ctx.font = F('700', 24); ctx.fillStyle = ink; x.cols.forEach((c, i) => { let t = mLabel(c.m); while (t.length > 3 && ctx.measureText(t).width > CW - 28) t = t.slice(0, -2) + '…'; ctx.fillText(t, P + DW + i * CW + 14, y + 36); }); }
+    y += hh;
+    x.rows.forEach((r, ri) => {
+      const ls = r.cells.map(cellLines), h = Math.max(week ? 70 : 90, 16 + Math.max(0, ...ls.map(l => l.reduce((s, q) => s + q[3], 0))));
+      if (draw) {
+        if (ri % 2) { ctx.fillStyle = '#fbfaf7'; ctx.fillRect(0, y, W, h); }
+        ctx.fillStyle = line; ctx.fillRect(P, y + h - 1, W - 2 * P, 1);
+        if (week) { ctx.font = F('700', 24); ctx.fillStyle = ink; ctx.fillText(fmtDate(r.d, { weekday: 'short' }), P, y + 36); ctx.font = F('400', 20); ctx.fillStyle = muted; ctx.fillText(fmtDate(r.d, { day: '2-digit', month: '2-digit' }), P, y + 62); }
+        ls.forEach((l, i) => { let yy = y + 34; const x0 = P + DW + i * CW + 14; if (i) { ctx.fillStyle = line; ctx.fillRect(P + DW + i * CW, y + 8, 1, h - 16); } l.forEach(([t, f, c, lh]) => { if (t) { ctx.font = f; ctx.fillStyle = c; ctx.fillText(t, x0, yy); } yy += lh; }); });
+      }
+      y += h;
+    });
+    if (x.unpl.length) {
+      y += 40; if (draw) { ctx.font = F('700', 26); ctx.fillStyle = ink; ctx.fillText(`Noch nicht eingeplant (${x.unpl.length})`, P, y); }
+      y += 14;
+      x.unpl.forEach(a => { y += 34; if (draw) { ctx.font = F('600', 21); ctx.fillStyle = ink; ctx.fillText(`${a.wunsch ? fmtDate(a.wunsch, { day: '2-digit', month: '2-digit' }) + '  ' : ''}${kundeName(a.kunde)}`, P, y); ctx.font = F('400', 20); ctx.fillStyle = muted; ctx.fillText([a.arbeit, a.kultur, a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''].filter(Boolean).join(' · '), P + Math.min(420, W / 2), y); } });
+    }
+    y += 50; if (draw) { ctx.font = F('400', 18); ctx.fillStyle = muted; ctx.fillText('Lohnarbeit-Planer', P, y); }
+    return y + 24;
+  };
+  cv.width = W; cv.height = 10; const H = run(false); cv.height = H; run(true);
+  return cv;
+}
+function planExportImg() {
+  planExportOpts(); const x = planExportFiltered();
+  const fname = `${x.title.replace(/[^\wäöüÄÖÜ.-]+/g, '_')}.png`;
+  showImage(x.title, drawPlanOverview(x), fname, x.title);
+}
 /* ================= Kunden und Felder aus MyJohnDeere ================= */
 // Sobald ein Abgleich mit MyJohnDeere eingelesen wurde, werden Kunden und Felder nur noch dort gepflegt.
 const jdLock = () => !!Store.cfg().jdStand;
@@ -3057,6 +3142,9 @@ document.addEventListener('click', async e => {
     case 'alMore': App.al.limit = (App.al.limit || 300) + 300; App.render(); break;
     case 'invStockPrint': printHtml('Inventar', invStockHtml({ print: true }), { noTitle: true }); break;
     case 'invStockCsv': invStockCsv(); break;
+    case 'planExport': planExportDialog(); break;
+    case 'planExpPdf': planExportPdf(); break;
+    case 'planExpImg': planExportImg(); break;
     case 'spMore': App.spray.jlimit += 200; App.render(); break;
     case 'spAkSel': App.spray.ak = id; App.render(); window.scrollTo(0, 0); break;
     case 'spBillCsv': billingCsv(); break;

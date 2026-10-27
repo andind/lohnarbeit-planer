@@ -627,3 +627,10 @@ tr.click:hover td { background: var(--surface-2); }
 @media print { #printArea .altab { min-width: 0; font-size: 8pt; } #printArea .alprint { overflow: visible; } }
 #aView { margin-left: auto; }
 .bill.inv td.nr, .altab td.nr { white-space: nowrap; }
+/* ---------- Planung: Kurznamen, Export ---------- */
+.mh.kurz b { font-size: 15px; }
+.planexp .pxt { table-layout: fixed; font-size: 8.5pt; }
+.planexp .pxt th { background: #2f6b3a; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.planexp .pxt td { vertical-align: top; border: 0.6pt solid #ccc; }
+.planexp .pxi { margin-bottom: 5px; break-inside: avoid; } .planexp .pxi span { color: #555; } .planexp .pxp { font-style: italic; }
+.planexp .pxd { white-space: nowrap; } .planexp .pxh { font-size: 11pt; margin: 12px 0 4px; }
