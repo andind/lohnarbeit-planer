@@ -2511,14 +2511,55 @@ function alList() {
 }
 function alTable(list, { print } = {}) {
   const g = App.al.grp;
-  const head = `<thead><tr><th>Datum</th><th>Nr.</th><th>Kunde</th><th>Feld / Parzelle</th><th>Arbeit</th><th>Kultur</th><th class="n">ha</th><th>Maschine</th><th class="n">Std.</th><th>Status</th><th>Bemerkung</th></tr></thead>`;
-  const row = a => `<tr class="${print ? '' : 'click'}" ${print ? '' : `data-act="editOrder" data-id="${a.id}"`}><td>${aDate(a) ? fmtDate(aDate(a), { day: '2-digit', month: '2-digit', year: '2-digit' }) : ''}${!a.datum && a.wunsch ? ' <span class="nr">W</span>' : ''}</td>
+  const ck = !print, sel = App.alSel || new Set();
+  const allOn = ck && list.length && list.every(a => sel.has(a.id));
+  const head = `<thead><tr>${ck ? `<th class="ck" data-stop><input type="checkbox" data-in="alSelAll" title="Alle angezeigten auswählen" ${allOn ? 'checked' : ''}></th>` : ''}<th>Datum</th><th>Nr.</th><th>Kunde</th><th>Feld / Parzelle</th><th>Arbeit</th><th>Kultur</th><th class="n">ha</th><th>Maschine</th><th class="n">Std.</th><th>Status</th><th>Bemerkung</th></tr></thead>`;
+  const row = a => `<tr class="${print ? '' : 'click'}${ck && sel.has(a.id) ? ' alsel' : ''}" ${print ? '' : `data-act="editOrder" data-id="${a.id}"`}>${ck ? `<td class="ck" data-stop><input type="checkbox" data-in="alSel" value="${a.id}" ${sel.has(a.id) ? 'checked' : ''}></td>` : ''}<td>${aDate(a) ? fmtDate(aDate(a), { day: '2-digit', month: '2-digit', year: '2-digit' }) : ''}${!a.datum && a.wunsch ? ' <span class="nr">W</span>' : ''}</td>
     <td class="nr">${esc(a.nr || '')}</td><td>${esc(kundeName(a.kunde))}</td><td>${esc(aFeld(a))}</td><td>${esc(a.arbeit || '')}${prodList(a).length ? `<br><span class="nr">${esc(prodNames(a).join(', '))}</span>` : ''}</td><td>${esc(a.kultur || '')}</td>
     <td class="n">${alFl(a) != null ? fmtNum(alFl(a)) : ''}</td><td>${esc(maschine(a.maschine)?.name || '')}</td><td class="n">${alStd(a) != null ? fmtNum(r2(alStd(a))) : ''}</td>
     <td>${print ? STATUS[statusOf(a)] : `<span class="badge ${statusOf(a)}">${STATUS[statusOf(a)]}</span>`}</td><td>${esc(a.notiz || '')}</td></tr>`;
   if (!g) return `<table class="btab altab">${head}<tbody>${list.map(row).join('')}</tbody></table>`;
   const groups = groupBy(list.slice().sort((x, y) => String(alKey(x, g)).localeCompare(String(alKey(y, g)), 'de') * (g === 'monat' && App.al.sort !== 'asc' ? -1 : 1)), a => alKey(a, g));
-  return `<table class="btab altab">${head}${groups.map(([k, l]) => `<tbody class="pblk"><tr class="gk"><td colspan="6">${esc(alLabel(k, g))}</td><td class="n">${fmtNum(alHa(l))}</td><td colspan="4">${l.length} ${l.length === 1 ? 'Auftrag' : 'Aufträge'}</td></tr>${l.map(row).join('')}</tbody>`).join('')}</table>`;
+  return `<table class="btab altab">${head}${groups.map(([k, l]) => `<tbody class="pblk"><tr class="gk"><td colspan="${ck ? 7 : 6}">${esc(alLabel(k, g))}</td><td class="n">${fmtNum(alHa(l))}</td><td colspan="4">${l.length} ${l.length === 1 ? 'Auftrag' : 'Aufträge'}</td></tr>${l.map(row).join('')}</tbody>`).join('')}</table>`;
+}
+/* ---------- Mehrfachauswahl: Status mehrerer Aufträge ändern ---------- */
+function alSelToggle(el) {
+  const S = App.alSel || (App.alSel = new Set());
+  if (el.dataset.in === 'alSelAll') { const ids = alList().slice(0, App.al.limit || 300).map(a => a.id); ids.forEach(id => el.checked ? S.add(id) : S.delete(id)); }
+  else if (el.checked) S.add(el.value); else S.delete(el.value);
+  App.render();
+}
+function alSelAllList() { const S = App.alSel || (App.alSel = new Set()); alList().forEach(a => S.add(a.id)); App.render(); }
+function alSetStatus(st) {
+  const S = App.alSel || new Set(), list = alList().filter(a => S.has(a.id));
+  if (!list.length) return;
+  const ch = [], skip = [];
+  list.forEach(a => {
+    if (statusOf(a) === st) return;
+    if (st === 'geplant' && !a.datum) { skip.push(a); return; }
+    ch.push(a);
+  });
+  if (!ch.length) { toast(skip.length ? 'Aufträge ohne Datum können nicht auf «Geplant» gesetzt werden – zuerst einplanen.' : `Alle ausgewählten Aufträge sind bereits «${STATUS[st]}».`); return; }
+  const hint = st === 'offen' && ch.some(a => a.datum) ? '\nDie Einplanung (Datum, Zeit) wird dabei entfernt.' : (st === 'erledigt' || st === 'verrechnet') && ch.some(a => !a.datum && !a.erledigtAm) ? '\nAufträge ohne Datum erhalten das heutige Datum als «erledigt am».' : '';
+  if (!confirm(`${ch.length} ${ch.length === 1 ? 'Auftrag' : 'Aufträge'} auf «${STATUS[st]}» setzen?${skip.length ? `\n${skip.length} ohne Datum werden nicht auf «Geplant» gesetzt.` : ''}${hint}`)) return;
+  ch.forEach(a => {
+    if (st === 'erledigt' || st === 'verrechnet') { if (!a.erledigtAm) a.erledigtAm = a.datum || todayIso(); if (!a.datum) a.datum = a.erledigtAm; }
+    else { a.erledigtAm = ''; if (st === 'offen') { a.datum = ''; a.zeit = ''; } }
+    a.status = st;
+  });
+  S.clear();
+  Store.putMany('auftraege', ch);
+  toast(`${ch.length} ${ch.length === 1 ? 'Auftrag' : 'Aufträge'} auf «${STATUS[st]}» gesetzt${skip.length ? ` · ${skip.length} übersprungen (ohne Datum)` : ''}`);
+}
+function alSelBar(list) {
+  const S = App.alSel || (App.alSel = new Set());
+  const ids = new Set(list.map(a => a.id)); [...S].forEach(id => { if (!ids.has(id)) S.delete(id); });
+  if (!S.size) return `<p class="nr" style="margin:0 0 8px">Tipp: Aufträge links ankreuzen, um den Status mehrerer Aufträge gleichzeitig zu ändern.</p>`;
+  return `<div class="panel alselbar"><b>${S.size} ausgewählt</b>
+    <span class="alsl">Status setzen:</span>
+    ${Object.entries(STATUS).map(([v, l]) => `<button type="button" class="btn mini st-${v}" data-act="alSetStatus" data-v="${v}"><span class="badge ${v}">${l}</span></button>`).join('')}
+    ${S.size < list.length ? `<button type="button" class="btn mini" data-act="alSelAllList">Alle ${list.length} auswählen</button>` : ''}
+    <button type="button" class="btn mini" data-act="alSelNone">Auswahl aufheben</button></div>`;
 }
 function alPreset(v) {
   const L = App.al, t = new Date(), y = t.getFullYear();
@@ -2564,6 +2605,7 @@ function alContent() {
     <p><b>${list.length} Aufträge · ${fmtNum(alHa(list))} ha</b></p>
     <div class="chips static" style="margin-bottom:10px">${sums}</div>
     ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-act="alPrint">Drucken / PDF</button><button class="btn" data-act="alCsv">Excel (CSV)</button></div>
+    ${alSelBar(list)}
     <div class="panel tscroll">${alTable(shown)}</div>
     ${list.length > shown.length ? `<div class="btns" style="margin-top:10px"><button class="btn" data-act="alMore">Weitere ${Math.min(300, list.length - shown.length)} anzeigen</button></div>` : ''}` : '<div class="empty">Keine Aufträge für diese Auswahl.</div>'}`;
 }
@@ -3262,6 +3304,9 @@ document.addEventListener('click', async e => {
     case 'alReset': Object.assign(App.al, { von: '', bis: '', k: '', a: '', c: '', m: '', f: '', grp: '', limit: 300 }); App.render(); break;
     case 'alCsv': alCsv(); break;
     case 'alPrint': alPrint(); break;
+    case 'alSetStatus': alSetStatus(t.dataset.v); break;
+    case 'alSelAllList': alSelAllList(); break;
+    case 'alSelNone': App.alSel?.clear(); App.render(); break;
     case 'alMore': App.al.limit = (App.al.limit || 300) + 300; App.render(); break;
     case 'invStockPrint': printHtml('Inventar', invStockHtml({ print: true }), { noTitle: true }); break;
     case 'invStockCsv': invStockCsv(); break;
@@ -3383,6 +3428,7 @@ document.addEventListener('change', e => {
   if (k === 'spInv') { invEdit(e.target); return; }
   if (k === 'spPrAkt') { prodAktToggle(e.target); return; }
   if (k === 'spPrSeit') { if (e.target.value) { App.spray.prseit = e.target.value; App.render(); } return; }
+  if (k === 'alSel' || k === 'alSelAll') { alSelToggle(e.target); return; }
   if (k === 'al') { App.al[e.target.dataset.k] = e.target.value; App.al.limit = 300; App.render(); return; }
   if (k === 'jb') { App.jdb[e.target.dataset.k] = e.target.value; App.jdb.limit = 300; App.render(); return; }
   if (k === 'spJf') { const S = App.spray, fk = e.target.dataset.k; S.jf[fk] = e.target.value; if (fk === 'k') { S.jf.p = ''; S.jf.f = ''; } S.jlimit = 200; App.render(); return; }

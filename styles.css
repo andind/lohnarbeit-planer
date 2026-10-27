@@ -627,7 +627,15 @@ tr.click:hover td { background: var(--surface-2); }
 }
 /* ---------- Aufträge als Liste ---------- */
 .altab { min-width: 980px; }
-.altab td:first-child { white-space: nowrap; }
+.altab td:first-child, .altab td.ck + td { white-space: nowrap; }
+.altab .ck { width: 34px; text-align: center; padding-left: 6px; padding-right: 2px; cursor: default; }
+.altab .ck input { width: 18px; height: 18px; margin: 0; cursor: pointer; accent-color: var(--accent, #2f7d32); vertical-align: middle; }
+.altab tr.alsel td { background: color-mix(in srgb, var(--accent, #2f7d32) 10%, transparent); }
+.alselbar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; margin-bottom: 10px; border: 2px solid var(--accent, #2f7d32); }
+.alselbar .alsl { margin-left: 6px; color: var(--muted, #666); }
+.alselbar .btn.mini { padding: 4px 8px; min-height: 0; }
+.alselbar .btn.mini .badge { font-size: 12px; }
+@media (pointer: coarse) { .altab .ck input { width: 24px; height: 24px; } .alselbar .btn.mini { min-height: 44px; } }
 .altab .badge { font-size: 11px; padding: 1px 6px; }
 @media print { #printArea .altab { min-width: 0; font-size: 8pt; } #printArea .alprint { overflow: visible; } }
 #aView { margin-left: auto; }
