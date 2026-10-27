@@ -820,7 +820,9 @@ const Views = {
           <div class="btns"><button class="btn primary" data-act="export">CSV herunterladen</button></div></div>
         <div class="panel"><h2>Datensicherung</h2>
           <p>Zusätzliche Sicherung aller Daten als Datei. Dropbox führt zudem selbst einen Versionsverlauf der Datendatei.</p>
-          <div class="btns"><button class="btn" data-act="backup">Sicherung herunterladen</button><button class="btn" data-act="restore">Sicherung einlesen</button></div></div>
+          <p><b>Alles als Excel:</b> sämtliche Daten in einer Excel-Datei mit je einem Blatt für Aufträge, Spritzprodukte, Kunden, Felder, Parzellen, Produkte, Preisverlauf, Maschinen und Listen – zum Auswerten, Archivieren oder Weitergeben.</p>
+          <div class="btns"><button class="btn primary" data-act="exportAllXlsx">Alles als Excel (.xlsx)</button><button class="btn" data-act="backup">Sicherung herunterladen (zum Einlesen)</button><button class="btn" data-act="restore">Sicherung einlesen</button></div>
+          <p class="nr">Zum Zurückspielen dient die Sicherungsdatei (.json); die Excel-Datei ist zum Lesen und Auswerten gedacht.</p></div>
         <div class="panel"><h2>Als App installieren</h2>
           <p><b>iPhone:</b> In Safari öffnen › Teilen-Symbol › «Zum Home-Bildschirm».</p>
           <p><b>Windows:</b> In Edge oder Chrome öffnen › Menü › «Apps» › «Diese Seite als App installieren».</p></div>
@@ -2107,7 +2109,7 @@ function billingHtml(b, von, bis) {
         ${groupBy(kr, r => r.a.feld || '').map(([p, pr]) => `<tbody class="pblk"><tr class="gp"><td colspan="7">${esc(p || 'ohne Parzelle')}</td></tr>${pr.map(jobRows).join('')}</tbody>`).join('')}
       </table></div>`).join('')}</section>`).join('');
   return `<div class="bill">${LETTERHEAD}<div class="bill-h"><div><b>${esc(b.k.anrede ? b.k.anrede + ' ' : '')}${esc(b.k.name || '')}</b><br>${esc(b.k.adresse || '')}<br>${esc([b.k.plz, b.k.ort].filter(Boolean).join(' '))}</div>
-      <div class="r">Spritzarbeiten ${fmtDate(von, { day: '2-digit', month: '2-digit', year: 'numeric' })} – ${fmtDate(bis, { day: '2-digit', month: '2-digit', year: 'numeric' })}</div></div>
+      <div class="r"><b class="doctitle">Abrechnung</b><br>Spritzarbeiten ${fmtDate(von, { day: '2-digit', month: '2-digit', year: 'numeric' })} – ${fmtDate(bis, { day: '2-digit', month: '2-digit', year: 'numeric' })}</div></div>
     ${body}
     <div class="totblk"><table class="btab fx">${BILL_COLS}<tbody class="tots">
       <tr><td colspan="6">Total Arbeit (${fl(b.rows)} ha)</td><td class="n">${chf(b.tA)}</td></tr>
@@ -2723,6 +2725,87 @@ function touchDrag(el) {
   });
   el.addEventListener('contextmenu', e => e.preventDefault());
 }
+/* ================= Alle Daten als Excel-Datei (.xlsx) exportieren ================= */
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = u8 => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+function zipStore(files) { // ZIP ohne Kompression (für Excel ausreichend)
+  const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+  files.forEach(f => {
+    const name = enc.encode(f.name), data = typeof f.data === 'string' ? enc.encode(f.data) : f.data, crc = crc32(data);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+    h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, name.length, true);
+    parts.push(new Uint8Array(h.buffer), name, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true);
+    c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, name.length, true); c.setUint32(42, off, true);
+    central.push(new Uint8Array(c.buffer), name);
+    off += 30 + name.length + data.length;
+  });
+  const csize = central.reduce((s, p) => s + p.length, 0), e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, csize, true); e.setUint32(16, off, true);
+  return new Blob([...parts, ...central, new Uint8Array(e.buffer)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+const xEsc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
+const xCol = i => { let s = ''; i++; while (i) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
+function xSheet(rows) {
+  const widths = rows[0].map((_, c) => Math.min(60, Math.max(8, ...rows.slice(0, 400).map(r => String(r.at(c) ?? '').length + 2))));
+  const cell = (v, r, c) => {
+    const ref = xCol(c) + (r + 1);
+    if (v == null || v === '') return '';
+    if (typeof v === 'number' && isFinite(v)) return `<c r="${ref}"${r === 0 ? ' s="1"' : ''}><v>${v}</v></c>`;
+    return `<c r="${ref}" t="inlineStr"${r === 0 ? ' s="1"' : ''}><is><t xml:space="preserve">${xEsc(v)}</t></is></c>`;
+  };
+  const last = xCol(rows[0].length - 1) + rows.length;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>
+<sheetData>${rows.map((r, ri) => `<row r="${ri + 1}">${r.map((v, ci) => cell(v, ri, ci)).join('')}</row>`).join('')}</sheetData>
+${rows.length > 1 ? `<autoFilter ref="A1:${last}"/>` : ''}</worksheet>`;
+}
+function xlsxBlob(sheets) {
+  const names = sheets.map(s => s.name.replace(/[\[\]:*?\/\\]/g, '-').slice(0, 31));
+  const files = [
+    { name: '[Content_Types].xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${names.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>` },
+    { name: '_rels/.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
+    { name: 'xl/workbook.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((n, i) => `<sheet name="${xEsc(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets>${names.map((n, i) => sheets[i].rows.length > 1 ? `<definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${xEsc(n)}'!$A$1:$${xCol(sheets[i].rows[0].length - 1)}$${sheets[i].rows.length}</definedName></definedNames>` : '').join('').replace(/<\/definedNames><definedNames>/g, '')}</workbook>` },
+    { name: 'xl/_rels/workbook.xml.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${names.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${names.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+    { name: 'xl/styles.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF2F6B3A"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>` },
+    ...sheets.map((s, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: xSheet(s.rows) }))
+  ];
+  return zipStore(files);
+}
+// Alle Daten des Planers in Tabellen
+function exportAllSheets() {
+  const yn = b => b === false ? 'nein' : 'ja', K = id => Store.get('kunden', id) || {}, M = id => maschine(id) || {};
+  const ord = Store.all('auftraege').slice().sort((a, b) => (b.erledigtAm || b.datum || b.wunsch || '').localeCompare(a.erledigtAm || a.datum || a.wunsch || ''));
+  const auftraege = [['Auftrag-Nr', 'Status', 'Kunde', 'Kunden-Nr', 'Arbeit', 'Kultur', 'Feld / Parzelle', 'Fläche ha', 'Fläche eff. ha', 'Wunschdatum', 'Datum', 'Startzeit', 'Dauer h', 'Stunden eff.', 'Erledigt am', 'Maschine', 'Erntejahr', 'Wasser l/ha', 'Stadium', 'Düse', 'Traktor', 'Nicht ÖLN-konform', 'Produkte', 'Bemerkung', 'ID'],
+    ...ord.map(a => [a.nr, STATUS[statusOf(a)], K(a.kunde).name, K(a.kunde).nr, a.arbeit, a.kultur, a.feld || (a.kfeld && feldById(a.kfeld) ? feldById(a.kfeld).name : ''), a.flaeche, a.flaecheEff, a.wunsch, a.datum, a.zeit, a.dauer, a.stundenEff, a.erledigtAm, M(a.maschine).name,
+      isSpray(a) ? ernteOf(a) : '', a.wasser, a.stadium, a.duese, a.traktor, a.nichtOeln ? 'ja' : '', prodList(a).map(p => `${p.name} ${p.menge ?? ''} ${p.einheit || ''}/ha`.trim()).join(', '), a.notiz, a.id])];
+  const spritz = [['Auftrag-Nr', 'Datum', 'Kunde', 'Parzelle', 'Kultur', 'Erntejahr', 'Fläche ha', 'Produkt', 'Zulassung', 'Menge/ha', 'Einheit', 'Menge total', 'Nicht ÖLN-konform', 'Status', 'Auftrag-ID']];
+  ord.filter(isSpray).forEach(a => prodList(a).forEach(p => { const fl = a.flaecheEff ?? a.flaeche; spritz.push([a.nr, a.erledigtAm || a.datum || a.wunsch, K(a.kunde).name, a.feld, a.kultur, ernteOf(a), fl, p.name, prodAt(prodOf(p), a.erledigtAm || a.datum).zulassung || '', p.menge, p.einheit, p.menge != null && fl != null ? r2(p.menge * fl) : '', (p.nichtOeln || a.nichtOeln) ? 'ja' : '', STATUS[statusOf(a)], a.id]); }));
+  const kunden = [['Name', 'Kunden-Nr', 'Anrede', 'Adresse', 'PLZ', 'Ort', 'Telefon', 'Handy', 'E-Mail', 'Spritze CHF/ha', 'Fahrer CHF/ha', 'Traktor CHF/ha', 'Mittelzuschlag', 'Aktiv', 'MyJohnDeere-Name', 'MyJohnDeere-ID', 'Notiz', 'ID'],
+    ...Store.all('kunden').sort(byName).map(k => [k.name, k.nr, k.anrede, k.adresse, k.plz, k.ort, k.tel, k.handy, k.mail, k.preisSpritze, k.preisFahrer, k.preisTraktor, k.zuschlag, yn(k.aktiv), k.jdName, k.jdId, k.notiz, k.id])];
+  const felder = [['Kunde', 'Feld', 'Betrieb', 'Fläche ha', 'Aktiv', 'MyJohnDeere-ID', 'ID'], ...Store.all('felder').sort((a, b) => (K(a.kunde).name || '').localeCompare(K(b.kunde).name || '', 'de') || byName(a, b)).map(f => [K(f.kunde).name, f.name, f.betrieb, f.flaeche, yn(f.aktiv), f.jdId, f.id])];
+  const parz = [['Kunde', 'Parzelle', 'Kultur', 'Fläche ha', 'Feld (MyJohnDeere)', 'Aktiv', 'ID'], ...Store.all('parzellen').sort((a, b) => (K(a.kunde).name || '').localeCompare(K(b.kunde).name || '', 'de') || byName(a, b)).map(p => [K(p.kunde).name, p.name, p.kultur, p.flaeche, feldById(p.feldId)?.name || '', yn(p.aktiv), p.id])];
+  const use = prodUsage();
+  const prod = [['Produkt', 'Zulassung', 'Einheit', 'Preis CHF', 'Inventar', 'Wert CHF', 'Inventar erfasst am', 'Zuletzt verwendet', 'Einsätze', 'Aktuell', 'ID'], ...Store.all('produkte').sort(byName).map(p => [p.name, p.zulassung, p.einheit, p.preis, p.inventar, p.inventar > 0 ? r2(p.inventar * (p.preis || 0)) : '', p.inventarAm, (use.get(p.id) || {}).last || '', (use.get(p.id) || {}).n || 0, yn(p.aktuell), p.id])];
+  const verlauf = [['Produkt', 'Gültig ab', 'Name', 'Zulassung', 'Preis CHF']];
+  Store.all('produkte').sort(byName).forEach(p => (p.verlauf || []).forEach(e => verlauf.push([p.name, e.ab === VERLAUF_START ? 'bisher' : e.ab, e.name, e.zulassung, e.preis])));
+  const masch = [['Bezeichnung', 'Kurzname', 'Art.-Nr', 'Priorität', 'Verrechnung pro', 'Ansatz CHF', 'Flächenleistung ha/h', 'Arbeitsarten', 'Saison', 'Aktiv', 'ID'], ...Store.all('maschinen').sort(byPrio).map(m => [m.name, m.kurz, m.artNr, m.prio, m.einheit, m.ansatz, m.leistung, (m.arbeitsarten || []).join(', '), monthsLabel(m.monate), yn(m.aktiv), m.id])];
+  const c = Store.cfg(), listen = [['Liste', 'Eintrag']];
+  [['Arbeitsart', Lists.arbeitsarten()], ['Kultur', Lists.kulturen()], ['Düse', Lists.duesen()], ['Traktor', Lists.traktoren()]].forEach(([n, l]) => l.forEach(x => listen.push([n, x])));
+  listen.push(['Einstellung', `Arbeitsbeginn ${c.beginn || ''}`], ['Einstellung', `Arbeitsende ${c.ende || ''}`], ['Export', `Stand ${new Date().toLocaleString('de-CH')}`]);
+  return [{ name: 'Aufträge', rows: auftraege }, { name: 'Spritzprodukte', rows: spritz }, { name: 'Kunden', rows: kunden }, { name: 'Felder', rows: felder }, { name: 'Parzellen', rows: parz },
+    { name: 'Produkte', rows: prod }, { name: 'Preisverlauf', rows: verlauf }, { name: 'Maschinen', rows: masch }, { name: 'Listen', rows: listen }];
+}
+function exportAllXlsx() {
+  try {
+    const sh = exportAllSheets();
+    download(`Lohnarbeit-Daten_${todayIso()}.xlsx`, xlsxBlob(sh));
+    toast(`Excel-Datei erstellt: ${sh.map(s => `${s.name} ${s.rows.length - 1}`).join(' · ')}`, 6000);
+  } catch (e) { toast('Excel-Export fehlgeschlagen: ' + e.message, 6000); }
+}
 /* ================= Kunden und Felder aus MyJohnDeere ================= */
 // Sobald ein Abgleich mit MyJohnDeere eingelesen wurde, werden Kunden und Felder nur noch dort gepflegt.
 const jdLock = () => !!Store.cfg().jdStand;
@@ -3262,6 +3345,7 @@ document.addEventListener('click', async e => {
     case 'lrowDown': { const r = t.closest('.lrow'); if (r.nextElementSibling) r.parentNode.insertBefore(r.nextElementSibling, r); break; }
     case 'lrowSort': { const w = $('#lrows', f); [...w.children].sort((x, y) => x.querySelector('input').value.localeCompare(y.querySelector('input').value, 'de')).forEach(r => w.appendChild(r)); break; }
     case 'export': exportCsv(); break;
+    case 'exportAllXlsx': exportAllXlsx(); break;
     case 'backup': download(`Lohnarbeit-Sicherung_${todayIso()}.json`, JSON.stringify(Store.data, null, 1), 'application/json'); break;
     case 'restore': restoreBackup(); break;
   }
