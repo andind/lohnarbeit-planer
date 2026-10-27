@@ -480,9 +480,10 @@ let PX = 0.75; // Pixel pro Minute in der Tages-Zeitachse (45 px pro Stunde bei 
 const ZOOM_MIN = 0.4, ZOOM_MAX = 3;
 const App = {
   view: ls('lp_view') || 'auftraege',
-  filter: { auftraege: 'offen', q: '', kq: '' },
+  filter: { auftraege: 'offen', q: '', kq: '', aview: ls('lp_aview') || 'karten' },
+  al: { von: '', bis: '', k: '', a: '', c: '', m: '', f: '', grp: '', sort: 'desc', limit: 300 },
   jdb: { rows: null, meta: null, von: null, bis: null, k: '', a: '', f: '', m: '', c: '', q: '', grp: '', sort: 'desc', limit: 300 },
-  plan: { mode: ls('lp_pmode') || 'woche', date: new Date(), aa: ls('lp_paa') || '', nurBelegt: false },
+  plan: { mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false, zoom: +(ls('lp_zoom') || 1),
   spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jsort: 'desc', jf: null, jfOpen: false, jlimit: 200,
     ak: '', av: `${new Date().getFullYear()}-01-01`, ab: todayIso(), ag: false, ny: 0, nk: '', nc: '', ngep: false, pk: '', pall: false, prq: '', prall: false },
@@ -511,15 +512,18 @@ const Views = {
       const segs = [['offen', 'Offen'], ['erledigt', 'Erledigt'], ['verrechnet', 'Verrechnet'], ['alle', 'Alle']];
       return `<h1>Aufträge</h1>
         <div class="seg" id="aSeg">${segs.map(([k, l]) => `<button type="button" data-act="aFilter" data-v="${k}">${l} <span class="cnt" data-c="${k}"></span></button>`).join('')}</div>
-        <input class="input search" type="search" placeholder="Suchen: Kunde, Arbeit, Kultur…" value="${esc(App.filter.q)}" data-in="aSearch">`;
+        <input class="input search" type="search" placeholder="Suchen: Kunde, Arbeit, Kultur…" value="${esc(App.filter.q)}" data-in="aSearch">
+        <div class="seg" id="aView"><button type="button" data-act="aView" data-v="karten">▦ Karten</button><button type="button" data-act="aView" data-v="liste">☰ Liste</button></div>`;
     },
     refreshToolbar() {
       $$('#aSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === App.filter.auftraege));
+      $$('#aView button').forEach(b => b.classList.toggle('on', b.dataset.v === (App.filter.aview || 'karten')));
       const all = Store.all('auftraege'); const c = { offen: 0, erledigt: 0, verrechnet: 0, alle: all.length };
       all.forEach(a => { const s = statusOf(a); if (isOpen(a)) c.offen++; else c[s]++; });
       $$('#aSeg .cnt').forEach(e => { e.textContent = c[e.dataset.c] ? `(${c[e.dataset.c]})` : ''; });
     },
     content() {
+      if (App.filter.aview === 'liste') return alContent();
       const f = App.filter.auftraege, q = norm(App.filter.q);
       const list = Store.all('auftraege').filter(a => {
         const s = statusOf(a);
@@ -552,7 +556,6 @@ const Views = {
           <input class="input" type="date" id="pDate" data-in="pDate" style="width:auto;min-height:34px;padding:4px 8px" aria-label="Datum wählen">
         </div>
         <div class="weekhead">
-          <select class="input" id="pAA" data-in="pAA" style="width:auto;min-height:34px;padding:4px 8px" aria-label="Arbeitsart"></select>
           <button class="btn small" id="selModeBtn" data-act="selMode">☐ Mehrere auswählen</button>
           <span class="zoomctl"><button class="btn small" data-act="zoom" data-d="-1" aria-label="Verkleinern">−</button><span class="zv" id="zv"></span><button class="btn small" data-act="zoom" data-d="1" aria-label="Vergrössern">＋</button></span>
           <button class="btn small" data-act="fs" title="Kalender im Vollbild">⛶ Vollbild</button>
@@ -565,9 +568,6 @@ const Views = {
       $('#pLbl').textContent = this.label();
       $('#zv').textContent = Math.round(App.zoom * 100) + ' %';
       $('#pDate').value = isoDate(P.date);
-      const mAas = Store.all('maschinen').flatMap(m => m.arbeitsarten || []);
-      const aas = uniqKeep([...Lists.arbeitsarten().filter(x => mAas.includes(x)), ...mAas]);
-      $('#pAA').innerHTML = `<option value="">Alle Arbeitsarten</option>` + aas.map(x => `<option ${x === P.aa ? 'selected' : ''}>${esc(x)}</option>`).join('');
       const sb = $('#selModeBtn'); sb.classList.toggle('primary', App.selMode); sb.textContent = App.selMode ? '☑ Auswahl aktiv' : '☐ Mehrere auswählen';
     },
     label(short) {
@@ -1936,7 +1936,8 @@ function printHtml(title, html, { noTitle } = {}) {
 // Stammdaten
 function stammContent() {
   const S = App.spray, sub = S.stamm;
-  const segs = `<div class="seg" style="margin-bottom:12px">${[['produkte', 'Produkte'], ['parzellen', 'Parzellen'], ['geraete', 'Düsen & Traktoren'], ['import', 'Preisliste']].map(([k, l]) => `<button type="button" data-act="spStamm" data-v="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const segs = `<div class="seg" style="margin-bottom:12px">${[['produkte', 'Produkte'], ['inventar', 'Inventar'], ['parzellen', 'Parzellen'], ['geraete', 'Düsen & Traktoren'], ['import', 'Preisliste']].map(([k, l]) => `<button type="button" data-act="spStamm" data-v="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  if (sub === 'inventar') return segs + invStockContent();
   if (sub === 'parzellen') {
     const list = Store.all('parzellen').filter(p => (!S.pk || p.kunde === S.pk) && (S.pall || p.aktiv !== false)).sort((a, b) => kundeName(a.kunde).localeCompare(kundeName(b.kunde), 'de') || byName(a, b));
     return segs + `<div class="filters"><select class="input" data-combo data-in="spPk" style="width:auto;min-width:200px"><option value="">Alle Kunden</option>${Store.all('kunden').filter(k => k.aktiv !== false || k.id === S.pk).sort(byName).map(k => `<option value="${k.id}" ${k.id === S.pk ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select>
@@ -1968,7 +1969,7 @@ function stammContent() {
     ${srt !== 'name' ? `<div class="panel deact"><label class="fld inl"><span>Nicht mehr verwendet seit</span><input class="input" type="date" data-in="spPrSeit" value="${seit}"></label>
       <button class="btn ${alte.length ? 'primary' : ''}" data-act="prodDeactOld" ${alte.length ? '' : 'disabled'}>${alte.length} Produkte auf «nicht aktuell» setzen</button>
       <span class="nr">Produkte mit Inventar-Bestand bleiben aktuell. Einzelne Produkte mit dem Schalter «aktuell» in der Zeile.</span></div>` : ''}
-    <div class="btns" style="margin:0 0 10px"><button class="btn" data-act="invPrint">Inventarliste drucken / PDF</button><button class="btn" data-act="invCsv">Inventar CSV</button><button class="btn" data-act="prodImport">Preisliste importieren…</button></div>
+    <div class="btns" style="margin:0 0 10px"><button class="btn" data-act="invPrint" title="Liste aller aktuellen Produkte mit Spalte zum Abhaken beim Zählen">Zählliste drucken / PDF</button><button class="btn" data-act="invCsv">Inventar CSV</button><button class="btn" data-act="prodImport">Preisliste importieren…</button></div>
     <p class="nr">${list.length} Produkte · Lagerwert Inventar CHF <span id="invTot">${chf(invTotal())}</span> · Bestand direkt eintragen, übrige Angaben durch Antippen der Zeile.</p>
     <div class="rows">${list.map(p => { const nx = prodNext(p); return `<div class="rowi prow2 ${p.aktuell === false ? 'off' : ''}" data-act="prodEdit" data-id="${p.id}"><div class="grow"><div class="t">${esc(p.name) || '<i class="nr">(ohne Name)</i>'}</div>
         <div class="s">${esc(p.zulassung || '')}${p.zulassung ? ' · ' : ''}CHF ${chf(p.preis)} / ${esc(p.einheit)} · <span class="${U(p.id).last && U(p.id).last >= seit ? '' : 'old'}">${U(p.id).last ? `zuletzt ${fmtDate(U(p.id).last, { day: '2-digit', month: '2-digit', year: 'numeric' })} (${U(p.id).n}×)` : 'nie verwendet'}</span>${nx ? ` · <span class="nxt">ab ${fmtDate(nx.ab, { day: '2-digit', month: '2-digit', year: '2-digit' })}: CHF ${chf(nx.preis)}${nx.name !== p.name ? ' · ' + esc(nx.name) : ''}</span>` : ''}</div></div>
@@ -2096,28 +2097,28 @@ function billing(kid, von, bis, mitGeplant) {
 }
 // Gliederung Erntejahr › Kultur › Parzelle: je Kultur eine eigene Tabelle (bleibt im Ausdruck möglichst auf einer Seite),
 // je Parzelle ein Block, der nie getrennt wird – lieber eine Seite mehr als ein unübersichtlicher Umbruch
-const BILL_COLS = '<colgroup><col style="width:11%"><col style="width:32%"><col style="width:18%"><col style="width:13%"><col style="width:11%"><col style="width:15%"></colgroup>';
+const BILL_COLS = '<colgroup><col style="width:10%"><col style="width:28%"><col style="width:16%"><col style="width:11%"><col style="width:11%"><col style="width:10%"><col style="width:14%"></colgroup>';
 const NW_COLS = '<colgroup><col style="width:10%"><col style="width:7%"><col style="width:11%"><col style="width:26%"><col style="width:16%"><col style="width:12%"><col style="width:18%"></colgroup>';
 function billingHtml(b, von, bis) {
   const sum = rs => rs.reduce((s, r) => s + r.arbeit + r.mittelTot, 0);
   const fl = rs => fmtNum(r2(rs.reduce((s, r) => s + r.fl, 0)));
   const jobRows = r => `<tr class="job click" data-act="editOrder" data-id="${r.a.id}"><td>${fmtDate(dOf(r.a), { day: '2-digit', month: '2-digit', year: '2-digit' })}</td><td>Arbeit Spritzen</td><td></td>
-      <td class="n">${fmtNum(r.fl)} ha</td><td class="n">${chf(b.preisHa)}</td><td class="n"><b>${chf(r.arbeit)}</b></td></tr>
-    ${r.mittel.map(m => `<tr class="mit click" data-act="editOrder" data-id="${r.a.id}"><td></td><td>${esc(m.name)}</td><td class="nr">${esc(m.zulassung)}</td><td class="n">${fmtNum(r2(m.menge))} ${esc(m.einheit)}</td><td class="n">${chf(m.preisZ)}</td><td class="n">${chf(m.betrag)}</td></tr>`).join('')}`;
-  const head = `<thead><tr><th>Datum</th><th>Position</th><th>Zulassung</th><th class="n">Menge</th><th class="n">Ansatz</th><th class="n">Betrag CHF</th></tr></thead>`;
+      <td></td><td class="n">${fmtNum(r.fl)} ha</td><td class="n">${chf(b.preisHa)}</td><td class="n"><b>${chf(r.arbeit)}</b></td></tr>
+    ${r.mittel.map(m => `<tr class="mit click" data-act="editOrder" data-id="${r.a.id}"><td></td><td>${esc(m.name)}</td><td class="nr">${esc(m.zulassung)}</td><td class="n">${m.mengeHa != null ? fmtNum(m.mengeHa) + ' ' + esc(m.einheit) : ''}</td><td class="n">${fmtNum(r2(m.menge))} ${esc(m.einheit)}</td><td class="n">${chf(m.preisZ)}</td><td class="n">${chf(m.betrag)}</td></tr>`).join('')}`;
+  const head = `<thead><tr><th>Datum</th><th>Position</th><th>Zulassung</th><th class="n">Menge/ha</th><th class="n">Menge</th><th class="n">Ansatz</th><th class="n">Betrag CHF</th></tr></thead>`;
   const body = groupBy(b.rows, r => ernteOf(r.a) || '').map(([j, jr]) => `<section class="jblk">
       <h3 class="gj"><span>Erntejahr ${esc(j || '–')}</span><span>${fl(jr)} ha · CHF ${chf(sum(jr))}</span></h3>
       ${groupBy(jr, r => r.a.kultur || '').map(([k, kr], ki) => `<div class="kblk"><table class="btab fx">${BILL_COLS}${ki === 0 ? head : ''}
-        <tbody><tr class="gk"><td colspan="3">${esc(k || 'ohne Kultur')}</td><td class="n">${fl(kr)} ha</td><td></td><td class="n">${chf(sum(kr))}</td></tr></tbody>
-        ${groupBy(kr, r => r.a.feld || '').map(([p, pr]) => `<tbody class="pblk"><tr class="gp"><td colspan="6">${esc(p || 'ohne Parzelle')}</td></tr>${pr.map(jobRows).join('')}</tbody>`).join('')}
+        <tbody><tr class="gk"><td colspan="4">${esc(k || 'ohne Kultur')}</td><td class="n">${fl(kr)} ha</td><td></td><td class="n">${chf(sum(kr))}</td></tr></tbody>
+        ${groupBy(kr, r => r.a.feld || '').map(([p, pr]) => `<tbody class="pblk"><tr class="gp"><td colspan="7">${esc(p || 'ohne Parzelle')}</td></tr>${pr.map(jobRows).join('')}</tbody>`).join('')}
       </table></div>`).join('')}</section>`).join('');
   return `<div class="bill">${LETTERHEAD}<div class="bill-h"><div><b>${esc(b.k.anrede ? b.k.anrede + ' ' : '')}${esc(b.k.name || '')}</b><br>${esc(b.k.adresse || '')}<br>${esc([b.k.plz, b.k.ort].filter(Boolean).join(' '))}</div>
       <div class="r">Spritzarbeiten ${fmtDate(von, { day: '2-digit', month: '2-digit', year: 'numeric' })} – ${fmtDate(bis, { day: '2-digit', month: '2-digit', year: 'numeric' })}</div></div>
     ${body}
     <div class="totblk"><table class="btab fx">${BILL_COLS}<tbody class="tots">
-      <tr><td colspan="5">Total Arbeit (${fl(b.rows)} ha)</td><td class="n">${chf(b.tA)}</td></tr>
-      <tr><td colspan="5">Total Mittel</td><td class="n">${chf(b.tM)}</td></tr>
-      <tr class="tot"><td colspan="5">Total CHF</td><td class="n">${chf(b.total)}</td></tr></tbody></table></div></div>`;
+      <tr><td colspan="6">Total Arbeit (${fl(b.rows)} ha)</td><td class="n">${chf(b.tA)}</td></tr>
+      <tr><td colspan="6">Total Mittel</td><td class="n">${chf(b.tM)}</td></tr>
+      <tr class="tot"><td colspan="6">Total CHF</td><td class="n">${chf(b.total)}</td></tr></tbody></table></div></div>`;
 }
 function abrechnungContent() {
   const S = App.spray, ks = kundenMitSpritz(billFilter(S));
@@ -2146,11 +2147,11 @@ function abrechnungContent() {
 }
 function billingCsv() {
   const S = App.spray, ids = S.ak ? [S.ak] : kundenMitSpritz(billFilter(S)).map(k => k.id);
-  const rows = [['Kunde', 'Erntejahr', 'Kultur', 'Parzelle', 'Datum', 'Fläche ha', 'Position', 'Zulassung', 'Menge', 'Einheit', 'Ansatz CHF', 'Betrag CHF', 'Auftrag']];
+  const rows = [['Kunde', 'Erntejahr', 'Kultur', 'Parzelle', 'Datum', 'Fläche ha', 'Position', 'Zulassung', 'Menge/ha', 'Menge', 'Einheit', 'Ansatz CHF', 'Betrag CHF', 'Auftrag']];
   ids.forEach(id => { const b = billing(id, S.av, S.ab, S.ag); b.rows.forEach(r => {
     const d = dOf(r.a);
-    rows.push([b.k.name, ernteOf(r.a), r.a.kultur, r.a.feld, d, r.fl, 'Arbeit Spritzen', '', r.fl, 'ha', b.preisHa.toFixed(2), r.arbeit.toFixed(2), r.a.nr]);
-    r.mittel.forEach(m => rows.push([b.k.name, ernteOf(r.a), r.a.kultur, r.a.feld, d, r.fl, m.name, m.zulassung, r2(m.menge), m.einheit, m.preisZ.toFixed(2), m.betrag.toFixed(2), r.a.nr]));
+    rows.push([b.k.name, ernteOf(r.a), r.a.kultur, r.a.feld, d, r.fl, 'Arbeit Spritzen', '', '', r.fl, 'ha', b.preisHa.toFixed(2), r.arbeit.toFixed(2), r.a.nr]);
+    r.mittel.forEach(m => rows.push([b.k.name, ernteOf(r.a), r.a.kultur, r.a.feld, d, r.fl, m.name, m.zulassung, m.mengeHa ?? '', r2(m.menge), m.einheit, m.preisZ.toFixed(2), m.betrag.toFixed(2), r.a.nr]));
   }); });
   download(`Abrechnung_Spritzen_${S.av}_bis_${S.ab}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }
@@ -2487,6 +2488,116 @@ function verlaufHtml(p) {
     <div class="tscroll"><table class="btab vtab"><thead><tr><th>Gültig ab</th><th>Name</th><th>Zulassung</th><th class="n">Preis CHF</th><th></th></tr></thead><tbody>
     ${v.map(e => `<tr class="${e.ab > todayIso() ? 'future' : ''}"><td>${e.ab === VERLAUF_START ? 'bisher' : fmtDate(e.ab, { day: '2-digit', month: '2-digit', year: 'numeric' })}</td><td>${esc(e.name || '')}</td><td>${esc(e.zulassung || '')}</td><td class="n">${chf(e.preis)}</td>
       <td>${e.ab === VERLAUF_START ? '' : `<button type="button" class="x" data-vdel="${esc(e.ab)}" aria-label="Eintrag löschen">×</button>`}</td></tr>`).join('')}</tbody></table></div>`;
+}
+/* ================= Aufträge als Liste: Filter, Gruppierung, Export Excel/PDF (wie Modul Bericht) ================= */
+const aDate = a => a.erledigtAm || a.datum || a.wunsch || '';
+const aFeld = a => a.feld || (a.kfeld && feldById(a.kfeld) ? feldById(a.kfeld).name : '');
+const aStatusOk = (a, f) => f === 'alle' || (f === 'offen' ? isOpen(a) : statusOf(a) === f);
+function alFilter(L, skip = '') {
+  const q = norm(App.filter.q), sf = App.filter.auftraege;
+  return a => aStatusOk(a, sf) && (!L.von || aDate(a) >= L.von) && (!L.bis || (aDate(a) && aDate(a) <= L.bis))
+    && (skip === 'k' || !L.k || a.kunde === L.k) && (skip === 'a' || !L.a || a.arbeit === L.a) && (skip === 'c' || !L.c || (a.kultur || '') === L.c)
+    && (skip === 'm' || !L.m || (a.maschine || '') === L.m) && (skip === 'f' || !L.f || aFeld(a) === L.f)
+    && (!q || [a.nr, kundeName(a.kunde), a.arbeit, a.kultur, a.notiz, aFeld(a), maschine(a.maschine)?.name, ...prodNames(a)].join(' ').toLowerCase().includes(q));
+}
+const AL_GRP = [['', 'keine'], ['kunde', 'Kunde'], ['arbeit', 'Arbeit'], ['maschine', 'Maschine'], ['kultur', 'Kultur'], ['status', 'Status'], ['monat', 'Monat']];
+const alKey = (a, g) => g === 'kunde' ? kundeName(a.kunde) : g === 'arbeit' ? a.arbeit || '' : g === 'maschine' ? (maschine(a.maschine)?.name || '') : g === 'kultur' ? a.kultur || '' : g === 'status' ? STATUS[statusOf(a)] : g === 'monat' ? aDate(a).slice(0, 7) : '';
+const alLabel = (k, g) => g === 'monat' && k ? `${MONATE_LANG[+k.slice(5, 7) - 1]} ${k.slice(0, 4)}` : (k || '–');
+const alFl = a => a.flaecheEff ?? a.flaeche ?? null;
+const alHa = l => r2(l.reduce((s, a) => s + (alFl(a) || 0), 0));
+const alStd = a => a.stundenEff ?? a.dauer ?? null;
+function alList() {
+  const L = App.al;
+  return Store.all('auftraege').filter(alFilter(L)).sort((x, y) => {
+    const c = (aDate(x) || '9999').localeCompare(aDate(y) || '9999') || (x.zeit || '').localeCompare(y.zeit || '') || (x.nr || '').localeCompare(y.nr || '');
+    return L.sort === 'asc' ? c : -c;
+  });
+}
+function alTable(list, { print } = {}) {
+  const g = App.al.grp;
+  const head = `<thead><tr><th>Datum</th><th>Nr.</th><th>Kunde</th><th>Feld / Parzelle</th><th>Arbeit</th><th>Kultur</th><th class="n">ha</th><th>Maschine</th><th class="n">Std.</th><th>Status</th><th>Bemerkung</th></tr></thead>`;
+  const row = a => `<tr class="${print ? '' : 'click'}" ${print ? '' : `data-act="editOrder" data-id="${a.id}"`}><td>${aDate(a) ? fmtDate(aDate(a), { day: '2-digit', month: '2-digit', year: '2-digit' }) : ''}${!a.datum && a.wunsch ? ' <span class="nr">W</span>' : ''}</td>
+    <td class="nr">${esc(a.nr || '')}</td><td>${esc(kundeName(a.kunde))}</td><td>${esc(aFeld(a))}</td><td>${esc(a.arbeit || '')}${prodList(a).length ? `<br><span class="nr">${esc(prodNames(a).join(', '))}</span>` : ''}</td><td>${esc(a.kultur || '')}</td>
+    <td class="n">${alFl(a) != null ? fmtNum(alFl(a)) : ''}</td><td>${esc(maschine(a.maschine)?.name || '')}</td><td class="n">${alStd(a) != null ? fmtNum(r2(alStd(a))) : ''}</td>
+    <td>${print ? STATUS[statusOf(a)] : `<span class="badge ${statusOf(a)}">${STATUS[statusOf(a)]}</span>`}</td><td>${esc(a.notiz || '')}</td></tr>`;
+  if (!g) return `<table class="btab altab">${head}<tbody>${list.map(row).join('')}</tbody></table>`;
+  const groups = groupBy(list.slice().sort((x, y) => String(alKey(x, g)).localeCompare(String(alKey(y, g)), 'de') * (g === 'monat' && App.al.sort !== 'asc' ? -1 : 1)), a => alKey(a, g));
+  return `<table class="btab altab">${head}${groups.map(([k, l]) => `<tbody class="pblk"><tr class="gk"><td colspan="6">${esc(alLabel(k, g))}</td><td class="n">${fmtNum(alHa(l))}</td><td colspan="4">${l.length} ${l.length === 1 ? 'Auftrag' : 'Aufträge'}</td></tr>${l.map(row).join('')}</tbody>`).join('')}</table>`;
+}
+function alPreset(v) {
+  const L = App.al, t = new Date(), y = t.getFullYear();
+  if (v === 'jahr') { L.von = `${y}-01-01`; L.bis = `${y}-12-31`; }
+  else if (v === 'vorjahr') { L.von = `${y - 1}-01-01`; L.bis = `${y - 1}-12-31`; }
+  else if (v === '30') { L.von = isoDate(addDays(t, -30)); L.bis = todayIso(); }
+  else if (v === 'woche') { const mo = addDays(t, -((t.getDay() + 6) % 7)); L.von = isoDate(mo); L.bis = isoDate(addDays(mo, 6)); }
+  else { L.von = ''; L.bis = ''; }
+  App.render();
+}
+function alCsv() {
+  const rows = [['Nr.', 'Datum', 'Wunschdatum', 'Zeit', 'Kunde', 'Feld / Parzelle', 'Arbeit', 'Kultur', 'Fläche ha', 'Maschine', 'Stunden', 'Status', 'Produkte', 'Bemerkung']];
+  alList().forEach(a => rows.push([a.nr, a.erledigtAm || a.datum || '', a.wunsch || '', a.zeit || '', kundeName(a.kunde), aFeld(a), a.arbeit, a.kultur, alFl(a) ?? '', maschine(a.maschine)?.name || '', alStd(a) != null ? r2(alStd(a)) : '', STATUS[statusOf(a)], prodList(a).map(p => `${p.name} ${p.menge ?? ''} ${p.einheit || ''}/ha`.trim()).join(', '), a.notiz]));
+  const L = App.al;
+  download(`Auftraege_${L.von || 'alle'}_${L.bis || ''}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+}
+function alPrint() {
+  const L = App.al, list = alList(), d = x => fmtDate(x, { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const title = `Aufträge${L.von || L.bis ? ` ${L.von ? d(L.von) : '…'} – ${L.bis ? d(L.bis) : '…'}` : ''}`;
+  const filt = [App.filter.auftraege !== 'alle' && 'Status: ' + ({ offen: 'offen' }[App.filter.auftraege] || STATUS[App.filter.auftraege]), L.k && 'Kunde: ' + kundeName(L.k), L.a && 'Arbeit: ' + L.a, L.c && 'Kultur: ' + L.c, L.m && 'Maschine: ' + (maschine(L.m)?.name || ''), L.f && 'Feld: ' + L.f, App.filter.q && 'Suche: ' + App.filter.q].filter(Boolean).join(' · ');
+  printHtml(title, `<div class="bill alprint">${LETTERHEAD}<div class="bill-h"><div><b>${esc(L.k ? kundeName(L.k) : 'Auftragsliste')}</b>${filt ? `<br><span class="nr">${esc(filt)}</span>` : ''}</div><div class="r">${esc(title)}<br>${list.length} Aufträge · ${fmtNum(alHa(list))} ha</div></div>
+    ${alTable(list, { print: true })}</div>`, { noTitle: true });
+}
+function alContent() {
+  const L = App.al, all = Store.all('auftraege'), list = alList(), shown = list.slice(0, L.limit || 300);
+  const uniq = (fn, skip) => [...new Set(all.filter(alFilter(L, skip)).map(fn).filter(Boolean))].sort((x, y) => String(x).localeCompare(String(y), 'de'));
+  const opt = (vals, cur, lab = v => v) => vals.map(v => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(lab(v))}</option>`).join('');
+  const kIds = uniq(a => a.kunde, 'k').sort((x, y) => kundeName(x).localeCompare(kundeName(y), 'de')), mIds = uniq(a => a.maschine, 'm');
+  const sel = (k, label, opts, allTxt) => `<label class="fld"><span>${label}</span><select class="input" data-combo data-in="al" data-k="${k}"><option value="">${allTxt}</option>${opts}</select></label>`;
+  const sums = groupBy(list, a => a.arbeit || '–').sort((x, y) => y[1].length - x[1].length).map(([a, l]) => `<span class="chip">${esc(a)}: ${l.length} · ${fmtNum(alHa(l))} ha</span>`).join('');
+  return `<div class="panel jfilter"><div class="jfgrid">
+      <label class="fld"><span>Von</span><input class="input" type="date" data-in="al" data-k="von" value="${esc(L.von)}"></label>
+      <label class="fld"><span>Bis</span><input class="input" type="date" data-in="al" data-k="bis" value="${esc(L.bis)}"></label>
+      ${sel('k', 'Kunde', opt(kIds, L.k, kundeName), 'Alle Kunden')}${sel('f', 'Feld / Parzelle', opt(uniq(aFeld, 'f'), L.f), 'Alle Felder')}
+      ${sel('a', 'Arbeit', opt(uniq(a => a.arbeit, 'a'), L.a), 'Alle Arbeiten')}${sel('c', 'Kultur', opt(uniq(a => a.kultur, 'c'), L.c), 'Alle Kulturen')}
+      ${sel('m', 'Maschine', opt(mIds, L.m, id => maschine(id)?.name || id), 'Alle Maschinen')}
+      <label class="fld"><span>Gruppieren nach</span><select class="input" data-plain data-in="al" data-k="grp">${AL_GRP.map(([v, l]) => `<option value="${v}" ${L.grp === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="fld"><span>Sortierung</span><select class="input" data-plain data-in="al" data-k="sort"><option value="desc">Neueste zuerst</option><option value="asc" ${L.sort === 'asc' ? 'selected' : ''}>Älteste zuerst</option></select></label>
+    </div>
+    <div class="btns"><span class="seg mini">${[['woche', 'Diese Woche'], ['30', '30 Tage'], ['jahr', 'Dieses Jahr'], ['vorjahr', 'Vorjahr'], ['alle', 'Alles']].map(([v, l]) => `<button type="button" data-act="alPreset" data-v="${v}">${l}</button>`).join('')}</span>
+      <button class="btn" data-act="alReset">Filter zurücksetzen</button></div>
+    <p class="nr" style="margin:6px 0 0">Datum = erledigt am, sonst eingeplant, sonst Wunschdatum (W). Status über die Schaltflächen oben, Suche im Suchfeld oben.</p></div>
+    <p><b>${list.length} Aufträge · ${fmtNum(alHa(list))} ha</b></p>
+    <div class="chips static" style="margin-bottom:10px">${sums}</div>
+    ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-act="alPrint">Drucken / PDF</button><button class="btn" data-act="alCsv">Excel (CSV)</button></div>
+    <div class="panel tscroll">${alTable(shown)}</div>
+    ${list.length > shown.length ? `<div class="btns" style="margin-top:10px"><button class="btn" data-act="alMore">Weitere ${Math.min(300, list.length - shown.length)} anzeigen</button></div>` : ''}` : '<div class="empty">Keine Aufträge für diese Auswahl.</div>'}`;
+}
+
+/* ---------- Inventar-Auswertung: nur Produkte mit Bestand ---------- */
+function invStock() {
+  const use = prodUsage(), S = App.spray;
+  const list = Store.all('produkte').filter(p => p.inventar > 0 && (p.name || '').trim());
+  return list.sort(S.invs === 'wert' ? (a, b) => b.inventar * (b.preis || 0) - a.inventar * (a.preis || 0) || byName(a, b) : byName).map(p => ({ p, wert: p.inventar * (p.preis || 0), last: (use.get(p.id) || {}).last || '' }));
+}
+function invStockHtml({ print } = {}) {
+  const rows = invStock(), tot = rows.reduce((s, r) => s + r.wert, 0);
+  const d = x => fmtDate(x, { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return `<div class="bill inv"><div class="bill-h"><div><b>Inventar Pflanzenschutzmittel</b><br><span class="nr">nur Produkte mit Bestand</span></div><div class="r">Stand ${d(todayIso())}<br>${rows.length} Produkte · CHF ${chf(tot)}</div></div>
+    <table class="btab"><thead><tr><th>Produkt</th><th>Zulassung</th><th class="n">Bestand</th><th>Einheit</th><th class="n">Preis CHF</th><th class="n">Wert CHF</th><th>Zuletzt verwendet</th><th>Erfasst am</th></tr></thead>
+    <tbody>${rows.map(({ p, wert, last }) => `<tr class="${print ? '' : 'click'}" ${print ? '' : `data-act="prodEdit" data-id="${p.id}"`}><td>${esc(p.name)}${p.aktuell === false ? ' <span class="nr">(nicht aktuell)</span>' : ''}</td><td class="nr">${esc(p.zulassung || '')}</td><td class="n">${fmtNum(p.inventar)}</td><td>${esc(p.einheit || '')}</td>
+      <td class="n">${chf(p.preis)}</td><td class="n">${chf(wert)}</td><td>${last ? d(last) : 'nie'}</td><td class="nr">${p.inventarAm ? d(p.inventarAm) : ''}</td></tr>`).join('')}
+    <tr class="tot invsum"><td colspan="5"><b>Lagerwert total</b></td><td class="n"><b>${chf(tot)}</b></td><td colspan="2"></td></tr></tbody></table></div>`;
+}
+function invStockCsv() {
+  const rows = [['Produkt', 'Zulassung', 'Bestand', 'Einheit', 'Preis CHF', 'Wert CHF', 'Zuletzt verwendet', 'Inventar erfasst am']];
+  invStock().forEach(({ p, wert, last }) => rows.push([p.name, p.zulassung, p.inventar, p.einheit, (p.preis || 0).toFixed(2), wert.toFixed(2), last, p.inventarAm || '']));
+  download(`Inventar_Bestand_${todayIso()}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+}
+function invStockContent() {
+  const S = App.spray, rows = invStock();
+  return `<div class="filters"><select class="input" data-plain data-in="spInvs" style="width:auto"><option value="name">Sortierung: Name</option><option value="wert" ${S.invs === 'wert' ? 'selected' : ''}>Sortierung: Wert (höchster zuerst)</option></select>
+      <button class="btn primary" data-act="invStockPrint" ${rows.length ? '' : 'disabled'}>Drucken / PDF</button><button class="btn" data-act="invStockCsv" ${rows.length ? '' : 'disabled'}>Excel (CSV)</button></div>
+    <p class="nr">Bestand wird in der Produkteliste eingetragen. Zeile antippen, um das Produkt zu öffnen.</p>
+    ${rows.length ? `<div class="panel tscroll">${invStockHtml()}</div>` : '<div class="empty">Kein Produkt mit Bestand erfasst.</div>'}`;
 }
 /* ================= Kunden und Felder aus MyJohnDeere ================= */
 // Sobald ein Abgleich mit MyJohnDeere eingelesen wurde, werden Kunden und Felder nur noch dort gepflegt.
@@ -2938,6 +3049,14 @@ document.addEventListener('click', async e => {
     case 'jbPrint': jdbPrint(); break;
     case 'jbRow': jdbDetail(id); break;
     case 'jbMore': App.jdb.limit = (App.jdb.limit || 300) + 300; App.render(); break;
+    case 'aView': App.filter.aview = t.dataset.v; ls('lp_aview', t.dataset.v); App.render(); break;
+    case 'alPreset': alPreset(t.dataset.v); break;
+    case 'alReset': Object.assign(App.al, { von: '', bis: '', k: '', a: '', c: '', m: '', f: '', grp: '', limit: 300 }); App.render(); break;
+    case 'alCsv': alCsv(); break;
+    case 'alPrint': alPrint(); break;
+    case 'alMore': App.al.limit = (App.al.limit || 300) + 300; App.render(); break;
+    case 'invStockPrint': printHtml('Inventar', invStockHtml({ print: true }), { noTitle: true }); break;
+    case 'invStockCsv': invStockCsv(); break;
     case 'spMore': App.spray.jlimit += 200; App.render(); break;
     case 'spAkSel': App.spray.ak = id; App.render(); window.scrollTo(0, 0); break;
     case 'spBillCsv': billingCsv(); break;
@@ -3040,9 +3159,10 @@ document.addEventListener('change', e => {
   if (k === 'spInv') { invEdit(e.target); return; }
   if (k === 'spPrAkt') { prodAktToggle(e.target); return; }
   if (k === 'spPrSeit') { if (e.target.value) { App.spray.prseit = e.target.value; App.render(); } return; }
+  if (k === 'al') { App.al[e.target.dataset.k] = e.target.value; App.al.limit = 300; App.render(); return; }
   if (k === 'jb') { App.jdb[e.target.dataset.k] = e.target.value; App.jdb.limit = 300; App.render(); return; }
   if (k === 'spJf') { const S = App.spray, fk = e.target.dataset.k; S.jf[fk] = e.target.value; if (fk === 'k') { S.jf.p = ''; S.jf.f = ''; } S.jlimit = 200; App.render(); return; }
-  const SP = { spAk: 'ak', spAv: 'av', spAb: 'ab', spNy: 'ny', spNk: 'nk', spNc: 'nc', spJy: 'jy', spPk: 'pk', spJsort: 'jsort', spPrs: 'prs' };
+  const SP = { spAk: 'ak', spAv: 'av', spAb: 'ab', spNy: 'ny', spNk: 'nk', spNc: 'nc', spJy: 'jy', spPk: 'pk', spJsort: 'jsort', spPrs: 'prs', spInvs: 'invs' };
   if (SP[k]) { App.spray[SP[k]] = e.target.value; if (k === 'spJy') App.spray.jlimit = 200; App.render(); return; }
   const SPB = { spAg: 'ag', spNgep: 'ngep', spPall: 'pall', spPrall: 'prall' };
   if (SPB[k]) { App.spray[SPB[k]] = e.target.checked; App.render(); return; }
