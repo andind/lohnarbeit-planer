@@ -483,7 +483,7 @@ const App = {
   filter: { auftraege: 'offen', q: '', kq: '', aview: ls('lp_aview') || 'karten' },
   al: { von: '', bis: '', k: '', a: '', c: '', m: '', f: '', grp: '', sort: 'desc', limit: 300 },
   jdb: { rows: null, meta: null, von: null, bis: null, k: '', a: '', f: '', m: '', c: '', q: '', grp: '', sort: 'desc', limit: 300 },
-  plan: { side: ls('lp_pside') !== '0', mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
+  plan: { axW: ls('lp_axW') || 'tage', axT: ls('lp_axT') || 'senkrecht', side: ls('lp_pside') !== '0', mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false, zoom: +(ls('lp_zoom') || 1),
   spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jsort: 'desc', jf: null, jfOpen: false, jlimit: 200,
     ak: '', av: `${new Date().getFullYear()}-01-01`, ab: todayIso(), ag: false, ny: 0, nk: '', nc: '', ngep: false, pk: '', pall: false, prq: '', prall: false },
@@ -603,10 +603,11 @@ const Views = {
     },
     content() {
       const P = App.plan, days = this.days(), cols = this.columns(days);
-      PX = 0.75 * App.zoom;
+      App.tlH = P.mode === 'tag' && P.axT === 'waagrecht';
+      PX = (App.tlH ? 1.2 : 0.75) * App.zoom;
       let grid;
       if (!cols.length) grid = `<div class="empty">${P.nurBelegt || P.aa ? 'Keine passenden Maschinen – Filter oben anpassen.' : 'In diesem Zeitraum ist keine Maschine in Saison.<br>Saison unter <b>Maschinen</b> anpassen.'}</div>`;
-      else grid = P.mode === 'tag' ? this.dayTimeline(days[0], cols) : this.weekGrid(days, cols);
+      else grid = P.mode === 'tag' ? (App.tlH ? this.dayTimelineH(days[0], cols) : this.dayTimeline(days[0], cols)) : (P.axW === 'maschinen' ? this.weekGridM(days, cols) : this.weekGrid(days, cols));
       const unpl = Store.all('auftraege').filter(a => isOpen(a) && !a.datum)
         .sort((x, y) => (x.wunsch || '9999').localeCompare(y.wunsch || '9999'));
       if (App.fs) return `<div class="fsview">
@@ -626,24 +627,34 @@ const Views = {
         </aside></div>`;
     },
     // ---- Woche: Maschinen nebeneinander, pro Tag eine 24h-Leiste und die Aufträge
-    weekGrid(days, cols) {
-      const today = todayIso(), c = Store.cfg(), b = toMin(c.beginn) ?? 420, e = toMin(c.ende) ?? 1140, cap = capacity();
-      const head = `<div class="g-corner"></div>` + cols.map(col => `<div class="g-head">${this.head(col)}</div>`).join('');
+    // eine Zelle (Tag × Maschine) der Wochenansicht
+    weekCell(d, col) {
+      const today = todayIso(), c = Store.cfg(), b = toMin(c.beginn) ?? 420, e = toMin(c.ende) ?? 1140;
       const pct = m => (m / 1440 * 100).toFixed(2) + '%';
-      const rows = days.map(d => `<div class="g-day ${d === today ? 'today' : ''}" data-act="dayView" data-d="${d}" title="Tagesansicht"><b>${fmtDate(d, { weekday: 'short' })}</b><small>${fmtDate(d, { day: '2-digit', month: '2-digit' })}</small></div>` +
-        cols.map(col => {
-          const off = col.m && !inSeason(col.m, d);
-          const { items } = schedule(d, col.id);
-          const used = items.reduce((s, it) => s + it.end - it.start, 0);
-          const strip = items.length ? `<div class="strip" title="0–24 Uhr">
-              <i class="night" style="left:0;width:${pct(b)}"></i><i class="night" style="left:${pct(e)};right:0"></i>
-              ${items.map(it => `<i class="job ${App.sel.has(it.a.id) ? 'sel' : ''}" style="left:${pct(it.start)};width:${pct(it.end - it.start)}" title="${esc(kundeName(it.a.kunde))} ${fromMin(it.start)}–${fromMin(it.end)}"></i>`).join('')}
-              <span class="ticks"><em>0</em><em>6</em><em>12</em><em>18</em><em>24</em></span></div>` : '';
-          return `<div class="g-cell ${off ? 'off' : ''} ${d === today ? 'today' : ''}" ${off ? '' : `data-drop="${d}|${col.id}"`}>
-            ${strip}${items.map(it => planCard(it)).join('')}
-            ${off && !items.length ? '<span class="nr">ausser Saison</span>' : ''}</div>`;
-        }).join('')).join('');
+      const off = col.m && !inSeason(col.m, d);
+      const { items } = schedule(d, col.id);
+      const strip = items.length ? `<div class="strip" title="0–24 Uhr">
+          <i class="night" style="left:0;width:${pct(b)}"></i><i class="night" style="left:${pct(e)};right:0"></i>
+          ${items.map(it => `<i class="job ${App.sel.has(it.a.id) ? 'sel' : ''}" style="left:${pct(it.start)};width:${pct(it.end - it.start)}" title="${esc(kundeName(it.a.kunde))} ${fromMin(it.start)}–${fromMin(it.end)}"></i>`).join('')}
+          <span class="ticks"><em>0</em><em>6</em><em>12</em><em>18</em><em>24</em></span></div>` : '';
+      return `<div class="g-cell ${off ? 'off' : ''} ${d === today ? 'today' : ''}" ${off ? '' : `data-drop="${d}|${col.id}"`}>
+        ${strip}${items.map(it => planCard(it)).join('')}
+        ${off && !items.length ? '<span class="nr">ausser Saison</span>' : ''}</div>`;
+    },
+    dayHead(d, cls) {
+      return `<div class="${cls} ${d === todayIso() ? 'today' : ''}" data-act="dayView" data-d="${d}" title="Tagesansicht"><b>${fmtDate(d, { weekday: 'short' })}</b><small>${fmtDate(d, { day: '2-digit', month: '2-digit' })}</small></div>`;
+    },
+    // ---- Woche: Tage als Zeilen, Maschinen nebeneinander
+    weekGrid(days, cols) {
+      const head = `<div class="g-corner"></div>` + cols.map(col => `<div class="g-head">${this.head(col)}</div>`).join('');
+      const rows = days.map(d => this.dayHead(d, 'g-day') + cols.map(col => this.weekCell(d, col)).join('')).join('');
       return `<div class="gridwrap cal" id="cal"><div class="pgrid" style="zoom:${App.zoom};grid-template-columns: 64px repeat(${cols.length}, minmax(140px, 1fr))">${head}${rows}</div></div>`;
+    },
+    // ---- Woche getauscht: Maschinen als Zeilen, Tage nebeneinander
+    weekGridM(days, cols) {
+      const head = `<div class="g-corner"></div>` + days.map(d => this.dayHead(d, 'g-head g-dayh')).join('');
+      const rows = cols.map(col => `<div class="g-day g-mrow">${this.head(col)}</div>` + days.map(d => this.weekCell(d, col)).join('')).join('');
+      return `<div class="gridwrap cal" id="cal"><div class="pgrid axm" style="zoom:${App.zoom};grid-template-columns: var(--mcol, 150px) repeat(${days.length}, minmax(150px, 1fr))">${head}${rows}</div></div>`;
     },
     // ---- Tag: senkrechte Zeitachse 0–24 Uhr, Maschinen als Spalten
     dayTimeline(d, cols) {
@@ -655,17 +666,8 @@ const Views = {
         const off = col.m && !inSeason(col.m, d);
         const { items } = schedule(d, col.id);
         const used = items.reduce((s, it) => s + it.end - it.start, 0);
-        const blocks = items.map(it => {
-          const s = it.start, q = it.end, h = Math.max(20, (q - s) * PX - 2), a = it.a, st = statusOf(a);
-          const op = isOpen(a), info = it.pushed && op ? `⤵ angedockt (gewünscht ${esc(a.zeit)})` : it.noDur && op ? '⚠ Dauer fehlt (1 h angenommen)' : it.over && op ? '⚠ läuft über Mitternacht' : '';
-          return `<div class="blk ${st} ${(it.noDur || it.over) && op ? 'warn' : ''} ${App.sel.has(a.id) ? 'sel' : ''}" style="top:${s * PX + 1}px;height:${h}px" data-act="editOrder" data-id="${a.id}" ${isOpen(a) ? 'draggable="true"' : ''} title="${esc(kfText(a))} ${fromMin(s)}–${fromMin(q)}">
-            <b>${fromMin(s)}–${fromMin(q)} ${kfHtml(a)}${it.fixed ? ' 📌' : ''}</b>
-            ${h > 34 ? `<span>${artKultur(a)}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}${dauerOf(a) ? ` · ${hrs(dauerOf(a))}` : ''}${st === 'erledigt' || st === 'verrechnet' ? ' · ✓' : ''}</span>` : ''}
-            ${h > 54 && info ? `<span class="w">${info}</span>` : ''}
-            ${h > 54 ? sprayShort(a, { noFeld: true }) : ''}
-            ${h > 70 && a.notiz ? `<span class="note">${esc(a.notiz)}</span>` : ''}
-          </div>`;
-        }).join('');
+        const blocks = items.map(it => this.blkHtml(it, false)).join('');
+
         heads.push(`<div class="tl-head">${this.head(col)}</div>`);
         bodies.push(`<div class="tl-col ${off ? 'off' : ''}" style="height:${H}px" ${off ? '' : `data-drop="${d}|${col.id}" data-tl="1"`}>
             <i class="night" style="top:0;height:${b * PX}px"></i><i class="night" style="top:${e * PX}px;bottom:0"></i>
@@ -678,18 +680,54 @@ const Views = {
         <div class="tl-corner" data-act="weekView" title="Wochenansicht">Woche</div>${heads.join('')}<div class="tl-axis" data-act="weekView" title="Wochenansicht" style="height:${H}px">${axis}</div>${bodies.join('')}
       </div></div>`;
     },
+    // Auftragsblock in der Tagesansicht (senkrecht: Höhe = Dauer, waagrecht: Breite = Dauer)
+    blkHtml(it, horiz) {
+      const s = it.start, q = it.end, a = it.a, st = statusOf(a), len = Math.max(20, (q - s) * PX - 2);
+      const h = horiz ? 999 : len, w = horiz ? len : 999;
+      const op = isOpen(a), info = it.pushed && op ? `⤵ angedockt (gewünscht ${esc(a.zeit)})` : it.noDur && op ? '⚠ Dauer fehlt (1 h angenommen)' : it.over && op ? '⚠ läuft über Mitternacht' : '';
+      const pos = horiz ? `left:${s * PX + 1}px;width:${len}px` : `top:${s * PX + 1}px;height:${len}px`;
+      const big = w > 90;
+      return `<div class="blk ${st} ${(it.noDur || it.over) && op ? 'warn' : ''} ${App.sel.has(a.id) ? 'sel' : ''}" style="${pos}" data-act="editOrder" data-id="${a.id}" ${isOpen(a) ? 'draggable="true"' : ''} title="${esc(kfText(a))} ${fromMin(s)}–${fromMin(q)}${horiz ? ' · ' + esc(artKultur(a).replace(/<[^>]+>/g, '')) : ''}">
+        <b>${fromMin(s)}–${fromMin(q)}${horiz ? '</b><b>' : ' '}${kfHtml(a)}${it.fixed ? ' 📌' : ''}</b>
+        ${h > 34 && big ? `<span>${artKultur(a)}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}${dauerOf(a) ? ` · ${hrs(dauerOf(a))}` : ''}${st === 'erledigt' || st === 'verrechnet' ? ' · ✓' : ''}</span>` : ''}
+        ${h > 54 && big && info ? `<span class="w">${info}</span>` : ''}
+        ${h > 54 && big ? sprayShort(a, { noFeld: true }) : ''}
+        ${h > 70 && big && a.notiz ? `<span class="note">${esc(a.notiz)}</span>` : ''}
+      </div>`;
+    },
+    // ---- Tag getauscht: waagrechte Zeitachse 0–24 Uhr, Maschinen als Zeilen
+    dayTimelineH(d, cols) {
+      const c = Store.cfg(), b = toMin(c.beginn) ?? 420, e = toMin(c.ende) ?? 1140, Wd = 1440 * PX;
+      const now = new Date(), nowMin = now.getHours() * 60 + now.getMinutes(), isToday = d === todayIso();
+      const rh = Math.round(112 * Math.max(0.7, Math.min(1.5, App.zoom)));
+      const axis = Array.from({ length: 25 }, (_, h) => `<span style="left:${h * 60 * PX}px">${pad(h)}:00</span>`).join('');
+      const rows = cols.map(col => {
+        const off = col.m && !inSeason(col.m, d);
+        const { items } = schedule(d, col.id);
+        return `<div class="tl-head tlh-m">${this.head(col)}</div>
+          <div class="tl-col tlh-lane ${off ? 'off' : ''}" style="height:${rh}px" ${off ? '' : `data-drop="${d}|${col.id}" data-tl="x"`}>
+            <i class="night" style="left:0;width:${b * PX}px"></i><i class="night" style="left:${e * PX}px;right:0"></i>
+            ${items.map(it => this.blkHtml(it, true)).join('')}${isToday ? `<i class="now" style="left:${nowMin * PX}px"></i>` : ''}
+            ${off ? '<span class="nr" style="position:absolute;top:8px;left:8px">ausser Saison</span>' : ''}
+          </div>`;
+      }).join('');
+      return `<div class="tlwrap tlh cal" id="tlwrapH"><div class="tl" style="--hw:${60 * PX}px;grid-template-columns:var(--mcol, 160px) ${Wd}px">
+        <div class="tl-corner" data-act="weekView" title="Wochenansicht">Woche</div><div class="tl-axis tlh-axis" data-act="weekView" title="Wochenansicht">${axis}</div>${rows}
+      </div></div>`;
+    },
     after() {
       const cal = $('.cal');
       if (cal) {
         if (App.zoomAnchor) { App.zoomAnchor(cal); App.zoomAnchor = null; }
         else if (App.tlScroll) { cal.scrollTop = App.tlScroll.top; cal.scrollLeft = App.tlScroll.left; }
         else if (cal.id === 'tlwrap') cal.scrollTop = Math.max(0, ((toMin(Store.cfg().beginn) ?? 420) - 60) * PX);
+        else if (cal.id === 'tlwrapH') cal.scrollLeft = Math.max(0, ((toMin(Store.cfg().beginn) ?? 420) - 60) * PX);
         attachPinch(cal);
       }
       let grabY = 0; // Abstand Mauszeiger ↔ Oberkante des gezogenen Blocks
       $$('[draggable="true"]').forEach(el => el.addEventListener('dragstart', e => {
         e.dataTransfer.setData('text/plain', el.dataset.id); e.dataTransfer.effectAllowed = 'move';
-        grabY = el.classList.contains('blk') ? e.clientY - el.getBoundingClientRect().top : 0;
+        grabY = el.classList.contains('blk') ? (App.tlH ? e.clientX - el.getBoundingClientRect().left : e.clientY - el.getBoundingClientRect().top) : 0;
         const n = App.sel.has(el.dataset.id) ? App.sel.size : 1;
         if (n > 1) { const g = document.createElement('div'); g.className = 'dragcount'; g.textContent = `${n} Aufträge`; document.body.appendChild(g); e.dataTransfer.setDragImage(g, 10, 10); setTimeout(() => g.remove(), 0); }
       }));
@@ -698,7 +736,7 @@ const Views = {
         el.addEventListener('dragleave', () => el.classList.remove('drop'));
         el.addEventListener('drop', e => {
           e.preventDefault(); el.classList.remove('drop');
-          planDrop(el, e.dataTransfer.getData('text/plain'), e.clientY, grabY, e.target);
+          planDrop(el, e.dataTransfer.getData('text/plain'), App.tlH ? e.clientX : e.clientY, grabY, e.target);
         });
       });
       // Tablet/Handy: Ziehen mit dem Finger (lange drücken, dann ziehen)
@@ -709,18 +747,18 @@ const Views = {
         const open = y => {
           if (fired || Dlg.el.open) return; fired = true;
           const [d, mid] = el.dataset.drop.split('|');
-          const minute = el.dataset.tl ? Math.max(0, (y - el.getBoundingClientRect().top) / UIZ() / PX) : null;
+          const minute = el.dataset.tl ? Math.max(0, (y - (el.dataset.tl === 'x' ? el.getBoundingClientRect().left : el.getBoundingClientRect().top)) / UIZ() / PX) : null;
           if (navigator.vibrate) try { navigator.vibrate(15); } catch { }
           pickerDialog(d, mid, minute);
         };
         el.addEventListener('pointerdown', e => {
           if ((e.pointerType === 'mouse' && e.button !== 0) || e.target.closest('.blk,.pcard,.load,.strip')) return;
           sx = e.clientX; sy = e.clientY; fired = false; clearTimeout(timer);
-          timer = setTimeout(() => open(sy), 550);
+          timer = setTimeout(() => open(el.dataset.tl === 'x' ? sx : sy), 550);
         });
         el.addEventListener('pointermove', e => { if (Math.hypot(e.clientX - sx, e.clientY - sy) > 10) clearTimeout(timer); });
         ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => el.addEventListener(n, () => clearTimeout(timer)));
-        el.addEventListener('contextmenu', e => { if (e.target.closest('.blk,.pcard')) return; e.preventDefault(); clearTimeout(timer); fired = false; open(e.clientY); });
+        el.addEventListener('contextmenu', e => { if (e.target.closest('.blk,.pcard')) return; e.preventDefault(); clearTimeout(timer); fired = false; open(el.dataset.tl === 'x' ? e.clientX : e.clientY); });
       });
     }
   },
@@ -807,6 +845,12 @@ const Views = {
           </div>
           <p>Aufträge ohne feste Startzeit docken ab Arbeitsbeginn aneinander.</p></div>
         ${uiScalePanel()}
+        <div class="panel"><h2>Planung: Achsen</h2>
+          <div class="two">
+            <label class="fld"><span>Wochenansicht</span><select class="input" data-plain data-in="axW"><option value="tage">Tage untereinander, Maschinen nebeneinander</option><option value="maschinen" ${App.plan.axW === 'maschinen' ? 'selected' : ''}>Maschinen untereinander, Tage nebeneinander</option></select></label>
+            <label class="fld"><span>Tagesansicht</span><select class="input" data-plain data-in="axT"><option value="senkrecht">Zeitachse senkrecht, Maschinen nebeneinander</option><option value="waagrecht" ${App.plan.axT === 'waagrecht' ? 'selected' : ''}>Zeitachse waagrecht, Maschinen untereinander</option></select></label>
+          </div>
+          <p class="nr">Gilt für dieses Gerät. Ziehen, Mehrfachauswahl und Zoom funktionieren in beiden Anordnungen.</p></div>
         ${listPanel('arbeitsarten', 'Arbeitsarten', 'Auswahl bei Aufträgen und Maschinen. Umbenennen ändert auch bestehende Aufträge und Maschinen.')}
         ${listPanel('kulturen', 'Kulturen', 'Auswahl bei Aufträgen. Umbenennen ändert auch bestehende Aufträge.')}
       </div><div>
@@ -1322,6 +1366,7 @@ function setZoom(z) {
   if (cal) { // Bildmitte festhalten
     const cx = cal.scrollLeft + cal.clientWidth / 2, cy = cal.scrollTop + cal.clientHeight / 2, r = z / old;
     const dayCols = cal.id === 'tlwrap';
+    if (cal.id === 'tlwrapH') { App.zoomAnchor = c => { c.scrollLeft = Math.max(0, cx * r - c.clientWidth / 2); c.scrollTop = Math.max(0, cy - c.clientHeight / 2); }; App.zoom = z; ls('lp_zoom', String(z)); App.render(); return; }
     App.zoomAnchor = c => {
       c.scrollTop = Math.max(0, cy * r - c.clientHeight / 2);
       c.scrollLeft = Math.max(0, (dayCols ? cx * Math.max(0.5, Math.min(1.6, z)) / Math.max(0.5, Math.min(1.6, old)) : cx * r) - c.clientWidth / 2);
@@ -2732,7 +2777,7 @@ function planDrop(el, id, clientY, grabY, target) {
   if (!el.dataset.drop) { moveOrders(ids, id, { unplan: true }); return; }
   const [d, mid] = el.dataset.drop.split('|');
   let minute = null, top = null, beforeId = null;
-  if (el.dataset.tl) { const r = el.getBoundingClientRect(); const z = UIZ(); minute = Math.max(0, (clientY - r.top) / z / PX); top = Math.max(0, (clientY - grabY - r.top) / z / PX); }
+  if (el.dataset.tl) { const r0 = el.getBoundingClientRect(), r = el.dataset.tl === 'x' ? { top: r0.left } : r0; const z = UIZ(); minute = Math.max(0, (clientY - r.top) / z / PX); top = Math.max(0, (clientY - grabY - r.top) / z / PX); }
   else { const over = target && target.closest && target.closest('.pcard[data-id]'); if (over && over.dataset.id !== id) beforeId = over.dataset.id; }
   moveOrders(ids, id, { datum: d, mid, minute, top, beforeId });
 }
@@ -2740,7 +2785,7 @@ function touchDrag(el) {
   el.classList.add('tdrag');
   el.addEventListener('pointerdown', e => {
     if (e.pointerType === 'mouse' || App.selMode) return;
-    const sx = e.clientX, sy = e.clientY, r0 = el.getBoundingClientRect(), grab = el.classList.contains('blk') ? e.clientY - r0.top : 0;
+    const sx = e.clientX, sy = e.clientY, r0 = el.getBoundingClientRect(), grab = el.classList.contains('blk') ? (App.tlH ? e.clientX - r0.left : e.clientY - r0.top) : 0;
     let on = false, ghost = null, over = null, lx = sx, ly = sy;
     const timer = setTimeout(() => {
       on = true; App.tdrag = true;
@@ -2767,7 +2812,7 @@ function touchDrag(el) {
       if (!on) return;
       App.tdrag = false; App.noClickUntil = Date.now() + 450;
       ghost && ghost.remove(); el.classList.remove('dragging'); over && over.classList.remove('drop');
-      if (drop && over && Math.hypot(lx - sx, ly - sy) > 12) { const t = document.elementFromPoint(lx, ly); planDrop(over, el.dataset.id, ly, grab, t); }
+      if (drop && over && Math.hypot(lx - sx, ly - sy) > 12) { const t = document.elementFromPoint(lx, ly); planDrop(over, el.dataset.id, App.tlH ? lx : ly, grab, t); }
     };
     const up = () => end(true), cancel = () => end(false);
     window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', cancel);
@@ -3468,6 +3513,7 @@ document.addEventListener('change', e => {
   if (k === 'spInv') { invEdit(e.target); return; }
   if (k === 'spPrAkt') { prodAktToggle(e.target); return; }
   if (k === 'spPrSeit') { if (e.target.value) { App.spray.prseit = e.target.value; App.render(); } return; }
+  if (k === 'axW' || k === 'axT') { App.plan[k] = e.target.value; ls(k === 'axW' ? 'lp_axW' : 'lp_axT', e.target.value); App.tlScroll = null; toast('Anordnung der Planung geändert'); return; }
   if (k === 'uiScale') { uiScaleSet(e.target.value); return; }
   if (k === 'alSel' || k === 'alSelAll') { alSelToggle(e.target); return; }
   if (k === 'al') { App.al[e.target.dataset.k] = e.target.value; App.al.limit = 300; App.render(); return; }
