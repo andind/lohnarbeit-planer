@@ -711,3 +711,6 @@ tr.click:hover td { background: var(--surface-2); }
   .planwrap { grid-template-columns: minmax(0,1fr) 340px; }
   .day, .daymode .g-cell { min-height: 320px; }
 }
+/* Planung: Feldname hinter dem Kunden */
+.kfeld { font-weight: 500; color: var(--muted); }
+@media print { .planexp .kfeld { color: #555; } }

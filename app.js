@@ -658,11 +658,11 @@ const Views = {
         const blocks = items.map(it => {
           const s = it.start, q = it.end, h = Math.max(20, (q - s) * PX - 2), a = it.a, st = statusOf(a);
           const op = isOpen(a), info = it.pushed && op ? `⤵ angedockt (gewünscht ${esc(a.zeit)})` : it.noDur && op ? '⚠ Dauer fehlt (1 h angenommen)' : it.over && op ? '⚠ läuft über Mitternacht' : '';
-          return `<div class="blk ${st} ${(it.noDur || it.over) && op ? 'warn' : ''} ${App.sel.has(a.id) ? 'sel' : ''}" style="top:${s * PX + 1}px;height:${h}px" data-act="editOrder" data-id="${a.id}" ${isOpen(a) ? 'draggable="true"' : ''} title="${esc(kundeName(a.kunde))} ${fromMin(s)}–${fromMin(q)}">
-            <b>${fromMin(s)}–${fromMin(q)} ${esc(kundeName(a.kunde))}${it.fixed ? ' 📌' : ''}</b>
+          return `<div class="blk ${st} ${(it.noDur || it.over) && op ? 'warn' : ''} ${App.sel.has(a.id) ? 'sel' : ''}" style="top:${s * PX + 1}px;height:${h}px" data-act="editOrder" data-id="${a.id}" ${isOpen(a) ? 'draggable="true"' : ''} title="${esc(kfText(a))} ${fromMin(s)}–${fromMin(q)}">
+            <b>${fromMin(s)}–${fromMin(q)} ${kfHtml(a)}${it.fixed ? ' 📌' : ''}</b>
             ${h > 34 ? `<span>${artKultur(a)}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}${dauerOf(a) ? ` · ${hrs(dauerOf(a))}` : ''}${st === 'erledigt' || st === 'verrechnet' ? ' · ✓' : ''}</span>` : ''}
             ${h > 54 && info ? `<span class="w">${info}</span>` : ''}
-            ${h > 54 ? sprayShort(a) : ''}
+            ${h > 54 ? sprayShort(a, { noFeld: true }) : ''}
             ${h > 70 && a.notiz ? `<span class="note">${esc(a.notiz)}</span>` : ''}
           </div>`;
         }).join('');
@@ -855,22 +855,26 @@ function orderCard(a) {
       ${k?.tel ? `<a class="btn small" href="tel:${esc(k.tel.replace(/\s/g, ''))}" data-stop>📞</a>` : ''}</div>` : ''}
   </article>`;
 }
+// Planung: Feldname hinter dem Kunden
+const feldOf = a => a.feld || (a.kfeld && typeof feldById === 'function' && feldById(a.kfeld) ? feldById(a.kfeld).name : '');
+const kfHtml = a => `${esc(kundeName(a.kunde))}${feldOf(a) ? `<span class="kfeld"> · ${esc(feldOf(a))}</span>` : ''}`;
+const kfText = a => kundeName(a.kunde) + (feldOf(a) ? ' · ' + feldOf(a) : '');
 function planCard(it) {
   const a = it.a, s = statusOf(a), d = dauerOf(a);
   return `<div class="pcard ${s} ${App.sel.has(a.id) ? 'sel' : ''}" data-act="editOrder" data-id="${a.id}" ${isOpen(a) ? 'draggable="true"' : ''}>
     <div class="tm">${fromMin(it.start)}–${fromMin(it.end)}${it.fixed ? ' 📌' : ''}${it.pushed ? ' ⤵' : ''}</div>
-    <b>${esc(kundeName(a.kunde))}</b>
+    <b>${kfHtml(a)}</b>
     <div class="sub">${artKultur(a)}</div>
     <div class="sub">${a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''}${a.flaeche && (d || isOpen(a)) ? ' · ' : ''}${d ? '⏱ ' + hrs(d) : isOpen(a) ? '⏱ Dauer fehlt' : ''}${s === 'erledigt' || s === 'verrechnet' ? ' · ✓' : ''}</div>
-    ${sprayShort(a)}${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}
+    ${sprayShort(a, { noFeld: true })}${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}
   </div>`;
 }
 function unplCard(a) {
   return `<div class="pcard unpl ${App.sel.has(a.id) ? 'sel' : ''}" data-act="planOrder" data-id="${a.id}" draggable="true">
-    <b>${esc(kundeName(a.kunde))}</b>
+    <b>${kfHtml(a)}</b>
     <div class="sub">${artKultur(a)}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}</div>
     <div class="meta"><span class="chip ${wishLate(a) ? 'warn' : ''}">${wishTxt(a)}</span></div>
-    ${sprayShort(a)}${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}
+    ${sprayShort(a, { noFeld: true })}${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}
   </div>`;
 }
 
@@ -1452,6 +1456,7 @@ function drawDayPlan(mid, d) {
       const adr = [k.adresse, [k.plz, k.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
       if (adr) { ctx.font = F('400', 28); wrapLines(ctx, adr, w).forEach(l => lines.push([l, F('400', 28), muted, 38])); }
       if (k.tel) lines.push(['Tel. ' + k.tel, F('400', 28), muted, 38]);
+      if (feldOf(a)) { ctx.font = F('600', 28); wrapLines(ctx, 'Feld: ' + feldOf(a), w).forEach(l => lines.push([l, F('600', 28), ink, 38])); }
       ctx.font = F('600', 30);
       const work = [a.arbeit, a.kultur].filter(Boolean).join(' · ') + (a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : '') + (dauerOf(a) ? ` · ${hrs(dauerOf(a))}` : '');
       wrapLines(ctx, work, w).forEach(l => lines.push([l, F('600', 30), green, 42]));
@@ -1530,10 +1535,10 @@ const prodList = a => (a.produkte || []).filter(p => p.name);
 const prodNames = a => prodList(a).map(p => p.name);
 const r2 = n => Math.round(n * 100) / 100;
 // Anzeige in der Planung: nur Produktnamen, ohne Aufwandmengen
-function sprayShort(a) {
+function sprayShort(a, { noFeld } = {}) {
   if (!isSpray(a)) return '';
   const parts = [];
-  if (a.feld) parts.push(`Feld ${esc(a.feld)}`);
+  if (a.feld && !noFeld) parts.push(`Feld ${esc(a.feld)}`);
   if (prodNames(a).length) parts.push('🧪 ' + prodNames(a).map(esc).join(', '));
   return parts.length ? `<div class="prods">${parts.join(' · ')}</div>` : '';
 }
@@ -2645,8 +2650,8 @@ function planExportData() {
   const V = Views.plan, days = V.days(), cols = V.columns(days);
   const cell = (d, col) => schedule(d, col.id).items.map(it => {
     const a = it.a;
-    return { zeit: `${fromMin(it.start)}–${fromMin(it.end)}`, kunde: kundeName(a.kunde),
-      info: [a.arbeit, a.kultur, a.flaeche ? fmtNum(a.flaeche) + ' ha' : '', isSpray(a) && a.feld ? a.feld : ''].filter(Boolean).join(' · '),
+    return { zeit: `${fromMin(it.start)}–${fromMin(it.end)}`, kunde: kfText(a),
+      info: [a.arbeit, a.kultur, a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''].filter(Boolean).join(' · '),
       prod: isSpray(a) ? prodNames(a).join(', ') : '', status: statusOf(a) };
   });
   const rows = days.map(d => ({ d, cells: cols.map(col => cell(d, col)) }));
@@ -2675,7 +2680,7 @@ function planExportPdf() {
   const it = c => `<div class="pxi"><b>${esc(c.zeit)}</b> ${esc(c.kunde)}<br><span>${esc(c.info)}</span>${c.prod ? `<br><span class="pxp">${esc(c.prod)}</span>` : ''}</div>`;
   const table = `<table class="btab pxt"><thead><tr>${x.mode === 'woche' ? '<th style="width:86px">Tag</th>' : ''}${x.cols.map(c => `<th>${esc(mLabel(c.m))}</th>`).join('')}</tr></thead><tbody>
     ${x.rows.map(r => `<tr>${x.mode === 'woche' ? `<td class="pxd"><b>${esc(dayLbl(r.d))}</b></td>` : ''}${r.cells.map(c => `<td>${c.map(it).join('') || ''}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
-  const un = x.unpl.length ? `<h3 class="pxh">Noch nicht eingeplant (${x.unpl.length})</h3><table class="btab"><tbody>${x.unpl.map(a => `<tr><td>${a.wunsch ? fmtDate(a.wunsch, { day: '2-digit', month: '2-digit' }) : '–'}</td><td>${esc(kundeName(a.kunde))}</td><td>${esc([a.arbeit, a.kultur, a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''].filter(Boolean).join(' · '))}</td><td class="nr">${esc(a.notiz || '')}</td></tr>`).join('')}</tbody></table>` : '';
+  const un = x.unpl.length ? `<h3 class="pxh">Noch nicht eingeplant (${x.unpl.length})</h3><table class="btab"><tbody>${x.unpl.map(a => `<tr><td>${a.wunsch ? fmtDate(a.wunsch, { day: '2-digit', month: '2-digit' }) : '–'}</td><td>${esc(kfText(a))}</td><td>${esc([a.arbeit, a.kultur, a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''].filter(Boolean).join(' · '))}</td><td class="nr">${esc(a.notiz || '')}</td></tr>`).join('')}</tbody></table>` : '';
   printHtml(x.title, `<style>@page { size: A4 landscape; margin: 10mm 10mm 14mm; }</style><div class="planexp"><div class="bill-h"><div><b>${esc(x.title)}</b></div><div class="r">Stand ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}</div></div>${table}${un}</div>`, { noTitle: true });
 }
 function drawPlanOverview(x) {
@@ -2707,7 +2712,7 @@ function drawPlanOverview(x) {
     if (x.unpl.length) {
       y += 40; if (draw) { ctx.font = F('700', 26); ctx.fillStyle = ink; ctx.fillText(`Noch nicht eingeplant (${x.unpl.length})`, P, y); }
       y += 14;
-      x.unpl.forEach(a => { y += 34; if (draw) { ctx.font = F('600', 21); ctx.fillStyle = ink; ctx.fillText(`${a.wunsch ? fmtDate(a.wunsch, { day: '2-digit', month: '2-digit' }) + '  ' : ''}${kundeName(a.kunde)}`, P, y); ctx.font = F('400', 20); ctx.fillStyle = muted; ctx.fillText([a.arbeit, a.kultur, a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''].filter(Boolean).join(' · '), P + Math.min(420, W / 2), y); } });
+      x.unpl.forEach(a => { y += 34; if (draw) { ctx.font = F('600', 21); ctx.fillStyle = ink; ctx.fillText(`${a.wunsch ? fmtDate(a.wunsch, { day: '2-digit', month: '2-digit' }) + '  ' : ''}${kfText(a)}`, P, y); ctx.font = F('400', 20); ctx.fillStyle = muted; ctx.fillText([a.arbeit, a.kultur, a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''].filter(Boolean).join(' · '), P + Math.min(420, W / 2), y); } });
     }
     y += 50; if (draw) { ctx.font = F('400', 18); ctx.fillStyle = muted; ctx.fillText('Lohnarbeit-Planer', P, y); }
     return y + 24;
