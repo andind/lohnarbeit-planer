@@ -606,3 +606,17 @@ tr.click:hover td { background: var(--surface-2); }
   .tabs svg { width: 22px; height: 22px; }
 }
 .seg.mini { flex-wrap: wrap; overflow: visible; }
+/* Berichte: Trennstrich nur zwischen den Aufträgen, nicht zwischen den Produkten */
+.btab.fx td { border-bottom: 0; border-top: 0; }
+.btab.fx tr.job td { border-top: 1px solid var(--line); }
+.btab.fx tr.gp + tr.job td { border-top: 0; }
+.btab.fx tr.mit td { border: 0; padding-top: 2px; padding-bottom: 2px; }
+.btab.fx tr.gp td { border-bottom: 1px solid var(--line); }
+.btab.fx tr.gk td { border-bottom: 2px solid var(--accent); }
+.btab.fx tbody.pblk:last-child tr:last-child td { padding-bottom: 6px; }
+@media print {
+  #printArea .btab.fx td { border-top: 0; border-bottom: 0; }
+  #printArea .btab.fx tr.job td { border-top: 0.6pt solid #999; }
+  #printArea .btab.fx tr.gp + tr.job td, #printArea .btab.fx tr.mit td { border: 0; }
+  #printArea .btab.fx tr.gp td { border-bottom: 0.6pt solid #999; }
+}

@@ -635,7 +635,6 @@ const Views = {
               ${items.map(it => `<i class="job ${App.sel.has(it.a.id) ? 'sel' : ''}" style="left:${pct(it.start)};width:${pct(it.end - it.start)}" title="${esc(kundeName(it.a.kunde))} ${fromMin(it.start)}–${fromMin(it.end)}"></i>`).join('')}
               <span class="ticks"><em>0</em><em>6</em><em>12</em><em>18</em><em>24</em></span></div>` : '';
           return `<div class="g-cell ${off ? 'off' : ''} ${d === today ? 'today' : ''}" ${off ? '' : `data-drop="${d}|${col.id}"`}>
-            ${items.length ? `<div class="load ${used > cap ? 'over' : ''}"><i style="width:${Math.min(100, cap ? used / cap * 100 : 100)}%"></i><span>${fmtNum(used / 60)} / ${fmtNum(cap / 60)} h</span></div>` : ''}
             ${strip}${items.map(it => planCard(it)).join('')}
             ${off && !items.length ? '<span class="nr">ausser Saison</span>' : ''}</div>`;
         }).join('')).join('');
@@ -662,7 +661,7 @@ const Views = {
             ${h > 70 && a.notiz ? `<span class="note">${esc(a.notiz)}</span>` : ''}
           </div>`;
         }).join('');
-        heads.push(`<div class="tl-head">${this.head(col)}${items.length ? `<div class="load ${used > cap ? 'over' : ''}"><i style="width:${Math.min(100, cap ? used / cap * 100 : 100)}%"></i><span>${fmtNum(used / 60)} / ${fmtNum(cap / 60)} h</span></div>` : ''}</div>`);
+        heads.push(`<div class="tl-head">${this.head(col)}</div>`);
         bodies.push(`<div class="tl-col ${off ? 'off' : ''}" style="height:${H}px" ${off ? '' : `data-drop="${d}|${col.id}" data-tl="1"`}>
             <i class="night" style="top:0;height:${b * PX}px"></i><i class="night" style="top:${e * PX}px;bottom:0"></i>
             ${blocks}${isToday ? `<i class="now" style="top:${nowMin * PX}px"></i>` : ''}
@@ -805,7 +804,7 @@ const Views = {
             <label class="fld"><span>Arbeitsbeginn</span><input class="input" type="time" value="${esc(c.beginn)}" data-in="cfg" data-k="beginn"></label>
             <label class="fld"><span>Arbeitsende</span><input class="input" type="time" value="${esc(c.ende)}" data-in="cfg" data-k="ende"></label>
           </div>
-          <p>Aufträge ohne feste Startzeit docken ab Arbeitsbeginn aneinander. Grundlage für die Auslastungsanzeige.</p></div>
+          <p>Aufträge ohne feste Startzeit docken ab Arbeitsbeginn aneinander.</p></div>
         ${listPanel('arbeitsarten', 'Arbeitsarten', 'Auswahl bei Aufträgen und Maschinen. Umbenennen ändert auch bestehende Aufträge und Maschinen.')}
         ${listPanel('kulturen', 'Kulturen', 'Auswahl bei Aufträgen. Umbenennen ändert auch bestehende Aufträge.')}
       </div><div>
