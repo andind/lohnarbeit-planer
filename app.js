@@ -482,7 +482,7 @@ const App = {
   view: ls('lp_view') || 'auftraege',
   filter: { auftraege: 'offen', q: '', kq: '', aview: ls('lp_aview') || 'karten' },
   al: { von: '', bis: '', k: '', a: '', c: '', m: '', f: '', grp: '', sort: 'desc', limit: 300 },
-  jdb: { rows: null, meta: null, von: null, bis: null, k: '', a: '', f: '', m: '', c: '', q: '', grp: '', sort: 'desc', limit: 300 },
+  jdb: { rows: null, meta: null, von: null, bis: null, k: [], a: [], f: [], m: [], c: [], q: '', grp: '', sort: 'desc', limit: 300, open: null },
   plan: { axW: ls('lp_axW') || 'tage', axT: ls('lp_axT') || 'senkrecht', side: ls('lp_pside') !== '0', mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false, zoom: +(ls('lp_zoom') || 1),
   spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jsort: 'desc', jf: null, jfOpen: false, jlimit: 200,
@@ -3157,11 +3157,15 @@ function jdbPreset(v) {
   else if (v === 'alle') { J.von = ''; J.bis = ''; }
   App.render();
 }
+/* ---------- Filter mit Mehrfachauswahl: J.k, J.a, J.f, J.m, J.c sind Listen (leer = alle) ---------- */
+const JDB_MS = { k: ['kunde', 'Kunde', 'Alle Kunden'], a: ['arbeit', 'Arbeit', 'Alle Arbeiten'], f: ['feld', 'Feld', 'Alle Felder'], m: ['maschine', 'Maschine', 'Alle Maschinen'], c: ['kultur', 'Kultur', 'Alle Kulturen'] };
+const jdbArr = v => Array.isArray(v) ? v : v ? [v] : [];
 function jdbFilter(J, skip = '') {
-  const q = norm(J.q);
+  const q = norm(J.q), ok = (key, val) => skip === key || !jdbArr(J[key]).length || jdbArr(J[key]).includes(val);
   return r => (!J.von || r.d >= J.von) && (!J.bis || r.d <= J.bis)
-    && (skip === 'k' || !J.k || r.kunde === J.k) && (skip === 'a' || !J.a || r.arbeit === J.a) && (skip === 'f' || !J.f || r.feld === J.f)
-    && (skip === 'm' || !J.m || r.maschine.split(', ').includes(J.m)) && (skip === 'c' || !J.c || r.kultur === J.c)
+    && ok('k', r.kunde) && ok('a', r.arbeit) && ok('f', r.feld) && ok('c', r.kultur)
+    && (skip === 'm' || !jdbArr(J.m).length || r.maschine.split(', ').some(x => jdbArr(J.m).includes(x)))
+    && (!J.ab || (J.ab === 'ja') === !!jdbAbr(r.id))
     && (!q || [r.kunde, r.feld, r.arbeit, r.maschine, r.kultur, r.produkte, r.sorten, r.fahrer].join(' ').toLowerCase().includes(q));
 }
 const JDB_GRP = [['', 'keine'], ['kunde', 'Kunde'], ['arbeit', 'Arbeit'], ['maschine', 'Maschine'], ['feld', 'Feld'], ['kultur', 'Kultur'], ['monat', 'Monat']];
@@ -3169,40 +3173,144 @@ const jdbGroupKey = (r, g) => g === 'monat' ? r.d.slice(0, 7) : (r[g] || '');
 const jdbGroupLabel = (k, g) => g === 'monat' && k ? `${MONATE_LANG[+k.slice(5, 7) - 1]} ${k.slice(0, 4)}` : (k || '–');
 const jdbList = () => { const J = App.jdb; return (J.rows || []).filter(jdbFilter(J)).sort((a, b) => J.sort === 'asc' ? a.start.localeCompare(b.start) : b.start.localeCompare(a.start)); };
 const jdbHaSum = l => r2(l.reduce((s, r) => s + (r.ha || 0), 0));
-function jdbTable(list, { print } = {}) {
-  const g = App.jdb.grp;
-  const head = `<thead><tr><th>Datum</th><th>Arbeit</th><th>Kunde</th><th>Feld</th><th class="n">ha</th><th>Maschine</th><th>Kultur</th><th>Produkte / Sorte</th><th class="n">Menge</th></tr></thead>`;
-  const row = r => `<tr class="${print ? '' : 'click'}" ${print ? '' : `data-act="jbRow" data-id="${esc(r.id)}"`}><td>${fmtDate(r.d, { day: '2-digit', month: '2-digit', year: '2-digit' })}</td><td>${esc(r.arbeit)}</td><td>${esc(r.kunde)}</td><td>${esc(r.feld)}</td>
-    <td class="n">${r.ha != null ? fmtNum(r.ha) : ''}</td><td>${esc(r.maschine)}</td><td>${esc(r.kultur)}</td><td>${esc([r.produkte, r.sorten].filter(Boolean).join(' · '))}</td><td class="n">${esc(r.menge)}</td></tr>`;
-  if (!g) return `<table class="btab jdbtab">${head}<tbody>${list.map(row).join('')}</tbody></table>`;
+/* ---------- Abgerechnet: Markierung je Arbeitsgang, gespeichert in den Planer-Daten (synchronisiert) ---------- */
+const JDB_ABR = 'jdabr-';
+const jdbAbr = id => Store.get('einstellungen', JDB_ABR + id);
+function jdbMark(ids, on) {
+  const now = todayIso(), ch = [];
+  ids.forEach(id => { const x = jdbAbr(id); if (on && !x) ch.push({ id: JDB_ABR + id, jdabr: true, am: now }); else if (!on && x) ch.push({ id: JDB_ABR + id, del: true }); });
+  if (ch.length) Store.putMany('einstellungen', ch); else App.render();
+  return ch.length;
+}
+function jdbMarkSel(on) {
+  const S = App.jdbSel || new Set(), ids = jdbList().filter(r => S.has(r.id)).map(r => r.id); if (!ids.length) return;
+  const n = jdbMark(ids, on); S.clear(); App.render();
+  toast(n ? `${n} ${n === 1 ? 'Arbeitsgang' : 'Arbeitsgänge'} ${on ? 'als abgerechnet markiert' : 'wieder offen'}` : `Bereits ${on ? 'abgerechnet' : 'offen'}`);
+}
+function jdbSelToggle(el) {
+  const S = App.jdbSel || (App.jdbSel = new Set());
+  if (el.dataset.in === 'jbSelAll') jdbList().slice(0, App.jdb.limit || 300).forEach(r => el.checked ? S.add(r.id) : S.delete(r.id));
+  else if (el.checked) S.add(el.value); else S.delete(el.value);
+  App.render();
+}
+function jdbSelBar(list) {
+  const S = App.jdbSel || (App.jdbSel = new Set()), ids = new Set(list.map(r => r.id)); [...S].forEach(id => { if (!ids.has(id)) S.delete(id); });
+  if (!S.size) return `<p class="nr" style="margin:0 0 8px">Arbeitsgänge links ankreuzen, um mehrere gleichzeitig als abgerechnet zu markieren. Spalten: Kopf ziehen = verschieben, Rand ziehen = Breite.</p>`;
+  return `<div class="panel alselbar"><b>${S.size} ausgewählt</b>
+    <button type="button" class="btn mini primary" data-act="jbMark" data-v="1">✓ Als abgerechnet markieren</button>
+    <button type="button" class="btn mini" data-act="jbMark" data-v="0">Wieder offen</button>
+    ${S.size < list.length ? `<button type="button" class="btn mini" data-act="jbSelAllList">Alle ${list.length} auswählen</button>` : ''}
+    <button type="button" class="btn mini" data-act="jbSelNone">Auswahl aufheben</button></div>`;
+}
+/* ---------- Spalten: Reihenfolge, Breite, Sichtbarkeit (pro Gerät) ---------- */
+const jdbDT = s => s ? new Date(s).toLocaleString('de-CH', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+const JDB_COLS = [
+  { id: 'datum', l: 'Datum', w: 80, v: r => fmtDate(r.d, { day: '2-digit', month: '2-digit', year: '2-digit' }), csv: r => r.d },
+  { id: 'beginn', l: 'Beginn', w: 118, v: r => jdbDT(r.start), csv: r => jdbDT(r.start) },
+  { id: 'ende', l: 'Ende', w: 118, v: r => jdbDT(r.end), csv: r => jdbDT(r.end) },
+  { id: 'dauer', l: 'Dauer', w: 64, n: 1, v: r => r.dauer != null ? hrs(r.dauer) : '', csv: r => r.dauer != null ? r2(r.dauer) : '' },
+  { id: 'arbeit', l: 'Arbeit', w: 130, v: r => r.arbeit },
+  { id: 'kunde', l: 'Kunde', w: 150, v: r => r.kunde },
+  { id: 'feld', l: 'Feld', w: 130, v: r => r.feld },
+  { id: 'ha', l: 'ha', w: 60, n: 1, v: r => r.ha != null ? fmtNum(r.ha) : '', csv: r => r.ha ?? '' },
+  { id: 'maschine', l: 'Maschine', w: 140, v: r => r.maschine },
+  { id: 'fahrer', l: 'Fahrer', w: 120, v: r => r.fahrer },
+  { id: 'kultur', l: 'Kultur', w: 110, v: r => r.kultur },
+  { id: 'produkte', l: 'Produkte / Sorte', w: 220, v: r => [r.produkte, r.sorten].filter(Boolean).join(' · ') },
+  { id: 'menge', l: 'Menge', w: 90, n: 1, v: r => r.menge },
+  { id: 'abr', l: 'Abgerechnet', w: 104, v: r => { const x = jdbAbr(r.id); return x ? '✓ ' + fmtDate(x.am, { day: '2-digit', month: '2-digit', year: '2-digit' }) : ''; }, html: r => { const x = jdbAbr(r.id); return x ? `<span class="badge verrechnet">✓ ${fmtDate(x.am, { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>` : '<span class="nr">offen</span>'; } }
+];
+const JDB_DEF = { order: ['beginn', 'ende', 'dauer', 'arbeit', 'kunde', 'feld', 'ha', 'maschine', 'kultur', 'produkte', 'menge', 'abr'], w: {} };
+function jdbColCfg() {
+  let c; try { c = JSON.parse(ls('lp_jdbcols') || 'null'); } catch { c = null; }
+  if (!c || !Array.isArray(c.order)) c = JSON.parse(JSON.stringify(JDB_DEF));
+  c.order = c.order.filter(id => JDB_COLS.some(x => x.id === id)); c.w = c.w || {};
+  return c;
+}
+const jdbColSave = c => ls('lp_jdbcols', JSON.stringify(c));
+const jdbCols = () => { const c = jdbColCfg(); return c.order.map(id => JDB_COLS.find(x => x.id === id)).map(x => ({ ...x, w: c.w[x.id] || x.w })); };
+function jdbTable(list, { print, all } = {}) {
+  const g = App.jdb.grp, cols = jdbCols(), S = App.jdbSel || new Set(), ck = !print;
+  const allOn = ck && list.length && list.every(r => S.has(r.id));
+  const colg = print ? '' : `<colgroup>${ck ? '<col style="width:36px">' : ''}${cols.map(c => `<col data-col="${c.id}" style="width:${c.w}px">`).join('')}</colgroup>`;
+  const head = `<thead><tr>${ck ? `<th class="ck" data-stop><input type="checkbox" data-in="jbSelAll" ${allOn ? 'checked' : ''} title="Alle angezeigten auswählen"></th>` : ''}${cols.map(c => `<th class="${c.n ? 'n' : ''}" ${print ? '' : `draggable="true" data-col="${c.id}" title="Ziehen zum Verschieben"`}>${esc(c.l)}${print ? '' : `<span class="cres" data-col="${c.id}" title="Breite ändern"></span>`}</th>`).join('')}</tr></thead>`;
+  const row = r => { const ab = jdbAbr(r.id); return `<tr class="${print ? '' : 'click'}${ab ? ' jdab' : ''}${ck && S.has(r.id) ? ' alsel' : ''}" ${print ? '' : `data-act="jbRow" data-id="${esc(r.id)}"`}>${ck ? `<td class="ck" data-stop><input type="checkbox" data-in="jbSel" value="${esc(r.id)}" ${S.has(r.id) ? 'checked' : ''}></td>` : ''}${cols.map(c => `<td class="${c.n ? 'n' : ''} c-${c.id}">${!print && c.html ? c.html(r) : esc(c.v(r))}</td>`).join('')}</tr>`; };
+  const TL = all || list, dSum = TL.reduce((t, r) => t + (r.dauer || 0), 0);
+  const tot = `<tfoot><tr class="tot jdbtot">${ck ? '<td></td>' : ''}${cols.map((c, i) => `<td class="${c.n ? 'n' : ''}">${c.id === 'ha' ? `<b>${fmtNum(jdbHaSum(TL))}</b>` : c.id === 'dauer' ? `<b>${hrs(r2(dSum))}</b>` : i === 0 ? `<b>Total ${TL.length}</b>` : ''}</td>`).join('')}</tr></tfoot>`;
+  const tcls = `btab jdbtab${print ? '' : ' jdbfix'}`, tw = print ? '' : ` style="width:${(ck ? 36 : 0) + cols.reduce((s, c) => s + c.w, 0)}px"`;
+  if (!g) return `<table class="${tcls}"${tw}>${colg}${head}<tbody>${list.map(row).join('')}</tbody>${tot}</table>`;
   const groups = groupBy(list.slice().sort((a, b) => String(jdbGroupKey(a, g)).localeCompare(String(jdbGroupKey(b, g)), 'de') * (g === 'monat' ? -1 : 1)), r => jdbGroupKey(r, g));
-  return `<table class="btab jdbtab">${head}${groups.map(([k, l]) => `<tbody class="pblk"><tr class="gk"><td colspan="4">${esc(jdbGroupLabel(k, g))}</td><td class="n">${fmtNum(jdbHaSum(l))}</td><td colspan="4">${l.length} ${l.length === 1 ? 'Arbeitsgang' : 'Arbeitsgänge'}</td></tr>${l.map(row).join('')}</tbody>`).join('')}</table>`;
+  return `<table class="${tcls}"${tw}>${colg}${head}${groups.map(([k, l]) => `<tbody class="pblk"><tr class="gk"><td colspan="${cols.length + (ck ? 1 : 0)}">${esc(jdbGroupLabel(k, g))} · ${l.length} ${l.length === 1 ? 'Arbeitsgang' : 'Arbeitsgänge'} · ${fmtNum(jdbHaSum(l))} ha</td></tr>${l.map(row).join('')}</tbody>`).join('')}${tot}</table>`;
+}
+// Spalten verschieben (Kopf ziehen) und Breite ändern (rechter Rand) – am PC mit der Maus
+function jdbColsAttach() {
+  const t = $('.jdbfix'); if (!t) return;
+  let dragId = null;
+  $$('.jdbfix th[data-col]').forEach(th => {
+    th.addEventListener('dragstart', e => { if (e.target.closest('.cres')) { e.preventDefault(); return; } dragId = th.dataset.col; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragId); th.classList.add('cdrag'); });
+    th.addEventListener('dragend', () => th.classList.remove('cdrag'));
+    th.addEventListener('dragover', e => { if (!dragId) return; e.preventDefault(); const r = th.getBoundingClientRect(); th.classList.toggle('cins-l', e.clientX < r.left + r.width / 2); th.classList.toggle('cins-r', e.clientX >= r.left + r.width / 2); });
+    th.addEventListener('dragleave', () => th.classList.remove('cins-l', 'cins-r'));
+    th.addEventListener('drop', e => {
+      e.preventDefault(); const after = th.classList.contains('cins-r'); th.classList.remove('cins-l', 'cins-r');
+      if (!dragId || dragId === th.dataset.col) return;
+      const c = jdbColCfg(); c.order = c.order.filter(x => x !== dragId); const i = c.order.indexOf(th.dataset.col); c.order.splice(after ? i + 1 : i, 0, dragId); dragId = null; jdbColSave(c); App.render();
+    });
+  });
+  $$('.jdbfix .cres').forEach(h => h.addEventListener('pointerdown', e => {
+    e.preventDefault(); e.stopPropagation();
+    const id = h.dataset.col, col = t.querySelector(`col[data-col="${id}"]`), x0 = e.clientX, w0 = col.getBoundingClientRect().width / UIZ(), tw0 = t.getBoundingClientRect().width / UIZ();
+    h.setPointerCapture(e.pointerId); document.body.classList.add('cresizing');
+    const mv = ev => { const w = Math.max(40, Math.round(w0 + (ev.clientX - x0) / UIZ())); col.style.width = w + 'px'; t.style.width = (tw0 + w - w0) + 'px'; };
+    const up = ev => { h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); document.body.classList.remove('cresizing'); const c = jdbColCfg(); c.w[id] = Math.max(40, Math.round(w0 + (ev.clientX - x0) / UIZ())); jdbColSave(c); App.noClickUntil = Date.now() + 300; };
+    h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up);
+  }));
+}
+// Spalten-Dialog: ein-/ausblenden, Reihenfolge mit ▲▼ (auch für Tablet/Handy), Breite zurücksetzen
+function jdbColsDialog() {
+  const c = jdbColCfg(), order = [...c.order, ...JDB_COLS.map(x => x.id).filter(id => !c.order.includes(id))];
+  const rowH = (id, i) => { const col = JDB_COLS.find(x => x.id === id); return `<div class="rowi jcol" data-id="${id}"><label class="tog" style="flex:1"><input type="checkbox" name="on" value="${id}" ${c.order.includes(id) ? 'checked' : ''}> ${esc(col.l)}</label>
+    <span class="updown"><button type="button" class="x" data-act="jbColMv" data-id="${id}" data-d="-1" aria-label="Nach oben">▲</button><button type="button" class="x" data-act="jbColMv" data-id="${id}" data-d="1" aria-label="Nach unten">▼</button></span></div>`; };
+  Dlg.open('Spalten', `<p class="nr" style="margin-top:0">Haken = Spalte anzeigen. Reihenfolge mit ▲ ▼ – am PC auch direkt in der Tabelle: Spaltenkopf ziehen = verschieben, rechten Rand ziehen = Breite.</p>
+    <div class="rows" id="jcols">${order.map(rowH).join('')}</div>
+    <div class="btns" style="margin-top:10px"><button type="button" class="btn" data-act="jbColReset">Standard wiederherstellen</button></div>`,
+    saveFooter(''), fd => {
+      const on = new Set(fd.getAll('on')), ids = $$('#jcols .jcol').map(x => x.dataset.id).filter(id => on.has(id));
+      if (!ids.length) { toast('Mindestens eine Spalte anzeigen'); return false; }
+      const n = jdbColCfg(); n.order = ids; jdbColSave(n); App.render(); return true;
+    });
+}
+function jdbColMove(id, d) {
+  const box = $('#jcols'), el = box && box.querySelector(`.jcol[data-id="${id}"]`); if (!el) return;
+  if (d < 0 && el.previousElementSibling) box.insertBefore(el, el.previousElementSibling);
+  if (d > 0 && el.nextElementSibling) box.insertBefore(el.nextElementSibling, el);
 }
 function jdbSummary(list) {
   return groupBy(list, r => r.arbeit).sort((a, b) => b[1].length - a[1].length).map(([a, l]) => `<span class="chip">${esc(a)}: ${l.length} · ${fmtNum(jdbHaSum(l))} ha</span>`).join('');
 }
 function jdbCsv() {
-  const rows = [['Datum', 'Beginn', 'Ende', 'Dauer h', 'Arbeit', 'Kunde', 'Feld', 'Fläche ha', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Sorten', 'Menge', 'Saison', 'ID']];
-  jdbList().forEach(r => rows.push([r.d, r.start, r.end, r.dauer != null ? r.dauer.toFixed(2) : '', r.arbeit, r.kunde, r.feld, r.ha ?? '', r.maschine, r.fahrer, r.kultur, r.produkte, r.sorten, r.menge, r.saison, r.id]));
+  const rows = [['Datum', 'Beginn', 'Ende', 'Dauer h', 'Arbeit', 'Kunde', 'Feld', 'Fläche ha', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Sorten', 'Menge', 'Saison', 'Abgerechnet am', 'ID']];
+  jdbList().forEach(r => rows.push([r.d, jdbDT(r.start), jdbDT(r.end), r.dauer != null ? r.dauer.toFixed(2) : '', r.arbeit, r.kunde, r.feld, r.ha ?? '', r.maschine, r.fahrer, r.kultur, r.produkte, r.sorten, r.menge, r.saison, jdbAbr(r.id)?.am || '', r.id]));
   const J = App.jdb;
   download(`JD-Arbeitsbericht_${J.von || 'alle'}_${J.bis || ''}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }
 function jdbPrint() {
   const J = App.jdb, list = jdbList();
   const title = `Arbeitsbericht ${J.von || J.bis ? `${J.von ? fmtDate(J.von, { day: '2-digit', month: '2-digit', year: 'numeric' }) : '…'} – ${J.bis ? fmtDate(J.bis, { day: '2-digit', month: '2-digit', year: 'numeric' }) : '…'}` : ''}`;
-  const filt = [J.k && 'Kunde: ' + J.k, J.a && 'Arbeit: ' + J.a, J.f && 'Feld: ' + J.f, J.m && 'Maschine: ' + J.m, J.c && 'Kultur: ' + J.c].filter(Boolean).join(' · ');
-  printHtml(title, `<div class="bill jdbprint">${LETTERHEAD}<div class="bill-h"><div><b>${esc(J.k || 'Arbeitsbericht')}</b>${filt ? `<br><span class="nr">${esc(filt)}</span>` : ''}</div><div class="r">${esc(title)}<br>${list.length} Arbeitsgänge · ${fmtNum(jdbHaSum(list))} ha</div></div>
+  const filt = [J.ab && (J.ab === 'ja' ? 'nur abgerechnete' : 'nur offene'), ...Object.entries(JDB_MS).map(([k, [, l]]) => jdbArr(J[k]).length ? `${l}: ${jdbArr(J[k]).join(', ')}` : '')].filter(Boolean).join(' · ');
+  printHtml(title, `<div class="bill jdbprint">${LETTERHEAD}<div class="bill-h"><div><b>${esc(jdbArr(J.k).length === 1 ? J.k[0] : 'Arbeitsbericht')}</b>${filt ? `<br><span class="nr">${esc(filt)}</span>` : ''}</div><div class="r">${esc(title)}<br>${list.length} Arbeitsgänge · ${fmtNum(jdbHaSum(list))} ha</div></div>
     ${jdbTable(list, { print: true })}</div>`, { noTitle: true });
 }
 function jdbDetail(id) {
   const r = (App.jdb.rows || []).find(x => x.id === id); if (!r) return;
   const kv = (k, v) => v ? `<tr><td class="nr">${esc(k)}</td><td>${esc(v)}</td></tr>` : '';
   const dt = s => s ? new Date(s).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '';
-  const body = `<table class="btab kv">${kv('Arbeit', r.arbeit)}${kv('Kunde', r.kunde)}${kv('Feld', r.feld)}${kv('Fläche', r.ha != null ? fmtNum(r.ha) + ' ha' : '')}${kv('Beginn', dt(r.start))}${kv('Ende', dt(r.end))}${kv('Dauer', r.dauer != null ? hrs(r.dauer) : '')}
+  const body = `<table class="btab kv">${kv('Arbeit', r.arbeit)}${kv('Kunde', r.kunde)}${kv('Feld', r.feld)}${kv('Fläche', r.ha != null ? fmtNum(r.ha) + ' ha' : '')}${kv('Abgerechnet', jdbAbr(r.id) ? fmtDate(jdbAbr(r.id).am, { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'offen')}${kv('Beginn', dt(r.start))}${kv('Ende', dt(r.end))}${kv('Dauer', r.dauer != null ? hrs(r.dauer) : '')}
     ${kv('Maschine', r.maschine)}${kv('Fahrer', r.fahrer)}${kv('Kultur', r.kultur)}${kv('Saison', r.saison)}${kv('Produkte', r.produkte)}${kv('Sorten', r.sorten)}${kv('Menge', r.menge)}</table>
     ${r.details.map(m => `<div class="fld" style="margin-top:12px"><span>${esc(m.n)}</span></div><table class="btab kv">${m.v.map(([k, v]) => kv(k, v)).join('')}</table>`).join('')}
     <p class="nr" style="margin-top:12px">Quelle: MyJohnDeere · ID ${esc(r.id)}</p>`;
-  Dlg.open('Arbeitsgang', body, `<span class="spacer"></span><button type="button" class="btn primary" data-act="close">Schliessen</button>`, () => true);
+  const ab = jdbAbr(r.id);
+  Dlg.open('Arbeitsgang', body, `${ab ? `<span class="badge verrechnet">✓ abgerechnet ${fmtDate(ab.am, { day: '2-digit', month: '2-digit', year: 'numeric' })}</span><button type="button" class="btn" data-act="jbMarkOne" data-id="${esc(r.id)}" data-v="0">Wieder offen</button>` : `<button type="button" class="btn primary" data-act="jbMarkOne" data-id="${esc(r.id)}" data-v="1">✓ Als abgerechnet markieren</button>`}<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
 }
 function jdBerichtView() {
   return {
@@ -3218,28 +3326,47 @@ function jdBerichtView() {
         <div class="btns"><button class="btn primary" data-act="jbLoad">Aus Dropbox laden</button><button class="btn" data-act="jbFile">Datei wählen…</button></div></div>`;
       if (J.von == null) { J.von = `${new Date().getFullYear()}-01-01`; J.bis = todayIso(); }
       const all = J.rows, list = jdbList(), uniq = (k, skip) => [...new Set(all.filter(jdbFilter(J, skip)).flatMap(r => k === 'maschine' ? r.maschine.split(', ') : [r[k]]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
-      const sel = (k, f, label, allTxt) => `<label class="fld"><span>${label}</span><select class="input" data-combo data-in="jb" data-k="${k}"><option value="">${allTxt}</option>${uniq(f, k).map(v => `<option ${v === J[k] ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>`;
+      const sel = k => { const [f, label, allTxt] = JDB_MS[k], cur = jdbArr(J[k]), vals = [...new Set([...cur, ...uniq(f, k)])].sort((a, b) => a.localeCompare(b, 'de'));
+        const txt = !cur.length ? allTxt : cur.length === 1 ? cur[0] : `${cur.length} ausgewählt`, open = J.open === k, mq = norm(J.msq || '');
+        return `<div class="fld msel ${open ? 'open' : ''}"><span>${label}</span><button type="button" class="input msel-btn ${cur.length ? 'on' : ''}" data-act="jbMs" data-k="${k}" title="${esc(cur.join(', '))}">${esc(txt)}</button>
+          ${open ? `<div class="msel-pop">
+            <input class="input" type="search" placeholder="Suchen…" data-in="jbMsQ" value="${esc(J.msq || '')}">
+            <div class="msel-list">${vals.map(v => `<label class="msel-i" ${mq && !norm(v).includes(mq) ? 'hidden' : ''}><input type="checkbox" data-in="jbMsC" data-k="${k}" value="${esc(v)}" ${cur.includes(v) ? 'checked' : ''}> ${esc(v)}</label>`).join('') || '<span class="nr">Keine Werte</span>'}</div>
+            <div class="msel-f"><button type="button" class="btn mini" data-act="jbMsAll" data-k="${k}">Alle sichtbaren</button><button type="button" class="btn mini" data-act="jbMsNone" data-k="${k}">Keine</button><button type="button" class="btn mini primary" data-act="jbMsClose">Fertig</button></div>
+          </div>` : ''}</div>`; };
       const shown = list.slice(0, J.limit || 300), m = J.meta || {};
       return `<p class="nr" style="margin-top:0">${m.n || all.length} Arbeitsgänge${m.org ? ' · ' + esc(m.org) : ''}${m.stand ? ` · Stand ${esc(new Date(m.stand).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }))}` : ''}${m.seit ? ` · ab ${fmtDate(m.seit, { day: '2-digit', month: '2-digit', year: 'numeric' })}` : ''}
           · <a href="#" data-act="jbLoad">${J.loading ? 'lädt…' : 'neu laden'}</a> · <a href="#" data-act="jbFile">Datei wählen</a></p>
         <div class="panel jfilter"><div class="jfgrid">
           <label class="fld"><span>Von</span><input class="input" type="date" data-in="jb" data-k="von" value="${esc(J.von)}"></label>
           <label class="fld"><span>Bis</span><input class="input" type="date" data-in="jb" data-k="bis" value="${esc(J.bis)}"></label>
-          ${sel('k', 'kunde', 'Kunde', 'Alle Kunden')}${sel('a', 'arbeit', 'Arbeit', 'Alle Arbeiten')}${sel('f', 'feld', 'Feld', 'Alle Felder')}${sel('m', 'maschine', 'Maschine', 'Alle Maschinen')}${sel('c', 'kultur', 'Kultur', 'Alle Kulturen')}
+          ${sel('k')}${sel('a')}${sel('f')}${sel('m')}${sel('c')}
+          <label class="fld"><span>Abrechnung</span><select class="input" data-plain data-in="jb" data-k="ab"><option value="">Alle</option><option value="nein" ${J.ab === 'nein' ? 'selected' : ''}>Nur offene</option><option value="ja" ${J.ab === 'ja' ? 'selected' : ''}>Nur abgerechnete</option></select></label>
           <label class="fld"><span>Gruppieren nach</span><select class="input" data-plain data-in="jb" data-k="grp">${JDB_GRP.map(([v, l]) => `<option value="${v}" ${J.grp === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <label class="fld"><span>Sortierung</span><select class="input" data-plain data-in="jb" data-k="sort"><option value="desc">Neueste zuerst</option><option value="asc" ${J.sort === 'asc' ? 'selected' : ''}>Älteste zuerst</option></select></label>
         </div>
         <div class="btns"><span class="seg mini">${[['woche', 'Diese Woche'], ['30', '30 Tage'], ['jahr', 'Dieses Jahr'], ['vorjahr', 'Vorjahr'], ['alle', 'Alles']].map(([v, l]) => `<button type="button" data-act="jbPreset" data-v="${v}">${l}</button>`).join('')}</span>
           <input class="input search" type="search" placeholder="Suchen: Produkt, Sorte, Fahrer…" value="${esc(J.q || '')}" data-in="jbq" style="max-width:260px">
           <button class="btn" data-act="jbReset">Filter zurücksetzen</button></div></div>
-        <p><b>${list.length} Arbeitsgänge · ${fmtNum(jdbHaSum(list))} ha</b></p>
+        <p><b>${list.length} Arbeitsgänge · ${fmtNum(jdbHaSum(list))} ha</b>${list.length ? ` <span class="nr">· ${list.filter(r => jdbAbr(r.id)).length} abgerechnet, ${list.filter(r => !jdbAbr(r.id)).length} offen</span>` : ''}</p>
         <div class="chips static" style="margin-bottom:10px">${jdbSummary(list)}</div>
-        ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-act="jbPrint">Drucken / PDF</button><button class="btn" data-act="jbCsv">Excel (CSV)</button></div>
-        <div class="panel tscroll">${jdbTable(shown)}</div>
+        ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-act="jbPrint">Drucken / PDF</button><button class="btn" data-act="jbCsv">Excel (CSV)</button><button class="btn" data-act="jbCols">Spalten…</button></div>
+        ${jdbSelBar(list)}
+        <div class="panel tscroll">${jdbTable(shown, { all: list })}</div>
         ${list.length > shown.length ? `<div class="btns" style="margin-top:10px"><button class="btn" data-act="jbMore">Weitere ${Math.min(300, list.length - shown.length)} anzeigen</button></div>` : ''}` : '<div class="empty">Keine Arbeitsgänge für diese Auswahl.</div>'}`;
-    }
+    },
+    after() { jdbColsAttach(); }
   };
 }
+
+// Mehrfachauswahl-Filter: öffnen, ankreuzen, suchen
+function jdbMsToggle(k) { const J = App.jdb; J.open = J.open === k ? null : k; J.msq = ''; App.render(); const i = $('.msel.open [data-in="jbMsQ"]'); if (i && matchMedia('(pointer: fine)').matches) i.focus(); }
+function jdbMsSet(k, vals) { const J = App.jdb; J[k] = vals; J.limit = 300; App.render(); }
+function jdbMsCheck(el) { const J = App.jdb, k = el.dataset.k, cur = new Set(jdbArr(J[k])); el.checked ? cur.add(el.value) : cur.delete(el.value); const sc = $('.msel.open .msel-list')?.scrollTop; jdbMsSet(k, [...cur]); const l = $('.msel.open .msel-list'); if (l && sc) l.scrollTop = sc; }
+function jdbMsQuery(el) { App.jdb.msq = el.value; const q = norm(el.value); $$('.msel.open .msel-i').forEach(x => { x.hidden = q && !norm(x.textContent).includes(q); }); }
+function jdbMsAll(k, on) { const J = App.jdb, cur = new Set(jdbArr(J[k])); if (!on) { jdbMsSet(k, []); return; } $$('.msel.open .msel-i').filter(x => !x.hidden).forEach(x => cur.add(x.querySelector('input').value)); jdbMsSet(k, [...cur]); }
+document.addEventListener('click', e => { const J = App.jdb; if (J && J.open && !e.target.closest('.msel')) { J.open = null; App.render(); } }, true);
+document.addEventListener('keydown', e => { const J = App.jdb; if (e.key === 'Escape' && J && J.open) { J.open = null; App.render(); } });
 /* ================= Grosse Bildschirme (z.B. 27" 4K): Anzeigegrösse ================= */
 const UI_SCALES = [['auto', 'Automatisch'], ['0.9', '90 %'], ['1', '100 %'], ['1.1', '110 %'], ['1.25', '125 %'], ['1.5', '150 %'], ['1.75', '175 %'], ['2', '200 %']];
 // Bei 4K ohne Windows-Skalierung (3840 px Fensterbreite) wird automatisch auf 150 % vergrössert; mit 150 % Windows-Skalierung (2560 px) bleibt es bei 100 %.
@@ -3379,10 +3506,21 @@ document.addEventListener('click', async e => {
     case 'jbFile': jdbFile(); break;
     case 'jbReq': jdRequest(); setTimeout(() => jdbLoad(true), 4 * 60000); setTimeout(() => jdbLoad(true), 8 * 60000); break;
     case 'jbPreset': jdbPreset(t.dataset.v); break;
-    case 'jbReset': Object.assign(App.jdb, { k: '', a: '', f: '', m: '', c: '', q: '', grp: '', von: null, bis: null, limit: 300 }); App.render(); break;
+    case 'jbReset': Object.assign(App.jdb, { ab: '', k: [], a: [], f: [], m: [], c: [], q: '', grp: '', von: null, bis: null, limit: 300, open: null }); App.render(); break;
+    case 'jbMs': jdbMsToggle(t.dataset.k); break;
+    case 'jbMsAll': jdbMsAll(t.dataset.k, true); break;
+    case 'jbMsNone': jdbMsAll(t.dataset.k, false); break;
+    case 'jbMsClose': App.jdb.open = null; App.render(); break;
     case 'jbCsv': jdbCsv(); break;
     case 'jbPrint': jdbPrint(); break;
     case 'jbRow': jdbDetail(id); break;
+    case 'jbMark': jdbMarkSel(t.dataset.v === '1'); break;
+    case 'jbMarkOne': { const on = t.dataset.v === '1'; jdbMark([id], on); toast(on ? 'Als abgerechnet markiert' : 'Wieder offen'); jdbDetail(id); break; }
+    case 'jbSelAllList': { const S = App.jdbSel || (App.jdbSel = new Set()); jdbList().forEach(r => S.add(r.id)); App.render(); break; }
+    case 'jbSelNone': App.jdbSel?.clear(); App.render(); break;
+    case 'jbCols': jdbColsDialog(); break;
+    case 'jbColMv': jdbColMove(id, +t.dataset.d); break;
+    case 'jbColReset': ls('lp_jdbcols', ''); Dlg.close(); App.render(); toast('Spalten auf Standard zurückgesetzt'); break;
     case 'jbMore': App.jdb.limit = (App.jdb.limit || 300) + 300; App.render(); break;
     case 'aView': App.filter.aview = t.dataset.v; ls('lp_aview', t.dataset.v); App.render(); break;
     case 'alPreset': alPreset(t.dataset.v); break;
@@ -3501,6 +3639,7 @@ document.addEventListener('input', e => {
   const k = e.target.dataset.in; if (!k) return;
   if (k === 'aSearch') { App.filter.q = e.target.value; App.alimit = 150; App.render(); }
   if (k === 'kSearch') { App.filter.kq = e.target.value; App.render(); }
+  if (k === 'jbMsQ') { jdbMsQuery(e.target); return; }
   if (k === 'jbq') { App.jdb.q = e.target.value; const pos = e.target.selectionStart; App.render(); const el = $('[data-in="jbq"]'); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch { } } }
   if (k === 'spJq' || k === 'spPrq') {
     App.spray[k === 'spJq' ? 'jq' : 'prq'] = e.target.value; App.spray.jlimit = 200;
@@ -3515,6 +3654,8 @@ document.addEventListener('change', e => {
   if (k === 'spPrSeit') { if (e.target.value) { App.spray.prseit = e.target.value; App.render(); } return; }
   if (k === 'axW' || k === 'axT') { App.plan[k] = e.target.value; ls(k === 'axW' ? 'lp_axW' : 'lp_axT', e.target.value); App.tlScroll = null; toast('Anordnung der Planung geändert'); return; }
   if (k === 'uiScale') { uiScaleSet(e.target.value); return; }
+  if (k === 'jbMsC') { jdbMsCheck(e.target); return; }
+  if (k === 'jbSel' || k === 'jbSelAll') { jdbSelToggle(e.target); return; }
   if (k === 'alSel' || k === 'alSelAll') { alSelToggle(e.target); return; }
   if (k === 'al') { App.al[e.target.dataset.k] = e.target.value; App.al.limit = 300; App.render(); return; }
   if (k === 'jb') { App.jdb[e.target.dataset.k] = e.target.value; App.jdb.limit = 300; App.render(); return; }
