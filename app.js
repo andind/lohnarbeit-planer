@@ -2,6 +2,8 @@
    Daten: lokal im Browser (offline) + Synchronisation mit Dropbox. */
 'use strict';
 
+// Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
+const APP_VERSION = '42', APP_STAND = '28.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -869,6 +871,7 @@ const Views = {
           <p><b>Alles als Excel:</b> sämtliche Daten in einer Excel-Datei mit je einem Blatt für Aufträge, Spritzprodukte, Kunden, Felder, Parzellen, Produkte, Preisverlauf, Maschinen und Listen – zum Auswerten, Archivieren oder Weitergeben.</p>
           <div class="btns"><button class="btn primary" data-act="exportAllXlsx">Alles als Excel (.xlsx)</button><button class="btn" data-act="backup">Sicherung herunterladen (zum Einlesen)</button><button class="btn" data-act="restore">Sicherung einlesen</button></div>
           <p class="nr">Zum Zurückspielen dient die Sicherungsdatei (.json); die Excel-Datei ist zum Lesen und Auswerten gedacht.</p></div>
+        <div class="panel"><h2>Version</h2>${versionInfo()}</div>
         <div class="panel"><h2>Als App installieren</h2>
           <p><b>iPhone:</b> In Safari öffnen › Teilen-Symbol › «Zum Home-Bildschirm».</p>
           <p><b>Windows:</b> In Edge oder Chrome öffnen › Menü › «Apps» › «Diese Seite als App installieren».</p></div>
@@ -1978,7 +1981,7 @@ const yearsOf = () => [...new Set(sprayOrders().map(ernteOf).filter(Boolean))].s
 const LETTERHEAD = '<img class="lhead" src="logo.jpg" alt="Indermühle Lohnarbeiten · Maschinenvermietung">';
 function printHtml(title, html, { noTitle } = {}) {
   let pa = $('#printArea'); if (!pa) { pa = document.createElement('div'); pa.id = 'printArea'; document.body.appendChild(pa); }
-  pa.innerHTML = `${noTitle ? '' : `<h1 class="ptitle">${esc(title)}</h1>`}${html}<p class="pfoot">Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · Lohnarbeit-Planer</p>`;
+  pa.innerHTML = `${noTitle ? '' : `<h1 class="ptitle">${esc(title)}</h1>`}${html}<p class="pfoot">Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · Lohnarbeit-Planer v${APP_VERSION}</p>`;
   document.body.classList.add('printing');
   const done = () => { document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); };
   window.addEventListener('afterprint', done);
@@ -3041,7 +3044,7 @@ function jdApply(d, map) {
   if (d.full !== false && d.clients.length) Store.all('kunden').filter(k => k.jdId && !ids.has(k.jdId) && k.aktiv !== false && !kOut.some(x => x.id === k.id)).forEach(k => { kInakt++; kOut.push({ ...k, aktiv: false }); });
   if (kOut.length) Store.putMany('kunden', kOut);
   if (fOut.length) Store.putMany('felder', fOut);
-  Store.setCfg({ jdStand: d.stand || new Date().toISOString(), jdOrg: d.org?.name || '' }, { silent: false });
+  Store.setCfg({ jdStand: d.stand || new Date().toISOString(), jdOrg: d.org?.name || '', jdDienst: d.dienst || '' }, { silent: false });
   Store.setCfg({ jdEbene: d.kundenEbene || '' }, { silent: true });
   return { neu, fNeu, fUpd, fArch, kInakt, react, changed: kOut.length + fOut.length };
 }
@@ -3144,8 +3147,9 @@ function jdbCrops(raw, ms) {
 function jdbRow(o) {
   const raw = o.raw || {}, ms = Array.isArray(o.measurements) ? o.measurements : [], ex = o.extra || {};
   const exOf = re => Object.entries(ex).filter(([k]) => re.test(k)).flatMap(([, v]) => jdbNames(v));
-  const mArea = jdbMeasArea(ms), haV = o.flaeche != null ? o.flaeche : mArea != null ? mArea : jdbHa(raw.area) ?? null;
-  const quelle = o.flaeche != null ? (o.flaecheQuelle || '') : haV != null ? 'Maschine' : '';
+  const nas = o.flaeche != null && o.flaecheQuelle !== 'Feldgrenze'; // Feldgrenze wird nicht als Ersatz verwendet
+  const mArea = jdbMeasArea(ms), haV = nas ? o.flaeche : mArea != null ? mArea : jdbHa(raw.area) ?? null;
+  const quelle = nas ? (o.flaecheQuelle || '') : haV != null ? 'Maschine' : '';
   const pl = []; jdbCollect(raw.products, pl); jdbCollect(raw.product, pl); jdbCollect(raw.tillageProducts, pl);
   ms.forEach(m => { jdbCollect(m.applicationProductTotals, pl); jdbCollect(m.productTotals, pl); });
   exOf(/product|tankmix/i).forEach(n => pl.push({ n }));
@@ -3254,7 +3258,7 @@ const JDB_COLS = [
   { id: 'kunde', l: 'Kunde', w: 150, v: r => r.kunde },
   { id: 'feld', l: 'Feld', w: 130, v: r => r.feld },
   { id: 'ha', l: 'ha', w: 60, n: 1, v: r => r.ha != null ? fmtNum(r.ha) : '', csv: r => r.ha ?? '' },
-  { id: 'quelle', l: 'Flächen-Quelle', w: 118, v: r => r.quelle || '', html: r => r.quelle ? `<span class="fq fq-${r.quelle === 'Maschine' ? 'm' : r.quelle === 'Bedeckungskarte' ? 'b' : 'g'}">${esc(r.quelle)}</span>` : '<span class="nr">–</span>' },
+  { id: 'quelle', l: 'Flächen-Quelle', w: 118, v: r => r.quelle || '', html: r => r.quelle ? `<span class="fq fq-${r.quelle === 'Bedeckungskarte' ? 'b' : 'm'}">${esc(r.quelle)}</span>` : '<span class="nr">–</span>' },
   { id: 'maschine', l: 'Maschine', w: 140, v: r => r.maschine },
   { id: 'fahrer', l: 'Fahrer', w: 120, v: r => r.fahrer },
   { id: 'kultur', l: 'Kultur', w: 110, v: r => r.kultur },
@@ -3449,6 +3453,16 @@ function uiScalePanel() {
     <label class="fld"><span>Anzeigegrösse auf diesem Gerät</span><select class="input" data-plain data-in="uiScale">${UI_SCALES.map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${l}${k === 'auto' ? ` (zurzeit ${Math.round(uiAutoScale() * 100)} %)` : ''}</option>`).join('')}</select></label>
     <p class="nr">Für grosse Bildschirme (z.B. 27 Zoll mit 3840 × 2160). «Automatisch» vergrössert, wenn Windows den Bildschirm nicht selbst skaliert. Die Einstellung gilt nur für dieses Gerät und diesen Browser; Ausdrucke und PDF bleiben unverändert.</p></div>`;
 }
+/* ---------- Versionsanzeige ---------- */
+function versionInfo() {
+  const c = Store.cfg(), nas = c.jdDienst, ver = v => +String(v || '').replace(/[^\d.]/g, '') || 0;
+  const nasTxt = nas ? `Version ${esc(nas)}${ver(nas) < ver(APP_VERSION) ? ' <span class="badge offen">älter als der Planer – NAS-Dienst aktualisieren</span>' : ''}`
+    : c.jdStand ? 'ältere Version ohne Versionsangabe – <b>NAS-Dienst aktualisieren</b>' : 'noch keine Verbindung';
+  return `<table class="btab kv"><tr><td class="nr">Lohnarbeit-Planer</td><td><b>Version ${APP_VERSION}</b> · Stand ${APP_STAND}</td></tr>
+    <tr><td class="nr">NAS-Dienst jd-sync</td><td>${nasTxt}${c.jdStand ? ` <span class="nr">(letzte Daten ${esc(new Date(c.jdStand).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }))})</span>` : ''}</td></tr></table>
+    <p class="nr" style="margin-bottom:0">Updates lädt der Planer beim nächsten Öffnen automatisch (bei Bedarf Seite neu laden). Die Version steht auch oben neben dem Programmnamen.</p>`;
+}
+(() => { const el = document.getElementById('appVer'); if (el) el.textContent = 'v' + APP_VERSION; })();
 function pickFile(accept) {
   return new Promise(res => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.onchange = () => res(i.files[0]); i.click(); });
 }

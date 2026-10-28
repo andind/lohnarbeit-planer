@@ -792,3 +792,6 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 .jdbsum tfoot td { border-top: 2px solid var(--text); }
 @media print { #printArea .jdbsum tfoot td { border-top: 1pt solid #000; } #printArea .jdbsum small { color: #555; } }
 .jdbsum { width: auto; } .jdbsum th, .jdbsum td { padding-left: 14px; }
+.brand .ver { font-weight: 500; font-size: 11px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; flex: none; }
+@media print { .brand .ver { display: none; } }
+@media (max-width: 430px) { .brand .ver { display: none; } }
