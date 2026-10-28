@@ -781,3 +781,14 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 @media print { #printArea .jdbtab tfoot td { border-top: 1pt solid #000; } }
 @media print { #printArea .jdbtab tfoot { display: table-row-group; } }
 .jdbfix tfoot td { overflow: visible; text-overflow: clip; }
+/* Bericht: Flächen-Quelle, Summen */
+.fq { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+.fq-m { color: var(--muted); }
+.fq-b { color: #1d6fa5; border-color: color-mix(in srgb, #1d6fa5 45%, transparent); background: color-mix(in srgb, #1d6fa5 8%, transparent); }
+.fq-g { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.jdbsumbox summary { cursor: pointer; font-weight: 650; }
+.jdbsum { min-width: 0; }
+.jdbsum small { color: var(--muted); font-size: 11px; }
+.jdbsum tfoot td { border-top: 2px solid var(--text); }
+@media print { #printArea .jdbsum tfoot td { border-top: 1pt solid #000; } #printArea .jdbsum small { color: #555; } }
+.jdbsum { width: auto; } .jdbsum th, .jdbsum td { padding-left: 14px; }

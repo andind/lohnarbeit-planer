@@ -482,7 +482,7 @@ const App = {
   view: ls('lp_view') || 'auftraege',
   filter: { auftraege: 'offen', q: '', kq: '', aview: ls('lp_aview') || 'karten' },
   al: { von: '', bis: '', k: '', a: '', c: '', m: '', f: '', grp: '', sort: 'desc', limit: 300 },
-  jdb: { rows: null, meta: null, von: null, bis: null, k: [], a: [], f: [], m: [], c: [], q: '', grp: '', sort: 'desc', limit: 300, open: null },
+  jdb: { minHa: ls('lp_jdbmin') || '', rows: null, meta: null, von: null, bis: null, k: [], a: [], f: [], m: [], c: [], q: '', grp: '', sort: 'desc', limit: 300, open: null },
   plan: { axW: ls('lp_axW') || 'tage', axT: ls('lp_axT') || 'senkrecht', side: ls('lp_pside') !== '0', mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false, zoom: +(ls('lp_zoom') || 1),
   spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jsort: 'desc', jf: null, jfOpen: false, jlimit: 200,
@@ -3094,9 +3094,14 @@ function jdSyncDialog(d, src) {
    Quelle: «jd-arbeiten.json» im Dropbox-Ordner (vom NAS-Dienst jd-sync). Vorerst ohne Verknüpfung zu den Planungsdaten. */
 const JDB_ART = { seeding: 'Säen', application: 'Pflanzenschutz / Düngung', harvest: 'Ernte', tillage: 'Bodenbearbeitung', fertilizing: 'Düngung', mowing: 'Mähen', baling: 'Pressen' };
 const JDB_MACH = { combine: 'Mähdrescher', tractor: 'Traktor', sprayer: 'Feldspritze', windrower: 'Schwader', forageHarvester: 'Feldhäcksler' };
-const JDB_CROP = { WINTER_WHEAT: 'Winterweizen', SPRING_WHEAT: 'Sommerweizen', WHEAT: 'Weizen', WINTER_BARLEY: 'Wintergerste', SPRING_BARLEY: 'Sommergerste', BARLEY: 'Gerste', CORN: 'Mais', CORN_WET: 'Mais', CORN_SILAGE: 'Silomais',
-  SUGARBEETS: 'Zuckerrüben', SUGAR_BEET: 'Zuckerrüben', CANOLA: 'Raps', RAPESEED: 'Raps', WINTER_RAPESEED: 'Winterraps', SOYBEANS: 'Soja', TRITICALE: 'Triticale', SPELT: 'Dinkel', OATS: 'Hafer', RYE: 'Roggen', POTATOES: 'Kartoffeln', PEAS: 'Erbsen', SUNFLOWERS: 'Sonnenblumen', GRASS: 'Gras' };
-const jdbCrop = c => !c ? '' : JDB_CROP[String(c).toUpperCase()] || String(c).replace(/_/g, ' ').toLowerCase().replace(/^\w/, x => x.toUpperCase());
+const JDB_CROP = { CORN: 'Mais', CORN_WET: 'Mais', CORN_SILAGE: 'Silomais', SILAGE_CORN: 'Silomais', WHEAT: 'Weizen', WHEAT_WINTER: 'Winterweizen', WHEAT_SPRING: 'Sommerweizen', WINTER_WHEAT: 'Winterweizen', SPRING_WHEAT: 'Sommerweizen',
+  BARLEY: 'Gerste', BARLEY_WINTER: 'Wintergerste', BARLEY_SPRING: 'Sommergerste', WINTER_BARLEY: 'Wintergerste', SPRING_BARLEY: 'Sommergerste', TRITICALE: 'Triticale', RYE: 'Roggen', OATS: 'Hafer', SPELT: 'Dinkel',
+  CANOLA: 'Raps', RAPESEED: 'Raps', RAPESEED_WINTER: 'Winterraps', WINTER_RAPESEED: 'Winterraps', SOYBEANS: 'Soja', SUNFLOWERS: 'Sonnenblumen', SUGAR_BEETS: 'Zuckerrüben', SUGARBEETS: 'Zuckerrüben', SUGAR_BEET: 'Zuckerrüben', SUGARBEET: 'Zuckerrüben',
+  POTATOES: 'Kartoffeln', PEAS: 'Erbsen', FIELD_BEANS: 'Ackerbohnen', GRASS: 'Gras', ALFALFA: 'Luzerne', CLOVER: 'Klee', FALLOW: 'Brache', COVER_CROP: 'Zwischenfrucht',
+  WHEAT_EURO_WTR: 'Winterweizen', WHEAT_EURO_SPR: 'Sommerweizen', WHEAT_HRD_RD_SPR: 'Sommerweizen', WHEAT_HRD_RD_WTR: 'Winterweizen', BARLEY_EURO_WTR: 'Wintergerste', BARLEY_EURO_SPR: 'Sommergerste',
+  GRASS_SEEDS: 'Gras', GRASS_CLOVER: 'Kleegras', RAPE_SEED: 'Raps', RAPE_SEED_E_OIL: 'Raps', PHACELIA: 'Phacelia', MUSTARD: 'Senf', TRITICALE_EURO: 'Triticale', PEAS_EURO: 'Eiweisserbsen', PEAS_FIELD: 'Erbsen',
+  LUPINS: 'Lupinen', OATS_EURO: 'Hafer', RYE_EURO: 'Roggen', SPELT_EURO: 'Dinkel', CORN_EURO: 'Mais', UNSPECIFIED_CROP: '' };
+const jdbCrop = c => !c ? '' : String(c).toUpperCase() in JDB_CROP ? JDB_CROP[String(c).toUpperCase()] : String(c).replace(/_/g, ' ').toLowerCase().replace(/^\w/, x => x.toUpperCase());
 const jdbVal = x => x == null ? null : typeof x === 'number' ? x : x.valueAsDouble ?? x.value ?? null;
 const jdbUnit = x => !x || typeof x !== 'object' ? '' : String(x.unitId || x.unit || '').replace(/1(ha|ac)-1$/, '/$1').replace(/^seeds/, 'Korn').replace(/^prcnt$/, '%').replace(/^mm$/, 'mm');
 const jdbFmt = x => { const v = jdbVal(x); return v == null ? '' : `${fmtNum(Math.round(v * 100) / 100)} ${jdbUnit(x)}`.trim(); };
@@ -3105,16 +3110,51 @@ const jdbNames = v => (Array.isArray(v) ? v : v ? [v] : []).map(x => typeof x ==
 const JDB_KEYS = { area: 'Fläche', averageYield: 'Ø Ertrag', totalYield: 'Ertrag total', averageMaterial: 'Ø Menge', totalMaterial: 'Menge total', averageMoisture: 'Ø Feuchte', averageDepth: 'Ø Tiefe', averageSpeed: 'Ø Geschwindigkeit', wetMass: 'Nassmasse', averageWetMass: 'Ø Nassmasse', dryMass: 'Trockenmasse', averageTargetRate: 'Ø Sollmenge', productTotals: 'Produkte', varietyTotals: 'Sorten', cropName: 'Kultur' };
 const JDB_MNAME = { HarvestYieldResult: 'Ertrag', HarvestMoistureResult: 'Feuchte', ApplicationRateResult: 'Ausbringung', SeedingRateResult: 'Saat', TillageDepthResult: 'Bodenbearbeitung', TillageSpeedResult: 'Geschwindigkeit' };
 const JDB_SKIP = new Set(['@type', 'measurementName', 'measurementCategory', 'links', 'productTotals', 'varietyTotals', 'id']);
+// Fläche wie JD_Arbeitsbericht 1.14: Ergebnis-Messungen (…Result) bevorzugt, sonst grösste Produkt-/Sortensumme
+const JDB_HA = { ha: 1, ac: 0.40468564224, m2: 0.0001, 'm^2': 0.0001, sqm: 0.0001, a: 0.01, km2: 100 };
+const jdbHa1 = a => { if (!a || typeof a !== 'object') return null; const v = a.valueAsDouble ?? a.value; if (v == null || isNaN(+v)) return null; const f = JDB_HA[String(a.unitId || a.unit || 'ha').trim().toLowerCase()]; return f == null ? null : +v * f; };
+function jdbMeasArea(ms) {
+  let best = null;
+  for (const m of ms || []) {
+    if (!m || typeof m !== 'object') continue;
+    let a = jdbHa1(m.area);
+    if (a == null) { const n = ['applicationProductTotals', 'productTotals', 'varietyTotals'].flatMap(k => (m[k] || []).map(t => t && (jdbHa1(t.area) || jdbHa1(t.appliedArea)))).filter(x => x != null); a = n.length ? Math.max(...n) : null; }
+    if (a == null) continue;
+    const prio = String(m.measurementName || '').endsWith('Result') ? 0 : 1;
+    if (!best || prio < best[0] || (prio === best[0] && a > best[1])) best = [prio, a];
+  }
+  return best ? best[1] : null;
+}
+// Produkte inkl. Tankmischungen, Platzhalter («---», «unknown») weglassen
+const JDB_PH = new Set(['', '---', '--', '-', 'unknown', 'unbekannt']);
+function jdbCollect(items, out) {
+  for (const p of (Array.isArray(items) ? items : items ? [items] : [])) {
+    if (!p || typeof p !== 'object') { if (typeof p === 'string' && !JDB_PH.has(p.trim().toLowerCase())) out.push({ n: p }); continue; }
+    const n = p.name || p.product?.name; if (n && !JDB_PH.has(String(n).trim().toLowerCase())) out.push({ n: String(n), r: p.averageMaterial ? jdbFmt(p.averageMaterial) : '' });
+    for (const sub of ['components', 'tankMixComponents', 'products']) if (Array.isArray(p[sub])) jdbCollect(p[sub], out);
+  }
+}
+function jdbCrops(raw, ms) {
+  const found = [];
+  const from = o => { if (!o || typeof o !== 'object') return; for (const k of ['cropName', 'treatedCropName', 'crop', 'cropType']) { const v = o[k]; if (typeof v === 'string' && v) found.push(v); else if (v && typeof v === 'object') { const n = v.name || v.displayName || v.id; if (n) found.push(String(n)); } } for (const k of ['varieties', 'varietyTotals']) (o[k] || []).forEach(from); };
+  from(raw); (ms || []).forEach(from);
+  return [...new Set(found.map(jdbCrop).filter(Boolean))].join(', ');
+}
 // einen Arbeitsgang aus der Datei in eine Berichtszeile umwandeln (robust gegen unterschiedliche Strukturen)
 function jdbRow(o) {
   const raw = o.raw || {}, ms = Array.isArray(o.measurements) ? o.measurements : [], ex = o.extra || {};
   const exOf = re => Object.entries(ex).filter(([k]) => re.test(k)).flatMap(([, v]) => jdbNames(v));
-  const area = ms.map(m => m.area).find(a => jdbVal(a) != null) ?? raw.area;
-  const prods = [...new Set([...ms.flatMap(m => jdbNames(m.productTotals)), ...jdbNames(raw.products), ...exOf(/product|tankmix/i)])];
-  const prodDet = ms.flatMap(m => (m.productTotals || []).filter(p => p && p.name).map(p => `${p.name}${p.averageMaterial ? ' ' + jdbFmt(p.averageMaterial) : ''}`));
-  const sorten = [...new Set([...ms.flatMap(m => jdbNames(m.varietyTotals)), ...jdbNames(raw.varieties), ...exOf(/variet/i)])];
-  const crop = raw.cropName || raw.crop?.name || ms.flatMap(m => m.varietyTotals || []).find(v => v && v.cropName)?.cropName || (raw.varieties || []).find(v => v && v.cropName)?.cropName || '';
-  const mach = [...new Set([...exOf(/machine|equipment|implement/i), ...jdbNames(raw.machines)])];
+  const mArea = jdbMeasArea(ms), haV = o.flaeche != null ? o.flaeche : mArea != null ? mArea : jdbHa(raw.area) ?? null;
+  const quelle = o.flaeche != null ? (o.flaecheQuelle || '') : haV != null ? 'Maschine' : '';
+  const pl = []; jdbCollect(raw.products, pl); jdbCollect(raw.product, pl); jdbCollect(raw.tillageProducts, pl);
+  ms.forEach(m => { jdbCollect(m.applicationProductTotals, pl); jdbCollect(m.productTotals, pl); });
+  exOf(/product|tankmix/i).forEach(n => pl.push({ n }));
+  const seenP = new Map(); pl.forEach(p => { const k = p.n.toLowerCase(); if (!seenP.has(k) || (!seenP.get(k).r && p.r)) seenP.set(k, p); });
+  const prodTxt = [...seenP.values()].map(p => p.r ? `${p.n} ${p.r}` : p.n).join(', ');
+  const sl = []; jdbCollect(raw.varieties, sl); ms.forEach(m => jdbCollect(m.varietyTotals, sl)); exOf(/variet/i).forEach(n => sl.push({ n }));
+  const sorten = [...new Set(sl.map(x => x.n))];
+  const crop = jdbCrops(raw, ms);
+  const mach = o.machines && o.machines.length ? o.machines : [...new Set([...exOf(/machine|equipment|implement/i), ...jdbNames(raw.machines)])];
   const fahrer = [...new Set([...exOf(/operator/i), ...jdbNames(raw.operators)])];
   const rateM = ms.find(m => m.averageYield || m.averageMaterial || m.averageDepth);
   const rate = rateM ? jdbFmt(rateM.averageYield || rateM.averageMaterial || rateM.averageDepth) : '';
@@ -3124,8 +3164,8 @@ function jdbRow(o) {
     .map(([k, v]) => [JDB_KEYS[k] || k, typeof v === 'object' && !Array.isArray(v) ? jdbFmt(v) || JSON.stringify(v).slice(0, 80) : Array.isArray(v) ? jdbNames(v).join(', ') || `${v.length} Einträge` : String(v)]).filter(([, v]) => v) }));
   const type = o.type || raw.fieldOperationType || '';
   return { id: o.id, d: String(start).slice(0, 10), start, end, dauer, type, arbeit: JDB_ART[type] || type || '–',
-    kunde: o.clientName || '', feld: o.fieldName || '', ha: jdbHa(area), maschine: mach.join(', ') || JDB_MACH[o.machineType || raw.adaptMachineType] || o.machineType || raw.adaptMachineType || '',
-    fahrer: fahrer.join(', '), kultur: jdbCrop(crop), produkte: prodDet.length ? prodDet.join(', ') : prods.join(', '), sorten: sorten.join(', '), menge: rate, saison: o.cropSeason || raw.cropSeason || '', details };
+    kunde: o.clientName || '', feld: o.fieldName || '', ha: haV != null ? Math.round(haV * 100) / 100 : null, quelle, maschine: mach.join(', ') || JDB_MACH[o.machineType || raw.adaptMachineType] || o.machineType || raw.adaptMachineType || '',
+    fahrer: fahrer.join(', '), kultur: crop, produkte: prodTxt, sorten: sorten.join(', '), menge: rate, saison: o.cropSeason || raw.cropSeason || '', details };
 }
 const JDB_KEY = 'lp_jdb';
 function jdbCache(rows, meta) { try { localStorage.setItem(JDB_KEY, JSON.stringify({ meta, rows })); } catch { } }
@@ -3165,6 +3205,7 @@ function jdbFilter(J, skip = '') {
   return r => (!J.von || r.d >= J.von) && (!J.bis || r.d <= J.bis)
     && ok('k', r.kunde) && ok('a', r.arbeit) && ok('f', r.feld) && ok('c', r.kultur)
     && (skip === 'm' || !jdbArr(J.m).length || r.maschine.split(', ').some(x => jdbArr(J.m).includes(x)))
+    && (!+J.minHa || r.ha == null || r.ha >= +J.minHa)
     && (!J.ab || (J.ab === 'ja') === !!jdbAbr(r.id))
     && (!q || [r.kunde, r.feld, r.arbeit, r.maschine, r.kultur, r.produkte, r.sorten, r.fahrer].join(' ').toLowerCase().includes(q));
 }
@@ -3213,6 +3254,7 @@ const JDB_COLS = [
   { id: 'kunde', l: 'Kunde', w: 150, v: r => r.kunde },
   { id: 'feld', l: 'Feld', w: 130, v: r => r.feld },
   { id: 'ha', l: 'ha', w: 60, n: 1, v: r => r.ha != null ? fmtNum(r.ha) : '', csv: r => r.ha ?? '' },
+  { id: 'quelle', l: 'Flächen-Quelle', w: 118, v: r => r.quelle || '', html: r => r.quelle ? `<span class="fq fq-${r.quelle === 'Maschine' ? 'm' : r.quelle === 'Bedeckungskarte' ? 'b' : 'g'}">${esc(r.quelle)}</span>` : '<span class="nr">–</span>' },
   { id: 'maschine', l: 'Maschine', w: 140, v: r => r.maschine },
   { id: 'fahrer', l: 'Fahrer', w: 120, v: r => r.fahrer },
   { id: 'kultur', l: 'Kultur', w: 110, v: r => r.kultur },
@@ -3220,11 +3262,13 @@ const JDB_COLS = [
   { id: 'menge', l: 'Menge', w: 90, n: 1, v: r => r.menge },
   { id: 'abr', l: 'Abgerechnet', w: 104, v: r => { const x = jdbAbr(r.id); return x ? '✓ ' + fmtDate(x.am, { day: '2-digit', month: '2-digit', year: '2-digit' }) : ''; }, html: r => { const x = jdbAbr(r.id); return x ? `<span class="badge verrechnet">✓ ${fmtDate(x.am, { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>` : '<span class="nr">offen</span>'; } }
 ];
-const JDB_DEF = { order: ['beginn', 'ende', 'dauer', 'arbeit', 'kunde', 'feld', 'ha', 'maschine', 'kultur', 'produkte', 'menge', 'abr'], w: {} };
+const JDB_DEF = { order: ['beginn', 'ende', 'dauer', 'arbeit', 'kunde', 'feld', 'ha', 'quelle', 'maschine', 'kultur', 'produkte', 'menge', 'abr'], w: {} };
 function jdbColCfg() {
   let c; try { c = JSON.parse(ls('lp_jdbcols') || 'null'); } catch { c = null; }
   if (!c || !Array.isArray(c.order)) c = JSON.parse(JSON.stringify(JDB_DEF));
   c.order = c.order.filter(id => JDB_COLS.some(x => x.id === id)); c.w = c.w || {};
+  if (!(c.known || []).includes('quelle') && !c.order.includes('quelle')) { const i = c.order.indexOf('ha'); c.order.splice(i < 0 ? c.order.length : i + 1, 0, 'quelle'); } // neue Spalte einmal einblenden
+  c.known = JDB_COLS.map(x => x.id);
   return c;
 }
 const jdbColSave = c => ls('lp_jdbcols', JSON.stringify(c));
@@ -3288,16 +3332,31 @@ function jdbColMove(id, d) {
 function jdbSummary(list) {
   return groupBy(list, r => r.arbeit).sort((a, b) => b[1].length - a[1].length).map(([a, l]) => `<span class="chip">${esc(a)}: ${l.length} · ${fmtNum(jdbHaSum(l))} ha</span>`).join('');
 }
+// Summen: Fläche pro Kunde und Arbeit (wie Blatt «Summen» im JD_Arbeitsbericht)
+function jdbSummen(list, { print } = {}) {
+  const arbeiten = [...new Set(list.map(r => r.arbeit))].sort((a, b) => a.localeCompare(b, 'de'));
+  const kunden = groupBy(list.slice().sort((a, b) => (a.kunde || '').localeCompare(b.kunde || '', 'de')), r => r.kunde || '–');
+  const cell = l => { const ha = jdbHaSum(l); return l.length ? `${fmtNum(ha)}<small> · ${l.length}</small>` : ''; };
+  return `<table class="btab jdbsum"><thead><tr><th>Kunde</th>${arbeiten.map(a => `<th class="n">${esc(a)}</th>`).join('')}<th class="n">Total ha</th></tr></thead>
+    <tbody>${kunden.map(([k, l]) => `<tr><td>${esc(k)}</td>${arbeiten.map(a => `<td class="n">${cell(l.filter(r => r.arbeit === a))}</td>`).join('')}<td class="n"><b>${fmtNum(jdbHaSum(l))}</b></td></tr>`).join('')}</tbody>
+    <tfoot><tr class="tot"><td><b>Total</b></td>${arbeiten.map(a => `<td class="n"><b>${fmtNum(jdbHaSum(list.filter(r => r.arbeit === a)))}</b></td>`).join('')}<td class="n"><b>${fmtNum(jdbHaSum(list))}</b></td></tr></tfoot></table>
+    ${print ? '' : '<p class="nr" style="margin:6px 0 0">Fläche in ha · Anzahl Arbeitsgänge</p>'}`;
+}
+function jdbSummenPrint() {
+  const J = App.jdb, list = jdbList(), d = x => fmtDate(x, { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const title = `Summen pro Kunde und Arbeit${J.von || J.bis ? ` ${J.von ? d(J.von) : '…'} – ${J.bis ? d(J.bis) : '…'}` : ''}`;
+  printHtml(title, `<div class="bill jdbprint">${LETTERHEAD}<div class="bill-h"><div><b>Arbeitsbericht · Summen</b><br><span class="nr">Fläche in ha · Anzahl Arbeitsgänge</span></div><div class="r">${esc(title)}<br>${list.length} Arbeitsgänge · ${fmtNum(jdbHaSum(list))} ha</div></div>${jdbSummen(list, { print: true })}</div>`, { noTitle: true });
+}
 function jdbCsv() {
-  const rows = [['Datum', 'Beginn', 'Ende', 'Dauer h', 'Arbeit', 'Kunde', 'Feld', 'Fläche ha', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Sorten', 'Menge', 'Saison', 'Abgerechnet am', 'ID']];
-  jdbList().forEach(r => rows.push([r.d, jdbDT(r.start), jdbDT(r.end), r.dauer != null ? r.dauer.toFixed(2) : '', r.arbeit, r.kunde, r.feld, r.ha ?? '', r.maschine, r.fahrer, r.kultur, r.produkte, r.sorten, r.menge, r.saison, jdbAbr(r.id)?.am || '', r.id]));
+  const rows = [['Datum', 'Beginn', 'Ende', 'Dauer h', 'Arbeit', 'Kunde', 'Feld', 'Fläche ha', 'Flächen-Quelle', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Sorten', 'Menge', 'Saison', 'Abgerechnet am', 'ID']];
+  jdbList().forEach(r => rows.push([r.d, jdbDT(r.start), jdbDT(r.end), r.dauer != null ? r.dauer.toFixed(2) : '', r.arbeit, r.kunde, r.feld, r.ha ?? '', r.quelle || '', r.maschine, r.fahrer, r.kultur, r.produkte, r.sorten, r.menge, r.saison, jdbAbr(r.id)?.am || '', r.id]));
   const J = App.jdb;
   download(`JD-Arbeitsbericht_${J.von || 'alle'}_${J.bis || ''}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }
 function jdbPrint() {
   const J = App.jdb, list = jdbList();
   const title = `Arbeitsbericht ${J.von || J.bis ? `${J.von ? fmtDate(J.von, { day: '2-digit', month: '2-digit', year: 'numeric' }) : '…'} – ${J.bis ? fmtDate(J.bis, { day: '2-digit', month: '2-digit', year: 'numeric' }) : '…'}` : ''}`;
-  const filt = [J.ab && (J.ab === 'ja' ? 'nur abgerechnete' : 'nur offene'), ...Object.entries(JDB_MS).map(([k, [, l]]) => jdbArr(J[k]).length ? `${l}: ${jdbArr(J[k]).join(', ')}` : '')].filter(Boolean).join(' · ');
+  const filt = [J.ab && (J.ab === 'ja' ? 'nur abgerechnete' : 'nur offene'), +J.minHa && `ohne Flächen unter ${fmtNum(+J.minHa)} ha`, ...Object.entries(JDB_MS).map(([k, [, l]]) => jdbArr(J[k]).length ? `${l}: ${jdbArr(J[k]).join(', ')}` : '')].filter(Boolean).join(' · ');
   printHtml(title, `<div class="bill jdbprint">${LETTERHEAD}<div class="bill-h"><div><b>${esc(jdbArr(J.k).length === 1 ? J.k[0] : 'Arbeitsbericht')}</b>${filt ? `<br><span class="nr">${esc(filt)}</span>` : ''}</div><div class="r">${esc(title)}<br>${list.length} Arbeitsgänge · ${fmtNum(jdbHaSum(list))} ha</div></div>
     ${jdbTable(list, { print: true })}</div>`, { noTitle: true });
 }
@@ -3305,7 +3364,7 @@ function jdbDetail(id) {
   const r = (App.jdb.rows || []).find(x => x.id === id); if (!r) return;
   const kv = (k, v) => v ? `<tr><td class="nr">${esc(k)}</td><td>${esc(v)}</td></tr>` : '';
   const dt = s => s ? new Date(s).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '';
-  const body = `<table class="btab kv">${kv('Arbeit', r.arbeit)}${kv('Kunde', r.kunde)}${kv('Feld', r.feld)}${kv('Fläche', r.ha != null ? fmtNum(r.ha) + ' ha' : '')}${kv('Abgerechnet', jdbAbr(r.id) ? fmtDate(jdbAbr(r.id).am, { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'offen')}${kv('Beginn', dt(r.start))}${kv('Ende', dt(r.end))}${kv('Dauer', r.dauer != null ? hrs(r.dauer) : '')}
+  const body = `<table class="btab kv">${kv('Arbeit', r.arbeit)}${kv('Kunde', r.kunde)}${kv('Feld', r.feld)}${kv('Fläche', r.ha != null ? fmtNum(r.ha) + ' ha' + (r.quelle ? ` (${r.quelle})` : '') : '')}${kv('Abgerechnet', jdbAbr(r.id) ? fmtDate(jdbAbr(r.id).am, { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'offen')}${kv('Beginn', dt(r.start))}${kv('Ende', dt(r.end))}${kv('Dauer', r.dauer != null ? hrs(r.dauer) : '')}
     ${kv('Maschine', r.maschine)}${kv('Fahrer', r.fahrer)}${kv('Kultur', r.kultur)}${kv('Saison', r.saison)}${kv('Produkte', r.produkte)}${kv('Sorten', r.sorten)}${kv('Menge', r.menge)}</table>
     ${r.details.map(m => `<div class="fld" style="margin-top:12px"><span>${esc(m.n)}</span></div><table class="btab kv">${m.v.map(([k, v]) => kv(k, v)).join('')}</table>`).join('')}
     <p class="nr" style="margin-top:12px">Quelle: MyJohnDeere · ID ${esc(r.id)}</p>`;
@@ -3341,6 +3400,7 @@ function jdBerichtView() {
           <label class="fld"><span>Von</span><input class="input" type="date" data-in="jb" data-k="von" value="${esc(J.von)}"></label>
           <label class="fld"><span>Bis</span><input class="input" type="date" data-in="jb" data-k="bis" value="${esc(J.bis)}"></label>
           ${sel('k')}${sel('a')}${sel('f')}${sel('m')}${sel('c')}
+          <label class="fld"><span>Kleinstflächen</span><select class="input" data-plain data-in="jbMin">${[['', 'Alle anzeigen'], ['0.05', 'unter 0.05 ha ausblenden'], ['0.1', 'unter 0.1 ha ausblenden'], ['0.2', 'unter 0.2 ha ausblenden'], ['0.5', 'unter 0.5 ha ausblenden'], ['1', 'unter 1 ha ausblenden']].map(([v, l]) => `<option value="${v}" ${String(J.minHa || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <label class="fld"><span>Abrechnung</span><select class="input" data-plain data-in="jb" data-k="ab"><option value="">Alle</option><option value="nein" ${J.ab === 'nein' ? 'selected' : ''}>Nur offene</option><option value="ja" ${J.ab === 'ja' ? 'selected' : ''}>Nur abgerechnete</option></select></label>
           <label class="fld"><span>Gruppieren nach</span><select class="input" data-plain data-in="jb" data-k="grp">${JDB_GRP.map(([v, l]) => `<option value="${v}" ${J.grp === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <label class="fld"><span>Sortierung</span><select class="input" data-plain data-in="jb" data-k="sort"><option value="desc">Neueste zuerst</option><option value="asc" ${J.sort === 'asc' ? 'selected' : ''}>Älteste zuerst</option></select></label>
@@ -3348,8 +3408,9 @@ function jdBerichtView() {
         <div class="btns"><span class="seg mini">${[['woche', 'Diese Woche'], ['30', '30 Tage'], ['jahr', 'Dieses Jahr'], ['vorjahr', 'Vorjahr'], ['alle', 'Alles']].map(([v, l]) => `<button type="button" data-act="jbPreset" data-v="${v}">${l}</button>`).join('')}</span>
           <input class="input search" type="search" placeholder="Suchen: Produkt, Sorte, Fahrer…" value="${esc(J.q || '')}" data-in="jbq" style="max-width:260px">
           <button class="btn" data-act="jbReset">Filter zurücksetzen</button></div></div>
-        <p><b>${list.length} Arbeitsgänge · ${fmtNum(jdbHaSum(list))} ha</b>${list.length ? ` <span class="nr">· ${list.filter(r => jdbAbr(r.id)).length} abgerechnet, ${list.filter(r => !jdbAbr(r.id)).length} offen</span>` : ''}</p>
+        <p><b>${list.length} Arbeitsgänge · ${fmtNum(jdbHaSum(list))} ha</b>${+J.minHa ? (() => { const n = all.filter(jdbFilter({ ...J, minHa: '' })).length - list.length; return n ? ` <span class="nr">· ${n} Kleinstflächen unter ${fmtNum(+J.minHa)} ha ausgeblendet</span>` : ''; })() : ''}${list.length ? ` <span class="nr">· ${list.filter(r => jdbAbr(r.id)).length} abgerechnet, ${list.filter(r => !jdbAbr(r.id)).length} offen</span>` : ''}</p>
         <div class="chips static" style="margin-bottom:10px">${jdbSummary(list)}</div>
+        ${list.length ? `<details class="panel jdbsumbox" ${J.sumOpen ? 'open' : ''}><summary data-act="jbSumToggle">Summen pro Kunde und Arbeit</summary><div class="tscroll" style="margin-top:8px">${J.sumOpen ? jdbSummen(list) : ''}</div>${J.sumOpen ? '<div class="btns" style="margin-top:8px"><button class="btn" data-act="jbSumPrint">Summen drucken / PDF</button></div>' : ''}</details>` : ''}
         ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-act="jbPrint">Drucken / PDF</button><button class="btn" data-act="jbCsv">Excel (CSV)</button><button class="btn" data-act="jbCols">Spalten…</button></div>
         ${jdbSelBar(list)}
         <div class="panel tscroll">${jdbTable(shown, { all: list })}</div>
@@ -3519,6 +3580,8 @@ document.addEventListener('click', async e => {
     case 'jbSelAllList': { const S = App.jdbSel || (App.jdbSel = new Set()); jdbList().forEach(r => S.add(r.id)); App.render(); break; }
     case 'jbSelNone': App.jdbSel?.clear(); App.render(); break;
     case 'jbCols': jdbColsDialog(); break;
+    case 'jbSumToggle': e.preventDefault(); App.jdb.sumOpen = !App.jdb.sumOpen; App.render(); break;
+    case 'jbSumPrint': jdbSummenPrint(); break;
     case 'jbColMv': jdbColMove(id, +t.dataset.d); break;
     case 'jbColReset': ls('lp_jdbcols', ''); Dlg.close(); App.render(); toast('Spalten auf Standard zurückgesetzt'); break;
     case 'jbMore': App.jdb.limit = (App.jdb.limit || 300) + 300; App.render(); break;
@@ -3654,6 +3717,7 @@ document.addEventListener('change', e => {
   if (k === 'spPrSeit') { if (e.target.value) { App.spray.prseit = e.target.value; App.render(); } return; }
   if (k === 'axW' || k === 'axT') { App.plan[k] = e.target.value; ls(k === 'axW' ? 'lp_axW' : 'lp_axT', e.target.value); App.tlScroll = null; toast('Anordnung der Planung geändert'); return; }
   if (k === 'uiScale') { uiScaleSet(e.target.value); return; }
+  if (k === 'jbMin') { App.jdb.minHa = e.target.value; ls('lp_jdbmin', e.target.value); App.jdb.limit = 300; App.render(); return; }
   if (k === 'jbMsC') { jdbMsCheck(e.target); return; }
   if (k === 'jbSel' || k === 'jbSelAll') { jdbSelToggle(e.target); return; }
   if (k === 'alSel' || k === 'alSelAll') { alSelToggle(e.target); return; }
