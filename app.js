@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '56', APP_STAND = '29.10.2026';
+const APP_VERSION = '57', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1047,6 +1047,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
   const isNew = !id;
   const a = isNew ? { id: uid(), erfasst: Date.now(), nr: Store.nextAuftragNr(), status: 'offen', kunde: kundeId || '', arbeit: arbeit || '' } : structuredClone(Store.get('auftraege', id));
   if (!a) return;
+  if (isNew) sprayDefaults(a);
   if (isNew && pre) { a.maschine = pre.maschine || ''; a.zeit = pre.zeit || ''; plan = true; }
   const k = a.kunde && Store.get('kunden', a.kunde);
   const s = statusOf(a), done = s === 'erledigt' || s === 'verrechnet';
@@ -1118,6 +1119,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
     }
     if (isNew && !o.maschine) { const sm = soleMachine(o.arbeit); if (sm) { o.maschine = sm.id; if (!o.dauerManuell) o.dauer = defaultDauer(sm, o.flaeche); } }
     if (isSpray(o)) Object.assign(o, readSpray(Dlg.form));
+    else if (isNew) ['wasser', 'duese', 'traktor'].forEach(k => delete o[k]);
     if (!isNew) {
       o.status = fd.get('status');
       if (o.status === 'erledigt' || o.status === 'verrechnet') {
@@ -1955,6 +1957,16 @@ const optList = (list, cur) => (cur && !list.includes(cur) ? [cur, ...list] : li
 function parzOptions(kid, cur) {
   const list = Store.all('parzellen').filter(p => p.kunde === kid && (p.aktiv !== false || p.id === cur)).sort(byName);
   return `<option value="">— keine —</option>` + list.map(p => `<option value="${p.id}" ${p.id === cur ? 'selected' : ''}>${esc(p.name)}${p.flaeche ? ` · ${fmtNum(p.flaeche)} ha` : ''}${p.kultur ? ` · ${esc(p.kultur)}` : ''}</option>`).join('');
+}
+// Vorgaben für neue Spritzaufträge: Düse IDK 03, Traktor JD 5125r, Wasser 200 l/ha
+const SPRAY_DEF = { duese: 'idk03', traktor: 'jd5125r', wasser: 200 };
+function sprayDefaults(a) {
+  const key = x => norm(x).replace(/[^a-z0-9]/g, '');
+  const pick = (list, k) => list.find(x => key(x) === k) || list.find(x => key(x).startsWith(k)) || '';
+  if (a.wasser == null) a.wasser = SPRAY_DEF.wasser;
+  if (!a.duese) a.duese = pick(Lists.duesen(), SPRAY_DEF.duese);
+  if (!a.traktor) a.traktor = pick(Lists.traktoren(), SPRAY_DEF.traktor);
+  return a;
 }
 function sprayBox(a) {
   const ps = prodList(a);
