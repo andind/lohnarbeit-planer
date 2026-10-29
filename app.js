@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '42', APP_STAND = '28.10.2026';
+const APP_VERSION = '43', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -3177,7 +3177,7 @@ function jdbFromCache() { try { const c = JSON.parse(localStorage.getItem(JDB_KE
 function jdbApply(d, src) {
   if (!d || d.format !== 'jd-arbeiten' || !Array.isArray(d.operations)) { toast('Keine gültige Datei mit Arbeitsdaten (jd-arbeiten.json)'); return false; }
   const rows = d.operations.map(jdbRow).filter(r => r.d);
-  App.jdb.rows = rows; App.jdb.meta = { stand: d.stand, org: d.org?.name || '', seit: d.seit, src, n: rows.length };
+  App.jdb.rows = rows; App.jdb.meta = { stand: d.stand, org: d.org?.name || '', seit: d.seit, src, n: rows.length, dienst: d.dienst || '', bedeckung: d.bedeckung || null };
   jdbCache(rows, App.jdb.meta); return true;
 }
 async function jdbLoad(silent) {
@@ -3399,6 +3399,7 @@ function jdBerichtView() {
           </div>` : ''}</div>`; };
       const shown = list.slice(0, J.limit || 300), m = J.meta || {};
       return `<p class="nr" style="margin-top:0">${m.n || all.length} Arbeitsgänge${m.org ? ' · ' + esc(m.org) : ''}${m.stand ? ` · Stand ${esc(new Date(m.stand).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }))}` : ''}${m.seit ? ` · ab ${fmtDate(m.seit, { day: '2-digit', month: '2-digit', year: 'numeric' })}` : ''}
+          ${(() => { const q = { m: 0, b: 0, o: 0 }; all.forEach(r => r.quelle === 'Bedeckungskarte' ? q.b++ : r.ha != null ? q.m++ : q.o++); return ` · Flächen: ${q.m} Maschine, ${q.b} Bedeckungskarte, ${q.o} ohne`; })()}${m.bedeckung && m.bedeckung.gestoppt ? ' · <span style="color:var(--danger)">Bedeckungskarte: Abfrage abgebrochen – siehe NAS-Dienst</span>' : ''}
           · <a href="#" data-act="jbLoad">${J.loading ? 'lädt…' : 'neu laden'}</a> · <a href="#" data-act="jbFile">Datei wählen</a></p>
         <div class="panel jfilter"><div class="jfgrid">
           <label class="fld"><span>Von</span><input class="input" type="date" data-in="jb" data-k="von" value="${esc(J.von)}"></label>
