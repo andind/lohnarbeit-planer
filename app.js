@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '47', APP_STAND = '29.10.2026';
+const APP_VERSION = '48', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -485,7 +485,7 @@ const App = {
   filter: { auftraege: 'offen', q: '', kq: '', aview: ls('lp_aview') || 'karten' },
   al: { von: '', bis: '', k: '', a: '', c: '', m: '', f: '', grp: '', sort: 'desc', limit: 300 },
   jdb: { minHa: ls('lp_jdbmin') || '', rows: null, meta: null, von: null, bis: null, k: [], a: [], f: [], m: [], c: [], q: '', grp: '', sort: 'desc', limit: 300, open: null },
-  plan: { axW: ls('lp_axW') || 'tage', axT: ls('lp_axT') || 'senkrecht', side: ls('lp_pside') !== '0', mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
+  plan: { ua: '', us: ls('lp_pus') || 'wunsch', axW: ls('lp_axW') || 'tage', axT: ls('lp_axT') || 'senkrecht', side: ls('lp_pside') !== '0', mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false, zoom: +(ls('lp_zoom') || 1),
   spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jsort: 'desc', jf: null, jfOpen: false, jlimit: 200,
     ak: '', av: `${new Date().getFullYear()}-01-01`, ab: todayIso(), ag: false, ny: 0, nk: '', nc: '', ngep: false, pk: '', pall: false, prq: '', prall: false },
@@ -611,8 +611,17 @@ const Views = {
       let grid;
       if (!cols.length) grid = `<div class="empty">${P.nurBelegt || P.aa ? 'Keine passenden Maschinen – Filter oben anpassen.' : 'In diesem Zeitraum ist keine Maschine in Saison.<br>Saison unter <b>Maschinen</b> anpassen.'}</div>`;
       else grid = P.mode === 'tag' ? (App.tlH ? this.dayTimelineH(days[0], cols) : this.dayTimeline(days[0], cols)) : (P.axW === 'maschinen' ? this.weekGridM(days, cols) : this.weekGrid(days, cols));
-      const unpl = Store.all('auftraege').filter(a => isOpen(a) && !a.datum)
-        .sort((x, y) => (x.wunsch || '9999').localeCompare(y.wunsch || '9999'));
+      const unplAll = Store.all('auftraege').filter(a => isOpen(a) && !a.datum);
+      const uArb = [...new Set(unplAll.map(a => a.arbeit).filter(Boolean))].sort((x, y) => x.localeCompare(y, 'de'));
+      if (P.ua && !uArb.includes(P.ua)) P.ua = '';
+      const wun = a => a.wunsch || '', byW = (x, y) => (wun(x) || '9999').localeCompare(wun(y) || '9999') || kundeName(x.kunde).localeCompare(kundeName(y.kunde), 'de');
+      const SORT = { wunsch: byW, wunschDesc: (x, y) => (wun(y) || '0000').localeCompare(wun(x) || '0000') || kundeName(x.kunde).localeCompare(kundeName(y.kunde), 'de'),
+        kunde: (x, y) => kundeName(x.kunde).localeCompare(kundeName(y.kunde), 'de') || byW(x, y), neu: (x, y) => String(y.nr || '').localeCompare(String(x.nr || '')) };
+      const unpl = unplAll.filter(a => !P.ua || a.arbeit === P.ua).sort(SORT[P.us] || byW);
+      const unplCtl = `<div class="unplctl">
+          <select class="input" data-plain data-in="pUa" title="Nach Arbeit filtern"><option value="">Alle Arbeiten (${unplAll.length})</option>${uArb.map(a => `<option value="${esc(a)}" ${P.ua === a ? 'selected' : ''}>${esc(a)} (${unplAll.filter(x => x.arbeit === a).length})</option>`).join('')}</select>
+          <select class="input" data-plain data-in="pUs" title="Sortierung"><option value="wunsch">Sortierung: Wunschdatum ↑</option><option value="wunschDesc" ${P.us === 'wunschDesc' ? 'selected' : ''}>Sortierung: Wunschdatum ↓</option><option value="kunde" ${P.us === 'kunde' ? 'selected' : ''}>Sortierung: Kunde A–Z</option><option value="neu" ${P.us === 'neu' ? 'selected' : ''}>Sortierung: neueste Aufträge</option></select>
+        </div>`;
       if (App.fs) return `<div class="fsview">
         <div class="fsbar">
           <button class="btn small" data-act="pNav" data-d="-1" aria-label="Zurück">◀</button>
@@ -625,8 +634,9 @@ const Views = {
       return `<div class="planwrap ${App.plan.side === false ? 'noside' : ''}">
         <div>${grid}</div>
         <aside class="unplanned" data-drop="">
-          <h3>Noch nicht eingeplant (${unpl.length})</h3>
-          <div class="slot">${unpl.map(unplCard).join('') || '<div class="none">Alles eingeplant 👍</div>'}</div>
+          <h3>Noch nicht eingeplant (${unpl.length}${P.ua ? ` von ${unplAll.length}` : ''})</h3>
+          ${unplAll.length ? unplCtl : ''}
+          <div class="slot">${unpl.map(unplCard).join('') || `<div class="none">${unplAll.length ? 'Keine Aufträge für diese Arbeit.' : 'Alles eingeplant 👍'}</div>`}</div>
         </aside></div>`;
     },
     // ---- Woche: Maschinen nebeneinander, pro Tag eine 24h-Leiste und die Aufträge
@@ -696,6 +706,7 @@ const Views = {
         ${h > 54 && big && info ? `<span class="w">${info}</span>` : ''}
         ${h > 54 && big ? sprayShort(a, { noFeld: true }) : ''}
         ${h > 70 && big && a.notiz ? `<span class="note">${esc(a.notiz)}</span>` : ''}
+        ${op ? `<button type="button" class="blkdone" data-act="done" data-id="${a.id}" title="Als erledigt melden">✓</button>` : ''}
       </div>`;
     },
     // ---- Tag getauscht: waagrechte Zeitachse 0–24 Uhr, Maschinen als Zeilen
@@ -915,6 +926,7 @@ function planCard(it) {
     <div class="sub">${artKultur(a)}</div>
     <div class="sub">${a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''}${a.flaeche && (d || isOpen(a)) ? ' · ' : ''}${d ? '⏱ ' + hrs(d) : isOpen(a) ? '⏱ Dauer fehlt' : ''}${s === 'erledigt' || s === 'verrechnet' ? ' · ✓' : ''}</div>
     ${sprayShort(a, { noFeld: true })}${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}
+    ${isOpen(a) ? `<div class="pcard-act"><button type="button" class="btn mini donebtn" data-act="done" data-id="${a.id}" title="Als erledigt melden: Datum, Fläche, Stunden, Bemerkungen">✓ Erledigt</button></div>` : ''}
   </div>`;
 }
 function unplCard(a) {
@@ -3762,6 +3774,8 @@ document.addEventListener('change', e => {
   if (k === 'spInv') { invEdit(e.target); return; }
   if (k === 'spPrAkt') { prodAktToggle(e.target); return; }
   if (k === 'spPrSeit') { if (e.target.value) { App.spray.prseit = e.target.value; App.render(); } return; }
+  if (k === 'pUa') { App.plan.ua = e.target.value; App.render(); return; }
+  if (k === 'pUs') { App.plan.us = e.target.value; ls('lp_pus', e.target.value); App.render(); return; }
   if (k === 'axW' || k === 'axT') { App.plan[k] = e.target.value; ls(k === 'axW' ? 'lp_axW' : 'lp_axT', e.target.value); App.tlScroll = null; toast('Anordnung der Planung geändert'); return; }
   if (k === 'uiScale') { uiScaleSet(e.target.value); return; }
   if (k === 'jbMin') { App.jdb.minHa = e.target.value; ls('lp_jdbmin', e.target.value); App.jdb.limit = 300; App.render(); return; }

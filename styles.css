@@ -803,3 +803,13 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 .jdbfs-body .tscroll { overflow: visible; }
 @media (max-width: 599px) { .jdbfs .fsbar .btn.small:not(.fsclose):not([data-act="jbFsFilter"]) { display: none; } }
 .jdbfs-body > .btns { display: none; }
+/* Planung: Filter/Sortierung «Noch nicht eingeplant», Erledigt-Knopf */
+.unplctl { display: grid; gap: 6px; margin: 0 0 8px; }
+.unplctl .input { padding: 6px 8px; font-size: 13px; min-height: 0; }
+.pcard-act { display: flex; justify-content: flex-end; margin-top: 6px; }
+.pcard .donebtn { padding: 3px 10px; font-size: 12px; min-height: 0; border-color: color-mix(in srgb, var(--s-erledigt) 50%, var(--line)); color: var(--s-erledigt); background: var(--surface); }
+.pcard .donebtn:hover { background: color-mix(in srgb, var(--s-erledigt) 12%, var(--surface)); }
+.blk .blkdone { position: absolute; right: 3px; bottom: 3px; width: 24px; height: 22px; padding: 0; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--s-erledigt) 50%, var(--line)); background: var(--surface); color: var(--s-erledigt); font-size: 13px; line-height: 1; cursor: pointer; z-index: 2; }
+.tlh .blk .blkdone { top: 3px; bottom: auto; }
+@media (pointer: coarse) { .pcard .donebtn { min-height: 34px; padding: 4px 12px; } .blk .blkdone { width: 32px; height: 30px; } .unplctl .input { min-height: 40px; } }
+@media print { .pcard-act, .blkdone { display: none; } }
