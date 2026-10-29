@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '52', APP_STAND = '29.10.2026';
+const APP_VERSION = '53', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1061,7 +1061,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
     ${sprayBox(a)}
     <label class="fld"><span>Bemerkungen</span><textarea class="input" name="notiz" placeholder="Zufahrt, Besonderheiten, Ansprechperson…">${esc(a.notiz || '')}</textarea></label>
 
-    <details class="box" id="planBox" ${a.datum || plan ? 'open' : ''}>
+    <details class="box" id="planBox" ${a.datum || plan === true ? 'open' : ''}>
       <summary><b>${a.datum ? 'Einplanung' : 'Direkt einplanen'}</b></summary>
       <div style="margin-top:10px">
         <div class="two">
@@ -3680,7 +3680,7 @@ document.addEventListener('click', async e => {
     case 'newOrder': orderDialog(); break;
     case 'newOrderFor': Dlg.close(); orderDialog(null, { kunde: id }); break;
     case 'editOrder': orderDialog(id); break;
-    case 'planOrder': e.stopPropagation(); orderDialog(id, { plan: true }); break;
+    case 'planOrder': e.stopPropagation(); orderDialog(id, { plan: 'vorschlag' }); break;
     case 'done': e.stopPropagation(); doneDialog(id); break;
     case 'unplan': f.datum.value = ''; f.zeit.value = ''; toast('Beim Speichern wird die Einplanung entfernt'); break;
     case 'quickKunde': if (jdLock()) toast('Neue Kunden werden in MyJohnDeere erfasst.'); else quickKundeDialog(); break;
