@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '50', APP_STAND = '29.10.2026';
+const APP_VERSION = '52', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -457,21 +457,23 @@ function attachResize(h) {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault(); e.stopPropagation();
     const a0 = Store.get('auftraege', h.dataset.rsz); if (!a0) return;
-    const start = +h.dataset.s, len0 = lenOf(a0), p0 = horiz ? e.clientX : e.clientY;
+    // start = Beginn des Auftrags bezogen auf 00:00 dieses Tages (bei einer Fortsetzung negativ)
+    const start = +h.dataset.s, len0 = lenOf(a0), p0 = horiz ? e.clientX : e.clientY, vis0 = Math.max(0, start), minLen = Math.max(STEP, -start + STEP);
     let len = len0;
     const drg = blk.getAttribute('draggable'); blk.removeAttribute('draggable');
     blk.classList.add('resizing');
     const lbl = document.createElement('span'); lbl.className = 'rszlbl'; blk.appendChild(lbl);
     const show = () => {
-      const px = Math.max(20, Math.min(len, 1440 - start) * PX - 2);
+      const px = Math.max(20, (Math.min(1440, start + len) - vis0) * PX - 2);
       blk.style[horiz ? 'width' : 'height'] = px + 'px';
-      lbl.textContent = `${fromMin(start)}–${endLbl({ end: Math.min(1440, start + len), rawEnd: start + len })} · ${hrs(len / 60)}`;
+      lbl.textContent = start < 0 ? `bis ${endLbl({ end: Math.min(1440, start + len), rawEnd: start + len })} · total ${hrs(len / 60)}`
+        : `${fromMin(start)}–${endLbl({ end: Math.min(1440, start + len), rawEnd: start + len })} · ${hrs(len / 60)}`;
     };
     show();
     try { h.setPointerCapture(e.pointerId); } catch { }
     const move = ev => {
       const dm = ((horiz ? ev.clientX : ev.clientY) - p0) / UIZ() / PX;
-      len = Math.max(STEP, Math.round((len0 + dm) / STEP) * STEP);
+      len = Math.max(minLen, Math.round((len0 + dm) / STEP) * STEP);
       show();
     };
     const up = () => {
@@ -484,7 +486,7 @@ function attachResize(h) {
       const a = { ...Store.get('auftraege', a0.id), dauer: Math.round(len / 60 * 100) / 100, dauerManuell: true };
       Store.putMany('auftraege', [a]);
       const d = a.datum, mid = a.maschine || '';
-      settleDay(d, mid); settleDay(isoDate(addDays(parseDate(d), 1)), mid);
+      [0, 1, 2].forEach(n => settleDay(isoDate(addDays(parseDate(d), n)), mid));
       toast(`${kundeName(a.kunde)}: Dauer ${hrs(a.dauer)}`);
     };
     h.addEventListener('pointermove', move); h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
@@ -543,7 +545,7 @@ const ZOOM_MIN = 0.4, ZOOM_MAX = 3;
 const App = {
   view: ls('lp_view') || 'auftraege',
   filter: { auftraege: 'offen', q: '', kq: '', aview: ls('lp_aview') || 'karten' },
-  al: { von: '', bis: '', k: '', a: '', c: '', m: '', f: '', grp: '', sort: 'desc', limit: 300 },
+  al: { von: '', bis: '', k: '', a: '', c: '', m: '', f: '', grp: '', sort: 'wunsch', limit: 300 },
   jdb: { minHa: ls('lp_jdbmin') || '', rows: null, meta: null, von: null, bis: null, k: [], a: [], f: [], m: [], c: [], q: '', grp: '', sort: 'desc', limit: 300, open: null },
   plan: { ua: '', us: ls('lp_pus') || 'wunsch', axW: ls('lp_axW') || 'tage', axT: ls('lp_axT') || 'senkrecht', side: ls('lp_pside') !== '0', mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false, zoom: +(ls('lp_zoom') || 1),
@@ -769,7 +771,7 @@ const Views = {
         ${h > 54 && big ? sprayShort(a, { noFeld: true }) : ''}
         ${h > 70 && big && a.notiz ? `<span class="note">${esc(a.notiz)}</span>` : ''}
         ${op ? `<button type="button" class="blkdone" data-act="done" data-id="${a.id}" title="Als erledigt melden">✓</button>` : ''}
-        ${op ? `<i class="rsz" data-rsz="${a.id}" data-s="${s}" data-d="${esc(a.datum)}" data-m="${esc(a.maschine || '')}" title="Ziehen: Auftragslänge ändern"></i>` : ''}
+        ${isOpen(a) ? `<i class="rsz" data-rsz="${a.id}" data-s="${it.cont ? it.rawEnd - lenOf(a) : s}" title="Ziehen: Auftragslänge ändern"></i>` : ''}
       </div>`;
     },
     // ---- Tag getauscht: waagrechte Zeitachse 0–24 Uhr, Maschinen als Zeilen
@@ -1032,7 +1034,7 @@ function machineOptions(iso, arbeit, selected) {
 
 function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
   const isNew = !id;
-  const a = isNew ? { id: uid(), nr: Store.nextAuftragNr(), status: 'offen', kunde: kundeId || '', arbeit: arbeit || '' } : structuredClone(Store.get('auftraege', id));
+  const a = isNew ? { id: uid(), erfasst: Date.now(), nr: Store.nextAuftragNr(), status: 'offen', kunde: kundeId || '', arbeit: arbeit || '' } : structuredClone(Store.get('auftraege', id));
   if (!a) return;
   if (isNew && pre) { a.maschine = pre.maschine || ''; a.zeit = pre.zeit || ''; plan = true; }
   const k = a.kunde && Store.get('kunden', a.kunde);
@@ -2638,25 +2640,38 @@ const alLabel = (k, g) => g === 'monat' && k ? `${MONATE_LANG[+k.slice(5, 7) - 1
 const alFl = a => a.flaecheEff ?? a.flaeche ?? null;
 const alHa = l => r2(l.reduce((s, a) => s + (alFl(a) || 0), 0));
 const alStd = a => a.stundenEff ?? a.dauer ?? null;
+// Erfassungszeitpunkt: Feld «erfasst» (ab v52), sonst aus der Auftrags-ID (enthält die Erstellungszeit), sonst unbekannt
+function erfassTs(a) {
+  if (a.erfasst) return a.erfasst;
+  const m = /^([0-9a-z]{8})[0-9a-z]{4,}$/.exec(a.id || '');
+  if (!m) { const n = /-[a-z]*(\d+)$/.exec(a.id || ''); return n ? +n[1] : 0; } // importierte Aufträge (z. B. ps-a12): laufende Nummer
+  const t = parseInt(m[1], 36); return t > 1.5e12 && t < Date.now() + 864e5 ? t : 0;
+}
+const AL_SORT = [['wunsch', 'Wunschdatum ↑'], ['wunschDesc', 'Wunschdatum ↓'], ['desc', 'Datum: neueste zuerst'], ['asc', 'Datum: älteste zuerst']];
 function alList() {
-  const L = App.al;
-  return Store.all('auftraege').filter(alFilter(L)).sort((x, y) => {
-    const c = (aDate(x) || '9999').localeCompare(aDate(y) || '9999') || (x.zeit || '').localeCompare(y.zeit || '') || (x.nr || '').localeCompare(y.nr || '');
-    return L.sort === 'asc' ? c : -c;
-  });
+  const L = App.al, nrC = (x, y) => (x.nr || '').localeCompare(y.nr || '');
+  const byDate = (x, y) => (aDate(x) || '9999').localeCompare(aDate(y) || '9999') || (x.zeit || '').localeCompare(y.zeit || '') || nrC(x, y);
+  // Wunschdatum, bei gleichem (oder fehlendem) Wunschdatum nach Erfassung; ohne Wunschdatum immer am Schluss
+  const byWish = dir => (x, y) => {
+    const wx = x.wunsch || '', wy = y.wunsch || '';
+    if (!wx !== !wy) return wx ? -1 : 1;
+    return dir * (wx.localeCompare(wy) || (erfassTs(x) - erfassTs(y)) || nrC(x, y));
+  };
+  const cmp = L.sort === 'asc' ? byDate : L.sort === 'desc' ? (x, y) => -byDate(x, y) : byWish(L.sort === 'wunschDesc' ? -1 : 1);
+  return Store.all('auftraege').filter(alFilter(L)).sort(cmp);
 }
 function alTable(list, { print } = {}) {
   const g = App.al.grp;
   const ck = !print, sel = App.alSel || new Set();
   const allOn = ck && list.length && list.every(a => sel.has(a.id));
-  const head = `<thead><tr>${ck ? `<th class="ck" data-stop><input type="checkbox" data-in="alSelAll" title="Alle angezeigten auswählen" ${allOn ? 'checked' : ''}></th>` : ''}<th>Datum</th><th>Nr.</th><th>Kunde</th><th>Feld / Parzelle</th><th>Arbeit</th><th>Kultur</th><th class="n">ha</th><th>Maschine</th><th class="n">Std.</th><th>Status</th><th>Bemerkung</th></tr></thead>`;
+  const head = `<thead><tr>${ck ? `<th class="ck" data-stop><input type="checkbox" data-in="alSelAll" title="Alle angezeigten auswählen" ${allOn ? 'checked' : ''}></th>` : ''}<th>Datum</th><th>Wunsch</th><th>Nr.</th><th>Kunde</th><th>Feld / Parzelle</th><th>Arbeit</th><th>Kultur</th><th class="n">ha</th><th>Maschine</th><th class="n">Std.</th><th>Status</th><th>Bemerkung</th></tr></thead>`;
   const row = a => `<tr class="${print ? '' : 'click'}${ck && sel.has(a.id) ? ' alsel' : ''}" ${print ? '' : `data-act="editOrder" data-id="${a.id}"`}>${ck ? `<td class="ck" data-stop><input type="checkbox" data-in="alSel" value="${a.id}" ${sel.has(a.id) ? 'checked' : ''}></td>` : ''}<td>${aDate(a) ? fmtDate(aDate(a), { day: '2-digit', month: '2-digit', year: '2-digit' }) : ''}${!a.datum && a.wunsch ? ' <span class="nr">W</span>' : ''}</td>
-    <td class="nr">${esc(a.nr || '')}</td><td>${esc(kundeName(a.kunde))}</td><td>${esc(aFeld(a))}</td><td>${esc(a.arbeit || '')}${prodList(a).length ? `<br><span class="nr">${esc(prodNames(a).join(', '))}</span>` : ''}</td><td>${esc(a.kultur || '')}</td>
+    <td>${a.wunsch ? fmtDate(a.wunsch, { day: '2-digit', month: '2-digit', year: '2-digit' }) : ''}</td><td class="nr">${esc(a.nr || '')}</td><td>${esc(kundeName(a.kunde))}</td><td>${esc(aFeld(a))}</td><td>${esc(a.arbeit || '')}${prodList(a).length ? `<br><span class="nr">${esc(prodNames(a).join(', '))}</span>` : ''}</td><td>${esc(a.kultur || '')}</td>
     <td class="n">${alFl(a) != null ? fmtNum(alFl(a)) : ''}</td><td>${esc(maschine(a.maschine)?.name || '')}</td><td class="n">${alStd(a) != null ? fmtNum(r2(alStd(a))) : ''}</td>
     <td>${print ? STATUS[statusOf(a)] : `<span class="badge ${statusOf(a)}">${STATUS[statusOf(a)]}</span>`}</td><td>${esc(a.notiz || '')}</td></tr>`;
   if (!g) return `<table class="btab altab">${head}<tbody>${list.map(row).join('')}</tbody></table>`;
-  const groups = groupBy(list.slice().sort((x, y) => String(alKey(x, g)).localeCompare(String(alKey(y, g)), 'de') * (g === 'monat' && App.al.sort !== 'asc' ? -1 : 1)), a => alKey(a, g));
-  return `<table class="btab altab">${head}${groups.map(([k, l]) => `<tbody class="pblk"><tr class="gk"><td colspan="${ck ? 7 : 6}">${esc(alLabel(k, g))}</td><td class="n">${fmtNum(alHa(l))}</td><td colspan="4">${l.length} ${l.length === 1 ? 'Auftrag' : 'Aufträge'}</td></tr>${l.map(row).join('')}</tbody>`).join('')}</table>`;
+  const groups = groupBy(list.slice().sort((x, y) => String(alKey(x, g)).localeCompare(String(alKey(y, g)), 'de') * (g === 'monat' && /desc/i.test(App.al.sort) ? -1 : 1)), a => alKey(a, g));
+  return `<table class="btab altab">${head}${groups.map(([k, l]) => `<tbody class="pblk"><tr class="gk"><td colspan="${ck ? 8 : 7}">${esc(alLabel(k, g))}</td><td class="n">${fmtNum(alHa(l))}</td><td colspan="4">${l.length} ${l.length === 1 ? 'Auftrag' : 'Aufträge'}</td></tr>${l.map(row).join('')}</tbody>`).join('')}</table>`;
 }
 /* ---------- Mehrfachauswahl: Status mehrerer Aufträge ändern ---------- */
 function alSelToggle(el) {
@@ -2733,11 +2748,11 @@ function alContent() {
       ${sel('a', 'Arbeit', opt(uniq(a => a.arbeit, 'a'), L.a), 'Alle Arbeiten')}${sel('c', 'Kultur', opt(uniq(a => a.kultur, 'c'), L.c), 'Alle Kulturen')}
       ${sel('m', 'Maschine', opt(mIds, L.m, id => maschine(id)?.name || id), 'Alle Maschinen')}
       <label class="fld"><span>Gruppieren nach</span><select class="input" data-plain data-in="al" data-k="grp">${AL_GRP.map(([v, l]) => `<option value="${v}" ${L.grp === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <label class="fld"><span>Sortierung</span><select class="input" data-plain data-in="al" data-k="sort"><option value="desc">Neueste zuerst</option><option value="asc" ${L.sort === 'asc' ? 'selected' : ''}>Älteste zuerst</option></select></label>
+      <label class="fld"><span>Sortierung</span><select class="input" data-plain data-in="al" data-k="sort" title="Wunschdatum: bei gleichem Wunschdatum nach Erfassung; ohne Wunschdatum am Schluss">${AL_SORT.map(([v, t]) => `<option value="${v}" ${L.sort === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
     </div>
     <div class="btns"><span class="seg mini">${[['woche', 'Diese Woche'], ['30', '30 Tage'], ['jahr', 'Dieses Jahr'], ['vorjahr', 'Vorjahr'], ['alle', 'Alles']].map(([v, l]) => `<button type="button" data-act="alPreset" data-v="${v}">${l}</button>`).join('')}</span>
       <button class="btn" data-act="alReset">Filter zurücksetzen</button></div>
-    <p class="nr" style="margin:6px 0 0">Datum = erledigt am, sonst eingeplant, sonst Wunschdatum (W). Status über die Schaltflächen oben, Suche im Suchfeld oben.</p></div>
+    <p class="nr" style="margin:6px 0 0">Datum = erledigt am, sonst eingeplant, sonst Wunschdatum (W). Sortierung «Wunschdatum»: bei gleichem Wunschdatum nach Erfassung, ohne Wunschdatum am Schluss. Status über die Schaltflächen oben, Suche im Suchfeld oben.</p></div>
     <p><b>${list.length} Aufträge · ${fmtNum(alHa(list))} ha</b></p>
     <div class="chips static" style="margin-bottom:10px">${sums}</div>
     ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-act="alPrint">Drucken / PDF</button><button class="btn" data-act="alCsv">Excel (CSV)</button></div>
@@ -3761,7 +3776,7 @@ document.addEventListener('click', async e => {
     case 'dauerReset': f.dauer.value = ''; f.dauer.dispatchEvent(new Event('input')); break;
     case 'dupOrder': {
       const a = structuredClone(Store.get('auftraege', id));
-      Object.assign(a, { id: uid(), nr: Store.nextAuftragNr(), status: 'offen', datum: '', zeit: '', erledigtAm: '', flaecheEff: null, stundenEff: null });
+      Object.assign(a, { id: uid(), erfasst: Date.now(), nr: Store.nextAuftragNr(), status: 'offen', datum: '', zeit: '', erledigtAm: '', flaecheEff: null, stundenEff: null });
       Store.put('auftraege', a); Dlg.close(); orderDialog(a.id); toast('Kopie erstellt – z.B. anderen Kunden wählen'); break;
     }
     case 'delOrder': if (confirm('Auftrag löschen?')) { Store.remove('auftraege', id); Dlg.close(); } break;
