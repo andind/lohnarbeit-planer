@@ -795,3 +795,11 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 .brand .ver { font-weight: 500; font-size: 11px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; flex: none; }
 @media print { .brand .ver { display: none; } }
 @media (max-width: 430px) { .brand .ver { display: none; } }
+/* Bericht im Vollbild */
+.jdbfs .fsbar .jdbfs-t { width: auto; flex: 0 1 auto; text-align: left; }
+.jdbfs .fsbar .nr { margin-right: auto; }
+.jdbfs-body { flex: 1; min-height: 0; overflow: auto; padding: 12px 14px calc(14px + env(safe-area-inset-bottom)); }
+.jdbfs-body.nofilter .jfilter, .jdbfs-body.nofilter .jdbsumbox, .jdbfs-body.nofilter > .chips { display: none; }
+.jdbfs-body .tscroll { overflow: visible; }
+@media (max-width: 599px) { .jdbfs .fsbar .btn.small:not(.fsclose):not([data-act="jbFsFilter"]) { display: none; } }
+.jdbfs-body > .btns { display: none; }

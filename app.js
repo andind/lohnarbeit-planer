@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '46', APP_STAND = '29.10.2026';
+const APP_VERSION = '47', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -498,6 +498,7 @@ const App = {
     const tl = $('.cal'); if (tl && !this.resetScroll) this.tlScroll = { top: tl.scrollTop, left: tl.scrollLeft };
     if (this.resetScroll) { this.tlScroll = null; this.resetScroll = false; }
     document.body.classList.toggle('fs-plan', this.fs && this.view === 'plan');
+    document.body.classList.toggle('fs-plan', (this.fs && this.view === 'plan') || (this.view === 'jdbericht' && !!(this.jdb && this.jdb.fs)));
     if (fresh) $('#toolbar').innerHTML = v.toolbar();
     if (v.refreshToolbar) v.refreshToolbar();
     $('#content').innerHTML = v.content();
@@ -3398,7 +3399,8 @@ function jdbDetail(id) {
 function jdBerichtView() {
   return {
     toolbar() {
-      return `<h1>JD-Arbeitsbericht</h1>
+      return `<h1>Daten Operations Center John Deere</h1>
+        <button class="btn" data-act="jbFs" title="Bericht im Vollbild (Esc schliesst)">⛶ Vollbild</button>
         <button class="btn" data-act="jbReq" title="NAS-Dienst holt die neuesten Daten aus MyJohnDeere">⟳ In MyJohnDeere abholen</button>`;
     },
     content() {
@@ -3418,7 +3420,7 @@ function jdBerichtView() {
             <div class="msel-f"><button type="button" class="btn mini" data-act="jbMsAll" data-k="${k}">Alle sichtbaren</button><button type="button" class="btn mini" data-act="jbMsNone" data-k="${k}">Keine</button><button type="button" class="btn mini primary" data-act="jbMsClose">Fertig</button></div>
           </div>` : ''}</div>`; };
       const shown = list.slice(0, J.limit || 300), m = J.meta || {};
-      return `<p class="nr" style="margin-top:0">${m.n || all.length} Arbeitsgänge${m.org ? ' · ' + esc(m.org) : ''}${m.stand ? ` · Stand ${esc(new Date(m.stand).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }))}` : ''}${m.seit ? ` · ab ${fmtDate(m.seit, { day: '2-digit', month: '2-digit', year: 'numeric' })}` : ''}
+      const inner = `<p class="nr" style="margin-top:0">${m.n || all.length} Arbeitsgänge${m.org ? ' · ' + esc(m.org) : ''}${m.stand ? ` · Stand ${esc(new Date(m.stand).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }))}` : ''}${m.seit ? ` · ab ${fmtDate(m.seit, { day: '2-digit', month: '2-digit', year: 'numeric' })}` : ''}
           ${(() => { const q = { m: 0, b: 0, o: 0 }; all.forEach(r => r.quelle === 'Bedeckungskarte' ? q.b++ : r.ha != null ? q.m++ : q.o++); return ` · Flächen: ${q.m} Maschine, ${q.b} Bedeckungskarte, ${q.o} ohne`; })()}${m.bedeckung && m.bedeckung.gestoppt ? ' · <span style="color:var(--danger)">Bedeckungskarte: Abfrage abgebrochen – siehe NAS-Dienst</span>' : ''}
           · <a href="#" data-act="jbLoad">${J.loading ? 'lädt…' : 'neu laden'}</a> · <a href="#" data-act="jbFile">Datei wählen</a></p>
         <div class="panel jfilter"><div class="jfgrid">
@@ -3440,6 +3442,13 @@ function jdBerichtView() {
         ${jdbSelBar(list)}
         <div class="panel tscroll">${jdbTable(shown, { all: list })}</div>
         ${list.length > shown.length ? `<div class="btns" style="margin-top:10px"><button class="btn" data-act="jbMore">Weitere ${Math.min(300, list.length - shown.length)} anzeigen</button></div>` : ''}` : '<div class="empty">Keine Arbeitsgänge für diese Auswahl.</div>'}`;
+      if (!J.fs) return inner;
+      return `<div class="fsview jdbfs"><div class="fsbar"><b class="lbl jdbfs-t">Daten Operations Center John Deere</b>
+          <span class="nr">${list.length} Arbeitsgänge · ${fmtNum(jdbHaSum(list))} ha</span>
+          <button class="btn small" data-act="jbFsFilter">${J.fsNoFilter ? 'Filter zeigen' : 'Filter ausblenden'}</button>
+          <button class="btn small" data-act="jbPrint">Drucken / PDF</button><button class="btn small" data-act="jbCsv">Excel (CSV)</button><button class="btn small" data-act="jbCols">Spalten…</button>
+          <button class="btn small fsclose" data-act="jbFs" aria-label="Vollbild schliessen" title="Vollbild schliessen (Esc)">✕</button></div>
+        <div class="jdbfs-body ${J.fsNoFilter ? 'nofilter' : ''}">${inner}</div></div>`;
     },
     after() { jdbColsAttach(); }
   };
@@ -3452,7 +3461,7 @@ function jdbMsCheck(el) { const J = App.jdb, k = el.dataset.k, cur = new Set(jdb
 function jdbMsQuery(el) { App.jdb.msq = el.value; const q = norm(el.value); $$('.msel.open .msel-i').forEach(x => { x.hidden = q && !norm(x.textContent).includes(q); }); }
 function jdbMsAll(k, on) { const J = App.jdb, cur = new Set(jdbArr(J[k])); if (!on) { jdbMsSet(k, []); return; } $$('.msel.open .msel-i').filter(x => !x.hidden).forEach(x => cur.add(x.querySelector('input').value)); jdbMsSet(k, [...cur]); }
 document.addEventListener('click', e => { const J = App.jdb; if (J && J.open && !e.target.closest('.msel')) { J.open = null; App.render(); } }, true);
-document.addEventListener('keydown', e => { const J = App.jdb; if (e.key === 'Escape' && J && J.open) { J.open = null; App.render(); } });
+document.addEventListener('keydown', e => { const J = App.jdb; if (e.key !== 'Escape' || !J || Dlg.el.open) return; if (J.open) { J.open = null; App.render(); } else if (J.fs && App.view === 'jdbericht') { J.fs = false; App.render(); } });
 /* ================= Grosse Bildschirme (z.B. 27" 4K): Anzeigegrösse ================= */
 const UI_SCALES = [['auto', 'Automatisch'], ['0.9', '90 %'], ['1', '100 %'], ['1.1', '110 %'], ['1.25', '125 %'], ['1.5', '150 %'], ['1.75', '175 %'], ['2', '200 %']];
 // Bei 4K ohne Windows-Skalierung (3840 px Fensterbreite) wird automatisch auf 150 % vergrössert; mit 150 % Windows-Skalierung (2560 px) bleibt es bei 100 %.
@@ -3616,6 +3625,8 @@ document.addEventListener('click', async e => {
     case 'jbSelAllList': { const S = App.jdbSel || (App.jdbSel = new Set()); jdbList().forEach(r => S.add(r.id)); App.render(); break; }
     case 'jbSelNone': App.jdbSel?.clear(); App.render(); break;
     case 'jbCols': jdbColsDialog(); break;
+    case 'jbFs': App.jdb.fs = !App.jdb.fs; App.render(); break;
+    case 'jbFsFilter': App.jdb.fsNoFilter = !App.jdb.fsNoFilter; App.render(); break;
     case 'jbSumToggle': e.preventDefault(); App.jdb.sumOpen = !App.jdb.sumOpen; App.render(); break;
     case 'jbSumPrint': jdbSummenPrint(); break;
     case 'jbColMv': jdbColMove(id, +t.dataset.d); break;
