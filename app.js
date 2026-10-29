@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '45', APP_STAND = '29.10.2026';
+const APP_VERSION = '46', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -3143,6 +3143,24 @@ function jdbCrops(raw, ms) {
   from(raw); (ms || []).forEach(from);
   return [...new Set(found.map(jdbCrop).filter(Boolean))].join(', ');
 }
+// Gesamtmenge je Produkt aus den Ergebnis-Messungen (…Result): Pflanzenschutz/Dünger je Produkt (bei Tankmischungen je Komponente, ohne Trägerstoff),
+// Saatgut je Sorte bzw. gesamt, Ernte als Ertrag. Sollwerte (…Target) werden nicht verwendet.
+function jdbGesamt(ms) {
+  const res = (ms || []).filter(m => m && (m.measurementCategory === 'Result' || /Result$/.test(m.measurementName || '')));
+  const out = new Map(), add = (n, x) => { const v = jdbVal(x); if (v == null || !(v > 0) || !n) return; const k = String(n).trim(); if (JDB_PH.has(k.toLowerCase())) return; if (!out.has(k)) out.set(k, jdbFmt(x)); };
+  for (const m of res) {
+    for (const ap of [...(m.applicationProductTotals || []), ...(m.productTotals || [])]) {
+      const comps = (ap.productTotals || []).filter(p => p && !p.carrier);
+      if (comps.length > 1) comps.forEach(p => add(p.name, p.totalMaterial)); else add(ap.name || comps[0]?.name, ap.totalMaterial || comps[0]?.totalMaterial);
+    }
+    for (const v of (m.varietyTotals || [])) add(v.name, v.totalMaterial);
+  }
+  if (!out.size) for (const m of res) {
+    if (/^Seeding/.test(m.measurementName || '') && m.totalMaterial) add('Saatgut', m.totalMaterial);
+    if (m.measurementName === 'HarvestYieldResult') add('Ertrag', m.wetMass || m.yield || m.totalYield);
+  }
+  return [...out].map(([n, v]) => `${n} ${v}`).join(', ');
+}
 // einen Arbeitsgang aus der Datei in eine Berichtszeile umwandeln (robust gegen unterschiedliche Strukturen)
 function jdbRow(o) {
   const raw = o.raw || {}, ms = Array.isArray(o.measurements) ? o.measurements : [], ex = o.extra || {};
@@ -3169,7 +3187,7 @@ function jdbRow(o) {
   const type = o.type || raw.fieldOperationType || '';
   return { id: o.id, d: String(start).slice(0, 10), start, end, dauer, type, arbeit: JDB_ART[type] || type || '–',
     kunde: o.clientName || '', feld: o.fieldName || '', ha: haV != null ? Math.round(haV * 100) / 100 : null, quelle, maschine: mach.join(', ') || JDB_MACH[o.machineType || raw.adaptMachineType] || o.machineType || raw.adaptMachineType || '',
-    fahrer: fahrer.join(', '), kultur: crop, produkte: prodTxt, sorten: sorten.join(', '), menge: rate, saison: o.cropSeason || raw.cropSeason || '', details };
+    fahrer: fahrer.join(', '), kultur: crop, produkte: prodTxt, sorten: sorten.join(', '), menge: rate, gesamt: jdbGesamt(ms), saison: o.cropSeason || raw.cropSeason || '', details };
 }
 const JDB_KEY = 'lp_jdb';
 function jdbCache(rows, meta) { try { localStorage.setItem(JDB_KEY, JSON.stringify({ meta, rows })); } catch { } }
@@ -3263,15 +3281,17 @@ const JDB_COLS = [
   { id: 'fahrer', l: 'Fahrer', w: 120, v: r => r.fahrer },
   { id: 'kultur', l: 'Kultur', w: 110, v: r => r.kultur },
   { id: 'produkte', l: 'Produkte / Sorte', w: 220, v: r => [r.produkte, r.sorten].filter(Boolean).join(' · ') },
-  { id: 'menge', l: 'Menge', w: 90, n: 1, v: r => r.menge },
+  { id: 'menge', l: 'Menge/ha', w: 90, n: 1, v: r => r.menge },
+  { id: 'gesamt', l: 'Gesamtmenge', w: 190, v: r => r.gesamt || '' },
   { id: 'abr', l: 'Abgerechnet', w: 104, v: r => { const x = jdbAbr(r.id); return x ? '✓ ' + fmtDate(x.am, { day: '2-digit', month: '2-digit', year: '2-digit' }) : ''; }, html: r => { const x = jdbAbr(r.id); return x ? `<span class="badge verrechnet">✓ ${fmtDate(x.am, { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>` : '<span class="nr">offen</span>'; } }
 ];
-const JDB_DEF = { order: ['beginn', 'ende', 'dauer', 'arbeit', 'kunde', 'feld', 'ha', 'quelle', 'maschine', 'kultur', 'produkte', 'menge', 'abr'], w: {} };
+const JDB_DEF = { order: ['beginn', 'ende', 'dauer', 'arbeit', 'kunde', 'feld', 'ha', 'quelle', 'maschine', 'kultur', 'produkte', 'menge', 'gesamt', 'abr'], w: {} };
 function jdbColCfg() {
   let c; try { c = JSON.parse(ls('lp_jdbcols') || 'null'); } catch { c = null; }
   if (!c || !Array.isArray(c.order)) c = JSON.parse(JSON.stringify(JDB_DEF));
   c.order = c.order.filter(id => JDB_COLS.some(x => x.id === id)); c.w = c.w || {};
   if (!(c.known || []).includes('quelle') && !c.order.includes('quelle')) { const i = c.order.indexOf('ha'); c.order.splice(i < 0 ? c.order.length : i + 1, 0, 'quelle'); } // neue Spalte einmal einblenden
+  if (!(c.known || []).includes('gesamt') && !c.order.includes('gesamt')) { const i = c.order.indexOf('menge'); c.order.splice(i < 0 ? c.order.length : i + 1, 0, 'gesamt'); }
   c.known = JDB_COLS.map(x => x.id);
   return c;
 }
@@ -3352,8 +3372,8 @@ function jdbSummenPrint() {
   printHtml(title, `<div class="bill jdbprint">${LETTERHEAD}<div class="bill-h"><div><b>Arbeitsbericht · Summen</b><br><span class="nr">Fläche in ha · Anzahl Arbeitsgänge</span></div><div class="r">${esc(title)}<br>${list.length} Arbeitsgänge · ${fmtNum(jdbHaSum(list))} ha</div></div>${jdbSummen(list, { print: true })}</div>`, { noTitle: true });
 }
 function jdbCsv() {
-  const rows = [['Datum', 'Beginn', 'Ende', 'Dauer h', 'Arbeit', 'Kunde', 'Feld', 'Fläche ha', 'Flächen-Quelle', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Sorten', 'Menge', 'Saison', 'Abgerechnet am', 'ID']];
-  jdbList().forEach(r => rows.push([r.d, jdbDT(r.start), jdbDT(r.end), r.dauer != null ? r.dauer.toFixed(2) : '', r.arbeit, r.kunde, r.feld, r.ha ?? '', r.quelle || '', r.maschine, r.fahrer, r.kultur, r.produkte, r.sorten, r.menge, r.saison, jdbAbr(r.id)?.am || '', r.id]));
+  const rows = [['Datum', 'Beginn', 'Ende', 'Dauer h', 'Arbeit', 'Kunde', 'Feld', 'Fläche ha', 'Flächen-Quelle', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Sorten', 'Menge/ha', 'Gesamtmenge', 'Saison', 'Abgerechnet am', 'ID']];
+  jdbList().forEach(r => rows.push([r.d, jdbDT(r.start), jdbDT(r.end), r.dauer != null ? r.dauer.toFixed(2) : '', r.arbeit, r.kunde, r.feld, r.ha ?? '', r.quelle || '', r.maschine, r.fahrer, r.kultur, r.produkte, r.sorten, r.menge, r.gesamt || '', r.saison, jdbAbr(r.id)?.am || '', r.id]));
   const J = App.jdb;
   download(`JD-Arbeitsbericht_${J.von || 'alle'}_${J.bis || ''}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }
@@ -3369,7 +3389,7 @@ function jdbDetail(id) {
   const kv = (k, v) => v ? `<tr><td class="nr">${esc(k)}</td><td>${esc(v)}</td></tr>` : '';
   const dt = s => s ? new Date(s).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '';
   const body = `<table class="btab kv">${kv('Arbeit', r.arbeit)}${kv('Kunde', r.kunde)}${kv('Feld', r.feld)}${kv('Fläche', r.ha != null ? fmtNum(r.ha) + ' ha' + (r.quelle ? ` (${r.quelle})` : '') : '')}${kv('Abgerechnet', jdbAbr(r.id) ? fmtDate(jdbAbr(r.id).am, { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'offen')}${kv('Beginn', dt(r.start))}${kv('Ende', dt(r.end))}${kv('Dauer', r.dauer != null ? hrs(r.dauer) : '')}
-    ${kv('Maschine', r.maschine)}${kv('Fahrer', r.fahrer)}${kv('Kultur', r.kultur)}${kv('Saison', r.saison)}${kv('Produkte', r.produkte)}${kv('Sorten', r.sorten)}${kv('Menge', r.menge)}</table>
+    ${kv('Maschine', r.maschine)}${kv('Fahrer', r.fahrer)}${kv('Kultur', r.kultur)}${kv('Saison', r.saison)}${kv('Produkte', r.produkte)}${kv('Sorten', r.sorten)}${kv('Menge/ha', r.menge)}${kv('Gesamtmenge', r.gesamt)}</table>
     ${r.details.map(m => `<div class="fld" style="margin-top:12px"><span>${esc(m.n)}</span></div><table class="btab kv">${m.v.map(([k, v]) => kv(k, v)).join('')}</table>`).join('')}
     <p class="nr" style="margin-top:12px">Quelle: MyJohnDeere · ID ${esc(r.id)}</p>`;
   const ab = jdbAbr(r.id);
@@ -3455,9 +3475,10 @@ function uiScalePanel() {
     <p class="nr">Für grosse Bildschirme (z.B. 27 Zoll mit 3840 × 2160). «Automatisch» vergrössert, wenn Windows den Bildschirm nicht selbst skaliert. Die Einstellung gilt nur für dieses Gerät und diesen Browser; Ausdrucke und PDF bleiben unverändert.</p></div>`;
 }
 /* ---------- Versionsanzeige ---------- */
+const NAS_MIN = '45'; // mindestens nötige Version des NAS-Dienstes
 function versionInfo() {
   const c = Store.cfg(), nas = c.jdDienst, ver = v => +String(v || '').replace(/[^\d.]/g, '') || 0;
-  const nasTxt = nas ? `Version ${esc(nas)}${ver(nas) < ver(APP_VERSION) ? ' <span class="badge offen">älter als der Planer – NAS-Dienst aktualisieren</span>' : ''}`
+  const nasTxt = nas ? `Version ${esc(nas)}${ver(nas) < ver(NAS_MIN) ? ` <span class="badge offen">zu alt – NAS-Dienst auf Version ${NAS_MIN} oder neuer aktualisieren</span>` : ' <span class="nr">(aktuell)</span>'}`
     : c.jdStand ? 'ältere Version ohne Versionsangabe – <b>NAS-Dienst aktualisieren</b>' : 'noch keine Verbindung';
   return `<table class="btab kv"><tr><td class="nr">Lohnarbeit-Planer</td><td><b>Version ${APP_VERSION}</b> · Stand ${APP_STAND}</td></tr>
     <tr><td class="nr">NAS-Dienst jd-sync</td><td>${nasTxt}${c.jdStand ? ` <span class="nr">(letzte Daten ${esc(new Date(c.jdStand).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }))})</span>` : ''}</td></tr></table>
