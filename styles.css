@@ -860,3 +860,44 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
   .planwrap.ubelow .unplctl { grid-template-columns: repeat(3, minmax(0, 260px)); }
   .planwrap.ubelow .unplanned .slot { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
 }
+/* v59: Spritzen › Vorbestellung */
+.vbhead { align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.vbhead label.btn { cursor: pointer; }
+.vbmatrix { overflow: auto; max-width: 100%; border: 1px solid var(--line); border-radius: 10px; }
+.vbtab { border-collapse: separate; border-spacing: 0; font-size: 13px; min-width: 100%; }
+.vbtab th, .vbtab td { padding: 4px 6px; border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); white-space: nowrap; background: var(--surface); }
+.vbtab thead th { position: sticky; top: 0; z-index: 2; background: var(--surface-2); vertical-align: bottom; font-weight: 600; }
+.vbtab .vbph { cursor: pointer; min-width: 84px; max-width: 120px; white-space: normal; line-height: 1.2; text-align: center; }
+.vbtab .vbph:hover { background: color-mix(in srgb, var(--brand, #2f6b3a) 10%, var(--surface-2)); }
+.vbtab .vbph small { display: block; color: var(--muted); font-weight: 400; }
+.vbtab th.vbc, .vbtab .vbrh { position: sticky; left: 0; z-index: 1; text-align: left; background: var(--surface-2); }
+.vbtab thead th.vbc { z-index: 3; }
+.vbtab .vbrh { cursor: pointer; font-weight: 600; }
+.vbtab .vbrh:hover { color: var(--brand, #2f6b3a); }
+.vbtab .vbin { width: 64px; text-align: right; padding: 4px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; font: inherit; color: inherit; }
+.vbtab .vbin:hover { border-color: var(--line); }
+.vbtab .vbin:focus { border-color: var(--brand, #2f6b3a); background: var(--surface); outline: none; }
+.vbtab td.vbsplit { cursor: pointer; color: var(--brand, #2f6b3a); font-weight: 600; }
+.vbtab .pzm { font-size: 11px; opacity: .7; }
+.vbtab td.tot { color: var(--muted); }
+.vbtab tfoot th, .vbtab tfoot td { background: var(--surface-2); border-bottom: 0; }
+.vbtab tr.vbextra th, .vbtab tr.vbextra td { color: var(--muted); font-style: italic; }
+.warnchip { display: inline-block; font-size: 11px; padding: 0 5px; border-radius: 8px; background: color-mix(in srgb, var(--warn) 18%, var(--surface)); color: var(--warn); font-weight: 600; }
+.vbneed .vbin { width: 80px; text-align: right; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); font: inherit; color: inherit; }
+.vbneed .vbin.auto { color: var(--muted); }
+.vbneed .vbin.wide { width: 100%; min-width: 140px; text-align: left; }
+.vbneed tr.vbover td:nth-child(5) { color: var(--danger); }
+.vbneed .vbteile { font-size: 11px; margin-top: 2px; white-space: normal; }
+.vbneed .x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; }
+.vbprogs .card { cursor: pointer; }
+.vbmrow { grid-template-columns: minmax(0, 1fr) 80px 60px auto auto; }
+.vbmrow .vbu { text-align: center; }
+.vbpzbox { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; margin: 6px 0; }
+.vbpzh { display: flex; align-items: center; gap: 8px; } .vbpzh .nr { margin-left: auto; }
+.vbpz { grid-template-columns: minmax(0, 1fr) 80px auto auto; margin-top: 6px; }
+.vbimp { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 12px; }
+.vbimp.wide { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+.vbimp .fld { margin-bottom: 6px; } .vbimp .fld > span { font-size: 12px; }
+#printArea table.vbp { font-size: 8pt; } #printArea table.vbp th { white-space: normal; }
+#printArea h2 { break-after: avoid; }
+.vbpzh .btn, .vbhead .btn.small { padding: 3px 10px; font-size: 13px; min-height: 0; }

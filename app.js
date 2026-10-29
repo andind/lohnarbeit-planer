@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '58', APP_STAND = '29.10.2026';
+const APP_VERSION = '59', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1800,7 +1800,7 @@ function sprayView() {
     },
     content() {
       const t = App.spray.tab;
-      const body = t === 'journal' ? journalContent() : t === 'abrechnung' ? abrechnungContent() : t === 'nachweis' ? nachweisContent() : t === 'stamm' ? stammContent() : this.planContent();
+      const body = t === 'journal' ? journalContent() : t === 'abrechnung' ? abrechnungContent() : t === 'nachweis' ? nachweisContent() : t === 'stamm' ? stammContent() : t === 'vorbestellung' ? vbContent() : this.planContent();
       return spTabs() + body;
     },
     planContent() {
@@ -2122,7 +2122,7 @@ function parzelleDialog(id, { kunde, fromOrder } = {}) {
 }
 
 /* ---------- Unteransichten des Moduls ---------- */
-const SP_TABS = [['plan', 'Planung'], ['journal', 'Journal'], ['abrechnung', 'Abrechnung'], ['nachweis', 'ÖLN-Nachweis'], ['stamm', 'Stammdaten']];
+const SP_TABS = [['plan', 'Planung'], ['vorbestellung', 'Vorbestellung'], ['journal', 'Journal'], ['abrechnung', 'Abrechnung'], ['nachweis', 'ÖLN-Nachweis'], ['stamm', 'Stammdaten']];
 function spTabs() { return `<div class="seg sptabs">${SP_TABS.map(([k, l]) => `<button type="button" data-act="spTab" data-v="${k}" class="${App.spray.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>`; }
 const yearsOf = () => [...new Set(sprayOrders().map(ernteOf).filter(Boolean))].sort((a, b) => b - a);
 
@@ -3670,6 +3670,447 @@ function versionInfo() {
     <p class="nr" style="margin-bottom:0">Updates lädt der Planer beim nächsten Öffnen automatisch (bei Bedarf Seite neu laden). Die Version steht auch oben neben dem Programmnamen.</p>`;
 }
 (() => { const el = document.getElementById('appVer'); if (el) el.textContent = 'v' + APP_VERSION; })();
+/* ================= Spritzen › Vorbestellung: Flächenplan × Spritzprogramme → Mittelbedarf und Bestellung ================= */
+// Ein Datensatz pro Erntejahr in «einstellungen», id «vb-<jahr>»:
+// { jahr, progs:[{id,name,kultur,extraHa,mittel:[{pid,name,einheit,menge}]}], rows:[{id,kunde,name}],
+//   fl:{rowId:{progId:ha}}, parz:{'rowId|progId':[{pz,ha}]}, vorrat:{mkey:n}, zusatz:[{id,name,menge,einheit}] }
+const vbId = y => 'vb-' + y;
+const vbYears = () => Store.all('einstellungen').filter(r => /^vb-\d{4}$/.test(r.id)).map(r => r.jahr).sort((a, b) => b - a);
+const vbGet = y => Store.get('einstellungen', vbId(y));
+const vbBlank = y => ({ id: vbId(y), jahr: y, progs: [], rows: [], fl: {}, parz: {}, vorrat: {}, zusatz: [] });
+function vbRec() { const y = vbYear(); return vbGet(y) || vbBlank(y); }
+function vbYear() { const S = App.spray; if (!S.vbY) S.vbY = vbYears()[0] || ernteDefault(todayIso()); return S.vbY; }
+function vbSave(rec, render = true) { Store.put('einstellungen', structuredClone(rec), { silent: true }); if (render) vbRender(); }
+// Neu zeichnen und den Eingabefokus (Tab-Taste) erhalten
+function vbRender() {
+  setTimeout(() => {
+    const a = document.activeElement, key = a && a.dataset ? a.dataset.vbk : null, sx = window.scrollX, sy = window.scrollY;
+    const wrap = $('.vbmatrix'), wl = wrap ? wrap.scrollLeft : 0;
+    App.render(); window.scrollTo(sx, sy);
+    const w2 = $('.vbmatrix'); if (w2) w2.scrollLeft = wl;
+    if (key) { const el = $(`[data-vbk="${key}"]`); if (el) { el.focus(); try { el.select(); } catch { } } }
+  }, 0);
+}
+const vbNum = v => { const n = num(v); return n == null || !isFinite(n) ? null : n; };
+const mKey = m => m.pid ? m.pid : 'n:' + norm(m.name);
+const mProd = m => (m.pid && prodById(m.pid)) || prodByName(m.name) || null;
+const mName = m => (mProd(m) || {}).name || m.name || '';
+const mUnit = m => m.einheit || (mProd(m) || {}).einheit || 'l';
+function vbCell(rec, rid, pid) {
+  const pz = rec.parz[rid + '|' + pid];
+  if (pz && pz.length) return r2(pz.reduce((s, x) => s + (x.ha || 0), 0));
+  return (rec.fl[rid] || {})[pid] ?? null;
+}
+const vbProgHa = (rec, p) => r2(rec.rows.reduce((s, r) => s + (vbCell(rec, r.id, p.id) || 0), 0) + (p.extraHa || 0));
+const vbRowHa = (rec, r) => r2(rec.progs.reduce((s, p) => s + (vbCell(rec, r.id, p.id) || 0), 0));
+const vbRowName = r => r.kunde ? kundeName(r.kunde) : (r.name || '–');
+// Bedarf pro Mittel: Fläche × Menge/ha, abzüglich Vorrat
+function vbNeed(rec) {
+  const m = new Map();
+  rec.progs.forEach(p => {
+    const ha = vbProgHa(rec, p);
+    (p.mittel || []).forEach(x => {
+      if (!x.name && !x.pid) return;
+      const k = mKey(x), e = m.get(k) || { key: k, pid: x.pid || (mProd(x) || {}).id || '', name: mName(x), einheit: mUnit(x), bedarf: 0, teile: [] };
+      const v = ha * (x.menge || 0); e.bedarf += v; e.teile.push({ prog: p.name, ha, menge: x.menge || 0, v }); m.set(k, e);
+    });
+  });
+  // Mittel mit Vorrat, aber ohne Bedarf ebenfalls zeigen
+  Object.keys(rec.vorrat || {}).forEach(k => {
+    if (m.has(k) || !(rec.vorrat[k] > 0)) return;
+    const pr = k.startsWith('n:') ? null : prodById(k);
+    m.set(k, { key: k, pid: pr ? pr.id : '', name: pr ? pr.name : (rec.vnames || {})[k] || k.slice(2), einheit: (rec.vunits || {})[k] || (pr ? pr.einheit || 'l' : ''), bedarf: 0, teile: [] });
+  });
+  return [...m.values()].map(e => {
+    const pr = e.pid ? prodById(e.pid) : null;
+    const vorrat = rec.vorrat[e.key] ?? (pr && pr.inventar > 0 ? pr.inventar : 0);
+    const rest = r2(e.bedarf - vorrat), best = Math.max(0, rest), f = pr ? uFac(pr.einheit || 'l', e.einheit) : null, preis = pr && f ? (pr.preis || 0) / f : 0;
+    return { ...e, bedarf: r2(e.bedarf), vorrat, vorratAuto: rec.vorrat[e.key] == null, rest, best, preis, betrag: best * preis };
+  }).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+}
+// Einheiten umrechnen (g↔kg, ml↔l); null = nicht umrechenbar
+const uNorm = u => ({ liter: 'l', lt: 'l', l: 'l', kg: 'kg', g: 'g', gr: 'g', ml: 'ml' })[norm(u)] || norm(u);
+const uFac = (from, to) => { const a = uNorm(from), b = uNorm(to); if (!a || !b || a === b) return 1; const t = { 'kg>g': 1000, 'g>kg': 0.001, 'l>ml': 1000, 'ml>l': 0.001 }; return t[a + '>' + b] ?? null; };
+const zUnit = u => ({ liter: 'l', l: 'l', kg: 'kg', g: 'g' })[norm(u)] || norm(u);
+function vbZusatz(rec) {
+  return (rec.zusatz || []).map(z => {
+    const pr = prodByName(z.name) || Store.all('produkte').find(p => norm(p.name).startsWith(norm(z.name)) && z.name) || null;
+    const ok = pr && pr.preis && zUnit(z.einheit) === zUnit(pr.einheit || 'l');
+    return { ...z, preis: ok ? pr.preis : 0, betrag: ok ? (z.menge || 0) * pr.preis : 0 };
+  });
+}
+
+/* ---------- Ansicht ---------- */
+function vbContent() {
+  const S = App.spray, y = vbYear(), rec = vbRec(), has = !!vbGet(y), sub = S.vbSub || 'flaechen';
+  const years = [...new Set([...vbYears(), ernteDefault(todayIso()), y])].sort((a, b) => b - a);
+  const head = `<div class="filters vbhead">
+      <label class="fld" style="margin:0"><span>Erntejahr</span><select class="input" data-vbin="year" style="width:auto">${years.map(j => `<option value="${j}" ${j === y ? 'selected' : ''}>${j}${vbGet(j) ? '' : ' (neu)'}</option>`).join('')}</select></label>
+      <div class="seg">${[['flaechen', 'Flächenplan'], ['programme', 'Spritzprogramme'], ['bestellung', 'Bedarf & Bestellung']].map(([k, l]) => `<button type="button" data-vb="sub" data-v="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <span class="spacer"></span>
+      ${vbGet(y - 1) && !has ? `<button class="btn" data-vb="fromPrev">Aus ${y - 1} übernehmen</button>` : ''}
+      <label class="btn">Excel importieren<input type="file" accept=".xlsx" data-vbin="import" hidden></label>
+      ${has ? `<button class="btn" data-vb="print">Drucken / PDF</button><button class="btn" data-vb="xlsx">Excel</button>` : ''}
+    </div>`;
+  if (!has && !rec.progs.length) return head + `<div class="panel"><h2>Vorbestellung ${y}</h2>
+      <p>Für das Erntejahr ${y} ist noch nichts erfasst. ${vbGet(y - 1) ? `Übernimm die Spritzprogramme (und auf Wunsch die Flächen) aus ${y - 1}, ` : ''}importiere deine bisherige Excel-Tabelle «Flächen Bestellung» oder beginne mit einem ersten Spritzprogramm.</p>
+      <div class="btns">${vbGet(y - 1) ? `<button class="btn primary" data-vb="fromPrev">Aus ${y - 1} übernehmen</button>` : ''}<button class="btn ${vbGet(y - 1) ? '' : 'primary'}" data-vb="progNew">＋ Spritzprogramm</button></div></div>`;
+  return head + (sub === 'programme' ? vbProgView(rec) : sub === 'bestellung' ? vbOrderView(rec) : vbAreaView(rec));
+}
+function vbAreaView(rec) {
+  const P = rec.progs, R = rec.rows;
+  const th = P.map(p => `<th class="vbph" data-vb="progEdit" data-id="${p.id}" title="Programm bearbeiten"><div>${esc(p.name)}</div>${p.kultur ? `<small>${esc(p.kultur)}</small>` : ''}</th>`).join('');
+  const rows = R.map(r => {
+    const tds = P.map(p => {
+      const split = (rec.parz[r.id + '|' + p.id] || []).length, v = vbCell(rec, r.id, p.id);
+      return split ? `<td class="n vbsplit" data-vb="rowEdit" data-id="${r.id}" title="Auf Parzellen aufgeteilt – zum Ändern antippen">${fmtNum(v)} <span class="pzm">▦</span></td>`
+        : `<td class="n"><input class="vbin" inputmode="decimal" data-vbin="fl" data-r="${r.id}" data-p="${p.id}" data-vbk="f-${r.id}-${p.id}" value="${v ?? ''}"></td>`;
+    }).join('');
+    return `<tr><th class="vbrh" data-vb="rowEdit" data-id="${r.id}" title="Kunde bearbeiten, Parzellen aufteilen">${esc(vbRowName(r))}${r.kunde ? '' : ' <span class="warnchip" title="Keinem Kunden zugeordnet">?</span>'}</th>${tds}<td class="n tot">${fmtNum(vbRowHa(rec, r)) || ''}</td></tr>`;
+  }).join('');
+  const extra = P.some(p => p.extraHa) ? `<tr class="vbextra"><th title="Fläche im Programm ohne Kundenzuteilung">ohne Kunde</th>${P.map(p => `<td class="n">${p.extraHa ? fmtNum(p.extraHa) : ''}</td>`).join('')}<td class="n tot">${fmtNum(r2(P.reduce((s, p) => s + (p.extraHa || 0), 0)))}</td></tr>` : '';
+  const tot = P.reduce((s, p) => s + vbProgHa(rec, p), 0);
+  return `<div class="panel"><h2>Flächenplan ${rec.jahr} <small class="nr">ha pro Kunde und Spritzprogramm</small></h2>
+    ${P.length ? `<div class="vbmatrix"><table class="vbtab"><thead><tr><th class="vbc">Kunde</th>${th}<th class="n">Total</th></tr></thead>
+      <tbody>${rows}${extra}</tbody>
+      <tfoot><tr><th>Total</th>${P.map(p => `<td class="n"><b>${fmtNum(vbProgHa(rec, p))}</b></td>`).join('')}<td class="n"><b>${fmtNum(r2(tot))}</b></td></tr></tfoot></table></div>` : '<p class="nr">Zuerst ein Spritzprogramm anlegen.</p>'}
+    <div class="btns"><button class="btn" data-vb="rowNew">＋ Kunde</button><button class="btn" data-vb="progNew">＋ Spritzprogramm</button></div>
+    <p class="nr">Fläche direkt in die Zelle tippen (Tab springt weiter). Kundennamen antippen, um die Fläche eines Programms auf Parzellen aufzuteilen – aufgeteilte Zellen zeigen ▦. Programmkopf antippen, um Mittel und Mengen zu bearbeiten.</p></div>`;
+}
+function vbProgView(rec) {
+  return `<div class="btns" style="margin:0 0 10px"><button class="btn primary" data-vb="progNew">＋ Spritzprogramm</button></div>
+    <div class="list grid vbprogs">${rec.progs.map(p => {
+      const ha = vbProgHa(rec, p);
+      return `<article class="card" data-vb="progEdit" data-id="${p.id}">
+        <div class="row1"><div class="title">${esc(p.name)}</div><span class="chip">${fmtNum(ha)} ha</span></div>
+        <div class="sub">${p.kultur ? `<span class="kultur">${esc(p.kultur)}</span> · ` : ''}${rec.rows.filter(r => vbCell(rec, r.id, p.id)).map(r => esc(vbRowName(r).split(' ')[0])).join(', ') || 'noch keine Flächen'}</div>
+        ${(p.mittel || []).length ? `<table class="sptab"><tbody>${p.mittel.map(m => `<tr><td>${esc(mName(m))}</td><td class="n">${fmtNum(m.menge)} ${esc(mUnit(m))}/ha</td><td class="n"><b>${fmtNum(r2(ha * (m.menge || 0)))} ${esc(mUnit(m))}</b></td></tr>`).join('')}</tbody></table>` : '<div class="nr" style="margin-top:6px">Noch keine Mittel erfasst.</div>'}
+      </article>`;
+    }).join('') || '<p class="nr">Noch keine Spritzprogramme.</p>'}</div>`;
+}
+function vbOrderView(rec) {
+  const need = vbNeed(rec), zus = vbZusatz(rec), sum = need.reduce((s, x) => s + x.betrag, 0) + zus.reduce((s, z) => s + z.betrag, 0);
+  const tr = x => `<tr class="${x.rest < 0 ? 'vbover' : ''}">
+      <td title="${esc(x.teile.map(t => `${t.prog}: ${fmtNum(t.ha)} ha × ${fmtNum(t.menge)} = ${fmtNum(r2(t.v))}`).join('\n'))}">${esc(x.name)}${x.pid ? '' : ' <span class="warnchip" title="Nicht in den Produkt-Stammdaten">?</span>'}${x.teile.length ? `<div class="nr vbteile">${x.teile.map(t => `${esc(t.prog)} ${fmtNum(r2(t.v))}`).join(' · ')}</div>` : ''}</td>
+      <td>${esc(x.einheit)}</td><td class="n">${fmtNum(x.bedarf)}</td>
+      <td class="n"><input class="vbin ${x.vorratAuto ? 'auto' : ''}" inputmode="decimal" data-vbin="vorrat" data-k="${esc(x.key)}" data-vbk="v-${esc(x.key)}" value="${x.vorrat || ''}" title="${x.vorratAuto ? 'aus dem Inventar' : 'von Hand'}" placeholder="0"></td>
+      <td class="n">${fmtNum(x.rest)}</td><td class="n"><b>${x.best ? fmtNum(x.best) : '–'}</b></td>
+      <td class="n">${x.preis ? chf(x.preis) : ''}</td><td class="n">${x.betrag ? chf(x.betrag) : ''}</td></tr>`;
+  const zr = z => `<tr><td><input class="vbin wide" data-vbin="zName" data-id="${z.id}" data-vbk="zn-${z.id}" value="${esc(z.name || '')}" placeholder="Artikel"></td>
+      <td><input class="vbin" data-vbin="zEinh" data-id="${z.id}" data-vbk="ze-${z.id}" value="${esc(z.einheit || '')}" placeholder="Einheit"></td><td></td><td></td><td></td>
+      <td class="n"><input class="vbin" inputmode="decimal" data-vbin="zMenge" data-id="${z.id}" data-vbk="zm-${z.id}" value="${z.menge ?? ''}"></td>
+      <td class="n">${z.preis ? chf(z.preis) : ''}</td><td class="n">${z.betrag ? chf(z.betrag) : ''} <button type="button" class="x" data-vb="zDel" data-id="${z.id}" aria-label="Entfernen">×</button></td></tr>`;
+  return `<div class="panel"><h2>Bedarf & Bestellung ${rec.jahr}</h2>
+    <div class="tscroll"><table class="need vbneed"><thead><tr><th>Mittel</th><th>Einheit</th><th class="n">Bedarf</th><th class="n">Vorrat</th><th class="n">Restbedarf</th><th class="n">Bestellen</th><th class="n">Preis</th><th class="n">Betrag CHF</th></tr></thead>
+      <tbody>${need.map(tr).join('') || '<tr><td colspan="8" class="nr">Noch kein Bedarf – Programme mit Mitteln und Flächen erfassen.</td></tr>'}</tbody>
+      <tbody class="vbz"><tr class="gk"><td colspan="8">Zusatzartikel (fixe Menge)</td></tr>${zus.map(zr).join('')}
+        <tr><td colspan="8"><button type="button" class="btn small" data-vb="zAdd">＋ Zusatzartikel</button></td></tr></tbody>
+      <tfoot><tr><th colspan="7">Geschätzter Bestellwert (Preise aus den Stammdaten)</th><td class="n"><b>${chf(sum)}</b></td></tr></tfoot></table></div>
+    <p class="nr">Vorrat: grau = aus dem Inventar (Stammdaten › Inventar) übernommen, überschreibbar. Restbedarf = Bedarf − Vorrat; negativ (rot) = Überschuss. Bestellen = positiver Restbedarf.</p></div>`;
+}
+
+/* ---------- Dialoge ---------- */
+function vbProgDialog(id) {
+  const rec = vbRec(), isNew = !id, p = isNew ? { id: uid(), name: '', kultur: '', extraHa: null, mittel: [] } : structuredClone(rec.progs.find(x => x.id === id));
+  if (!p) return;
+  const mrow = (m = {}) => `<div class="prow vbmrow"><select class="input" name="mname"><option value="">— Mittel —</option>${prodOptions(m.pid, m.pid ? '' : m.name)}</select>
+    <input class="input" name="mmenge" inputmode="decimal" value="${m.menge ?? ''}" placeholder="Menge"><input class="input vbu" name="meinh" value="${esc(m.name || m.pid ? mUnit(m) : '')}" placeholder="l">
+    <span class="u">/ha</span><button type="button" class="x" data-vb="mDel" aria-label="Entfernen">×</button></div>`;
+  const body = `<div class="two"><label class="fld"><span>Name *</span><input class="input" name="name" value="${esc(p.name)}" required placeholder="z.B. Gerste 1x Fungi"></label>
+      <label class="fld"><span>Kultur</span><select class="input" name="kultur"><option value="">—</option>${listOptions(Lists.kulturen(), p.kultur)}</select></label></div>
+    <h4 style="margin:6px 0">Mittel pro ha</h4><div id="vbM">${(p.mittel.length ? p.mittel : [{}]).map(mrow).join('')}</div>
+    <button type="button" class="btn small" data-vb="mAdd">＋ weiteres Mittel</button>
+    <label class="fld" style="margin-top:12px"><span>Zusätzliche Fläche ohne Kundenzuteilung (ha)</span><input class="input" name="extraHa" inputmode="decimal" value="${p.extraHa ?? ''}" style="max-width:160px"><div class="sub2">Nur nötig, wenn ein Teil der Fläche keinem Kunden zugeordnet ist.</div></label>`;
+  const footer = saveFooter(isNew ? '' : `<button type="button" class="btn danger" data-vb="progDel" data-id="${p.id}">Löschen</button>`);
+  Dlg.open(isNew ? 'Neues Spritzprogramm' : 'Spritzprogramm', body, footer, fd => {
+    const f = Dlg.form, mittel = [...f.querySelectorAll('.vbmrow')].map(r => {
+      const v = r.querySelector('[name=mname]').value, menge = vbNum(r.querySelector('[name=mmenge]').value), e = r.querySelector('[name=meinh]').value.trim();
+      if (!v) return null;
+      const pr = v.startsWith('n:') ? null : prodById(v);
+      return { pid: pr ? pr.id : '', name: pr ? pr.name : v.slice(2), einheit: e || (pr ? pr.einheit || 'l' : 'l'), menge };
+    }).filter(Boolean);
+    Object.assign(p, { name: fd.get('name').trim(), kultur: fd.get('kultur'), extraHa: vbNum(fd.get('extraHa')), mittel });
+    const r = vbRec(), i = r.progs.findIndex(x => x.id === p.id);
+    if (i >= 0) r.progs[i] = p; else r.progs.push(p);
+    vbSave(r); return true;
+  });
+  Dlg.vbMrow = mrow;
+  Dlg.form.addEventListener('change', e => {
+    if (e.target.name !== 'mname') return;
+    const v = e.target.value, pr = v && !v.startsWith('n:') ? prodById(v) : null, u = e.target.closest('.vbmrow').querySelector('[name=meinh]');
+    if (pr) u.value = pr.einheit || 'l';
+  });
+}
+function vbRowDialog(id) {
+  const rec = vbRec(), isNew = !id, r = isNew ? { id: uid(), kunde: '', name: '' } : structuredClone(rec.rows.find(x => x.id === id));
+  if (!r) return;
+  const kOpts = Store.all('kunden').filter(k => k.aktiv !== false || k.id === r.kunde).sort(byName).map(k => `<option value="${k.id}" ${k.id === r.kunde ? 'selected' : ''}>${esc(kundeLabel(k))}</option>`).join('');
+  const pzOpts = cur => parzOptions(r.kunde, cur);
+  const pzLine = (x = {}) => `<div class="prow vbpz"><select class="input" name="pz">${pzOpts(x.pz)}</select><input class="input" name="pzha" inputmode="decimal" value="${x.ha ?? ''}" placeholder="ha"><span class="u">ha</span><button type="button" class="x" data-vb="pzDel" aria-label="Entfernen">×</button></div>`;
+  const progBlocks = rec.progs.map(p => {
+    const list = rec.parz[r.id + '|' + p.id] || [];
+    return `<div class="vbpzbox" data-p="${p.id}"><div class="vbpzh"><b>${esc(p.name)}</b><span class="nr">${list.length ? `aufgeteilt: ${fmtNum(vbCell(rec, r.id, p.id))} ha` : `${fmtNum((rec.fl[r.id] || {})[p.id]) || '–'} ha`}</span>
+      <button type="button" class="btn mini" data-vb="pzAdd">＋ Parzelle</button></div><div class="vbpzl">${list.map(pzLine).join('')}</div></div>`;
+  }).join('');
+  const body = `<label class="fld"><span>Kunde</span><select class="input" name="kunde" data-combo><option value="">— ohne Zuordnung —</option>${kOpts}</select></label>
+    ${!r.kunde ? `<label class="fld"><span>Bezeichnung (ohne Kunde)</span><input class="input" name="name" value="${esc(r.name || '')}"></label>` : ''}
+    ${!isNew && rec.progs.length ? `<h4 style="margin:10px 0 4px">Aufteilung auf Parzellen (optional)</h4>
+      ${r.kunde ? `<p class="nr" style="margin-top:0">Ist ein Programm aufgeteilt, gilt die Summe der Parzellen als Fläche des Kunden.</p>${progBlocks}` : '<p class="nr">Zuerst einen Kunden zuordnen – dann lassen sich seine Parzellen wählen.</p>'}` : ''}`;
+  const footer = saveFooter(isNew ? '' : `<button type="button" class="btn danger" data-vb="rowDel" data-id="${r.id}">Entfernen</button>`);
+  Dlg.open(isNew ? 'Kunde hinzufügen' : 'Kunde im Flächenplan', body, footer, fd => {
+    const rr = vbRec(), k = fd.get('kunde') || '';
+    if (k && rr.rows.some(x => x.kunde === k && x.id !== r.id)) { toast('Dieser Kunde ist schon im Flächenplan.'); return false; }
+    r.kunde = k; r.name = k ? '' : (fd.get('name') || r.name || '').trim();
+    if (!k && !r.name) { toast('Kunde wählen oder Bezeichnung eingeben.'); return false; }
+    $$('.vbpzbox', Dlg.form).forEach(b => {
+      const lines = $$('.vbpz', b).map(l => ({ pz: l.querySelector('[name=pz]').value, ha: vbNum(l.querySelector('[name=pzha]').value) })).filter(x => x.ha);
+      const key = r.id + '|' + b.dataset.p;
+      if (lines.length) rr.parz[key] = lines; else delete rr.parz[key];
+    });
+    const i = rr.rows.findIndex(x => x.id === r.id);
+    if (i >= 0) rr.rows[i] = r; else rr.rows.push(r);
+    vbSave(rr); return true;
+  });
+  Dlg.vbPzLine = pzLine;
+}
+function vbFromPrev() {
+  const y = vbYear(), prev = vbGet(y - 1); if (!prev) return;
+  const body = `<p style="margin-top:0">Übernimmt die Spritzprogramme mit ihren Mitteln, die Kunden und die Zusatzartikel aus ${y - 1}.</p>
+    <label class="tog"><input type="checkbox" name="fl" checked> Flächen aus ${y - 1} als Vorschlag übernehmen</label>`;
+  Dlg.open(`Vorbestellung ${y} aus ${y - 1}`, body, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">Übernehmen</button>`, fd => {
+    const r = structuredClone(prev); r.id = vbId(y); r.jahr = y; r.vorrat = {}; delete r.vnames; delete r.vunits;
+    if (!fd.get('fl')) { r.fl = {}; r.parz = {}; r.progs.forEach(p => { p.extraHa = null; }); }
+    vbSave(r); toast(`Vorbestellung ${y} angelegt`); return true;
+  });
+}
+
+/* ---------- Druck & Excel ---------- */
+function vbPrint() {
+  const rec = vbRec(), need = vbNeed(rec), zus = vbZusatz(rec), P = rec.progs;
+  const area = `<h2 style="break-before:page">Flächen ${rec.jahr} (ha)</h2><table class="btab vbp"><thead><tr><th>Kunde</th>${P.map(p => `<th class="n">${esc(p.name)}</th>`).join('')}<th class="n">Total</th></tr></thead><tbody>
+    ${rec.rows.map(r => `<tr><td>${esc(vbRowName(r))}</td>${P.map(p => `<td class="n">${fmtNum(vbCell(rec, r.id, p.id)) || ''}</td>`).join('')}<td class="n">${fmtNum(vbRowHa(rec, r))}</td></tr>`).join('')}
+    ${P.some(p => p.extraHa) ? `<tr><td>ohne Kunde</td>${P.map(p => `<td class="n">${fmtNum(p.extraHa) || ''}</td>`).join('')}<td></td></tr>` : ''}
+    <tr class="gp"><td><b>Total</b></td>${P.map(p => `<td class="n"><b>${fmtNum(vbProgHa(rec, p))}</b></td>`).join('')}<td class="n"><b>${fmtNum(r2(P.reduce((s, p) => s + vbProgHa(rec, p), 0)))}</b></td></tr></tbody></table>`;
+  const progs = `<h2>Spritzprogramme</h2><table class="btab"><thead><tr><th>Programm</th><th class="n">ha</th><th>Mittel</th><th class="n">Menge/ha</th><th class="n">Bedarf</th></tr></thead><tbody>
+    ${P.map(p => { const ha = vbProgHa(rec, p); return (p.mittel || []).map((m, i) => `<tr${i ? '' : ' class="job"'}><td>${i ? '' : esc(p.name)}</td><td class="n">${i ? '' : fmtNum(ha)}</td><td>${esc(mName(m))}</td><td class="n">${fmtNum(m.menge)} ${esc(mUnit(m))}</td><td class="n">${fmtNum(r2(ha * (m.menge || 0)))} ${esc(mUnit(m))}</td></tr>`).join('') || `<tr class="job"><td>${esc(p.name)}</td><td class="n">${fmtNum(ha)}</td><td colspan="3" class="nr">keine Mittel</td></tr>`; }).join('')}</tbody></table>`;
+  const sum = need.reduce((s, x) => s + x.betrag, 0) + zus.reduce((s, z) => s + z.betrag, 0);
+  const order = `<h2>Bestellung</h2><table class="btab"><thead><tr><th>Mittel</th><th>Einheit</th><th class="n">Bedarf</th><th class="n">Vorrat</th><th class="n">Bestellen</th><th class="n">Preis</th><th class="n">Betrag CHF</th></tr></thead><tbody>
+    ${need.map(x => `<tr><td>${esc(x.name)}</td><td>${esc(x.einheit)}</td><td class="n">${fmtNum(x.bedarf)}</td><td class="n">${fmtNum(x.vorrat)}</td><td class="n"><b>${x.best ? fmtNum(x.best) : '–'}</b></td><td class="n">${x.preis ? chf(x.preis) : ''}</td><td class="n">${x.betrag ? chf(x.betrag) : ''}</td></tr>`).join('')}
+    ${zus.length ? `<tr class="gp"><td colspan="7"><b>Zusatzartikel</b></td></tr>${zus.map(z => `<tr><td>${esc(z.name)}</td><td>${esc(z.einheit || '')}</td><td></td><td></td><td class="n"><b>${fmtNum(z.menge)}</b></td><td class="n">${z.preis ? chf(z.preis) : ''}</td><td class="n">${z.betrag ? chf(z.betrag) : ''}</td></tr>`).join('')}` : ''}
+    <tr class="gp"><td colspan="6"><b>Geschätzter Bestellwert</b></td><td class="n"><b>${chf(sum)}</b></td></tr></tbody></table>`;
+  printHtml(`Mittelbestellung Pflanzenschutz ${rec.jahr}`, LETTERHEAD + `<h1 class="ptitle">Mittelbestellung Pflanzenschutz ${rec.jahr}</h1>` + order + area + progs, { noTitle: true });
+}
+function vbXlsx() {
+  const rec = vbRec(), need = vbNeed(rec), zus = vbZusatz(rec), P = rec.progs;
+  const fl = [['Kunde', ...P.map(p => p.name), 'Total'], ...rec.rows.map(r => [vbRowName(r), ...P.map(p => vbCell(rec, r.id, p.id) ?? ''), vbRowHa(rec, r)])];
+  if (P.some(p => p.extraHa)) fl.push(['ohne Kunde', ...P.map(p => p.extraHa ?? ''), '']);
+  fl.push(['Total', ...P.map(p => vbProgHa(rec, p)), r2(P.reduce((s, p) => s + vbProgHa(rec, p), 0))]);
+  const pz = [['Kunde', 'Programm', 'Parzelle', 'ha']];
+  Object.entries(rec.parz).forEach(([k, l]) => { const [rid, pid] = k.split('|'), r = rec.rows.find(x => x.id === rid), p = P.find(x => x.id === pid); if (r && p) l.forEach(x => pz.push([vbRowName(r), p.name, (Store.get('parzellen', x.pz) || {}).name || '', x.ha])); });
+  const pr = [['Programm', 'Kultur', 'Fläche ha', 'Mittel', 'Menge/ha', 'Einheit', 'Bedarf']];
+  P.forEach(p => { const ha = vbProgHa(rec, p); (p.mittel || []).forEach(m => pr.push([p.name, p.kultur || '', ha, mName(m), m.menge, mUnit(m), r2(ha * (m.menge || 0))])); });
+  const be = [['Mittel', 'Einheit', 'Bedarf', 'Vorrat', 'Restbedarf', 'Bestellen', 'Preis CHF', 'Betrag CHF'], ...need.map(x => [x.name, x.einheit, x.bedarf, x.vorrat, x.rest, x.best, x.preis || '', x.betrag ? r2(x.betrag) : ''])];
+  if (zus.length) { be.push([]); be.push(['Zusatzartikel', 'Einheit', '', '', '', 'Menge', 'Preis CHF', 'Betrag CHF']); zus.forEach(z => be.push([z.name, z.einheit || '', '', '', '', z.menge ?? '', z.preis || '', z.betrag ? r2(z.betrag) : ''])); }
+  const sheets = [{ name: `Bestellung ${rec.jahr}`, rows: be }, { name: `Flächen ${rec.jahr}`, rows: fl }, { name: 'Programme', rows: pr }];
+  if (pz.length > 1) sheets.push({ name: 'Parzellen', rows: pz });
+  download(`Vorbestellung_PS_${rec.jahr}.xlsx`, xlsxBlob(sheets));
+}
+
+/* ---------- Excel-Tabelle «Flächen Bestellung» einlesen ---------- */
+async function xlsxRead(buf) { // → { Blattname: [[Zellwerte]] }
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  let e = u8.length - 22; while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error('Keine Excel-Datei (.xlsx)');
+  const n = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true); const files = {};
+  const dec = new TextDecoder();
+  for (let i = 0; i < n; i++) {
+    const meth = dv.getUint16(p + 10, true), csz = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), off = dv.getUint32(p + 42, true);
+    const name = dec.decode(u8.subarray(p + 46, p + 46 + nl)); p += 46 + nl + xl + cl;
+    const ds = off + 30 + dv.getUint16(off + 26, true) + dv.getUint16(off + 28, true);
+    files[name] = { meth, data: u8.subarray(ds, ds + csz) };
+  }
+  const get = async name => {
+    const f = files[name]; if (!f) return null;
+    if (f.meth === 0) return dec.decode(f.data);
+    const s = new Blob([f.data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return await new Response(s).text();
+  };
+  const X = s => new DOMParser().parseFromString(s, 'application/xml'), T = (d, t) => [...d.getElementsByTagNameNS('*', t)];
+  const ss = (await get('xl/sharedStrings.xml')) ? T(X(await get('xl/sharedStrings.xml')), 'si').map(si => T(si, 't').map(t => t.textContent).join('')) : [];
+  const wb = X(await get('xl/workbook.xml')), rels = X(await get('xl/_rels/workbook.xml.rels'));
+  const rmap = Object.fromEntries(T(rels, 'Relationship').map(r => [r.getAttribute('Id'), r.getAttribute('Target')]));
+  const out = {};
+  for (const sh of T(wb, 'sheet')) {
+    const rid = sh.getAttribute('r:id') || sh.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+    let tg = rmap[rid] || ''; tg = tg.startsWith('/') ? tg.slice(1) : 'xl/' + tg.replace(/^\.\//, '');
+    const xml = await get(tg); if (!xml) continue;
+    const rows = [];
+    T(X(xml), 'c').forEach(c => {
+      const ref = c.getAttribute('r'), m = /^([A-Z]+)(\d+)$/.exec(ref); if (!m) return;
+      const col = [...m[1]].reduce((s, ch) => s * 26 + ch.charCodeAt(0) - 64, 0) - 1, row = +m[2] - 1;
+      const t = c.getAttribute('t'), v = T(c, 'v')[0]?.textContent;
+      let val = null;
+      if (t === 'e') return; if (t === 's') val = ss[+v] ?? null; else if (t === 'inlineStr') val = T(c, 't').map(x => x.textContent).join(''); else if (t === 'str') val = v ?? null; else if (t === 'b') val = v === '1'; else if (v != null && v !== '') val = +v;
+      if (val === '' || val == null) return;
+      (rows[row] = rows[row] || [])[col] = val;
+    });
+    out[sh.getAttribute('name')] = rows;
+  }
+  return out;
+}
+const vbClean = s => String(s || '').replace(/\s+/g, ' ').replace(/(\w)- ?([a-zäöü])/g, '$1$2').trim();
+const VB_SYN = [['weizen', 'ww'], ['triticale'], ['gerste'], ['mais'], ['rüben', 'zr'], ['hafer'], ['soja'], ['erbsen'], ['dinkel'], ['bohnen'], ['1x'], ['2x'], ['herbizid', 'hz'], ['ips', 'ip-suisse', 'ipsuisse'], ['intensiv', 'convisio', 'conviso'], ['gräser'], ['raps']];
+const vbFeat = s => { const t = ' ' + norm(s).replace(/[^a-z0-9äöüx\-]+/g, ' ') + ' '; return new Set(VB_SYN.map((g, i) => g.some(w => w.length <= 3 ? new RegExp(`[ /]${w}[ /,]`).test(t) || t.includes(' ' + w + ' ') : t.includes(w)) ? i : -1).filter(i => i >= 0)); };
+function vbParseYear(book, y) {
+  const fs = book[String(y)], bs = book['Bestellung ' + y]; if (!fs && !bs) return null;
+  // Flächenblatt: Kopfzeile mit Programmen, darunter Kunden bis «Total»
+  const progs = [], rows = [];
+  if (fs) {
+    const hi = fs.findIndex(r => r && r.slice(1).filter(v => typeof v === 'string').length >= 3);
+    const head = fs[hi] || [];
+    head.forEach((v, c) => { if (c > 0 && typeof v === 'string' && v.trim()) progs.push({ col: c, name: vbClean(v) }); });
+    for (let i = hi + 1; i < fs.length; i++) {
+      const r = fs[i]; if (!r || typeof r[0] !== 'string') continue;
+      if (/^total/i.test(r[0].trim())) break;
+      rows.push({ name: r[0].trim(), ha: Object.fromEntries(progs.map(p => [p.col, typeof r[p.col] === 'number' ? r2(r[p.col]) : null])) });
+    }
+    progs.forEach(p => { p.total = r2(rows.reduce((s, r) => s + (r.ha[p.col] || 0), 0)); });
+  }
+  // Bestellblatt: links Blöcke «Titel | | Fläche», darunter «Mittel | Menge/ha | Einheit»; rechts Mittelliste mit Vorrat und Zusatzartikel
+  const blocks = [], vorrat = [], zusatz = [];
+  if (bs) {
+    let cur = null;
+    bs.forEach((r, i) => {
+      if (!r || i < 3) return;
+      const a = typeof r[0] === 'string' ? r[0].trim() : '', b = r[1], c = r[2];
+      if (a && (b == null || b === '') && typeof c === 'number') { cur = { title: vbClean(a), ha: r2(c), mittel: [] }; blocks.push(cur); }
+      else if (a && typeof b === 'number' && cur) { if (b > 0) cur.mittel.push({ name: a, menge: b, einheit: typeof c === 'string' ? c : '' }); }
+      const g = typeof r[6] === 'string' ? r[6].trim() : '';
+      if (g && !/^(produkt|einheit)$/i.test(g)) {
+        if (typeof r[7] === 'string' && r[7].trim() && !/einheit/i.test(r[7])) { if (typeof r[9] === 'number') vorrat.push({ name: g, einheit: r[7].trim(), menge: r[9] }); }
+        else if (r[7] == null && typeof r[10] === 'number') zusatz.push({ name: g, menge: r[10], einheit: typeof r[11] === 'string' ? r[11] : '' });
+      }
+    });
+  }
+  // Blöcke den Programmen (Spalten) zuordnen: Name (Kultur, 1x/2x, HZ, IPS …) und Fläche
+  const score = (bl, p) => {
+    const fb = vbFeat(bl.title), fp = vbFeat(p.name); let s = 0;
+    fb.forEach(f => { if (fp.has(f)) s += 2; });
+    const d = Math.abs(bl.ha - p.total); s += d <= 0.15 ? 4 : d <= 0.5 ? 2 : d <= 1 ? 1 : 0;
+    return s;
+  };
+  const pairs = []; blocks.forEach((bl, bi) => progs.forEach((p, pi) => pairs.push({ bi, pi, s: score(bl, p) })));
+  pairs.sort((a, b) => b.s - a.s);
+  const usedB = new Set(), usedP = new Set();
+  pairs.forEach(x => { if (x.s < 3 || usedB.has(x.bi) || usedP.has(x.pi)) return; blocks[x.bi].to = x.pi; usedB.add(x.bi); usedP.add(x.pi); });
+  return { y, progs, rows, blocks, vorrat, zusatz };
+}
+// Produkt aus den Stammdaten zum Namen in der Tabelle suchen
+function vbMatchProd(name) {
+  const k = s => norm(s).replace(/[^a-z0-9äöü]/g, ''), n = k(name), all = Store.all('produkte').filter(p => p.name);
+  const lev = (a, b) => { if (Math.abs(a.length - b.length) > 1) return 9; const d = Array.from({ length: a.length + 1 }, (_, i) => [i]); for (let j = 1; j <= b.length; j++) d[0][j] = j; for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[a.length][b.length]; };
+  const tries = [p => k(p.name) === n, p => k(p.name).startsWith(n) || n.startsWith(k(p.name)), p => k(p.name).includes(n), p => n.length > 5 && lev(k(p.name), n) <= 1];
+  for (const t of tries) { const l = all.filter(t); const akt = l.filter(p => p.aktuell !== false); const c = akt.length ? akt : l; if (c.length === 1) return c[0]; if (c.length > 1) return null; }
+  return null;
+}
+function vbMatchKunde(name) {
+  const n = norm(name).split(/[\s(]/)[0]; if (!n) return null;
+  const l = Store.all('kunden').filter(k => k.aktiv !== false && norm(k.name).split(/[\s-]/)[0] === n);
+  return l.length === 1 ? l[0] : null;
+}
+async function vbImportFile(file) {
+  let book; try { book = await xlsxRead(await file.arrayBuffer()); } catch (e) { toast('Datei konnte nicht gelesen werden: ' + e.message, 5000); return; }
+  const years = [...new Set(Object.keys(book).map(n => (/^(?:Bestellung )?(\d{4})$/.exec(n.trim()) || [])[1]).filter(Boolean).map(Number))].sort((a, b) => b - a);
+  if (!years.length) { toast('Keine Blätter «2026» / «Bestellung 2026» gefunden.', 5000); return; }
+  const pick = years.filter(y => y >= Math.max(...years) - 1);
+  const body = `<p style="margin-top:0">Gefundene Jahre in «${esc(file.name)}». Welche sollen übernommen werden?</p>
+    <div class="chips">${years.map(y => `<label><input type="checkbox" name="y" value="${y}" ${pick.includes(y) ? 'checked' : ''}><span>${y}${vbGet(y) ? ' (ersetzt)' : ''}</span></label>`).join('')}</div>`;
+  Dlg.open('Excel importieren', body, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">Weiter</button>`, fd => {
+    const ys = fd.getAll('y').map(Number); if (!ys.length) { toast('Mindestens ein Jahr wählen.'); return false; }
+    setTimeout(() => vbImportReview(ys.map(y => vbParseYear(book, y)).filter(Boolean), 0), 0); return true;
+  });
+}
+// Prüfen und anpassen: Zuordnung der Bestell-Blöcke zu Programmen und der Excel-Namen zu Kunden
+function vbImportReview(list, idx) {
+  const d = list[idx]; if (!d) { const y = list[0]?.y; if (y) { App.spray.vbY = y; App.spray.vbSub = 'flaechen'; } App.render(); toast(`${list.length} ${list.length === 1 ? 'Jahr' : 'Jahre'} importiert`); return; }
+  const kOpts = cur => `<option value="">— nur Name, kein Kunde —</option>` + Store.all('kunden').filter(k => k.aktiv !== false).sort(byName).map(k => `<option value="${k.id}" ${k.id === cur ? 'selected' : ''}>${esc(kundeLabel(k))}</option>`).join('');
+  const pOpts = cur => `<option value="-1">eigenes Programm (Fläche aus der Bestellung)</option>` + d.progs.map((p, i) => `<option value="${i}" ${i === cur ? 'selected' : ''}>${esc(p.name)} · ${fmtNum(p.total)} ha</option>`).join('');
+  const body = `<p style="margin-top:0" class="nr">Erntejahr <b>${d.y}</b> · ${d.progs.length} Programme · ${d.rows.length} Zeilen · ${d.blocks.length} Mittelblöcke${vbGet(d.y) ? ' · <b style="color:var(--warn)">ersetzt die bestehende Vorbestellung ' + d.y + '</b>' : ''}</p>
+    <h4 style="margin:8px 0 4px">Kunden</h4>
+    <div class="vbimp">${d.rows.map((r, i) => { const k = vbMatchKunde(r.name); return `<label class="fld"><span>${esc(r.name)}</span><select class="input" name="k${i}">${kOpts(k ? k.id : '')}</select></label>`; }).join('')}</div>
+    <h4 style="margin:12px 0 4px">Mittelblöcke → Spritzprogramm</h4>
+    <div class="vbimp wide">${d.blocks.map((b, i) => `<label class="fld"><span>${esc(b.title)} · ${fmtNum(b.ha)} ha <span class="nr">(${b.mittel.map(m => esc(m.name)).join(', ') || 'ohne Mittel'})</span></span><select class="input" name="b${i}">${pOpts(b.to ?? -1)}</select>
+      ${b.to != null && Math.abs(d.progs[b.to].total - b.ha) > 0.05 ? `<div class="sub2">Fläche laut Flächenblatt ${fmtNum(d.progs[b.to].total)} ha – es gilt das Flächenblatt.</div>` : ''}</label>`).join('')}</div>`;
+  Dlg.open(`Import prüfen – ${d.y}${list.length > 1 ? ` (${idx + 1}/${list.length})` : ''}`, body, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">${idx + 1 < list.length ? 'Übernehmen & weiter' : 'Übernehmen'}</button>`, fd => {
+    const rec = vbBlank(d.y), kul = Lists.kulturen();
+    const guessKultur = name => { const f = vbFeat(name); return kul.find(k => [...vbFeat(k)].some(x => f.has(x) && x < 10)) || ''; };
+    const conv = (pr, menge, u) => { if (!pr || !u || !pr.einheit) return { menge, einheit: u || (pr && pr.einheit) || 'l' }; const f = uFac(u, pr.einheit); return f ? { menge: r2(menge * f * 1000) / 1000, einheit: pr.einheit } : { menge, einheit: u }; };
+    const mit = b => b.mittel.map(m => { const pr = vbMatchProd(m.name), c = conv(pr, m.menge, m.einheit); return { pid: pr ? pr.id : '', name: pr ? pr.name : m.name, einheit: c.einheit, menge: c.menge }; });
+    const P = d.progs.map(p => ({ id: uid(), name: p.name, kultur: guessKultur(p.name), extraHa: null, mittel: [] }));
+    d.blocks.forEach((b, i) => {
+      const to = +fd.get('b' + i);
+      if (to >= 0 && P[to] && !P[to].mittel.length) P[to].mittel = mit(b);
+      else P.push({ id: uid(), name: b.title, kultur: guessKultur(b.title), extraHa: b.ha, mittel: mit(b) });
+    });
+    rec.progs = P;
+    d.rows.forEach((r, i) => {
+      const k = fd.get('k' + i) || '', row = { id: uid(), kunde: k, name: k ? '' : r.name };
+      const ex = k && rec.rows.find(x => x.kunde === k);
+      const tgt = ex || row; if (!ex) rec.rows.push(row);
+      d.progs.forEach((p, pi) => { const v = r.ha[p.col]; if (v) { rec.fl[tgt.id] = rec.fl[tgt.id] || {}; rec.fl[tgt.id][P[pi].id] = r2((rec.fl[tgt.id][P[pi].id] || 0) + v); } });
+    });
+    rec.rows = rec.rows.filter(r => Object.values(rec.fl[r.id] || {}).some(v => v)).concat(rec.rows.filter(r => !Object.values(rec.fl[r.id] || {}).some(v => v)));
+    rec.vnames = {}; rec.vunits = {};
+    d.vorrat.forEach(v => { const pr = vbMatchProd(v.name), key = pr ? pr.id : 'n:' + norm(v.name), c = conv(pr, v.menge, v.einheit); rec.vorrat[key] = c.menge; rec.vunits[key] = c.einheit; if (!pr) rec.vnames[key] = v.name; });
+    rec.zusatz = d.zusatz.map(z => ({ id: uid(), name: z.name, menge: z.menge, einheit: z.einheit }));
+    Store.put('einstellungen', rec, { silent: true });
+    setTimeout(() => vbImportReview(list, idx + 1), 0); return true;
+  });
+}
+
+/* ---------- Ereignisse ---------- */
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-vb]'); if (!t) return;
+  const a = t.dataset.vb, id = t.dataset.id, S = App.spray;
+  e.preventDefault(); e.stopPropagation();
+  if (a === 'sub') { S.vbSub = t.dataset.v; App.render(); return; }
+  if (a === 'progNew') return vbProgDialog(null);
+  if (a === 'progEdit') return vbProgDialog(id);
+  if (a === 'rowNew') return vbRowDialog(null);
+  if (a === 'rowEdit') return vbRowDialog(id);
+  if (a === 'fromPrev') return vbFromPrev();
+  if (a === 'print') return vbPrint();
+  if (a === 'xlsx') return vbXlsx();
+  if (a === 'mAdd') { $('#vbM', Dlg.form).insertAdjacentHTML('beforeend', Dlg.vbMrow({})); return; }
+  if (a === 'mDel') { t.closest('.vbmrow').remove(); return; }
+  if (a === 'pzAdd') { t.closest('.vbpzbox').querySelector('.vbpzl').insertAdjacentHTML('beforeend', Dlg.vbPzLine({})); return; }
+  if (a === 'pzDel') { t.closest('.vbpz').remove(); return; }
+  if (a === 'progDel') {
+    const r = vbRec(), p = r.progs.find(x => x.id === id); if (!p || !confirm(`Spritzprogramm «${p.name}» mit seinen Flächen löschen?`)) return;
+    r.progs = r.progs.filter(x => x.id !== id); Object.values(r.fl).forEach(o => delete o[id]); Object.keys(r.parz).forEach(k => { if (k.endsWith('|' + id)) delete r.parz[k]; });
+    Dlg.close(); vbSave(r); return;
+  }
+  if (a === 'rowDel') {
+    const r = vbRec(), row = r.rows.find(x => x.id === id); if (!row || !confirm(`«${vbRowName(row)}» mit allen Flächen aus dem Flächenplan entfernen?`)) return;
+    r.rows = r.rows.filter(x => x.id !== id); delete r.fl[id]; Object.keys(r.parz).forEach(k => { if (k.startsWith(id + '|')) delete r.parz[k]; });
+    Dlg.close(); vbSave(r); return;
+  }
+  if (a === 'zAdd') { const r = vbRec(), z = { id: uid(), name: '', menge: null, einheit: '' }; r.zusatz = [...(r.zusatz || []), z]; vbSave(r, false); App.render(); setTimeout(() => $(`[data-vbk="zn-${z.id}"]`)?.focus(), 30); return; }
+  if (a === 'zDel') { const r = vbRec(); r.zusatz = (r.zusatz || []).filter(z => z.id !== id); vbSave(r); return; }
+}, true);
+document.addEventListener('change', e => {
+  const t = e.target, k = t.dataset ? t.dataset.vbin : null; if (!k) return;
+  if (k === 'year') { App.spray.vbY = +t.value; App.render(); return; }
+  if (k === 'import') { const f = t.files && t.files[0]; t.value = ''; if (f) vbImportFile(f); return; }
+  const r = vbRec();
+  if (k === 'fl') { const v = vbNum(t.value); r.fl[t.dataset.r] = r.fl[t.dataset.r] || {}; if (v) r.fl[t.dataset.r][t.dataset.p] = v; else delete r.fl[t.dataset.r][t.dataset.p]; return vbSave(r); }
+  if (k === 'vorrat') { const v = vbNum(t.value); if (t.value.trim() === '') delete r.vorrat[t.dataset.k]; else r.vorrat[t.dataset.k] = v ?? 0; return vbSave(r); }
+  if (k === 'zName' || k === 'zMenge' || k === 'zEinh') {
+    const z = (r.zusatz || []).find(x => x.id === t.dataset.id); if (!z) return;
+    if (k === 'zName') z.name = t.value.trim(); else if (k === 'zEinh') z.einheit = t.value.trim(); else z.menge = vbNum(t.value);
+    return vbSave(r);
+  }
+});
 function pickFile(accept) {
   return new Promise(res => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.onchange = () => res(i.files[0]); i.click(); });
 }
