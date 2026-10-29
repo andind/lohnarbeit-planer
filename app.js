@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '53', APP_STAND = '29.10.2026';
+const APP_VERSION = '54', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -548,7 +548,7 @@ const App = {
   al: { von: '', bis: '', k: '', a: '', c: '', m: '', f: '', grp: '', sort: 'wunsch', limit: 300 },
   jdb: { minHa: ls('lp_jdbmin') || '', rows: null, meta: null, von: null, bis: null, k: [], a: [], f: [], m: [], c: [], q: '', grp: '', sort: 'desc', limit: 300, open: null },
   plan: { ua: '', us: ls('lp_pus') || 'wunsch', axW: ls('lp_axW') || 'tage', axT: ls('lp_axT') || 'senkrecht', side: ls('lp_pside') !== '0', mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
-  lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false, zoom: +(ls('lp_zoom') || 1),
+  lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false,
   spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jsort: 'desc', jf: null, jfOpen: false, jlimit: 200,
     ak: '', av: `${new Date().getFullYear()}-01-01`, ab: todayIso(), ag: false, ny: 0, nk: '', nc: '', ngep: false, pk: '', pall: false, prq: '', prall: false },
   alimit: 150,
@@ -1451,13 +1451,13 @@ function setZoom(z) {
   if (cal) { // Bildmitte festhalten
     const cx = cal.scrollLeft + cal.clientWidth / 2, cy = cal.scrollTop + cal.clientHeight / 2, r = z / old;
     const dayCols = cal.id === 'tlwrap';
-    if (cal.id === 'tlwrapH') { App.zoomAnchor = c => { c.scrollLeft = Math.max(0, cx * r - c.clientWidth / 2); c.scrollTop = Math.max(0, cy - c.clientHeight / 2); }; App.zoom = z; ls('lp_zoom', String(z)); App.render(); return; }
+    if (cal.id === 'tlwrapH') { App.zoomAnchor = c => { c.scrollLeft = Math.max(0, cx * r - c.clientWidth / 2); c.scrollTop = Math.max(0, cy - c.clientHeight / 2); }; App.zoom = z; App.render(); return; }
     App.zoomAnchor = c => {
       c.scrollTop = Math.max(0, cy * r - c.clientHeight / 2);
       c.scrollLeft = Math.max(0, (dayCols ? cx * Math.max(0.5, Math.min(1.6, z)) / Math.max(0.5, Math.min(1.6, old)) : cx * r) - c.clientWidth / 2);
     };
   }
-  App.zoom = z; ls('lp_zoom', String(z)); App.render();
+  App.zoom = z; App.render();
 }
 // Zwei-Finger-Zoom (iPhone/Tablet) und Ctrl+Mausrad bzw. Trackpad-Pinch (PC)
 function attachPinch(cal) {
@@ -3557,6 +3557,16 @@ function jdbMsQuery(el) { App.jdb.msq = el.value; const q = norm(el.value); $$('
 function jdbMsAll(k, on) { const J = App.jdb, cur = new Set(jdbArr(J[k])); if (!on) { jdbMsSet(k, []); return; } $$('.msel.open .msel-i').filter(x => !x.hidden).forEach(x => cur.add(x.querySelector('input').value)); jdbMsSet(k, [...cur]); }
 document.addEventListener('click', e => { const J = App.jdb; if (J && J.open && !e.target.closest('.msel')) { J.open = null; App.render(); } }, true);
 document.addEventListener('keydown', e => { const J = App.jdb; if (e.key !== 'Escape' || !J || Dlg.el.open) return; if (J.open) { J.open = null; App.render(); } else if (J.fs && App.view === 'jdbericht') { J.fs = false; App.render(); } });
+/* ---------- Zoom der Planung: Tages- und Wochenansicht unabhängig, gespeichert ---------- */
+{
+  const old = +(ls('lp_zoom') || 1) || 1, key = () => App.plan.mode === 'tag' ? 'tag' : 'woche';
+  const Z = { tag: +(ls('lp_zoom_tag') || old) || 1, woche: +(ls('lp_zoom_woche') || old) || 1 };
+  Object.defineProperty(App, 'zoom', {
+    get() { return Z[key()]; },
+    set(z) { const k = key(); Z[k] = z; ls('lp_zoom_' + k, String(z)); },
+    configurable: true
+  });
+}
 /* ================= Grosse Bildschirme (z.B. 27" 4K): Anzeigegrösse ================= */
 const UI_SCALES = [['auto', 'Automatisch'], ['0.9', '90 %'], ['1', '100 %'], ['1.1', '110 %'], ['1.25', '125 %'], ['1.5', '150 %'], ['1.75', '175 %'], ['2', '200 %']];
 // Bei 4K ohne Windows-Skalierung (3840 px Fensterbreite) wird automatisch auf 150 % vergrössert; mit 150 % Windows-Skalierung (2560 px) bleibt es bei 100 %.
