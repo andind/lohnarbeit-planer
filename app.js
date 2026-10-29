@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '57', APP_STAND = '29.10.2026';
+const APP_VERSION = '58', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -553,7 +553,7 @@ const App = {
   filter: { auftraege: 'offen', q: '', kq: '', aview: ls('lp_aview') || 'karten' },
   al: { von: '', bis: '', k: '', a: '', c: '', m: '', f: '', grp: '', sort: 'wunsch', limit: 300 },
   jdb: { minHa: ls('lp_jdbmin') || '', rows: null, meta: null, von: null, bis: null, k: [], a: [], f: [], m: [], c: [], q: '', grp: '', sort: 'desc', limit: 300, open: null },
-  plan: { ua: '', um: '', us: ls('lp_pus') || 'wunsch', axW: ls('lp_axW') || 'tage', axT: ls('lp_axT') || 'senkrecht', side: ls('lp_pside') !== '0', mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
+  plan: { ua: '', um: '', us: ls('lp_pus') || 'wunsch', axW: ls('lp_axW') || 'tage', axT: ls('lp_axT') || 'senkrecht', side: ls('lp_pside') !== '0', upos: ls('lp_upos') || 'neben', mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false,
   spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jsort: 'desc', jf: null, jfOpen: false, jlimit: 200,
     ak: '', av: `${new Date().getFullYear()}-01-01`, ab: todayIso(), ag: false, ny: 0, nk: '', nc: '', ngep: false, pk: '', pall: false, prq: '', prall: false },
@@ -703,10 +703,11 @@ const Views = {
           <span class="zoomctl"><button class="btn small" data-act="zoom" data-d="-1" aria-label="Verkleinern">−</button><span class="zv">${Math.round(App.zoom * 100)} %</span><button class="btn small" data-act="zoom" data-d="1" aria-label="Vergrössern">＋</button></span>
           <button class="btn small fsclose" data-act="fs" aria-label="Vollbild schliessen">✕</button>
         </div>${grid}</div>`;
-      return `<div class="planwrap ${App.plan.side === false ? 'noside' : ''}">
+      const below = P.upos === 'unter';
+      return `<div class="planwrap ${App.plan.side === false ? 'noside' : ''} ${below ? 'ubelow' : ''}">
         <div>${grid}</div>
         <aside class="unplanned" data-drop="">
-          <h3>Noch nicht eingeplant (${unpl.length}${P.ua ? ` von ${unplAll.length}` : ''})</h3>
+          <h3>Noch nicht eingeplant (${unpl.length}${P.ua ? ` von ${unplAll.length}` : ''})<button type="button" class="btn mini uposbtn" data-act="uPos" title="${below ? 'Neben dem Kalender anzeigen' : 'Unter dem Kalender anzeigen'}">${below ? '⇥ daneben' : '⤓ darunter'}</button></h3>
           ${unplAll.length ? unplCtl : ''}
           <div class="slot">${unpl.map(unplCard).join('') || `<div class="none">${unplAll.length ? 'Keine Aufträge für diese Auswahl.' : 'Alles eingeplant 👍'}</div>`}</div>
         </aside></div>`;
@@ -938,6 +939,7 @@ const Views = {
         <div class="panel"><h2>Planung: Achsen</h2>
           <div class="two">
             <label class="fld"><span>Wochenansicht</span><select class="input" data-plain data-in="axW"><option value="tage">Tage untereinander, Maschinen nebeneinander</option><option value="maschinen" ${App.plan.axW === 'maschinen' ? 'selected' : ''}>Maschinen untereinander, Tage nebeneinander</option></select></label>
+            <label class="fld"><span>Planung: nicht eingeplante Aufträge (Tablet quer / PC)</span><select class="input" data-plain data-in="uPos"><option value="neben">neben dem Kalender</option><option value="unter" ${App.plan.upos === 'unter' ? 'selected' : ''}>unter dem Kalender</option></select></label>
             <label class="fld"><span>Tagesansicht</span><select class="input" data-plain data-in="axT"><option value="senkrecht">Zeitachse senkrecht, Maschinen nebeneinander</option><option value="waagrecht" ${App.plan.axT === 'waagrecht' ? 'selected' : ''}>Zeitachse waagrecht, Maschinen untereinander</option></select></label>
           </div>
           <p class="nr">Gilt für dieses Gerät. Ziehen, Mehrfachauswahl und Zoom funktionieren in beiden Anordnungen.</p></div>
@@ -1000,12 +1002,11 @@ function planCard(it) {
     <div class="tm">${fromMin(it.start)}–${endLbl(it)}</div>
     <b>${kfHtml(a)}</b><div class="sub contlbl">${contLbl(it)}</div></div>`;
   return `<div class="pcard ${s} ${App.sel.has(a.id) ? 'sel' : ''}" data-act="editOrder" data-id="${a.id}" ${isOpen(a) ? 'draggable="true"' : ''}>
-    <div class="tm">${rangeLbl(it)}${it.fixed ? ' 📌' : ''}${it.pushed ? ' ⤵' : ''}${it.over ? ' 🌙' : ''}</div>
+    <div class="tmrow"><div class="tm">${rangeLbl(it)}${it.fixed ? ' 📌' : ''}${it.pushed ? ' ⤵' : ''}${it.over ? ' 🌙' : ''}</div>${isOpen(a) ? `<button type="button" class="btn mini donebtn donetop" data-act="done" data-id="${a.id}" title="Als erledigt melden: Datum, Fläche, Stunden, Bemerkungen">✓ Erledigt</button>` : ''}</div>
     <b>${kfHtml(a)}</b>
     <div class="sub">${artKultur(a)}</div>
     <div class="sub">${a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''}${a.flaeche && (d || isOpen(a)) ? ' · ' : ''}${d ? '⏱ ' + hrs(d) : isOpen(a) ? '⏱ Dauer fehlt' : ''}${s === 'erledigt' || s === 'verrechnet' ? ' · ✓' : ''}</div>
     ${sprayShort(a, { noFeld: true })}${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}
-    ${isOpen(a) ? `<div class="pcard-act"><button type="button" class="btn mini donebtn" data-act="done" data-id="${a.id}" title="Als erledigt melden: Datum, Fläche, Stunden, Bemerkungen">✓ Erledigt</button></div>` : ''}
   </div>`;
 }
 const mKurz = m => m.kurz || m.name;
@@ -3853,6 +3854,7 @@ document.addEventListener('click', async e => {
     case 'spPreset': sprayPreset(t.dataset.v); break;
     case 'spCsv': sprayCsv(); break;
     case 'spImg': sprayImage(); break;
+    case 'uPos': App.plan.upos = App.plan.upos === 'unter' ? 'neben' : 'unter'; ls('lp_upos', App.plan.upos); App.render(); break;
     case 'spIncAll': { const S = spInit(); Store.all('auftraege').filter(a => isSpray(a) && isOpen(a) && !a.datum).forEach(a => t.dataset.v === '1' ? S.inc.add(a.id) : S.inc.delete(a.id)); spSave(); App.render(); break; }
     case 'spExAll': { const S = spInit(), sel = sprayDays().filter(d => !S.off.has(d)); Store.all('auftraege').filter(a => isSpray(a) && isOpen(a) && a.datum && sel.includes(a.datum)).forEach(a => t.dataset.v === '1' ? S.ex.add(a.id) : S.ex.delete(a.id)); spSave(); App.render(); break; }
     case 'dauerReset': f.dauer.value = ''; f.dauer.dispatchEvent(new Event('input')); break;
@@ -3942,6 +3944,7 @@ document.addEventListener('change', e => {
   if (k === 'pUa') { App.plan.ua = e.target.value; App.render(); return; }
   if (k === 'pUm') { App.plan.um = e.target.value; App.render(); return; }
   if (k === 'pUs') { App.plan.us = e.target.value; ls('lp_pus', e.target.value); App.render(); return; }
+  if (k === 'uPos') { App.plan.upos = e.target.value; ls('lp_upos', e.target.value); toast('Anordnung geändert'); return; }
   if (k === 'axW' || k === 'axT') { App.plan[k] = e.target.value; ls(k === 'axW' ? 'lp_axW' : 'lp_axT', e.target.value); App.tlScroll = null; toast('Anordnung der Planung geändert'); return; }
   if (k === 'uiScale') { uiScaleSet(e.target.value); return; }
   if (k === 'jbMin') { App.jdb.minHa = e.target.value; ls('lp_jdbmin', e.target.value); App.jdb.limit = 300; App.render(); return; }

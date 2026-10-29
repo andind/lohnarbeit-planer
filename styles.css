@@ -847,3 +847,16 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 @media print { .spinc, .spbtns { display: none !important; } }
 .spbtns .btn { padding: 4px 10px; font-size: 13px; min-height: 0; height: auto; }
 .spbtns.top { background: none; padding: 0; }
+/* v58: Erledigt-Knopf oben (PC), nicht eingeplante wahlweise unter dem Kalender */
+.pcard .tmrow { display: flex; align-items: center; gap: 6px; }
+.pcard .tmrow .tm { flex: 1; min-width: 0; }
+.pcard .donetop { display: inline-flex; flex: none; padding: 1px 7px; font-size: 11px; line-height: 1.5; }
+@media (pointer: coarse) { .pcard .donetop { min-height: 28px; padding: 2px 9px; font-size: 12px; } }
+.uposbtn { display: none; float: right; padding: 2px 8px; font-size: 12px; min-height: 0; font-weight: 500; }
+@media (min-width: 940px) {
+  .uposbtn { display: inline-flex; }
+  .planwrap.ubelow { grid-template-columns: minmax(0, 1fr); }
+  .planwrap.ubelow .unplanned { position: static; max-height: none; overflow: visible; }
+  .planwrap.ubelow .unplctl { grid-template-columns: repeat(3, minmax(0, 260px)); }
+  .planwrap.ubelow .unplanned .slot { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+}
