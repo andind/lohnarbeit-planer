@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '49', APP_STAND = '29.10.2026';
+const APP_VERSION = '50', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -445,6 +445,51 @@ function putChanged(list) {
 function setMachineDauer(a, mid) {
   if ((a.maschine || '') !== mid || !a.dauerManuell) { a.dauer = defaultDauer(maschine(mid), a.flaeche); a.dauerManuell = false; }
 }
+// Angedockte Aufträge mit fester Zeit, die nach hinten rutschen mussten, an ihrer neuen Zeit festhalten
+function settleDay(d, mid) {
+  const out = schedule(d, mid).items.filter(it => it.pushed).map(it => ({ ...it.a, zeit: fromMin(it.start) }));
+  if (out.length) Store.putMany('auftraege', out);
+}
+/* ---------- Auftragslänge durch Ziehen am Ende ändern (Tagesansicht) ---------- */
+function attachResize(h) {
+  const blk = h.closest('.blk'), horiz = App.tlH, STEP = 15;
+  h.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const a0 = Store.get('auftraege', h.dataset.rsz); if (!a0) return;
+    const start = +h.dataset.s, len0 = lenOf(a0), p0 = horiz ? e.clientX : e.clientY;
+    let len = len0;
+    const drg = blk.getAttribute('draggable'); blk.removeAttribute('draggable');
+    blk.classList.add('resizing');
+    const lbl = document.createElement('span'); lbl.className = 'rszlbl'; blk.appendChild(lbl);
+    const show = () => {
+      const px = Math.max(20, Math.min(len, 1440 - start) * PX - 2);
+      blk.style[horiz ? 'width' : 'height'] = px + 'px';
+      lbl.textContent = `${fromMin(start)}–${endLbl({ end: Math.min(1440, start + len), rawEnd: start + len })} · ${hrs(len / 60)}`;
+    };
+    show();
+    try { h.setPointerCapture(e.pointerId); } catch { }
+    const move = ev => {
+      const dm = ((horiz ? ev.clientX : ev.clientY) - p0) / UIZ() / PX;
+      len = Math.max(STEP, Math.round((len0 + dm) / STEP) * STEP);
+      show();
+    };
+    const up = () => {
+      h.removeEventListener('pointermove', move); h.removeEventListener('pointerup', up); h.removeEventListener('pointercancel', up);
+      blk.classList.remove('resizing'); if (drg) blk.setAttribute('draggable', drg);
+      // den Klick nach dem Loslassen nicht als «Auftrag öffnen» werten
+      const stop = ev => { ev.stopPropagation(); ev.preventDefault(); };
+      window.addEventListener('click', stop, true); setTimeout(() => window.removeEventListener('click', stop, true), 350);
+      if (len === len0) { lbl.remove(); App.render(); return; }
+      const a = { ...Store.get('auftraege', a0.id), dauer: Math.round(len / 60 * 100) / 100, dauerManuell: true };
+      Store.putMany('auftraege', [a]);
+      const d = a.datum, mid = a.maschine || '';
+      settleDay(d, mid); settleDay(isoDate(addDays(parseDate(d), 1)), mid);
+      toast(`${kundeName(a.kunde)}: Dauer ${hrs(a.dauer)}`);
+    };
+    h.addEventListener('pointermove', move); h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
+  });
+}
 /* ---------- Verschieben (einzeln oder mehrere) ---------- */
 // tgt: { unplan:true } | { datum, mid, minute?, top?, beforeId? }
 function moveOrders(ids, draggedId, tgt) {
@@ -724,6 +769,7 @@ const Views = {
         ${h > 54 && big ? sprayShort(a, { noFeld: true }) : ''}
         ${h > 70 && big && a.notiz ? `<span class="note">${esc(a.notiz)}</span>` : ''}
         ${op ? `<button type="button" class="blkdone" data-act="done" data-id="${a.id}" title="Als erledigt melden">✓</button>` : ''}
+        ${op ? `<i class="rsz" data-rsz="${a.id}" data-s="${s}" data-d="${esc(a.datum)}" data-m="${esc(a.maschine || '')}" title="Ziehen: Auftragslänge ändern"></i>` : ''}
       </div>`;
     },
     // ---- Tag getauscht: waagrechte Zeitachse 0–24 Uhr, Maschinen als Zeilen
@@ -770,6 +816,7 @@ const Views = {
           planDrop(el, e.dataTransfer.getData('text/plain'), App.tlH ? e.clientX : e.clientY, grabY, e.target);
         });
       });
+      $$('.blk .rsz').forEach(h => attachResize(h));
       // Tablet/Handy: Ziehen mit dem Finger (lange drücken, dann ziehen)
       if (matchMedia('(pointer: coarse)').matches) $$('[draggable="true"]').forEach(el => { el.removeAttribute('draggable'); touchDrag(el); });
       // Langes Drücken (bzw. Rechtsklick) auf freie Stelle → passende, nicht eingeplante Aufträge

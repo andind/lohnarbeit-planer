@@ -820,3 +820,16 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 .blk.cont { border-left-style: dashed; opacity: .8; background-image: repeating-linear-gradient(135deg, transparent 0 8px, rgba(127,127,127,.09) 8px 16px); border-top: 2px dashed var(--muted); }
 .tlh .blk.cont { border-top: 0; border-left: 2px dashed var(--muted); }
 .blk.cont .w { color: var(--muted); font-style: italic; }
+/* v50: Auftragslänge durch Ziehen am Ende */
+.blk .rsz { position: absolute; left: 0; right: 30px; bottom: 0; height: 9px; cursor: ns-resize; z-index: 3; touch-action: none; }
+.blk .rsz::after { content: ''; position: absolute; left: 50%; bottom: 2px; width: 28px; margin-left: -14px; height: 3px; border-radius: 2px; background: currentColor; opacity: 0; transition: opacity .15s; }
+.blk:hover .rsz::after, .blk.resizing .rsz::after { opacity: .45; }
+.tlh .blk .rsz { left: auto; top: 0; bottom: 0; right: 0; width: 9px; height: auto; cursor: ew-resize; }
+.tlh .blk .rsz::after { left: auto; right: 2px; top: 50%; bottom: auto; width: 3px; height: 28px; margin: -14px 0 0; }
+.tlh .blk .blkdone { right: 11px; }
+.blk.resizing { z-index: 20; box-shadow: 0 4px 14px rgba(0,0,0,.22); outline: 2px solid var(--brand, #2f6b3a); }
+.blk .rszlbl { position: absolute; right: 4px; bottom: 12px; margin-bottom: 0; background: var(--ink, #1d211e); color: #fff; font-size: 12px; font-weight: 600; padding: 2px 7px; border-radius: 6px; white-space: nowrap; z-index: 4; pointer-events: none; }
+.tlh .blk .rszlbl { bottom: auto; top: 30px; right: 12px; }
+@media (pointer: coarse) { .blk .rsz { height: 16px; right: 38px; } .tlh .blk .rsz { width: 16px; height: auto; right: 0; } .blk .rsz::after { opacity: .35; } }
+@media print { .rsz { display: none; } }
+.blk.resizing .blkdone { visibility: hidden; }
