@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '48', APP_STAND = '29.10.2026';
+const APP_VERSION = '49', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -364,27 +364,41 @@ const fromMin = m => m >= 1440 ? '24:00' : `${pad(Math.floor(m / 60))}:${pad(Mat
 const lenOf = a => Math.round((dauerOf(a) || 1) * 60);
 // Ablauf einer Maschine an einem Tag. Aufträge überlappen nie: wer in einen laufenden Auftrag fällt,
 // wird direkt dahinter angedockt. Aufträge ohne feste Startzeit docken ab Arbeitsbeginn bzw. am vorherigen an.
-function schedule(d, mid) {
+function schedule(d, mid, depth = 0) {
   const orders = Store.all('auftraege').filter(a => a.datum === d && (a.maschine || '') === mid)
     .sort((x, y) => (toMin(x.zeit) ?? 9999) - (toMin(y.zeit) ?? 9999) || (x.nr || '').localeCompare(y.nr || ''));
   const beginn = toMin(Store.cfg().beginn) ?? 420;
-  let prevEnd = null;
+  // Aufträge vom Vortag (bzw. davor), die über Mitternacht laufen: Rest als Fortsetzung ab 00:00
+  const carry = [];
+  if (depth < 3) {
+    const pd = isoDate(addDays(parseDate(d), -1)), prev = schedule(pd, mid, depth + 1);
+    [...prev.carry, ...prev.items].filter(it => it.rawEnd > 1440).forEach(it => {
+      const re = it.rawEnd - 1440;
+      carry.push({ a: it.a, start: 0, end: Math.min(1440, re), rawEnd: re, cont: true, fixed: true, over: re > 1440 });
+    });
+  }
+  const carryEnd = carry.reduce((m, c) => Math.max(m, c.end), 0);
+  let prevEnd = carryEnd || null;
   const items = orders.map(a => {
     const want = toMin(a.zeit), fixed = want != null;
-    let t = fixed ? want : (prevEnd ?? beginn);
+    let t = fixed ? want : Math.max(prevEnd ?? beginn, carryEnd ? beginn : 0);
     if (prevEnd != null && t < prevEnd) t = prevEnd;
     const end = t + lenOf(a); prevEnd = end;
-    return { a, start: t, end: Math.min(1440, end), fixed, pushed: fixed && t !== want, noDur: !dauerOf(a), over: end > 1440 };
+    return { a, start: t, end: Math.min(1440, end), rawEnd: end, fixed, pushed: fixed && t !== want, noDur: !dauerOf(a), over: end > 1440 };
   });
-  return { items };
+  return { items, carry, all: [...carry, ...items] };
 }
+// Endzeit mit Tagesangabe, z. B. «03:00 (+1)» bei Aufträgen über Mitternacht
+const endLbl = it => it.rawEnd > 1440 ? `${fromMin(it.rawEnd % 1440)} (+${Math.floor(it.rawEnd / 1440)})` : fromMin(it.end);
+const rangeLbl = it => `${fromMin(it.start)}–${endLbl(it)}`;
+const contLbl = it => `↪ Fortsetzung vom ${fmtDate(it.a.datum, { day: '2-digit', month: '2-digit' })}`;
 const startOf = a => a.datum ? (schedule(a.datum, a.maschine || '').items.find(i => i.a.id === a.id)?.start ?? null) : null;
 function capacity() { const c = Store.cfg(); return Math.max(0, (toMin(c.ende) ?? 1140) - (toMin(c.beginn) ?? 420)); }
 // Magnet: Startzeit rastet an Arbeitsbeginn, am Ende eines Auftrags oder so ein, dass das Ende an den nächsten Auftrag stösst
 function snapStart(d, mid, exclude, desired, len) {
   const SNAP = 30, b = toMin(Store.cfg().beginn) ?? 420;
-  const others = schedule(d, mid).items.filter(it => !exclude.includes(it.a.id));
-  const cands = [b, ...others.map(o => o.end), ...others.map(o => o.start - len)].filter(c => c >= 0 && c <= 1425);
+  const sc = schedule(d, mid), others = sc.items.filter(it => !exclude.includes(it.a.id));
+  const cands = [b, ...sc.carry.map(c => c.end), ...others.map(o => o.end), ...others.map(o => o.start - len)].filter(c => c >= 0 && c <= 1425);
   let best = null;
   cands.forEach(c => { if (Math.abs(c - desired) <= SNAP && (best == null || Math.abs(c - desired) < Math.abs(best - desired))) best = c; });
   return best ?? Math.max(0, Math.min(1425, Math.round(desired / 15) * 15));
@@ -403,8 +417,9 @@ function freezeDay(d, mid, exclude) {
 // opt: { minute } (Tagesansicht, Zeigerposition) | { beforeId } (auf einen Auftrag gezogen) | {} (am Ende anhängen)
 function insertAt(d, mid, list, opt = {}) {
   const ids = list.map(a => a.id), b = toMin(Store.cfg().beginn) ?? 420;
-  const items = schedule(d, mid).items.filter(it => !ids.includes(it.a.id));
-  let idx = items.length, t0 = items.length ? items[items.length - 1].end : b;
+  const sc = schedule(d, mid), items = sc.items.filter(it => !ids.includes(it.a.id));
+  const cEnd = sc.carry.reduce((m, c) => Math.max(m, c.end), 0);
+  let idx = items.length, t0 = items.length ? items[items.length - 1].end : Math.max(b, cEnd);
   if (opt.beforeId) {
     const i = items.findIndex(it => it.a.id === opt.beforeId);
     if (i >= 0) { idx = i; t0 = items[i].start; }
@@ -645,10 +660,10 @@ const Views = {
       const today = todayIso(), c = Store.cfg(), b = toMin(c.beginn) ?? 420, e = toMin(c.ende) ?? 1140;
       const pct = m => (m / 1440 * 100).toFixed(2) + '%';
       const off = col.m && !inSeason(col.m, d);
-      const { items } = schedule(d, col.id);
+      const { all: items } = schedule(d, col.id);
       const strip = items.length ? `<div class="strip" title="0–24 Uhr">
           <i class="night" style="left:0;width:${pct(b)}"></i><i class="night" style="left:${pct(e)};right:0"></i>
-          ${items.map(it => `<i class="job ${App.sel.has(it.a.id) ? 'sel' : ''}" style="left:${pct(it.start)};width:${pct(it.end - it.start)}" title="${esc(kundeName(it.a.kunde))} ${fromMin(it.start)}–${fromMin(it.end)}"></i>`).join('')}
+          ${items.map(it => `<i class="job ${it.cont ? 'cont' : ''} ${App.sel.has(it.a.id) ? 'sel' : ''}" style="left:${pct(it.start)};width:${pct(it.end - it.start)}" title="${esc(kundeName(it.a.kunde))} ${fromMin(it.start)}–${fromMin(it.end)}${it.cont ? ' (Fortsetzung)' : ''}"></i>`).join('')}
           <span class="ticks"><em>0</em><em>6</em><em>12</em><em>18</em><em>24</em></span></div>` : '';
       return `<div class="g-cell ${off ? 'off' : ''} ${d === today ? 'today' : ''}" ${off ? '' : `data-drop="${d}|${col.id}"`}>
         ${strip}${items.map(it => planCard(it)).join('')}
@@ -677,7 +692,7 @@ const Views = {
       const heads = [], bodies = [];
       cols.forEach(col => {
         const off = col.m && !inSeason(col.m, d);
-        const { items } = schedule(d, col.id);
+        const { all: items } = schedule(d, col.id);
         const used = items.reduce((s, it) => s + it.end - it.start, 0);
         const blocks = items.map(it => this.blkHtml(it, false)).join('');
 
@@ -697,11 +712,13 @@ const Views = {
     blkHtml(it, horiz) {
       const s = it.start, q = it.end, a = it.a, st = statusOf(a), len = Math.max(20, (q - s) * PX - 2);
       const h = horiz ? 999 : len, w = horiz ? len : 999;
-      const op = isOpen(a), info = it.pushed && op ? `⤵ angedockt (gewünscht ${esc(a.zeit)})` : it.noDur && op ? '⚠ Dauer fehlt (1 h angenommen)' : it.over && op ? '⚠ läuft über Mitternacht' : '';
+      const op = isOpen(a) && !it.cont, info = it.cont ? contLbl(it) : it.pushed && op ? `⤵ angedockt (gewünscht ${esc(a.zeit)})` : it.noDur && op ? '⚠ Dauer fehlt (1 h angenommen)' : it.over && op ? `🌙 läuft bis ${endLbl(it)}` : '';
       const pos = horiz ? `left:${s * PX + 1}px;width:${len}px` : `top:${s * PX + 1}px;height:${len}px`;
       const big = w > 90;
-      return `<div class="blk ${st} ${(it.noDur || it.over) && op ? 'warn' : ''} ${App.sel.has(a.id) ? 'sel' : ''}" style="${pos}" data-act="editOrder" data-id="${a.id}" ${isOpen(a) ? 'draggable="true"' : ''} title="${esc(kfText(a))} ${fromMin(s)}–${fromMin(q)}${horiz ? ' · ' + esc(artKultur(a).replace(/<[^>]+>/g, '')) : ''}">
-        <b>${fromMin(s)}–${fromMin(q)}${horiz ? '</b><b>' : ' '}${kfHtml(a)}${it.fixed ? ' 📌' : ''}</b>
+      const tm = it.cont ? `${fromMin(s)}–${endLbl(it)}` : rangeLbl(it);
+      return `<div class="blk ${st} ${it.cont ? 'cont' : ''} ${it.noDur && op ? 'warn' : ''} ${it.over && op ? 'night2' : ''} ${App.sel.has(a.id) ? 'sel' : ''}" style="${pos}" data-act="editOrder" data-id="${a.id}" ${op ? 'draggable="true"' : ''} title="${esc(kfText(a))} ${tm}${it.cont ? ' · ' + contLbl(it) : ''}${horiz ? ' · ' + esc(artKultur(a).replace(/<[^>]+>/g, '')) : ''}">
+        <b>${tm}${horiz ? '</b><b>' : ' '}${kfHtml(a)}${it.fixed && !it.cont ? ' 📌' : ''}</b>
+        ${it.cont && !(h > 54 && big) ? '<span class="w">↪ Fortsetzung</span>' : ''}
         ${h > 34 && big ? `<span>${artKultur(a)}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}${dauerOf(a) ? ` · ${hrs(dauerOf(a))}` : ''}${st === 'erledigt' || st === 'verrechnet' ? ' · ✓' : ''}</span>` : ''}
         ${h > 54 && big && info ? `<span class="w">${info}</span>` : ''}
         ${h > 54 && big ? sprayShort(a, { noFeld: true }) : ''}
@@ -717,7 +734,7 @@ const Views = {
       const axis = Array.from({ length: 25 }, (_, h) => `<span style="left:${h * 60 * PX}px">${pad(h)}:00</span>`).join('');
       const rows = cols.map(col => {
         const off = col.m && !inSeason(col.m, d);
-        const { items } = schedule(d, col.id);
+        const { all: items } = schedule(d, col.id);
         return `<div class="tl-head tlh-m">${this.head(col)}</div>
           <div class="tl-col tlh-lane ${off ? 'off' : ''}" style="height:${rh}px" ${off ? '' : `data-drop="${d}|${col.id}" data-tl="x"`}>
             <i class="night" style="left:0;width:${b * PX}px"></i><i class="night" style="left:${e * PX}px;right:0"></i>
@@ -896,7 +913,7 @@ const Views = {
 function timeRange(a) {
   if (!a.datum) return '';
   const it = schedule(a.datum, a.maschine || '').items.find(x => x.a.id === a.id);
-  return it ? `${fromMin(it.start)}–${fromMin(it.end)}` : '';
+  return it ? rangeLbl(it) : '';
 }
 function orderCard(a) {
   const s = statusOf(a), m = maschine(a.maschine), k = Store.get('kunden', a.kunde);
@@ -920,8 +937,11 @@ const kfHtml = a => `${esc(kundeName(a.kunde))}${feldOf(a) ? `<span class="kfeld
 const kfText = a => kundeName(a.kunde) + (feldOf(a) ? ' · ' + feldOf(a) : '');
 function planCard(it) {
   const a = it.a, s = statusOf(a), d = dauerOf(a);
+  if (it.cont) return `<div class="pcard cont ${s}" data-act="editOrder" data-id="${a.id}" title="Fortsetzung – Auftragsdatum ist das Startdatum ${fmtDate(a.datum)}">
+    <div class="tm">${fromMin(it.start)}–${endLbl(it)}</div>
+    <b>${kfHtml(a)}</b><div class="sub contlbl">${contLbl(it)}</div></div>`;
   return `<div class="pcard ${s} ${App.sel.has(a.id) ? 'sel' : ''}" data-act="editOrder" data-id="${a.id}" ${isOpen(a) ? 'draggable="true"' : ''}>
-    <div class="tm">${fromMin(it.start)}–${fromMin(it.end)}${it.fixed ? ' 📌' : ''}${it.pushed ? ' ⤵' : ''}</div>
+    <div class="tm">${rangeLbl(it)}${it.fixed ? ' 📌' : ''}${it.pushed ? ' ⤵' : ''}${it.over ? ' 🌙' : ''}</div>
     <b>${kfHtml(a)}</b>
     <div class="sub">${artKultur(a)}</div>
     <div class="sub">${a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''}${a.flaeche && (d || isOpen(a)) ? ' · ' : ''}${d ? '⏱ ' + hrs(d) : isOpen(a) ? '⏱ Dauer fehlt' : ''}${s === 'erledigt' || s === 'verrechnet' ? ' · ✓' : ''}</div>
@@ -1488,7 +1508,7 @@ function wrapLines(ctx, text, maxW) {
   return out;
 }
 function drawDayPlan(mid, d) {
-  const m = maschine(mid), { items } = schedule(d, mid);
+  const m = maschine(mid), { all: items } = schedule(d, mid);
   const W = 1080, P = 48, TW = 200, cs = getComputedStyle(document.documentElement);
   const F = (w, s) => `${w} ${s}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
   const green = '#2f6b3a', ink = '#1d211e', muted = '#5c625d', line = '#dedbd3';
@@ -1505,7 +1525,7 @@ function drawDayPlan(mid, d) {
     y = 190 + 36;
     const total = items.reduce((s, it) => s + it.end - it.start, 0);
     ctx.font = F('500', 28);
-    text(items.length ? `${items.length} ${items.length > 1 ? 'Aufträge' : 'Auftrag'} · ${fmtNum(total / 60)} h · ${fromMin(items[0].start)} bis ${fromMin(items[items.length - 1].end)} Uhr` : 'Keine Aufträge eingeplant', P, F('500', 28), muted, y + 10);
+    text(items.length ? `${items.length} ${items.length > 1 ? 'Aufträge' : 'Auftrag'} · ${fmtNum(total / 60)} h · ${fromMin(items[0].start)} bis ${endLbl(items[items.length - 1])} Uhr` : 'Keine Aufträge eingeplant', P, F('500', 28), muted, y + 10);
     y += 44;
     items.forEach((it, idx) => {
       const a = it.a, k = Store.get('kunden', a.kunde) || {};
@@ -1514,6 +1534,7 @@ function drawDayPlan(mid, d) {
       let yy = top + 40;
       const lines = [];
       ctx.font = F('700', 36); lines.push([kundeName(a.kunde), F('700', 36), ink, 46]);
+      if (it.cont) lines.push([contLbl(it).replace('↪', '→'), F('600', 28), muted, 38]);
       const adr = [k.adresse, [k.plz, k.ort].filter(Boolean).join(' ')].filter(Boolean).join(', ');
       if (adr) { ctx.font = F('400', 28); wrapLines(ctx, adr, w).forEach(l => lines.push([l, F('400', 28), muted, 38])); }
       if (k.tel) lines.push(['Tel. ' + k.tel, F('400', 28), muted, 38]);
@@ -1531,7 +1552,7 @@ function drawDayPlan(mid, d) {
         ctx.fillStyle = idx % 2 ? '#ffffff' : '#f6f5f1'; ctx.fillRect(0, y, W, hBlock + 24);
         ctx.fillStyle = green; ctx.fillRect(P, top, 6, hBlock - 24);
         ctx.font = F('700', 40); ctx.fillStyle = ink; ctx.fillText(fromMin(it.start), P + 26, top + 40);
-        ctx.font = F('500', 30); ctx.fillStyle = muted; ctx.fillText('– ' + fromMin(it.end), P + 26, top + 80);
+        ctx.font = F('500', 30); ctx.fillStyle = muted; ctx.fillText('– ' + endLbl(it), P + 26, top + 80);
         lines.forEach(([t, f, c, lh], i) => { ctx.font = f; ctx.fillStyle = c; ctx.fillText(t, x, yy); yy += lh; });
         ctx.fillStyle = line; ctx.fillRect(P, y + hBlock + 23, W - 2 * P, 1);
       }
@@ -2709,9 +2730,9 @@ function invStockContent() {
 const mLabel = m => m ? (m.kurz || m.name) : 'Ohne Maschine';
 function planExportData() {
   const V = Views.plan, days = V.days(), cols = V.columns(days);
-  const cell = (d, col) => schedule(d, col.id).items.map(it => {
+  const cell = (d, col) => schedule(d, col.id).all.map(it => {
     const a = it.a;
-    return { zeit: `${fromMin(it.start)}–${fromMin(it.end)}`, kunde: kfText(a),
+    return { zeit: it.cont ? `${fromMin(it.start)}–${endLbl(it)} ↪` : rangeLbl(it), kunde: kfText(a) + (it.cont ? ' (' + contLbl(it).replace('↪ ', '') + ')' : ''),
       info: [a.arbeit, a.kultur, a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''].filter(Boolean).join(' · '),
       prod: isSpray(a) ? prodNames(a).join(', ') : '', status: statusOf(a) };
   });
