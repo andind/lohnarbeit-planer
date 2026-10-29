@@ -834,3 +834,16 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 @media print { .rsz { display: none; } }
 .blk.resizing .blkdone { visibility: hidden; }
 .chip.vmchip { background: color-mix(in srgb, var(--s-geplant) 14%, var(--surface)); color: var(--s-geplant); }
+/* v56: Produktbedarf – Aufträge ein-/ausschliessen */
+.card .spinc { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); margin: -2px 0 6px; cursor: pointer; user-select: none; }
+.card .spinc input { width: 18px; height: 18px; accent-color: var(--brand, #2f6b3a); }
+.card.spon .spinc { color: var(--brand, #2f6b3a); font-weight: 600; }
+.card.spoff { opacity: .62; }
+.card.spoff:hover { opacity: .9; }
+.spsec { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.spbtns { display: inline-flex; gap: 6px; margin-left: auto; }
+.spbtns.top { display: flex; justify-content: flex-end; margin: 0 0 6px; }
+@media (pointer: coarse) { .card .spinc input { width: 24px; height: 24px; } .card .spinc { font-size: 14px; } }
+@media print { .spinc, .spbtns { display: none !important; } }
+.spbtns .btn { padding: 4px 10px; font-size: 13px; min-height: 0; height: auto; }
+.spbtns.top { background: none; padding: 0; }

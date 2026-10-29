@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '55', APP_STAND = '29.10.2026';
+const APP_VERSION = '56', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1747,9 +1747,20 @@ function sprayDays() {
   while (d <= end && out.length < 62) { out.push(isoDate(d)); d = addDays(d, 1); }
   return out;
 }
-function sprayNeed(days) { // { prods: [{name, einheit, perDay:{d:n}, tot}], wasser:{perDay,tot}, flaeche:{perDay,tot}, missing }
-  const prods = new Map(), wasser = { perDay: {}, tot: 0 }, flaeche = { perDay: {}, tot: 0 }; let missing = 0;
-  Store.all('auftraege').filter(a => isSpray(a) && isOpen(a) && a.datum && days.includes(a.datum)).forEach(a => {
+// Auswahl für den Produktbedarf: eingeplante sind standardmässig dabei (ausschliessbar), nicht eingeplante werden von Hand eingeschlossen
+const spSet = k => { try { return new Set(JSON.parse(ls(k) || '[]')); } catch { return new Set(); } };
+const spSave = () => { ls('lp_spex', JSON.stringify([...App.spray.ex])); ls('lp_spinc', JSON.stringify([...App.spray.inc])); };
+function spInit() { const S = App.spray; if (!S.ex) { S.ex = spSet('lp_spex'); S.inc = spSet('lp_spinc'); } return S; }
+const spIn = a => { const S = spInit(); return a.datum ? !S.ex.has(a.id) : S.inc.has(a.id); };
+const UNPL = 'unpl'; // Spalte «nicht eingeplant»
+function spNeedOrders(days) {
+  return Store.all('auftraege').filter(a => isSpray(a) && isOpen(a) && (a.datum ? days.includes(a.datum) : true) && spIn(a));
+}
+function sprayNeed(days) { // { prods: [{name, einheit, perDay:{d:n}, tot}], wasser:{perDay,tot}, flaeche:{perDay,tot}, missing, nUnpl, n }
+  const prods = new Map(), wasser = { perDay: {}, tot: 0 }, flaeche = { perDay: {}, tot: 0 }; let missing = 0, nUnpl = 0;
+  const list = spNeedOrders(days);
+  list.forEach(a0 => {
+    const a = a0.datum ? a0 : { ...a0, datum: UNPL }; if (!a0.datum) nUnpl++;
     const fl = a.flaeche; if (!fl) { missing++; return; }
     flaeche.perDay[a.datum] = (flaeche.perDay[a.datum] || 0) + fl; flaeche.tot += fl;
     if (a.wasser) { const w = a.wasser * fl; wasser.perDay[a.datum] = (wasser.perDay[a.datum] || 0) + w; wasser.tot += w; }
@@ -1761,12 +1772,14 @@ function sprayNeed(days) { // { prods: [{name, einheit, perDay:{d:n}, tot}], was
     });
   });
   const order = Lists.produkte().map(p => p.name);
-  const list = [...prods.values()].sort((x, y) => ((order.indexOf(x.name) + 1 || 999) - (order.indexOf(y.name) + 1 || 999)) || x.name.localeCompare(y.name, 'de'));
-  return { prods: list, wasser, flaeche, missing };
+  const plist = [...prods.values()].sort((x, y) => ((order.indexOf(x.name) + 1 || 999) - (order.indexOf(y.name) + 1 || 999)) || x.name.localeCompare(y.name, 'de'));
+  return { prods: plist, wasser, flaeche, missing, nUnpl, n: list.length };
 }
 function sprayCard(a) {
   const s = statusOf(a), m = maschine(a.maschine);
-  return `<article class="card" data-act="editOrder" data-id="${a.id}">
+  const inc = isOpen(a) && spIn(a);
+  return `<article class="card ${isOpen(a) ? (inc ? 'spon' : 'spoff') : ''}" data-act="editOrder" data-id="${a.id}">
+    ${isOpen(a) ? `<label class="spinc" data-stop title="Im Produktbedarf mitrechnen"><input type="checkbox" data-in="spInc" value="${a.id}" ${inc ? 'checked' : ''}><span>${inc ? 'im Bedarf' : 'nicht im Bedarf'}</span></label>` : ''}
     <div class="row1"><div class="title">${a.datum ? `<span class="tmx">${timeRange(a)}</span> ` : ''}${esc(kundeName(a.kunde))}</div><span class="badge ${s}">${STATUS[s]}</span></div>
     <div class="sub">${a.feld ? `Feld <b>${esc(a.feld)}</b> · ` : ''}${a.kultur ? `<span class="kultur">${esc(a.kultur)}</span> · ` : ''}${a.flaeche ? fmtNum(a.flaeche) + ' ha' : '<span style="color:var(--warn)">Fläche fehlt</span>'}</div>
     ${sprayTable(a) || '<div class="nr" style="margin-top:6px">Noch keine Produkte erfasst.</div>'}
@@ -1789,19 +1802,20 @@ function sprayView() {
     },
     planContent() {
       const S = App.spray, days = sprayDays(), sel = days.filter(d => !S.off.has(d));
-      const need = sprayNeed(sel), showDays = sel.length > 1 && sel.length <= 7;
-      const dayHead = d => fmtDate(d, { weekday: 'short', day: '2-digit', month: '2-digit' });
+      const need = sprayNeed(sel), cols = need.nUnpl ? [...sel, UNPL] : sel, showDays = cols.length > 1 && sel.length <= 7;
+      const dayHead = d => d === UNPL ? 'nicht eingeplant' : fmtDate(d, { weekday: 'short', day: '2-digit', month: '2-digit' });
       const cell = (o, d, u) => o.perDay[d] ? `${fmtNum(r2(o.perDay[d]))}` : '';
       const table = need.prods.length || need.wasser.tot
-        ? `<div class="tscroll"><table class="need"><thead><tr><th>Produkt</th>${showDays ? sel.map(d => `<th>${dayHead(d)}</th>`).join('') : ''}<th>Total</th><th></th></tr></thead><tbody>
-            ${need.prods.map(p => `<tr><td>${esc(p.name)}</td>${showDays ? sel.map(d => `<td>${cell(p, d)}</td>`).join('') : ''}<td><b>${fmtNum(r2(p.tot))}</b></td><td>${esc(p.einheit)}</td></tr>`).join('')}
-            ${need.wasser.tot ? `<tr class="water"><td>Wasser</td>${showDays ? sel.map(d => `<td>${cell(need.wasser, d)}</td>`).join('') : ''}<td><b>${fmtNum(r2(need.wasser.tot))}</b></td><td>l</td></tr>` : ''}
-            <tr class="area"><td>Fläche</td>${showDays ? sel.map(d => `<td>${cell(need.flaeche, d)}</td>`).join('') : ''}<td><b>${fmtNum(r2(need.flaeche.tot))}</b></td><td>ha</td></tr>
+        ? `<div class="tscroll"><table class="need"><thead><tr><th>Produkt</th>${showDays ? cols.map(d => `<th>${dayHead(d)}</th>`).join('') : ''}<th>Total</th><th></th></tr></thead><tbody>
+            ${need.prods.map(p => `<tr><td>${esc(p.name)}</td>${showDays ? cols.map(d => `<td>${cell(p, d)}</td>`).join('') : ''}<td><b>${fmtNum(r2(p.tot))}</b></td><td>${esc(p.einheit)}</td></tr>`).join('')}
+            ${need.wasser.tot ? `<tr class="water"><td>Wasser</td>${showDays ? cols.map(d => `<td>${cell(need.wasser, d)}</td>`).join('') : ''}<td><b>${fmtNum(r2(need.wasser.tot))}</b></td><td>l</td></tr>` : ''}
+            <tr class="area"><td>Fläche</td>${showDays ? cols.map(d => `<td>${cell(need.flaeche, d)}</td>`).join('') : ''}<td><b>${fmtNum(r2(need.flaeche.tot))}</b></td><td>ha</td></tr>
           </tbody></table></div>`
-        : '<p class="nr">Für die ausgewählten Tage sind keine Spritzaufträge mit Produkten eingeplant.</p>';
+        : '<p class="nr">Für die Auswahl sind keine Spritzaufträge mit Produkten vorhanden.</p>';
       const planned = Store.all('auftraege').filter(a => isSpray(a) && a.datum && sel.includes(a.datum) && statusOf(a) !== 'verrechnet')
         .sort((x, y) => x.datum.localeCompare(y.datum) || (startOf(x) ?? 0) - (startOf(y) ?? 0));
       const unpl = Store.all('auftraege').filter(a => isSpray(a) && isOpen(a) && !a.datum).sort((x, y) => (x.wunsch || '9999').localeCompare(y.wunsch || '9999'));
+      const nPlOff = planned.filter(a => isOpen(a) && !spIn(a)).length, nUOn = unpl.filter(spIn).length;
       const noMachine = !Store.all('maschinen').some(m => m.aktiv !== false && (m.arbeitsarten || []).some(isSprayName));
       const groups = sel.filter(d => planned.some(a => a.datum === d)).map(d => {
         const list = planned.filter(a => a.datum === d), fl = list.reduce((s, a) => s + (a.flaeche || 0), 0);
@@ -1817,14 +1831,17 @@ function sprayView() {
             ${days.length > 1 ? `<div class="chips daychips">${days.map(d => `<label><input type="checkbox" data-in="spDay" value="${d}" ${S.off.has(d) ? '' : 'checked'}><span>${fmtDate(d, { weekday: 'short', day: 'numeric', month: 'numeric' })}</span></label>`).join('')}</div>` : ''}
           </div>
           <div class="panel"><h2>Produktbedarf</h2>
-            <p>${sel.length} ${sel.length === 1 ? 'Tag' : 'Tage'} · eingeplante, noch offene Spritzaufträge</p>
+            <p>${sel.length} ${sel.length === 1 ? 'Tag' : 'Tage'} · ${need.n} ${need.n === 1 ? 'Auftrag' : 'Aufträge'} eingeschlossen${need.nUnpl ? ` (davon ${need.nUnpl} nicht eingeplant)` : ''}${nPlOff ? ` · ${nPlOff} eingeplante ausgeschlossen` : ''}</p>
+            <p class="nr" style="margin-top:-4px">Mit dem Häkchen auf jedem Auftrag bestimmst du, ob er mitgerechnet wird.</p>
             ${table}
             ${need.missing ? `<p style="color:var(--warn)">⚠ ${need.missing} ${need.missing > 1 ? 'Aufträge ohne Fläche wurden' : 'Auftrag ohne Fläche wurde'} nicht mitgerechnet.</p>` : ''}
             ${need.prods.length || need.wasser.tot ? `<div class="btns"><button class="btn" data-act="spImg">Als Bild teilen</button><button class="btn" data-act="spCsv">CSV</button></div>` : ''}
           </div>
         </div><div>
-          ${groups || '<div class="panel"><p>Keine Spritzaufträge an den ausgewählten Tagen eingeplant.</p></div>'}
-          ${unpl.length ? `<div class="section-h">Noch nicht eingeplant (${unpl.length})</div><div class="list grid">${unpl.map(sprayCard).join('')}</div>` : ''}
+          ${groups ? `<div class="spbtns top"><button type="button" class="btn mini" data-act="spExAll" data-v="0">alle eingeplanten einschliessen</button><button type="button" class="btn mini" data-act="spExAll" data-v="1">keine eingeplanten</button></div>${groups}` : '<div class="panel"><p>Keine Spritzaufträge an den ausgewählten Tagen eingeplant.</p></div>'}
+          ${unpl.length ? `<div class="section-h spsec">Noch nicht eingeplant (${unpl.length}) · ${nUOn} im Bedarf
+              <span class="spbtns"><button type="button" class="btn mini" data-act="spIncAll" data-v="1">alle einschliessen</button><button type="button" class="btn mini" data-act="spIncAll" data-v="0">keine</button></span></div>
+            <div class="list grid">${unpl.map(sprayCard).join('')}</div>` : ''}
         </div></div>`;
     }
   };
@@ -1841,20 +1858,21 @@ function sprayNeedTable() {
   const rows = need.prods.map(p => [p.name, fmtNum(r2(p.tot)), p.einheit]);
   if (need.wasser.tot) rows.push(['Wasser', fmtNum(r2(need.wasser.tot)), 'l']);
   rows.push(['Fläche', fmtNum(r2(need.flaeche.tot)), 'ha']);
-  const range = sel.length === 1 ? fmtDate(sel[0], { weekday: 'long', day: 'numeric', month: 'long' }) : `${fmtDate(sel[0], { day: 'numeric', month: 'short' })} – ${fmtDate(sel[sel.length - 1], { day: 'numeric', month: 'short', year: 'numeric' })} (${sel.length} Tage)`;
+  const range = (sel.length === 1 ? fmtDate(sel[0], { weekday: 'long', day: 'numeric', month: 'long' }) : `${fmtDate(sel[0], { day: 'numeric', month: 'short' })} – ${fmtDate(sel[sel.length - 1], { day: 'numeric', month: 'short', year: 'numeric' })} (${sel.length} Tage)`)
+  ;
   return { sel, need, rows, range };
 }
 function sprayCsv() {
-  const { sel, need } = sprayNeedTable();
-  const head = ['Produkt', ...sel, 'Total', 'Einheit'];
-  const line = (n, o, u) => [n, ...sel.map(d => o.perDay[d] ? r2(o.perDay[d]) : ''), r2(o.tot), u];
+  const { sel, need } = sprayNeedTable(), cols = need.nUnpl ? [...sel, UNPL] : sel;
+  const head = ['Produkt', ...cols.map(d => d === UNPL ? 'nicht eingeplant' : d), 'Total', 'Einheit'];
+  const line = (n, o, u) => [n, ...cols.map(d => o.perDay[d] ? r2(o.perDay[d]) : ''), r2(o.tot), u];
   const rows = [head, ...need.prods.map(p => line(p.name, p, p.einheit))];
   if (need.wasser.tot) rows.push(line('Wasser', need.wasser, 'l'));
   rows.push(line('Fläche', need.flaeche, 'ha'));
   download(`Produktbedarf_${sel[0]}_bis_${sel[sel.length - 1]}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }
 function sprayImage() {
-  const { rows, range, sel } = sprayNeedTable();
+  const { rows, range, sel, need } = sprayNeedTable();
   const W = 1080, P = 48, F = (w, s) => `${w} ${s}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
   const cv = document.createElement('canvas'), ctx = cv.getContext('2d');
   cv.width = W; cv.height = 190 + 40 + rows.length * 64 + 90;
@@ -1862,6 +1880,7 @@ function sprayImage() {
   ctx.fillStyle = '#2f6b3a'; ctx.fillRect(0, 0, W, 190);
   ctx.font = F('600', 30); ctx.fillStyle = '#d9ead9'; ctx.fillText('Produktbedarf Spritzen', P, 62);
   ctx.font = F('700', 44); ctx.fillStyle = '#fff'; ctx.fillText(range, P, 128);
+  ctx.font = F('500', 26); ctx.fillStyle = '#d9ead9'; ctx.fillText(`${need.n} ${need.n === 1 ? 'Auftrag' : 'Aufträge'}${need.nUnpl ? `, davon ${need.nUnpl} noch nicht eingeplant` : ''}`, P, 168);
   let y = 230;
   rows.forEach(([n, v, u], i) => {
     if (i % 2 === 0) { ctx.fillStyle = '#f6f5f1'; ctx.fillRect(0, y - 44, W, 64); }
@@ -3822,6 +3841,8 @@ document.addEventListener('click', async e => {
     case 'spPreset': sprayPreset(t.dataset.v); break;
     case 'spCsv': sprayCsv(); break;
     case 'spImg': sprayImage(); break;
+    case 'spIncAll': { const S = spInit(); Store.all('auftraege').filter(a => isSpray(a) && isOpen(a) && !a.datum).forEach(a => t.dataset.v === '1' ? S.inc.add(a.id) : S.inc.delete(a.id)); spSave(); App.render(); break; }
+    case 'spExAll': { const S = spInit(), sel = sprayDays().filter(d => !S.off.has(d)); Store.all('auftraege').filter(a => isSpray(a) && isOpen(a) && a.datum && sel.includes(a.datum)).forEach(a => t.dataset.v === '1' ? S.ex.add(a.id) : S.ex.delete(a.id)); spSave(); App.render(); break; }
     case 'dauerReset': f.dauer.value = ''; f.dauer.dispatchEvent(new Event('input')); break;
     case 'dupOrder': {
       const a = structuredClone(Store.get('auftraege', id));
@@ -3924,6 +3945,7 @@ document.addEventListener('change', e => {
   if (SPB[k]) { App.spray[SPB[k]] = e.target.checked; App.render(); return; }
   if (k === 'spVon' && e.target.value) { App.spray.von = e.target.value; if (App.spray.bis < App.spray.von) App.spray.bis = App.spray.von; App.render(); return; }
   if (k === 'spBis' && e.target.value) { App.spray.bis = e.target.value; if (App.spray.bis < App.spray.von) App.spray.von = App.spray.bis; App.render(); return; }
+  if (k === 'spInc') { const S = spInit(), a = Store.get('auftraege', e.target.value); if (a) { const set = a.datum ? S.ex : S.inc; if (e.target.checked === !!a.datum) set.delete(a.id); else set.add(a.id); spSave(); } App.render(); return; }
   if (k === 'spDay') { if (e.target.checked) App.spray.off.delete(e.target.value); else App.spray.off.add(e.target.value); App.render(); return; }
   if (k === 'mpDate' && e.target.value) { machinePlanDialog(e.target.dataset.id, e.target.value); return; }
   if (k === 'kAll') { App.filter.kall = e.target.checked; App.render(); return; }
