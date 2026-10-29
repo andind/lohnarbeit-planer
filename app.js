@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '54', APP_STAND = '29.10.2026';
+const APP_VERSION = '55', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -403,6 +403,12 @@ function snapStart(d, mid, exclude, desired, len) {
   cands.forEach(c => { if (Math.abs(c - desired) <= SNAP && (best == null || Math.abs(c - desired) < Math.abs(best - desired))) best = c; });
   return best ?? Math.max(0, Math.min(1425, Math.round(desired / 15) * 15));
 }
+// Ist für eine Arbeit genau eine (aktive) Maschine hinterlegt, wird sie neuen Aufträgen automatisch zugewiesen
+function soleMachine(arbeit) {
+  if (!arbeit) return null;
+  const l = Store.all('maschinen').filter(m => m.aktiv !== false && (m.arbeitsarten || []).some(x => norm(x) === norm(arbeit)));
+  return l.length === 1 ? l[0] : null;
+}
 function machinesFor(iso, arbeit, keepId) {
   const day = iso || todayIso();
   const list = Store.all('maschinen').filter(m => (m.aktiv !== false && inSeason(m, day)) || m.id === keepId).sort(byPrio);
@@ -547,7 +553,7 @@ const App = {
   filter: { auftraege: 'offen', q: '', kq: '', aview: ls('lp_aview') || 'karten' },
   al: { von: '', bis: '', k: '', a: '', c: '', m: '', f: '', grp: '', sort: 'wunsch', limit: 300 },
   jdb: { minHa: ls('lp_jdbmin') || '', rows: null, meta: null, von: null, bis: null, k: [], a: [], f: [], m: [], c: [], q: '', grp: '', sort: 'desc', limit: 300, open: null },
-  plan: { ua: '', us: ls('lp_pus') || 'wunsch', axW: ls('lp_axW') || 'tage', axT: ls('lp_axT') || 'senkrecht', side: ls('lp_pside') !== '0', mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
+  plan: { ua: '', um: '', us: ls('lp_pus') || 'wunsch', axW: ls('lp_axW') || 'tage', axT: ls('lp_axT') || 'senkrecht', side: ls('lp_pside') !== '0', mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false,
   spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jsort: 'desc', jf: null, jfOpen: false, jlimit: 200,
     ak: '', av: `${new Date().getFullYear()}-01-01`, ab: todayIso(), ag: false, ny: 0, nk: '', nc: '', ngep: false, pk: '', pall: false, prq: '', prall: false },
@@ -679,9 +685,13 @@ const Views = {
       const wun = a => a.wunsch || '', byW = (x, y) => (wun(x) || '9999').localeCompare(wun(y) || '9999') || kundeName(x.kunde).localeCompare(kundeName(y.kunde), 'de');
       const SORT = { wunsch: byW, wunschDesc: (x, y) => (wun(y) || '0000').localeCompare(wun(x) || '0000') || kundeName(x.kunde).localeCompare(kundeName(y.kunde), 'de'),
         kunde: (x, y) => kundeName(x.kunde).localeCompare(kundeName(y.kunde), 'de') || byW(x, y), neu: (x, y) => String(y.nr || '').localeCompare(String(x.nr || '')) };
-      const unpl = unplAll.filter(a => !P.ua || a.arbeit === P.ua).sort(SORT[P.us] || byW);
+      const uM = [...new Set(unplAll.map(a => a.maschine || '').filter(id => id && maschine(id)))].sort((x, y) => byPrio(maschine(x), maschine(y)));
+      if (P.um && P.um !== '-' && !uM.includes(P.um)) P.um = '';
+      const unpl = unplAll.filter(a => (!P.ua || a.arbeit === P.ua) && (!P.um || (P.um === '-' ? !maschine(a.maschine) : a.maschine === P.um))).sort(SORT[P.us] || byW);
+      const nOhne = unplAll.filter(a => !maschine(a.maschine)).length;
       const unplCtl = `<div class="unplctl">
           <select class="input" data-plain data-in="pUa" title="Nach Arbeit filtern"><option value="">Alle Arbeiten (${unplAll.length})</option>${uArb.map(a => `<option value="${esc(a)}" ${P.ua === a ? 'selected' : ''}>${esc(a)} (${unplAll.filter(x => x.arbeit === a).length})</option>`).join('')}</select>
+          <select class="input" data-plain data-in="pUm" title="Nach vorausgewählter Maschine filtern"><option value="">Alle Maschinen</option>${uM.map(id => `<option value="${id}" ${P.um === id ? 'selected' : ''}>🚜 ${esc(maschine(id).name)} (${unplAll.filter(x => x.maschine === id).length})</option>`).join('')}${nOhne ? `<option value="-" ${P.um === '-' ? 'selected' : ''}>ohne Vorauswahl (${nOhne})</option>` : ''}</select>
           <select class="input" data-plain data-in="pUs" title="Sortierung"><option value="wunsch">Sortierung: Wunschdatum ↑</option><option value="wunschDesc" ${P.us === 'wunschDesc' ? 'selected' : ''}>Sortierung: Wunschdatum ↓</option><option value="kunde" ${P.us === 'kunde' ? 'selected' : ''}>Sortierung: Kunde A–Z</option><option value="neu" ${P.us === 'neu' ? 'selected' : ''}>Sortierung: neueste Aufträge</option></select>
         </div>`;
       if (App.fs) return `<div class="fsview">
@@ -698,7 +708,7 @@ const Views = {
         <aside class="unplanned" data-drop="">
           <h3>Noch nicht eingeplant (${unpl.length}${P.ua ? ` von ${unplAll.length}` : ''})</h3>
           ${unplAll.length ? unplCtl : ''}
-          <div class="slot">${unpl.map(unplCard).join('') || `<div class="none">${unplAll.length ? 'Keine Aufträge für diese Arbeit.' : 'Alles eingeplant 👍'}</div>`}</div>
+          <div class="slot">${unpl.map(unplCard).join('') || `<div class="none">${unplAll.length ? 'Keine Aufträge für diese Auswahl.' : 'Alles eingeplant 👍'}</div>`}</div>
         </aside></div>`;
     },
     // ---- Woche: Maschinen nebeneinander, pro Tag eine 24h-Leiste und die Aufträge
@@ -998,11 +1008,12 @@ function planCard(it) {
     ${isOpen(a) ? `<div class="pcard-act"><button type="button" class="btn mini donebtn" data-act="done" data-id="${a.id}" title="Als erledigt melden: Datum, Fläche, Stunden, Bemerkungen">✓ Erledigt</button></div>` : ''}
   </div>`;
 }
+const mKurz = m => m.kurz || m.name;
 function unplCard(a) {
   return `<div class="pcard unpl ${App.sel.has(a.id) ? 'sel' : ''}" data-act="planOrder" data-id="${a.id}" draggable="true">
     <b>${kfHtml(a)}</b>
     <div class="sub">${artKultur(a)}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}</div>
-    <div class="meta"><span class="chip ${wishLate(a) ? 'warn' : ''}">${wishTxt(a)}</span></div>
+    <div class="meta"><span class="chip ${wishLate(a) ? 'warn' : ''}">${wishTxt(a)}</span>${maschine(a.maschine) ? `<span class="chip vmchip" title="Vorausgewählte Maschine">🚜 ${esc(mKurz(maschine(a.maschine)))}</span>` : ''}</div>
     ${sprayShort(a, { noFeld: true })}${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}
   </div>`;
 }
@@ -1058,6 +1069,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
       <label class="fld"><span>Fläche (ha)</span><input class="input" name="flaeche" inputmode="decimal" value="${a.flaeche ?? ''}" placeholder="z.B. 4.5"></label>
       <label class="fld"><span>Wunschdatum</span><input class="input" type="date" name="wunsch" value="${a.wunsch || ''}"></label>
     </div>
+    <label class="fld" id="vmBox" ${a.datum ? 'hidden' : ''}><span>Maschine (Vorauswahl)</span><select class="input" name="vmasch"></select><div class="sub2" id="vmHint">Wird beim Einplanen vorgeschlagen; in der Planung bei «Noch nicht eingeplant» angezeigt und filterbar.</div></label>
     ${sprayBox(a)}
     <label class="fld"><span>Bemerkungen</span><textarea class="input" name="notiz" placeholder="Zufahrt, Besonderheiten, Ansprechperson…">${esc(a.notiz || '')}</textarea></label>
 
@@ -1098,7 +1110,13 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
     if (planOpen && fd.get('datum')) {
       const m = maschine(fd.get('maschine')); const manual = num(fd.get('dauer'));
       Object.assign(o, { datum: fd.get('datum'), zeit: fd.get('zeit'), maschine: m?.id || '', dauerManuell: manual != null, dauer: manual ?? defaultDauer(m, o.flaeche) });
-    } else if (!o.datum || planOpen) { Object.assign(o, { datum: '', zeit: '' }); }
+    } else if (!o.datum || planOpen) {
+      Object.assign(o, { datum: '', zeit: '' });
+      // Vorauswahl der Maschine für nicht eingeplante Aufträge
+      const vm = fd.get('vmasch') || '';
+      if (vm !== (o.maschine || '')) { o.maschine = vm; if (!o.dauerManuell) o.dauer = defaultDauer(maschine(vm), o.flaeche); }
+    }
+    if (isNew && !o.maschine) { const sm = soleMachine(o.arbeit); if (sm) { o.maschine = sm.id; if (!o.dauerManuell) o.dauer = defaultDauer(sm, o.flaeche); } }
     if (isSpray(o)) Object.assign(o, readSpray(Dlg.form));
     if (!isNew) {
       o.status = fd.get('status');
@@ -1136,12 +1154,32 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
     $('#kHint', f).textContent = !t || findKunde(t) || !$('#kSug', f).hidden ? '' : 'Kein ähnlicher Kunde gefunden. Neue Kunden werden in MyJohnDeere erfasst.';
   };
   wireKundeSuggest(f, checkKunde);
+  const fillVm = () => { const cur = f.vmasch.value || a.maschine || ''; f.vmasch.innerHTML = machineOptions(f.wunsch.value || todayIso(), f.arbeit.value.trim(), cur); f.vmasch.value = cur; if (f.vmasch.value !== cur) f.vmasch.value = ''; };
+  // neuer Auftrag: einzige für die Arbeit hinterlegte Maschine automatisch vorauswählen (solange nicht von Hand gewählt)
+  let vmTouched = !isNew || !!a.maschine;
+  const autoVm = () => {
+    if (vmTouched) return;
+    const sm = soleMachine(f.arbeit.value.trim());
+    f.vmasch.value = sm ? sm.id : ''; if (sm && f.vmasch.value !== sm.id) { fillVm(); f.vmasch.value = sm.id; }
+    if ($('#planBox', f).open && sm && !f.maschine.dataset.touched) { f.maschine.value = sm.id; showDauer(); }
+    $('#vmHint', f).textContent = sm ? `Automatisch: einzige Maschine für «${f.arbeit.value.trim()}».` : 'Wird beim Einplanen vorgeschlagen; in der Planung bei «Noch nicht eingeplant» angezeigt und filterbar.';
+  };
+  f.vmasch.addEventListener('change', () => { vmTouched = true; });
+  f.arbeit.addEventListener('change', () => { fillVm(); autoVm(); }); f.wunsch.addEventListener('change', fillVm);
   f.arbeit.addEventListener('change', fillMachines);
   f.datum.addEventListener('change', fillMachines);
-  f.maschine.addEventListener('change', showDauer);
+  f.maschine.addEventListener('change', () => { f.maschine.dataset.touched = '1'; showDauer(); });
   f.flaeche.addEventListener('input', showDauer);
   f.dauer.addEventListener('input', showDauer);
-  $('#planBox', f).addEventListener('toggle', e => { if (e.target.open && !f.datum.value) { f.datum.value = f.wunsch.value || todayIso(); fillMachines(); } });
+  $('#planBox', f).addEventListener('toggle', e => {
+    if (e.target.open && !f.datum.value) f.datum.value = f.wunsch.value || todayIso();
+    if (!a.datum) {
+      $('#vmBox', f).hidden = e.target.open;
+      if (e.target.open) { if (f.vmasch.value) { f.maschine.innerHTML = machineOptions(f.datum.value, f.arbeit.value.trim(), f.vmasch.value); f.maschine.value = f.vmasch.value; } }
+      else if (f.maschine.value) { fillVm(); f.vmasch.value = f.maschine.value; }
+    }
+    if (e.target.open) fillMachines();
+  });
   if (f.status) f.status.addEventListener('change', () => {
     const dn = ['erledigt', 'verrechnet'].includes(f.status.value);
     $('#doneBox', f).hidden = !dn; f.status.closest('.fld').style.marginBottom = dn ? '12px' : '0';
@@ -1151,7 +1189,8 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
       if (!f.stundenEff.value) { const d = num(f.dauer.value) ?? defaultDauer(maschine(f.maschine.value), num(f.flaeche.value)); if (d != null) f.stundenEff.value = d; }
     }
   });
-  fillMachines(); checkKunde(); wireSpray(f); wireFeld(f, a);
+  fillVm(); fillMachines(); autoVm(); checkKunde(); wireSpray(f); wireFeld(f, a);
+  if (!a.datum && $('#planBox', f).open) $('#vmBox', f).hidden = true;
   if (plan) setTimeout(() => $('#planBox', f)?.scrollIntoView({ block: 'nearest' }), 60);
 }
 
@@ -1850,7 +1889,7 @@ function showImage(title, cv, fname, shareTitle, topHtml = '') {
 function pickerDialog(d, mid, minute, all = false) {
   const m = maschine(mid);
   const list = Store.all('auftraege').filter(a => isOpen(a) && !a.datum && (all || !m || fits(m, a.arbeit)))
-    .sort((x, y) => (x.wunsch || '9999').localeCompare(y.wunsch || '9999') || (x.nr || '').localeCompare(y.nr || ''));
+    .sort((x, y) => ((y.maschine === mid) - (x.maschine === mid)) || (x.wunsch || '9999').localeCompare(y.wunsch || '9999') || (x.nr || '').localeCompare(y.nr || ''));
   const hidden = all ? 0 : Store.all('auftraege').filter(a => isOpen(a) && !a.datum).length - list.length;
   const where = `${fmtDate(d, { weekday: 'short', day: '2-digit', month: '2-digit' })}${minute != null ? ' · ab ' + fromMin(Math.round(minute / 15) * 15) : ''} · ${esc(m ? m.name : 'ohne Maschine')}`;
   const body = `<p style="margin-top:0" class="nr">${where}${m && !all && (m.arbeitsarten || []).length ? ` · nur ${esc(m.arbeitsarten.join(', '))}` : ''}</p>
@@ -1858,7 +1897,7 @@ function pickerDialog(d, mid, minute, all = false) {
         <div class="grow"><div class="t">${esc(kundeName(a.kunde))}</div>
           <div class="s">${artKultur(a)}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}${(defaultDauer(m, a.flaeche) ?? a.dauer) ? ` · ${hrs(defaultDauer(m, a.flaeche) ?? a.dauer)}` : ''}</div>
           ${sprayShort(a)}${a.notiz ? `<div class="note">${esc(a.notiz)}</div>` : ''}</div>
-        <span class="chip ${wishLate(a) ? 'warn' : ''}">${a.wunsch ? fmtDate(a.wunsch) : 'kein Wunsch'}</span></div>`).join('')}</div>`
+        ${mid && a.maschine === mid ? '<span class="chip vmchip" title="Für diese Maschine vorausgewählt">🚜 vorausgewählt</span>' : ''}<span class="chip ${wishLate(a) ? 'warn' : ''}">${a.wunsch ? fmtDate(a.wunsch) : 'kein Wunsch'}</span></div>`).join('')}</div>`
       : `<div class="empty" style="padding:20px">Keine passenden Aufträge offen.</div>`}
     <div class="links" style="margin-top:12px">${hidden > 0 ? `<a href="#" data-act="pickAll">Alle ${hidden + list.length} offenen anzeigen</a>` : ''}<a href="#" data-act="pickNew">＋ Neuer Auftrag hier</a></div>`;
   Dlg.open('Auftrag einsetzen', body, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button>`, () => true);
@@ -3868,6 +3907,7 @@ document.addEventListener('change', e => {
   if (k === 'spPrAkt') { prodAktToggle(e.target); return; }
   if (k === 'spPrSeit') { if (e.target.value) { App.spray.prseit = e.target.value; App.render(); } return; }
   if (k === 'pUa') { App.plan.ua = e.target.value; App.render(); return; }
+  if (k === 'pUm') { App.plan.um = e.target.value; App.render(); return; }
   if (k === 'pUs') { App.plan.us = e.target.value; ls('lp_pus', e.target.value); App.render(); return; }
   if (k === 'axW' || k === 'axT') { App.plan[k] = e.target.value; ls(k === 'axW' ? 'lp_axW' : 'lp_axT', e.target.value); App.tlScroll = null; toast('Anordnung der Planung geändert'); return; }
   if (k === 'uiScale') { uiScaleSet(e.target.value); return; }

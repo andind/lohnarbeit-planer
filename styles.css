@@ -833,3 +833,4 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 @media (pointer: coarse) { .blk .rsz { height: 16px; right: 38px; } .tlh .blk .rsz { width: 16px; height: auto; right: 0; } .blk .rsz::after { opacity: .35; } }
 @media print { .rsz { display: none; } }
 .blk.resizing .blkdone { visibility: hidden; }
+.chip.vmchip { background: color-mix(in srgb, var(--s-geplant) 14%, var(--surface)); color: var(--s-geplant); }
