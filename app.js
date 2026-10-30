@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '65', APP_STAND = '29.10.2026';
+const APP_VERSION = '66', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -570,6 +570,7 @@ const App = {
   view: ls('lp_view') || 'auftraege',
   filter: { auftraege: 'offen', q: '', kq: '', aview: ls('lp_aview') || 'karten' },
   al: { von: '', bis: '', k: '', a: '', c: '', m: '', f: '', grp: '', sort: 'wunsch', limit: 300 },
+  abr: { minHa: ls('lp_abrmin') || '', von: null, bis: null, k: [], a: [], f: [], m: [], c: [], q: '', src: '', ab: '', grp: '', sort: 'desc', limit: 300, open: null },
   jdb: { minHa: ls('lp_jdbmin') || '', rows: null, meta: null, von: null, bis: null, k: [], a: [], f: [], m: [], c: [], q: '', grp: '', sort: 'desc', limit: 300, open: null },
   plan: { ua: '', um: '', us: ls('lp_pus') || 'wunsch', axW: ls('lp_axW') || 'tage', axT: ls('lp_axT') || 'senkrecht', side: ls('lp_pside') !== '0', upos: ls('lp_upos') || 'neben', mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false,
@@ -578,13 +579,14 @@ const App = {
   alimit: 150,
   go(v) { this.view = v; ls('lp_view', v); this.lastView = null; this.tlScroll = null; window.scrollTo(0, 0); this.render(); },
   render() {
-    $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === this.view));
+    const navV = ['kunden', 'maschinen'].includes(this.view) ? 'mehr' : this.view;
+    $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === navV));
     const fresh = this.lastView !== this.view; this.lastView = this.view;
     const v = Views[this.view] || Views.auftraege;
     const tl = $('.cal'); if (tl && !this.resetScroll) this.tlScroll = { top: tl.scrollTop, left: tl.scrollLeft };
     if (this.resetScroll) { this.tlScroll = null; this.resetScroll = false; }
     document.body.classList.toggle('fs-plan', this.fs && this.view === 'plan');
-    document.body.classList.toggle('fs-plan', (this.fs && this.view === 'plan') || (this.view === 'jdbericht' && !!(this.jdb && this.jdb.fs)));
+    document.body.classList.toggle('fs-plan', (this.fs && this.view === 'plan') || (this.view === 'jdbericht' && !!(this.jdb && this.jdb.fs)) || (this.view === 'abrechnung' && !!(this.abr && this.abr.fs)));
     if (fresh) $('#toolbar').innerHTML = v.toolbar();
     if (v.refreshToolbar) v.refreshToolbar();
     $('#content').innerHTML = v.content();
@@ -594,6 +596,8 @@ const App = {
   }
 };
 
+// Unternavigation im Modul «Mehr»: Einstellungen, Kunden, Maschinen
+const mehrNav = cur => `<div class="seg mehrnav">${[['mehr', 'Einstellungen'], ['kunden', 'Kunden'], ['maschinen', 'Maschinen']].map(([v, l]) => `<button type="button" data-view="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 const Views = {
   /* ---------- Aufträge ---------- */
   auftraege: {
@@ -875,11 +879,12 @@ const Views = {
   /* ---------- Spritzen ---------- */
   spritzen: sprayView(),
   jdbericht: jdBerichtView(),
+  abrechnung: abView(),
 
   /* ---------- Kunden ---------- */
   kunden: {
     toolbar() {
-      return `<h1>Kunden</h1>
+      return `<h1>Kunden</h1>${mehrNav('kunden')}
         <input class="input search" type="search" placeholder="Kunde suchen…" value="${esc(App.filter.kq)}" data-in="kSearch">
         <label class="tog"><input type="checkbox" data-in="kAll" ${App.filter.kall ? 'checked' : ''}> auch inaktive</label>
         <button class="btn primary" data-act="jdRequest" title="Fordert beim NAS-Dienst einen Abgleich mit MyJohnDeere an">⟳ Jetzt abgleichen</button>
@@ -911,7 +916,7 @@ const Views = {
 
   /* ---------- Maschinen ---------- */
   maschinen: {
-    toolbar() { return `<h1>Maschinen</h1><button class="btn primary" data-act="editMaschine">＋ Maschine</button>`; },
+    toolbar() { return `<h1>Maschinen</h1>${mehrNav('maschinen')}<button class="btn primary" data-act="editMaschine">＋ Maschine</button>`; },
     content() {
       const list = Store.all('maschinen').sort(byPrio);
       if (!list.length) return '<div class="empty">Noch keine Maschinen erfasst.</div>';
@@ -931,7 +936,7 @@ const Views = {
 
   /* ---------- Mehr ---------- */
   mehr: {
-    toolbar() { return `<h1>Mehr</h1>`; },
+    toolbar() { return `<h1>Mehr</h1>${mehrNav('mehr')}`; },
     content() {
       const user = ls('lp_user'), c = Store.cfg();
       const conn = Auth.configured()
@@ -3393,10 +3398,10 @@ function jdbApply(d, src) {
 async function jdbLoad(silent) {
   const J = App.jdb;
   if (!Auth.configured() || !Auth.hasSession()) { if (!silent) toast('Zuerst mit Dropbox verbinden (Mehr › Dropbox)'); return; }
-  J.loading = true; if (App.view === 'jdbericht') App.render();
+  J.loading = true; if (App.view === 'jdbericht' || App.view === 'abrechnung') App.render();
   try { const d = await Drive.readJson('/jd-arbeiten.json'); if (d) { if (jdbApply(d, 'Dropbox') && !silent) toast(`${App.jdb.rows.length} Arbeitsgänge geladen`); } else if (!silent) toast('Im Dropbox-Ordner liegt noch keine «jd-arbeiten.json»'); }
   catch (e) { if (!silent) toast('Laden fehlgeschlagen: ' + e.message, 5000); }
-  J.loading = false; J.tried = true; if (App.view === 'jdbericht') App.render();
+  J.loading = false; J.tried = true; if (App.view === 'jdbericht' || App.view === 'abrechnung') App.render();
 }
 async function jdbFile() {
   const file = await pickFile('.json,application/json'); if (!file) return;
@@ -3653,6 +3658,386 @@ function jdbMsQuery(el) { App.jdb.msq = el.value; const q = norm(el.value); $$('
 function jdbMsAll(k, on) { const J = App.jdb, cur = new Set(jdbArr(J[k])); if (!on) { jdbMsSet(k, []); return; } $$('.msel.open .msel-i').filter(x => !x.hidden).forEach(x => cur.add(x.querySelector('input').value)); jdbMsSet(k, [...cur]); }
 document.addEventListener('click', e => { const J = App.jdb; if (J && J.open && !e.target.closest('.msel')) { J.open = null; App.render(); } }, true);
 document.addEventListener('keydown', e => { const J = App.jdb; if (e.key !== 'Escape' || !J || Dlg.el.open) return; if (J.open) { J.open = null; App.render(); } else if (J.fs && App.view === 'jdbericht') { J.fs = false; App.render(); } });
+/* ================= Abrechnung: erledigte Aufträge (Planer) und Arbeitsgänge (MyJohnDeere) kombiniert =================
+   Vorlage: Modul «Bericht». Ein Auftrag und ein Arbeitsgang werden zu einer Zeile verbunden, wenn Kunde, Datum (±2 Tage),
+   Art der Arbeit und – falls vorhanden – Feld zusammenpassen. Manuell: verknüpfen / Verknüpfung lösen (am Auftrag gespeichert). */
+const AB_CAT = a => { const t = norm(a); if (!t) return ''; if (isSprayName(a) || /spritz|pflanzensch|dünge|duenge|application/.test(t)) return 'application';
+  if (/säen|saat|sä|seeding|pflanzen/.test(t)) return 'seeding'; if (/dresch|ernte|harvest|häcksel|roden/.test(t)) return 'harvest';
+  if (/pflüg|pflug|grubb|egge|boden|mulch|fräs|walz|tillage|striegel|hack/.test(t)) return 'tillage'; return ''; };
+const abKeyK = s => norm(s).replace(/[^a-z0-9äöü]/g, '');
+const abDn = s => s ? Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)) / 864e5 : NaN;
+const abDays = (a, b) => Math.abs(abDn(a) - abDn(b));
+// Kunde des Planers zum Kundennamen aus MyJohnDeere
+function abKundeMap() {
+  const m = new Map(); Store.all('kunden').forEach(k => { [k.jdName, k.name].filter(Boolean).forEach(n => { const x = abKeyK(n); if (x && !m.has(x)) m.set(x, k); }); }); return m;
+}
+const abOrders = () => Store.all('auftraege').filter(a => { const s = statusOf(a); return s === 'erledigt' || s === 'verrechnet'; });
+// Kombinierte Zeilen
+function abRows() {
+  const A = App.abr, jd = App.jdb.rows || [], orders = abOrders(), km = abKundeMap();
+  const ver = Store.v + '|' + jd.length + '|' + (App.jdb.meta?.stand || '');
+  if (A._ver === ver && A._rows) return A._rows;
+  const jById = new Map(jd.map(r => [r.id, r])), usedJ = new Set(), pair = new Map();
+  // 1) manuelle Verknüpfungen
+  orders.forEach(o => { if (o.jdLink && jById.has(o.jdLink) && !usedJ.has(o.jdLink)) { pair.set(o.id, o.jdLink); usedJ.add(o.jdLink); } });
+  // 2) automatisch: bestes Paar zuerst
+  const cand = [];
+  // Index: Kunde → Tag → Arbeitsgänge
+  const jMap = new Map(); let minDn = Infinity;
+  jd.forEach(r => { const k = km.get(abKeyK(r.kunde)), kk = k ? k.id : '?' + abKeyK(r.kunde), dn = abDn(r.d); if (dn < minDn) minDn = dn;
+    if (!jMap.has(kk)) jMap.set(kk, new Map()); const m = jMap.get(kk); if (!m.has(dn)) m.set(dn, []); m.get(dn).push(r); r._fk = abKeyK(r.feld); });
+  orders.forEach(o => {
+    if (pair.has(o.id)) return;
+    const d = o.erledigtAm || o.datum; if (!d) return;
+    const dn = abDn(d), km2 = jMap.get(o.kunde); if (!km2 || dn < minDn - 2) return;
+    const cat = AB_CAT(o.arbeit), feld = abKeyK(aFeld(o));
+    [dn - 2, dn - 1, dn, dn + 1, dn + 2].flatMap(x => km2.get(x) || []).forEach(r => {
+      if (usedJ.has(r.id) || (o.jdUnlink || []).includes(r.id)) return;
+      const dd = Math.abs(abDn(r.d) - dn);
+      const rc = r.type || ''; if (cat && rc && cat !== rc && !(cat === 'application' && rc === 'fertilizing')) return;
+      let s = 3 - dd; if (cat && rc && (cat === rc || (cat === 'application' && rc === 'fertilizing'))) s += 2;
+      const rf = r._fk; if (feld && rf && (feld === rf || feld.includes(rf) || rf.includes(feld))) s += 2;
+      if (o.flaeche && r.ha) { const q = Math.min(o.flaeche, r.ha) / Math.max(o.flaeche, r.ha); if (q > 0.8) s += 1; }
+      if (s >= 3) cand.push({ o: o.id, j: r.id, s });
+    });
+  });
+  cand.sort((x, y) => y.s - x.s).forEach(c => { if (pair.has(c.o) || usedJ.has(c.j)) return; pair.set(c.o, c.j); usedJ.add(c.j); });
+  const rows = [];
+  orders.forEach(o => rows.push(abRow(o, pair.has(o.id) ? jById.get(pair.get(o.id)) : null, km)));
+  jd.forEach(r => { if (!usedJ.has(r.id)) rows.push(abRow(null, r, km)); });
+  A._ver = ver; A._rows = rows;
+  return rows;
+}
+function abRow(o, j, km) {
+  const k = o ? Store.get('kunden', o.kunde) : km.get(abKeyK(j.kunde)) || null;
+  const m = o ? maschine(o.maschine) : null, haP = o ? (o.flaecheEff ?? o.flaeche ?? null) : null, haJ = j ? j.ha : null;
+  const prodP = o ? prodList(o).map(p => `${p.name}${p.menge != null ? ` ${fmtNum(p.menge)} ${p.einheit || prodUnit(p.name)}/ha` : ''}`).join(', ') : '';
+  const gesP = o && haP ? prodList(o).filter(p => p.menge != null).map(p => `${p.name} ${fmtNum(r2(p.menge * haP))} ${p.einheit || prodUnit(p.name)}`).join(', ') : '';
+  const d = o ? (o.erledigtAm || o.datum) : j.d;
+  const abJ = j ? jdbAbr(j.id) : null, abO = o && statusOf(o) === 'verrechnet';
+  const abr = o ? abO : !!abJ, am = o ? (o.verrechnetAm || (abJ && abJ.am) || '') : (abJ ? abJ.am : '');
+  return { id: o ? 'o:' + o.id : 'j:' + j.id, oid: o ? o.id : '', jid: j ? j.id : '', src: o && j ? 'beide' : o ? 'planer' : 'jd', d, start: j ? j.start : '', end: j ? j.end : '',
+    dauer: j ? j.dauer : null, std: o ? (o.stundenEff ?? dauerOf(o) ?? null) : null, nr: o ? o.nr || '' : '',
+    kunde: k ? k.name : (j ? j.kunde : ''), feld: (o && aFeld(o)) || (j ? j.feld : ''), arbeit: o ? o.arbeit || '' : j.arbeit, kultur: (o && o.kultur) || (j ? j.kultur : ''),
+    haP, haJ, ha: haP ?? haJ, quelle: j ? j.quelle : '', maschine: (m && m.name) || (j ? j.maschine : ''), fahrer: j ? j.fahrer : '',
+    produkte: prodP || (j ? [j.produkte, j.sorten].filter(Boolean).join(' · ') : ''), gesamt: gesP || (j ? j.gesamt : ''), notiz: o ? o.notiz || '' : '', abr, am, link: !!(o && o.jdLink) };
+}
+/* ---------- Filter (Mehrfachauswahl wie im Bericht) ---------- */
+const AB_MS = { k: ['kunde', 'Kunde', 'Alle Kunden'], a: ['arbeit', 'Arbeit', 'Alle Arbeiten'], f: ['feld', 'Feld', 'Alle Felder'], m: ['maschine', 'Maschine', 'Alle Maschinen'], c: ['kultur', 'Kultur', 'Alle Kulturen'] };
+const AB_SRC = { beide: 'Planer + JD', planer: 'nur Planer', jd: 'nur JD' };
+function abFilter(A, skip = '') {
+  const q = norm(A.q), ok = (key, val) => skip === key || !jdbArr(A[key]).length || jdbArr(A[key]).includes(val);
+  return r => (!A.von || r.d >= A.von) && (!A.bis || r.d <= A.bis)
+    && ok('k', r.kunde) && ok('a', r.arbeit) && ok('f', r.feld) && ok('c', r.kultur)
+    && (skip === 'm' || !jdbArr(A.m).length || r.maschine.split(', ').some(x => jdbArr(A.m).includes(x)))
+    && (!+A.minHa || r.ha == null || r.ha >= +A.minHa)
+    && (!A.src || r.src === A.src)
+    && (!A.ab || (A.ab === 'ja') === !!r.abr)
+    && (!q || [r.nr, r.kunde, r.feld, r.arbeit, r.maschine, r.kultur, r.produkte, r.fahrer, r.notiz].join(' ').toLowerCase().includes(q));
+}
+const abList = () => { const A = App.abr; return abRows().filter(abFilter(A)).sort((a, b) => { const c = (a.d || '').localeCompare(b.d || '') || (a.start || '').localeCompare(b.start || ''); return A.sort === 'asc' ? c : -c; }); };
+const abHaSum = l => r2(l.reduce((s, r) => s + (r.ha || 0), 0));
+const AB_GRP = [['', 'keine'], ['kunde', 'Kunde'], ['arbeit', 'Arbeit'], ['maschine', 'Maschine'], ['feld', 'Feld'], ['kultur', 'Kultur'], ['src', 'Herkunft'], ['monat', 'Monat']];
+const abGroupKey = (r, g) => g === 'monat' ? (r.d || '').slice(0, 7) : g === 'src' ? AB_SRC[r.src] : (r[g] || '');
+/* ---------- Abgerechnet ---------- */
+function abMark(rows, on) {
+  const now = todayIso(), oc = [], ec = [];
+  rows.forEach(r => {
+    if (r.oid) { const o = Store.get('auftraege', r.oid); if (o) { const s = statusOf(o); if (on && s !== 'verrechnet') oc.push({ ...o, status: 'verrechnet', verrechnetAm: now }); if (!on && s === 'verrechnet') oc.push({ ...o, status: 'erledigt', verrechnetAm: '' }); } }
+    if (r.jid) { const x = jdbAbr(r.jid); if (on && !x) ec.push({ id: JDB_ABR + r.jid, jdabr: true, am: now }); else if (!on && x) ec.push({ id: JDB_ABR + r.jid, del: true }); }
+  });
+  if (ec.length) Store.putMany('einstellungen', ec);
+  if (oc.length) Store.putMany('auftraege', oc);
+  if (!ec.length && !oc.length) App.render();
+  return oc.length + ec.length;
+}
+function abMarkSel(on) {
+  const S = App.abrSel || new Set(), rows = abList().filter(r => S.has(r.id)); if (!rows.length) return;
+  const n = abMark(rows, on); S.clear(); App.render();
+  toast(n ? `${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'} ${on ? 'als abgerechnet markiert' : 'wieder offen'}` : `Bereits ${on ? 'abgerechnet' : 'offen'}`);
+}
+function abSelBar(list) {
+  const S = App.abrSel || (App.abrSel = new Set()), ids = new Set(list.map(r => r.id)); [...S].forEach(id => { if (!ids.has(id)) S.delete(id); });
+  if (!S.size) return `<p class="nr" style="margin:0 0 8px">Einträge links ankreuzen, um mehrere gleichzeitig als abgerechnet zu markieren (Aufträge werden «verrechnet»). Spalten: Kopf ziehen = verschieben, Rand ziehen = Breite.</p>`;
+  return `<div class="panel alselbar"><b>${S.size} ausgewählt</b>
+    <button type="button" class="btn mini primary" data-ab="mark" data-v="1">✓ Als abgerechnet markieren</button>
+    <button type="button" class="btn mini" data-ab="mark" data-v="0">Wieder offen</button>
+    ${S.size < list.length ? `<button type="button" class="btn mini" data-ab="selAllList">Alle ${list.length} auswählen</button>` : ''}
+    <button type="button" class="btn mini" data-ab="selNone">Auswahl aufheben</button></div>`;
+}
+/* ---------- Spalten ---------- */
+const abD = d => d ? fmtDate(d, { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
+const AB_COLS = [
+  { id: 'datum', l: 'Datum', w: 80, v: r => abD(r.d), csv: r => r.d },
+  { id: 'src', l: 'Herkunft', w: 104, v: r => AB_SRC[r.src], html: r => `<span class="absrc absrc-${r.src}" title="${r.src === 'beide' ? 'Auftrag und Arbeitsgang verbunden' + (r.link ? ' (von Hand)' : ' (automatisch)') : ''}">${r.src === 'beide' ? `Planer + JD${r.link ? ' 🔗' : ''}` : r.src === 'planer' ? 'Planer' : 'JD'}</span>` },
+  { id: 'nr', l: 'Nr.', w: 76, v: r => r.nr },
+  { id: 'beginn', l: 'Beginn (JD)', w: 118, v: r => jdbDT(r.start) },
+  { id: 'ende', l: 'Ende (JD)', w: 118, v: r => jdbDT(r.end) },
+  { id: 'arbeit', l: 'Arbeit', w: 130, v: r => r.arbeit },
+  { id: 'kunde', l: 'Kunde', w: 150, v: r => r.kunde },
+  { id: 'feld', l: 'Feld', w: 130, v: r => r.feld },
+  { id: 'ha', l: 'ha', w: 60, n: 1, v: r => r.ha != null ? fmtNum(r.ha) : '', csv: r => r.ha ?? '' },
+  { id: 'haP', l: 'ha Auftrag', w: 76, n: 1, v: r => r.haP != null ? fmtNum(r.haP) : '', csv: r => r.haP ?? '' },
+  { id: 'haJ', l: 'ha JD', w: 66, n: 1, v: r => r.haJ != null ? fmtNum(r.haJ) : '', csv: r => r.haJ ?? '',
+    html: r => r.haJ == null ? '' : `<span class="${r.haP != null && Math.abs(r.haJ - r.haP) > Math.max(0.1, r.haP * 0.1) ? 'abdiff' : ''}" title="${r.haP != null ? `Abweichung zum Auftrag: ${fmtNum(r2(r.haJ - r.haP))} ha` : ''}${r.quelle ? ` · Quelle: ${r.quelle}` : ''}">${fmtNum(r.haJ)}</span>` },
+  { id: 'std', l: 'Std. Auftrag', w: 82, n: 1, v: r => r.std != null ? fmtNum(r2(r.std)) : '', csv: r => r.std != null ? r2(r.std) : '' },
+  { id: 'dauer', l: 'Dauer JD', w: 76, n: 1, v: r => r.dauer != null ? hrs(r2(r.dauer)) : '', csv: r => r.dauer != null ? r2(r.dauer) : '' },
+  { id: 'maschine', l: 'Maschine', w: 140, v: r => r.maschine },
+  { id: 'fahrer', l: 'Fahrer', w: 120, v: r => r.fahrer },
+  { id: 'kultur', l: 'Kultur', w: 110, v: r => r.kultur },
+  { id: 'produkte', l: 'Produkte / Sorte', w: 220, v: r => r.produkte },
+  { id: 'gesamt', l: 'Gesamtmenge', w: 190, v: r => r.gesamt || '' },
+  { id: 'notiz', l: 'Bemerkung', w: 160, v: r => r.notiz },
+  { id: 'abr', l: 'Abgerechnet', w: 104, v: r => r.abr ? '✓ ' + (r.am ? abD(r.am) : '') : '', html: r => r.abr ? `<span class="badge verrechnet">✓ ${r.am ? abD(r.am) : 'abgerechnet'}</span>` : '<span class="nr">offen</span>' }
+];
+const AB_DEF = { order: ['datum', 'src', 'nr', 'arbeit', 'kunde', 'feld', 'ha', 'haP', 'haJ', 'std', 'dauer', 'maschine', 'kultur', 'produkte', 'gesamt', 'abr'], w: {} };
+function abColCfg() {
+  let c; try { c = JSON.parse(ls('lp_abrcols') || 'null'); } catch { c = null; }
+  if (!c || !Array.isArray(c.order)) c = JSON.parse(JSON.stringify(AB_DEF));
+  c.order = c.order.filter(id => AB_COLS.some(x => x.id === id)); c.w = c.w || {}; return c;
+}
+const abColSave = c => ls('lp_abrcols', JSON.stringify(c));
+const abCols = () => { const c = abColCfg(); return c.order.map(id => AB_COLS.find(x => x.id === id)).map(x => ({ ...x, w: c.w[x.id] || x.w })); };
+function abTable(list, { print, all } = {}) {
+  const g = App.abr.grp, cols = abCols(), S = App.abrSel || new Set(), ck = !print;
+  const allOn = ck && list.length && list.every(r => S.has(r.id));
+  const colg = print ? '' : `<colgroup>${ck ? '<col style="width:36px">' : ''}${cols.map(c => `<col data-col="${c.id}" style="width:${c.w}px">`).join('')}</colgroup>`;
+  const head = `<thead><tr>${ck ? `<th class="ck" data-stop><input type="checkbox" data-abin="selAll" ${allOn ? 'checked' : ''} title="Alle angezeigten auswählen"></th>` : ''}${cols.map(c => `<th class="${c.n ? 'n' : ''}" ${print ? '' : `draggable="true" data-col="${c.id}" title="Ziehen zum Verschieben"`}>${esc(c.l)}${print ? '' : `<span class="cres" data-col="${c.id}" title="Breite ändern"></span>`}</th>`).join('')}</tr></thead>`;
+  const row = r => `<tr class="${print ? '' : 'click'}${r.abr ? ' jdab' : ''}${ck && S.has(r.id) ? ' alsel' : ''}" ${print ? '' : `data-ab="row" data-id="${esc(r.id)}"`}>${ck ? `<td class="ck" data-stop><input type="checkbox" data-abin="sel" value="${esc(r.id)}" ${S.has(r.id) ? 'checked' : ''}></td>` : ''}${cols.map(c => `<td class="${c.n ? 'n' : ''} c-${c.id}">${!print && c.html ? c.html(r) : esc(c.v(r))}</td>`).join('')}</tr>`;
+  const TL = all || list, sum = k => r2(TL.reduce((s, r) => s + (r[k] || 0), 0));
+  const tot = `<tfoot><tr class="tot jdbtot">${ck ? '<td></td>' : ''}${cols.map((c, i) => `<td class="${c.n ? 'n' : ''}">${c.id === 'ha' ? `<b>${fmtNum(abHaSum(TL))}</b>` : c.id === 'haP' ? `<b>${fmtNum(sum('haP'))}</b>` : c.id === 'haJ' ? `<b>${fmtNum(sum('haJ'))}</b>` : c.id === 'std' ? `<b>${fmtNum(sum('std'))}</b>` : c.id === 'dauer' ? `<b>${hrs(sum('dauer'))}</b>` : i === 0 ? `<b>Total ${TL.length}</b>` : ''}</td>`).join('')}</tr></tfoot>`;
+  const tcls = `btab jdbtab abtab${print ? '' : ' abfix'}`, tw = print ? '' : ` style="width:${(ck ? 36 : 0) + cols.reduce((s, c) => s + c.w, 0)}px"`;
+  if (!g) return `<table class="${tcls}"${tw}>${colg}${head}<tbody>${list.map(row).join('')}</tbody>${tot}</table>`;
+  const groups = groupBy(list.slice().sort((a, b) => String(abGroupKey(a, g)).localeCompare(String(abGroupKey(b, g)), 'de') * (g === 'monat' ? -1 : 1)), r => abGroupKey(r, g));
+  return `<table class="${tcls}"${tw}>${colg}${head}${groups.map(([k, l]) => `<tbody class="pblk"><tr class="gk"><td colspan="${cols.length + (ck ? 1 : 0)}">${esc(jdbGroupLabel(k, g === 'monat' ? 'monat' : ''))} · ${l.length} ${l.length === 1 ? 'Eintrag' : 'Einträge'} · ${fmtNum(abHaSum(l))} ha</td></tr>${l.map(row).join('')}</tbody>`).join('')}${tot}</table>`;
+}
+function abColsAttach() {
+  const t = $('.abfix'); if (!t) return;
+  let dragId = null;
+  $$('.abfix th[data-col]').forEach(th => {
+    th.addEventListener('dragstart', e => { if (e.target.closest('.cres')) { e.preventDefault(); return; } dragId = th.dataset.col; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragId); th.classList.add('cdrag'); });
+    th.addEventListener('dragend', () => th.classList.remove('cdrag'));
+    th.addEventListener('dragover', e => { if (!dragId) return; e.preventDefault(); const r = th.getBoundingClientRect(); th.classList.toggle('cins-l', e.clientX < r.left + r.width / 2); th.classList.toggle('cins-r', e.clientX >= r.left + r.width / 2); });
+    th.addEventListener('dragleave', () => th.classList.remove('cins-l', 'cins-r'));
+    th.addEventListener('drop', e => {
+      e.preventDefault(); const after = th.classList.contains('cins-r'); th.classList.remove('cins-l', 'cins-r');
+      if (!dragId || dragId === th.dataset.col) return;
+      const c = abColCfg(); c.order = c.order.filter(x => x !== dragId); const i = c.order.indexOf(th.dataset.col); c.order.splice(after ? i + 1 : i, 0, dragId); dragId = null; abColSave(c); App.render();
+    });
+  });
+  $$('.abfix .cres').forEach(h => h.addEventListener('pointerdown', e => {
+    e.preventDefault(); e.stopPropagation();
+    const id = h.dataset.col, col = t.querySelector(`col[data-col="${id}"]`), x0 = e.clientX, w0 = col.getBoundingClientRect().width / UIZ(), tw0 = t.getBoundingClientRect().width / UIZ();
+    h.setPointerCapture(e.pointerId); document.body.classList.add('cresizing');
+    const mv = ev => { const w = Math.max(40, Math.round(w0 + (ev.clientX - x0) / UIZ())); col.style.width = w + 'px'; t.style.width = (tw0 + w - w0) + 'px'; };
+    const up = ev => { h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); document.body.classList.remove('cresizing'); const c = abColCfg(); c.w[id] = Math.max(40, Math.round(w0 + (ev.clientX - x0) / UIZ())); abColSave(c); App.noClickUntil = Date.now() + 300; };
+    h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up);
+  }));
+}
+function abColsDialog() {
+  const c = abColCfg(), order = [...c.order, ...AB_COLS.map(x => x.id).filter(id => !c.order.includes(id))];
+  const rowH = id => { const col = AB_COLS.find(x => x.id === id); return `<div class="rowi jcol" data-id="${id}"><label class="tog" style="flex:1"><input type="checkbox" name="on" value="${id}" ${c.order.includes(id) ? 'checked' : ''}> ${esc(col.l)}</label>
+    <span class="updown"><button type="button" class="x" data-ab="colMv" data-id="${id}" data-d="-1" aria-label="Nach oben">▲</button><button type="button" class="x" data-ab="colMv" data-id="${id}" data-d="1" aria-label="Nach unten">▼</button></span></div>`; };
+  Dlg.open('Spalten', `<p class="nr" style="margin-top:0">Haken = Spalte anzeigen. Reihenfolge mit ▲ ▼ – am PC auch direkt in der Tabelle: Spaltenkopf ziehen = verschieben, rechten Rand ziehen = Breite.</p>
+    <div class="rows" id="abcols">${order.map(rowH).join('')}</div>
+    <div class="btns" style="margin-top:10px"><button type="button" class="btn" data-ab="colReset">Standard wiederherstellen</button></div>`,
+    saveFooter(''), fd => {
+      const on = new Set(fd.getAll('on')), ids = $$('#abcols .jcol').map(x => x.dataset.id).filter(id => on.has(id));
+      if (!ids.length) { toast('Mindestens eine Spalte anzeigen'); return false; }
+      const n = abColCfg(); n.order = ids; abColSave(n); App.render(); return true;
+    });
+}
+/* ---------- Summen, Druck, CSV ---------- */
+const abSummary = list => groupBy(list, r => r.arbeit || '–').sort((a, b) => b[1].length - a[1].length).map(([a, l]) => `<span class="chip">${esc(a)}: ${l.length} · ${fmtNum(abHaSum(l))} ha</span>`).join('');
+function abSummen(list, { print } = {}) {
+  const arbeiten = [...new Set(list.map(r => r.arbeit || '–'))].sort((a, b) => a.localeCompare(b, 'de'));
+  const kunden = groupBy(list.slice().sort((a, b) => (a.kunde || '').localeCompare(b.kunde || '', 'de')), r => r.kunde || '–');
+  const cell = l => l.length ? `${fmtNum(abHaSum(l))}<small> · ${l.length}</small>` : '';
+  return `<table class="btab jdbsum"><thead><tr><th>Kunde</th>${arbeiten.map(a => `<th class="n">${esc(a)}</th>`).join('')}<th class="n">Total ha</th></tr></thead>
+    <tbody>${kunden.map(([k, l]) => `<tr><td>${esc(k)}</td>${arbeiten.map(a => `<td class="n">${cell(l.filter(r => (r.arbeit || '–') === a))}</td>`).join('')}<td class="n"><b>${fmtNum(abHaSum(l))}</b></td></tr>`).join('')}</tbody>
+    <tfoot><tr class="tot"><td><b>Total</b></td>${arbeiten.map(a => `<td class="n"><b>${fmtNum(abHaSum(list.filter(r => (r.arbeit || '–') === a)))}</b></td>`).join('')}<td class="n"><b>${fmtNum(abHaSum(list))}</b></td></tr></tfoot></table>
+    ${print ? '' : '<p class="nr" style="margin:6px 0 0">Fläche in ha (Auftrag, sonst JD) · Anzahl Einträge</p>'}`;
+}
+const abRange = () => { const A = App.abr, d = x => fmtDate(x, { day: '2-digit', month: '2-digit', year: 'numeric' }); return A.von || A.bis ? `${A.von ? d(A.von) : '…'} – ${A.bis ? d(A.bis) : '…'}` : ''; };
+function abSummenPrint() {
+  const list = abList(), title = `Summen pro Kunde und Arbeit ${abRange()}`;
+  printHtml(title, `<div class="bill jdbprint">${LETTERHEAD}<div class="bill-h"><div><b>Abrechnung · Summen</b><br><span class="nr">Fläche in ha · Anzahl Einträge</span></div><div class="r">${esc(title)}<br>${list.length} Einträge · ${fmtNum(abHaSum(list))} ha</div></div>${abSummen(list, { print: true })}</div>`, { noTitle: true });
+}
+function abPrint() {
+  const A = App.abr, list = abList(), title = `Abrechnung ${abRange()}`;
+  const filt = [A.ab && (A.ab === 'ja' ? 'nur abgerechnete' : 'nur offene'), A.src && AB_SRC[A.src], +A.minHa && `ohne Flächen unter ${fmtNum(+A.minHa)} ha`, ...Object.entries(AB_MS).map(([k, [, l]]) => jdbArr(A[k]).length ? `${l}: ${jdbArr(A[k]).join(', ')}` : '')].filter(Boolean).join(' · ');
+  printHtml(title, `<div class="bill jdbprint">${LETTERHEAD}<div class="bill-h"><div><b>${esc(jdbArr(A.k).length === 1 ? A.k[0] : 'Abrechnung')}</b>${filt ? `<br><span class="nr">${esc(filt)}</span>` : ''}</div><div class="r">${esc(title)}<br>${list.length} Einträge · ${fmtNum(abHaSum(list))} ha</div></div>
+    ${abTable(list, { print: true })}</div>`, { noTitle: true });
+}
+function abCsv() {
+  const rows = [['Datum', 'Herkunft', 'Auftrag-Nr', 'Beginn (JD)', 'Ende (JD)', 'Arbeit', 'Kunde', 'Feld', 'Fläche ha', 'Fläche Auftrag ha', 'Fläche JD ha', 'Flächen-Quelle JD', 'Stunden Auftrag', 'Dauer JD h', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Gesamtmenge', 'Bemerkung', 'Abgerechnet', 'Abgerechnet am', 'Auftrag-ID', 'JD-ID']];
+  abList().forEach(r => rows.push([r.d, AB_SRC[r.src], r.nr, jdbDT(r.start), jdbDT(r.end), r.arbeit, r.kunde, r.feld, r.ha ?? '', r.haP ?? '', r.haJ ?? '', r.quelle || '', r.std != null ? r2(r.std) : '', r.dauer != null ? r2(r.dauer) : '', r.maschine, r.fahrer, r.kultur, r.produkte, r.gesamt, r.notiz, r.abr ? 'ja' : 'nein', r.am || '', r.oid, r.jid]));
+  const A = App.abr;
+  download(`Abrechnung_${A.von || 'alle'}_${A.bis || ''}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+}
+/* ---------- Detail: Auftrag und Arbeitsgang nebeneinander, verknüpfen / lösen ---------- */
+function abDetail(id) {
+  const r = abRows().find(x => x.id === id) || abRows().find(x => 'o:' + x.oid === id || 'j:' + x.jid === id); if (!r) return;
+  const o = r.oid ? Store.get('auftraege', r.oid) : null, j = r.jid ? (App.jdb.rows || []).find(x => x.id === r.jid) : null;
+  const kv = (k, v) => v || v === 0 ? `<tr><td class="nr">${esc(k)}</td><td>${esc(v)}</td></tr>` : '';
+  const dt = s => s ? new Date(s).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '';
+  const left = o ? `<table class="btab kv">${kv('Auftrag', o.nr)}${kv('Status', STATUS[statusOf(o)])}${kv('Erledigt am', o.erledigtAm ? abD(o.erledigtAm) : '')}${kv('Kunde', kundeName(o.kunde))}${kv('Feld', aFeld(o))}${kv('Arbeit', o.arbeit)}${kv('Kultur', o.kultur)}
+      ${kv('Fläche', (o.flaecheEff ?? o.flaeche) != null ? fmtNum(o.flaecheEff ?? o.flaeche) + ' ha' + (o.flaecheEff != null ? ' (effektiv)' : '') : '')}${kv('Stunden', (o.stundenEff ?? dauerOf(o)) != null ? hrs(r2(o.stundenEff ?? dauerOf(o))) + (o.stundenEff != null ? ' (effektiv)' : '') : '')}${kv('Maschine', maschine(o.maschine)?.name)}
+      ${kv('Mittel', r.produkte && r.src !== 'jd' && o ? prodList(o).map(p => `${p.name} ${p.menge != null ? fmtNum(p.menge) + ' ' + (p.einheit || prodUnit(p.name)) + '/ha' : ''}`).join(', ') : '')}${kv('Bemerkung', o.notiz)}</table>
+      <div class="btns" style="margin-top:8px"><button type="button" class="btn small" data-ab="openOrder" data-id="${o.id}">Auftrag öffnen</button></div>`
+    : `<p class="nr">Kein Auftrag im Planer verbunden.</p>${j ? `<div class="btns"><button type="button" class="btn small" data-ab="linkPick" data-id="${esc(r.id)}">Mit Auftrag verknüpfen…</button></div>` : ''}`;
+  const right = j ? `<table class="btab kv">${kv('Arbeit', j.arbeit)}${kv('Kunde (JD)', j.kunde)}${kv('Feld', j.feld)}${kv('Fläche', j.ha != null ? fmtNum(j.ha) + ' ha' + (j.quelle ? ` (${j.quelle})` : '') : '')}${kv('Beginn', dt(j.start))}${kv('Ende', dt(j.end))}${kv('Dauer', j.dauer != null ? hrs(r2(j.dauer)) : '')}
+      ${kv('Maschine', j.maschine)}${kv('Fahrer', j.fahrer)}${kv('Kultur', j.kultur)}${kv('Produkte', j.produkte)}${kv('Sorten', j.sorten)}${kv('Gesamtmenge', j.gesamt)}</table>
+      <div class="btns" style="margin-top:8px"><button type="button" class="btn small" data-ab="jdDetail" data-id="${esc(j.id)}">Alle Messwerte</button></div>`
+    : `<p class="nr">Kein Arbeitsgang aus MyJohnDeere verbunden.</p>${o ? `<div class="btns"><button type="button" class="btn small" data-ab="linkPick" data-id="${esc(r.id)}">Mit Arbeitsgang verknüpfen…</button></div>` : ''}`;
+  const body = `<div class="abdet"><div><h4>Auftrag (Planer)</h4>${left}</div><div><h4>Arbeitsgang (MyJohnDeere)</h4>${right}</div></div>
+    ${o && j ? `<p class="nr" style="margin-top:10px">${o.jdLink ? 'Von Hand verknüpft.' : 'Automatisch verbunden (Kunde, Datum, Arbeit, Feld).'} <a href="#" data-ab="unlink" data-id="${esc(r.id)}">Verknüpfung lösen</a></p>` : ''}`;
+  Dlg.open('Abrechnung – Eintrag', body, `${r.abr ? `<span class="badge verrechnet">✓ abgerechnet${r.am ? ' ' + abD(r.am) : ''}</span><button type="button" class="btn" data-ab="markOne" data-id="${esc(r.id)}" data-v="0">Wieder offen</button>` : `<button type="button" class="btn primary" data-ab="markOne" data-id="${esc(r.id)}" data-v="1">✓ Als abgerechnet markieren</button>`}<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
+}
+function abLinkPick(id) {
+  const r = abRows().find(x => x.id === id); if (!r) return;
+  const base = r.d || todayIso();
+  let opts;
+  if (r.oid) { // Arbeitsgänge ohne Auftrag in der Nähe
+    const o = Store.get('auftraege', r.oid);
+    opts = abRows().filter(x => x.src === 'jd' && abDays(x.d, base) <= 14).sort((a, b) => (b.kunde === r.kunde) - (a.kunde === r.kunde) || abDays(a.d, base) - abDays(b.d, base)).slice(0, 60)
+      .map(x => ({ v: x.jid, t: `${abD(x.d)} · ${x.kunde} · ${x.feld || '–'} · ${x.arbeit}${x.haJ != null ? ` · ${fmtNum(x.haJ)} ha` : ''}` }));
+    if (!o) return;
+  } else {
+    opts = abRows().filter(x => x.src === 'planer' && abDays(x.d, base) <= 14).sort((a, b) => (b.kunde === r.kunde) - (a.kunde === r.kunde) || abDays(a.d, base) - abDays(b.d, base)).slice(0, 60)
+      .map(x => ({ v: x.oid, t: `${abD(x.d)} · ${x.nr} · ${x.kunde} · ${x.feld || '–'} · ${x.arbeit}${x.haP != null ? ` · ${fmtNum(x.haP)} ha` : ''}` }));
+  }
+  if (!opts.length) { toast('Keine passenden, noch nicht verbundenen Einträge im Umkreis von 14 Tagen.'); return; }
+  Dlg.open(r.oid ? 'Mit Arbeitsgang verknüpfen' : 'Mit Auftrag verknüpfen', `<p class="nr" style="margin-top:0">${esc(abD(r.d))} · ${esc(r.kunde)} · ${esc(r.feld || '–')} · ${esc(r.arbeit)}</p>
+    <div class="rows">${opts.map(x => `<label class="rowi"><input type="radio" name="x" value="${esc(x.v)}"> ${esc(x.t)}</label>`).join('')}</div>`,
+    saveFooter(''), fd => {
+      const x = fd.get('x'); if (!x) { toast('Eintrag wählen'); return false; }
+      const oid = r.oid || x, jid = r.oid ? x : r.jid, o = Store.get('auftraege', oid); if (!o) return false;
+      Store.putMany('auftraege', [{ ...o, jdLink: jid, jdUnlink: (o.jdUnlink || []).filter(y => y !== jid) }]);
+      toast('Verknüpft'); setTimeout(() => abDetail('o:' + oid), 0); return true;
+    });
+}
+function abUnlink(id) {
+  const r = abRows().find(x => x.id === id); if (!r || !r.oid || !r.jid) return;
+  const o = Store.get('auftraege', r.oid); if (!o) return;
+  Store.putMany('auftraege', [{ ...o, jdLink: '', jdUnlink: [...new Set([...(o.jdUnlink || []), r.jid])] }]);
+  Dlg.close(); toast('Verknüpfung gelöst');
+}
+/* ---------- Ansicht ---------- */
+function abView() {
+  return {
+    toolbar() {
+      return `<h1>Abrechnung</h1>
+        <button class="btn" data-ab="fs" title="Vollbild (Esc schliesst)">⛶ Vollbild</button>
+        <button class="btn" data-ab="load" title="Arbeitsgänge aus MyJohnDeere neu laden">⟳ JD-Daten neu laden</button>`;
+    },
+    content() {
+      const A = App.abr, J = App.jdb;
+      if (!J.bg) { J.bg = true; if (!J.rows) jdbFromCache(); setTimeout(() => jdbLoad(true), 0); }
+      if (A.von == null) { A.von = `${new Date().getFullYear()}-01-01`; A.bis = todayIso(); }
+      const all = abRows(), list = abList(), uniq = (k, skip) => [...new Set(all.filter(abFilter(A, skip)).flatMap(r => k === 'maschine' ? r.maschine.split(', ') : [r[k]]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
+      const sel = k => { const [f, label, allTxt] = AB_MS[k], cur = jdbArr(A[k]), vals = [...new Set([...cur, ...uniq(f, k)])].sort((a, b) => a.localeCompare(b, 'de'));
+        const txt = !cur.length ? allTxt : cur.length === 1 ? cur[0] : `${cur.length} ausgewählt`, open = A.open === k, mq = norm(A.msq || '');
+        return `<div class="fld msel ${open ? 'open' : ''}"><span>${label}</span><button type="button" class="input msel-btn ${cur.length ? 'on' : ''}" data-ab="ms" data-k="${k}" title="${esc(cur.join(', '))}">${esc(txt)}</button>
+          ${open ? `<div class="msel-pop">
+            <input class="input" type="search" placeholder="Suchen…" data-abin="msq" value="${esc(A.msq || '')}">
+            <div class="msel-list">${vals.map(v => `<label class="msel-i" ${mq && !norm(v).includes(mq) ? 'hidden' : ''}><input type="checkbox" data-abin="msc" data-k="${k}" value="${esc(v)}" ${cur.includes(v) ? 'checked' : ''}> ${esc(v)}</label>`).join('') || '<span class="nr">Keine Werte</span>'}</div>
+            <div class="msel-f"><button type="button" class="btn mini" data-ab="msAll" data-k="${k}">Alle sichtbaren</button><button type="button" class="btn mini" data-ab="msNone" data-k="${k}">Keine</button><button type="button" class="btn mini primary" data-ab="msClose">Fertig</button></div>
+          </div>` : ''}</div>`; };
+      const shown = list.slice(0, A.limit || 300), cnt = { beide: 0, planer: 0, jd: 0 }; all.forEach(r => cnt[r.src]++);
+      const inner = `<p class="nr" style="margin-top:0">Kombiniert: erledigte und verrechnete Aufträge aus dem Planer und Arbeitsgänge aus MyJohnDeere · ${cnt.beide} verbunden, ${cnt.planer} nur Planer, ${cnt.jd} nur JD${J.rows ? '' : ' · <span style="color:var(--warn)">noch keine JD-Daten geladen</span>'}${J.meta && J.meta.stand ? ` · JD-Stand ${esc(new Date(J.meta.stand).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }))}` : ''} · <a href="#" data-ab="load">${J.loading ? 'lädt…' : 'JD neu laden'}</a></p>
+        <div class="panel jfilter"><div class="jfgrid">
+          <label class="fld"><span>Von</span><input class="input" type="date" data-abin="f" data-k="von" value="${esc(A.von)}"></label>
+          <label class="fld"><span>Bis</span><input class="input" type="date" data-abin="f" data-k="bis" value="${esc(A.bis)}"></label>
+          ${sel('k')}${sel('a')}${sel('f')}${sel('m')}${sel('c')}
+          <label class="fld"><span>Herkunft</span><select class="input" data-plain data-abin="f" data-k="src"><option value="">Alle</option>${Object.entries(AB_SRC).map(([v, l]) => `<option value="${v}" ${A.src === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <label class="fld"><span>Kleinstflächen</span><select class="input" data-plain data-abin="min">${[['', 'Alle anzeigen'], ['0.05', 'unter 0.05 ha ausblenden'], ['0.1', 'unter 0.1 ha ausblenden'], ['0.2', 'unter 0.2 ha ausblenden'], ['0.5', 'unter 0.5 ha ausblenden'], ['1', 'unter 1 ha ausblenden']].map(([v, l]) => `<option value="${v}" ${String(A.minHa || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <label class="fld"><span>Abrechnung</span><select class="input" data-plain data-abin="f" data-k="ab"><option value="">Alle</option><option value="nein" ${A.ab === 'nein' ? 'selected' : ''}>Nur offene</option><option value="ja" ${A.ab === 'ja' ? 'selected' : ''}>Nur abgerechnete</option></select></label>
+          <label class="fld"><span>Gruppieren nach</span><select class="input" data-plain data-abin="f" data-k="grp">${AB_GRP.map(([v, l]) => `<option value="${v}" ${A.grp === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <label class="fld"><span>Sortierung</span><select class="input" data-plain data-abin="f" data-k="sort"><option value="desc">Neueste zuerst</option><option value="asc" ${A.sort === 'asc' ? 'selected' : ''}>Älteste zuerst</option></select></label>
+        </div>
+        <div class="btns"><span class="seg mini">${[['woche', 'Diese Woche'], ['30', '30 Tage'], ['jahr', 'Dieses Jahr'], ['vorjahr', 'Vorjahr'], ['alle', 'Alles']].map(([v, l]) => `<button type="button" data-ab="preset" data-v="${v}">${l}</button>`).join('')}</span>
+          <input class="input search" type="search" placeholder="Suchen: Nr., Produkt, Fahrer, Bemerkung…" value="${esc(A.q || '')}" data-abin="q" style="max-width:260px">
+          <button class="btn" data-ab="reset">Filter zurücksetzen</button></div></div>
+        <p><b>${list.length} Einträge · ${fmtNum(abHaSum(list))} ha</b>${list.length ? ` <span class="nr">· ${list.filter(r => r.abr).length} abgerechnet, ${list.filter(r => !r.abr).length} offen</span>` : ''}</p>
+        <div class="chips static" style="margin-bottom:10px">${abSummary(list)}</div>
+        ${list.length ? `<details class="panel jdbsumbox" ${A.sumOpen ? 'open' : ''}><summary data-ab="sumToggle">Summen pro Kunde und Arbeit</summary><div class="tscroll" style="margin-top:8px">${A.sumOpen ? abSummen(list) : ''}</div>${A.sumOpen ? '<div class="btns" style="margin-top:8px"><button class="btn" data-ab="sumPrint">Summen drucken / PDF</button></div>' : ''}</details>` : ''}
+        ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-ab="print">Drucken / PDF</button><button class="btn" data-ab="csv">Excel (CSV)</button><button class="btn" data-ab="cols">Spalten…</button></div>
+        ${abSelBar(list)}
+        <div class="panel tscroll">${abTable(shown, { all: list })}</div>
+        ${list.length > shown.length ? `<div class="btns" style="margin-top:10px"><button class="btn" data-ab="more">Weitere ${Math.min(300, list.length - shown.length)} anzeigen</button></div>` : ''}` : '<div class="empty">Keine Einträge für diese Auswahl.</div>'}`;
+      if (!A.fs) return inner;
+      return `<div class="fsview jdbfs"><div class="fsbar"><b class="lbl jdbfs-t">Abrechnung</b>
+          <span class="nr">${list.length} Einträge · ${fmtNum(abHaSum(list))} ha</span>
+          <button class="btn small" data-ab="fsFilter">${A.fsNoFilter ? 'Filter zeigen' : 'Filter ausblenden'}</button>
+          <button class="btn small" data-ab="print">Drucken / PDF</button><button class="btn small" data-ab="csv">Excel (CSV)</button><button class="btn small" data-ab="cols">Spalten…</button>
+          <button class="btn small fsclose" data-ab="fs" aria-label="Vollbild schliessen" title="Vollbild schliessen (Esc)">✕</button></div>
+        <div class="jdbfs-body ${A.fsNoFilter ? 'nofilter' : ''}">${inner}</div></div>`;
+    },
+    after() { abColsAttach(); }
+  };
+}
+function abPreset(v) {
+  const A = App.abr, t = new Date(), y = t.getFullYear();
+  if (v === 'jahr') { A.von = `${y}-01-01`; A.bis = todayIso(); }
+  else if (v === 'vorjahr') { A.von = `${y - 1}-01-01`; A.bis = `${y - 1}-12-31`; }
+  else if (v === '30') { A.von = isoDate(addDays(t, -30)); A.bis = todayIso(); }
+  else if (v === 'woche') { A.von = isoDate(addDays(t, -((t.getDay() + 6) % 7))); A.bis = todayIso(); }
+  else if (v === 'alle') { A.von = ''; A.bis = ''; }
+  A.limit = 300; App.render();
+}
+/* ---------- Ereignisse ---------- */
+document.addEventListener('click', e => {
+  const A = App.abr; if (!A) return;
+  if (A.open && !e.target.closest('.msel') && App.view === 'abrechnung') { A.open = null; App.render(); return; }
+  const t = e.target.closest('[data-ab]'); if (!t || e.target.closest('[data-stop]')) return;
+  if (App.noClickUntil && Date.now() < App.noClickUntil) return;
+  const a = t.dataset.ab, id = t.dataset.id;
+  if (t.tagName === 'A' || t.tagName === 'SUMMARY') e.preventDefault();
+  const S = App.abrSel || (App.abrSel = new Set());
+  switch (a) {
+    case 'row': abDetail(id); break;
+    case 'load': jdbLoad(); break;
+    case 'fs': A.fs = !A.fs; App.render(); break;
+    case 'fsFilter': A.fsNoFilter = !A.fsNoFilter; App.render(); break;
+    case 'preset': abPreset(t.dataset.v); break;
+    case 'reset': Object.assign(A, { ab: '', src: '', k: [], a: [], f: [], m: [], c: [], q: '', grp: '', von: null, bis: null, limit: 300, open: null }); App.render(); break;
+    case 'ms': A.open = A.open === t.dataset.k ? null : t.dataset.k; A.msq = ''; App.render(); { const i = $('.msel.open [data-abin="msq"]'); if (i && matchMedia('(pointer: fine)').matches) i.focus(); } break;
+    case 'msAll': { const k = t.dataset.k, cur = new Set(jdbArr(A[k])); $$('.msel.open .msel-i').filter(x => !x.hidden).forEach(x => cur.add(x.querySelector('input').value)); A[k] = [...cur]; A.limit = 300; App.render(); break; }
+    case 'msNone': A[t.dataset.k] = []; A.limit = 300; App.render(); break;
+    case 'msClose': A.open = null; App.render(); break;
+    case 'sumToggle': e.preventDefault(); A.sumOpen = !A.sumOpen; App.render(); break;
+    case 'sumPrint': abSummenPrint(); break;
+    case 'print': abPrint(); break;
+    case 'csv': abCsv(); break;
+    case 'cols': abColsDialog(); break;
+    case 'colMv': { const box = $('#abcols'), el = box && box.querySelector(`.jcol[data-id="${id}"]`); if (!el) break; const d = +t.dataset.d; if (d < 0 && el.previousElementSibling) box.insertBefore(el, el.previousElementSibling); if (d > 0 && el.nextElementSibling) box.insertBefore(el.nextElementSibling, el); break; }
+    case 'colReset': ls('lp_abrcols', ''); Dlg.close(); App.render(); toast('Spalten auf Standard zurückgesetzt'); break;
+    case 'more': A.limit = (A.limit || 300) + 300; App.render(); break;
+    case 'mark': abMarkSel(t.dataset.v === '1'); break;
+    case 'markOne': { const r = abRows().find(x => x.id === id); if (!r) break; const on = t.dataset.v === '1'; abMark([r], on); toast(on ? 'Als abgerechnet markiert' : 'Wieder offen'); abDetail(id); break; }
+    case 'selAllList': abList().forEach(r => S.add(r.id)); App.render(); break;
+    case 'selNone': S.clear(); App.render(); break;
+    case 'openOrder': Dlg.close(); orderDialog(id); break;
+    case 'jdDetail': jdbDetail(id); break;
+    case 'linkPick': abLinkPick(id); break;
+    case 'unlink': abUnlink(id); break;
+  }
+});
+document.addEventListener('input', e => {
+  const k = e.target.dataset ? e.target.dataset.abin : null; if (!k) return; const A = App.abr;
+  if (k === 'msq') { A.msq = e.target.value; const q = norm(e.target.value); $$('.msel.open .msel-i').forEach(x => { x.hidden = q && !norm(x.textContent).includes(q); }); }
+  if (k === 'q') { A.q = e.target.value; A.limit = 300; const pos = e.target.selectionStart; App.render(); const el = $('[data-abin="q"]'); if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch { } } }
+});
+document.addEventListener('change', e => {
+  const k = e.target.dataset ? e.target.dataset.abin : null; if (!k) return; const A = App.abr, S = App.abrSel || (App.abrSel = new Set());
+  if (k === 'f') { A[e.target.dataset.k] = e.target.value; A.limit = 300; App.render(); }
+  else if (k === 'min') { A.minHa = e.target.value; ls('lp_abrmin', e.target.value); A.limit = 300; App.render(); }
+  else if (k === 'msc') { const cur = new Set(jdbArr(A[e.target.dataset.k])); e.target.checked ? cur.add(e.target.value) : cur.delete(e.target.value); const sc = $('.msel.open .msel-list')?.scrollTop; A[e.target.dataset.k] = [...cur]; A.limit = 300; App.render(); const l = $('.msel.open .msel-list'); if (l && sc) l.scrollTop = sc; }
+  else if (k === 'sel') { e.target.checked ? S.add(e.target.value) : S.delete(e.target.value); App.render(); }
+  else if (k === 'selAll') { abList().slice(0, A.limit || 300).forEach(r => e.target.checked ? S.add(r.id) : S.delete(r.id)); App.render(); }
+});
+document.addEventListener('keydown', e => { const A = App.abr; if (e.key !== 'Escape' || !A || Dlg.el.open || App.view !== 'abrechnung') return; if (A.open) { A.open = null; App.render(); } else if (A.fs) { A.fs = false; App.render(); } });
 /* ---------- Zoom der Planung: Tages- und Wochenansicht unabhängig, gespeichert ---------- */
 {
   const old = +(ls('lp_zoom') || 1) || 1, key = () => App.plan.mode === 'tag' ? 'tag' : 'woche';

@@ -941,3 +941,13 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 .odtop { display: flex; align-items: center; gap: 8px; margin: -4px 0 10px; }
 .odtop .odone { margin-left: auto; font-size: 13px; padding: 5px 12px; min-height: 0; border-color: color-mix(in srgb, var(--s-erledigt) 50%, var(--line)); color: var(--s-erledigt); background: var(--surface); }
 .odtop .odone:hover { background: color-mix(in srgb, var(--s-erledigt) 12%, var(--surface)); }
+/* v66: Abrechnung (Planer + JD), Mehr-Unternavigation */
+.mehrnav { margin-right: auto; }
+.absrc { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; white-space: nowrap; }
+.absrc-beide { background: color-mix(in srgb, var(--s-erledigt) 16%, var(--surface)); color: var(--s-erledigt); }
+.absrc-planer { background: color-mix(in srgb, var(--s-geplant) 14%, var(--surface)); color: var(--s-geplant); }
+.absrc-jd { background: color-mix(in srgb, #367c2b 16%, var(--surface)); color: #2c6b22; }
+.abdiff { color: var(--warn); font-weight: 600; }
+.abdet { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.abdet h4 { margin: 0 0 6px; }
+@media (max-width: 720px) { .abdet { grid-template-columns: 1fr; } }
