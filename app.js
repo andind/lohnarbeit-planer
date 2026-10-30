@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '73', APP_STAND = '29.10.2026';
+const APP_VERSION = '74', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -579,7 +579,7 @@ const App = {
   alimit: 150,
   go(v) { this.view = v; ls('lp_view', v); this.lastView = null; this.tlScroll = null; window.scrollTo(0, 0); this.render(); },
   render() {
-    const navV = ['kunden', 'maschinen'].includes(this.view) ? 'mehr' : this.view;
+    const navV = this.view === 'maschinen' ? 'mehr' : this.view;
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === navV));
     const fresh = this.lastView !== this.view; this.lastView = this.view;
     const v = Views[this.view] || Views.auftraege;
@@ -597,7 +597,7 @@ const App = {
 };
 
 // Unternavigation im Modul «Mehr»: Einstellungen, Kunden, Maschinen
-const mehrNav = cur => `<div class="seg mehrnav">${[['mehr', 'Einstellungen'], ['kunden', 'Kunden'], ['maschinen', 'Maschinen']].map(([v, l]) => `<button type="button" data-view="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+const mehrNav = cur => `<div class="seg mehrnav">${[['mehr', 'Einstellungen'], ['maschinen', 'Maschinen']].map(([v, l]) => `<button type="button" data-view="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 const Views = {
   /* ---------- Aufträge ---------- */
   auftraege: {
@@ -884,9 +884,10 @@ const Views = {
   /* ---------- Kunden ---------- */
   kunden: {
     toolbar() {
-      return `<h1>Kunden</h1>${mehrNav('kunden')}
+      return `<h1>Kunden</h1>
         <input class="input search" type="search" placeholder="Kunde suchen…" value="${esc(App.filter.kq)}" data-in="kSearch">
         <label class="tog"><input type="checkbox" data-in="kAll" ${App.filter.kall ? 'checked' : ''}> auch inaktive</label>
+        <label class="tog" title="Zuweisung der Pflanzenschutz-Parzellen (Modul Spritzen) zu den Feldern in der Kundenkarte anzeigen"><input type="checkbox" data-in="parzOn" ${parzOn() ? 'checked' : ''}> Parzellen-Zuweisung (Spritzen)</label>
         <button class="btn primary" data-act="jdRequest" title="Fordert beim NAS-Dienst einen Abgleich mit MyJohnDeere an">⟳ Jetzt abgleichen</button>
         <button class="btn" data-act="jdSync">Abgleich prüfen…</button>
         ${jdLock() ? '' : `<button class="btn" data-act="importKunden">Import (Excel/CSV)</button>
@@ -3111,21 +3112,43 @@ function feldOptions(kid, cur) {
   return `<option value="">— kein Feld —</option>` + list.map(f => `<option value="${f.id}" ${f.id === cur ? 'selected' : ''}>${esc(feldLabel(f))}</option>`).join('');
 }
 const parzOfFeld = fid => Store.all('parzellen').filter(p => p.feldId === fid).sort(byName);
+// Parzellen-Zuweisung (Pflanzenschutz-Parzellen aus dem Modul Spritzen) in der Kundenkarte ein-/ausschalten – gilt für alle Geräte
+const parzOn = () => Store.cfg().parzZuweisung !== false;
 
 // Feld-Auswahl im Auftrag
 function wireFeld(f, a) {
   const sel = f.kfeld; if (!sel) return;
   const box = sel.closest('.fld');
+  // Liste der Vermessungen des gewählten Feldes: Antippen übernimmt deren Fläche als Auftragsfläche
+  const gbox = document.createElement('div'); gbox.className = 'grzpick'; gbox.hidden = true; box.after(gbox);
+  const setHa = v => { if (!f.flaeche || v == null) return; f.flaeche.value = v; f.flaeche.dispatchEvent(new Event('input', { bubbles: true })); f.flaeche.dispatchEvent(new Event('change', { bubbles: true })); gbox.querySelectorAll('.grzb').forEach(b => b.classList.toggle('on', +b.dataset.ha === +v)); };
+  const grz = () => {
+    const fd = feldById(sel.value), L = fd && Array.isArray(fd.grenzen) ? fd.grenzen.slice().sort((x, y) => (y.aktiv - x.aktiv) || String(y.erstellt || y.geaendert || '').localeCompare(String(x.erstellt || x.geaendert || ''))) : [];
+    gbox.hidden = box.hidden || !L.length; if (gbox.hidden) { gbox.innerHTML = ''; return; }
+    const cur = num(f.flaeche && f.flaeche.value), dd = s => s ? fmtDate(String(s).slice(0, 10), { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
+    const btn = (x, v, lbl) => `<button type="button" class="grzb${cur != null && +v === +cur ? ' on' : ''}" data-ha="${v}" title="Fläche ${fmtNum(v)} ha als Auftragsfläche übernehmen">${lbl}</button>`;
+    const open = gbox.querySelector('details')?.open ?? ls('lp_grzOpen') === '1';
+    gbox.innerHTML = `<details ${open ? 'open' : ''}><summary>📐 Vermessungen des Feldes (${L.length}) – antippen übernimmt die Fläche</summary><div class="grzlist">${L.map(x => {
+      const v = x.ha ?? x.bha; if (v == null) return '';
+      return `<div class="grzi${x.archiviert ? ' arch' : ''}">${btn(x, v, `<b>${fmtNum(v)} ha</b> <span>${esc(x.name || '(ohne Namen)')}</span>${x.aktiv ? ' <span class="badge geplant">aktiv</span>' : ''}`)}
+        ${x.bha != null && x.ha != null && Math.abs(x.bha - x.ha) >= 0.005 ? btn(x, x.bha, `bearbeitbar ${fmtNum(x.bha)} ha`) : ''}
+        <span class="nr">${[grzSignal(x.signal), x.erstellt ? 'erstellt ' + dd(x.erstellt) : x.geaendert ? dd(x.geaendert) : '', x.archiviert ? 'archiviert' : ''].filter(Boolean).join(' · ')}</span></div>`; }).join('')}</div></details>`;
+    gbox.querySelector('details').addEventListener('toggle', e => ls('lp_grzOpen', e.target.open ? '1' : '0'));
+  };
+  gbox.addEventListener('click', e => { const b = e.target.closest('.grzb'); if (b) { e.preventDefault(); setHa(+b.dataset.ha); } });
   const refresh = () => {
     const k = findKunde(f.kunde.value), cur = sel.value || a.kfeld || '';
     sel.innerHTML = feldOptions(k ? k.id : '', cur);
     box.hidden = !(k && Store.all('felder').some(x => x.kunde === k.id && (x.aktiv !== false || x.id === cur)));
+    grz();
   };
   f.kunde.addEventListener('input', refresh);
   sel.addEventListener('change', () => {
     const fd = feldById(sel.value);
     if (fd && fd.flaeche && !f.flaeche.value) { f.flaeche.value = fd.flaeche; f.flaeche.dispatchEvent(new Event('input', { bubbles: true })); }
+    grz();
   });
+  if (f.flaeche) f.flaeche.addEventListener('input', () => { const v = num(f.flaeche.value); gbox.querySelectorAll('.grzb').forEach(b => b.classList.toggle('on', v != null && +b.dataset.ha === v)); });
   if (f.parzelle) f.parzelle.addEventListener('change', () => { const p = Store.get('parzellen', f.parzelle.value); if (p && p.feldId && feldById(p.feldId)) { refresh(); sel.value = p.feldId; } });
   refresh();
 }
@@ -3136,10 +3159,12 @@ function felderSection(kid) {
   if (!fs.length) return `<div class="box"><h4>🌾 Felder</h4><p class="nr" style="margin:0">${jdLock() ? 'Für diesen Kunden sind in MyJohnDeere keine Felder erfasst.' : 'Felder werden aus MyJohnDeere übernommen (Kunden › MyJohnDeere-Abgleich).'}</p></div>`;
   const tot = fs.filter(f => f.aktiv !== false).reduce((s, f) => s + (f.flaeche || 0), 0);
   return `<div class="box"><h4>🌾 Felder aus MyJohnDeere <small class="nr">${fs.filter(f => f.aktiv !== false).length} · ${fmtNum(r2(tot))} ha</small></h4>
-    <div class="feldlist">${fs.map(f => { const ps = parzOfFeld(f.id); return `<div class="feldrow ${f.aktiv === false ? 'off' : ''}">
-      <div class="grow"><b>${esc(f.name)}</b> <span class="nr">${f.flaeche ? fmtNum(f.flaeche) + ' ha' : ''}${f.betrieb ? ' · ' + esc(f.betrieb) : ''}${f.aktiv === false ? ' · archiviert' : ''}</span>
-        <div class="s">${ps.length ? '🧪 ' + ps.map(p => esc(p.name)).join(', ') : '<span class="nr">keine Pflanzenschutz-Parzelle zugewiesen</span>'}</div></div>
-      <button type="button" class="btn small" data-act="feldAssign" data-id="${f.id}">Parzellen zuweisen</button></div>`; }).join('')}</div></div>`;
+    <p class="nr" style="margin:0 0 6px">Feld antippen zeigt alle Vermessungen.</p>
+    <div class="feldlist">${fs.map(f => { const ps = parzOn() ? parzOfFeld(f.id) : [], ng = Array.isArray(f.grenzen) ? f.grenzen.length : null; return `<div class="feldrow ${f.aktiv === false ? 'off' : ''}">
+      <div class="grow"><div class="feldhead" data-act="feldGrz" data-id="${f.id}" role="button" title="Vermessungen anzeigen"><b class="fldlink">${esc(f.name)}</b> <span class="nr">${f.flaeche ? fmtNum(f.flaeche) + ' ha' : ''}${f.betrieb ? ' · ' + esc(f.betrieb) : ''}${f.aktiv === false ? ' · archiviert' : ''}${ng ? ` · 📐 ${ng} Vermessung${ng > 1 ? 'en' : ''}` : ''}</span></div>
+        ${parzOn() ? `<div class="s">${ps.length ? '🧪 ' + ps.map(p => esc(p.name)).join(', ') : '<span class="nr">keine Pflanzenschutz-Parzelle zugewiesen</span>'}</div>` : ''}</div>
+      ${parzOn() ? `<button type="button" class="btn small" data-act="feldAssign" data-id="${f.id}">Parzellen zuweisen</button>` : ''}
+      <div class="grzbox" id="grz-${f.id}" hidden></div></div>`; }).join('')}</div></div>`;
 }
 function feldAssignDialog(fid) {
   const fd = feldById(fid); if (!fd) return;
@@ -3322,12 +3347,12 @@ function grenzenHtml(f) {
   if (!g.length) return `<p class="nr">Für «${esc(f.name)}» ist in MyJohnDeere keine Vermessung gespeichert.</p>`;
   const dd = s => s ? esc(fmtDate(String(s).slice(0, 10), { day: '2-digit', month: '2-digit', year: 'numeric' })) : '';
   const L = g.slice().sort((a, b) => (b.aktiv - a.aktiv) || String(b.erstellt || b.geaendert || '').localeCompare(String(a.erstellt || a.geaendert || '')));
-  const mitE = L.some(x => x.erstellt), mitQ = L.some(x => x.quelle), mitS = L.some(x => x.signal);
-  return `<div class="grzwrap"><table class="btab kv grz"><thead><tr><th>Vermessung</th><th class="n">Fläche</th><th class="n">bearbeitbar</th>${mitQ ? '<th>Quelle</th>' : ''}${mitS ? '<th>Signal</th>' : ''}${mitE ? '<th>Erstellt</th>' : ''}<th>Geändert</th></tr></thead><tbody>
+  const mitE = L.some(x => x.erstellt), mitQ = L.some(x => x.quelle), mitS = L.some(x => x.signal), mitG = L.some(x => x.geaendert && String(x.geaendert) !== String(x.erstellt || ''));
+  return `<div class="grzwrap"><table class="btab kv grz"><thead><tr><th>Vermessung</th><th class="n">Fläche</th><th class="n">bearbeitbar</th>${mitQ ? '<th>Quelle</th>' : ''}${mitS ? '<th>Signal</th>' : ''}${mitE ? '<th>Erstellt</th>' : ''}${mitG || !mitE ? '<th>Geändert</th>' : ''}</tr></thead><tbody>
     ${L.map(x => `<tr class="${x.aktiv ? 'grz-akt' : ''}${x.archiviert ? ' grz-arch' : ''}"><td>${esc(x.name || '(ohne Namen)')}${x.aktiv ? ' <span class="badge geplant">aktiv</span>' : ''}${x.archiviert ? ' <span class="nr">archiviert</span>' : ''}</td>
       <td class="n">${x.ha != null ? fmtNum(x.ha) + ' ha' : ''}</td><td class="n">${x.bha != null ? fmtNum(x.bha) + ' ha' : ''}</td>
       ${mitQ ? `<td title="${esc(x.quelle || '')}">${esc(grzQuelle(x.quelle))}</td>` : ''}${mitS ? `<td title="${esc(x.signal || '')}">${x.signal ? `<span class="sig ${grzRtk(x.signal) ? 'sig-rtk' : ''}">${esc(grzSignal(x.signal))}</span>` : ''}</td>` : ''}
-      ${mitE ? `<td>${dd(x.erstellt)}</td>` : ''}<td>${dd(x.geaendert)}</td></tr>`).join('')}</tbody></table></div>
+      ${mitE ? `<td>${dd(x.erstellt)}</td>` : ''}${mitG || !mitE ? `<td>${x.geaendert && String(x.geaendert) !== String(x.erstellt || '') ? dd(x.geaendert) : ''}</td>` : ''}</tr>`).join('')}</tbody></table></div>
     ${!mitE || !mitS ? `<p class="nr" style="margin-top:6px">${!mitS ? 'Signaltyp' : ''}${!mitS && !mitE ? ' und ' : ''}${!mitE ? 'Erstellungsdatum' : ''}: ${L.some(x => 'signal' in x) || mitE ? 'liefert MyJohnDeere für dieses Feld nicht.' : 'kommt mit dem NAS-Dienst ab Version 48.'}</p>` : ''}`;
 }
 // Eigenes Fenster «Vermessungen» (Klick auf das Feld in den Listen von Bericht und Abrechnung)
@@ -3336,6 +3361,13 @@ function grenzenDialog(fe, lbl, kunde) {
   const kopf = `<table class="btab kv">${kunde ? `<tr><td class="nr">Kunde</td><td>${esc(kunde)}</td></tr>` : ''}<tr><td class="nr">Feld</td><td>${esc(fe ? fe.name : lbl)}</td></tr>
     ${fe && fe.flaeche != null ? `<tr><td class="nr">Fläche (Stammdaten)</td><td>${fmtNum(fe.flaeche)} ha</td></tr>` : ''}${n ? `<tr><td class="nr">Vermessungen</td><td>${n}</td></tr>` : ''}</table>`;
   Dlg.open(`Vermessungen – ${fe ? fe.name : lbl || 'Feld'}`, `${kopf}<div style="margin-top:12px">${grenzenHtml(fe)}</div>`, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
+}
+
+// Kundenkarte: Feld antippen klappt die Vermessungen auf/zu
+function feldGrzToggle(fid) {
+  const box = document.getElementById('grz-' + fid); if (!box) return;
+  if (box.hidden) box.innerHTML = grenzenHtml(feldById(fid));
+  box.hidden = !box.hidden; box.closest('.feldrow')?.classList.toggle('grzopen', !box.hidden);
 }
 /* ================= JD-Arbeitsbericht: Arbeitsgänge aus MyJohnDeere auswerten =================
    Quelle: «jd-arbeiten.json» im Dropbox-Ordner (vom NAS-Dienst jd-sync). Vorerst ohne Verknüpfung zu den Planungsdaten. */
@@ -5153,6 +5185,7 @@ document.addEventListener('click', async e => {
       App.render(); break;
     }
     case 'editKunde': kundeDialog(id); break;
+    case 'feldGrz': feldGrzToggle(id); break;
     case 'delKunde': {
       const n = Store.all('auftraege').filter(a => a.kunde === id).length;
       if (confirm(n ? `Dieser Kunde hat ${n} Aufträge. Trotzdem löschen?` : 'Kunde löschen?')) { Store.remove('kunden', id); Dlg.close(); } break;
@@ -5244,6 +5277,7 @@ document.addEventListener('change', e => {
   if (k === 'spDay') { if (e.target.checked) App.spray.off.delete(e.target.value); else App.spray.off.add(e.target.value); App.render(); return; }
   if (k === 'mpDate' && e.target.value) { machinePlanDialog(e.target.dataset.id, e.target.value); return; }
   if (k === 'kAll') { App.filter.kall = e.target.checked; App.render(); return; }
+  if (k === 'parzOn') { Store.setCfg({ parzZuweisung: e.target.checked }, { silent: false }); App.render(); return; }
   if (k === 'pDate' && e.target.value) { App.plan.date = parseDate(e.target.value); App.render(); }
   if (k === 'cfg') {
     const key = e.target.dataset.k, v = e.target.value.trim();

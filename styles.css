@@ -75,7 +75,7 @@ a { color: var(--accent); }
 /* ---------- Navigation ---------- */
 .tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-  display: grid; grid-template-columns: repeat(6, 1fr);
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
   background: var(--surface); border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
 }
@@ -967,3 +967,21 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 /* v72: Signaltyp der Vermessung */
 .sig { display: inline-block; padding: 1px 7px; border-radius: 9px; font-size: 12px; font-weight: 600; background: var(--surface-2); border: 1px solid var(--line); color: var(--text); }
 .sig.sig-rtk { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+/* v74: Kunden-Feld antippen → Vermessungen; Vermessungen im Auftrag */
+.feldhead { cursor: pointer; }
+.feldhead:hover .fldlink { text-decoration-style: solid; }
+.feldrow { flex-wrap: wrap; }
+.feldrow .grzbox { flex: 0 0 100%; margin-top: 2px; }
+
+.grzpick { margin: -4px 0 12px; }
+.grzpick summary { cursor: pointer; font-size: 13px; color: var(--accent); padding: 4px 0; }
+.grzlist { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.grzi { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.grzi.arch { opacity: .65; }
+.grzb { border: 1px solid var(--line); background: var(--surface); color: var(--text); border-radius: 9px; padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+.grzb span:not(.badge) { color: var(--muted); }
+.grzb:hover { border-color: var(--accent); }
+.grzb.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.grzi .nr { font-size: 12px; }
+.feldlist { grid-template-columns: minmax(0, 1fr); }
+.feldrow .btn.small { flex: none; }
