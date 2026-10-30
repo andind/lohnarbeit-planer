@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '74', APP_STAND = '29.10.2026';
+const APP_VERSION = '75', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -3123,8 +3123,8 @@ function wireFeld(f, a) {
   const gbox = document.createElement('div'); gbox.className = 'grzpick'; gbox.hidden = true; box.after(gbox);
   const setHa = v => { if (!f.flaeche || v == null) return; f.flaeche.value = v; f.flaeche.dispatchEvent(new Event('input', { bubbles: true })); f.flaeche.dispatchEvent(new Event('change', { bubbles: true })); gbox.querySelectorAll('.grzb').forEach(b => b.classList.toggle('on', +b.dataset.ha === +v)); };
   const grz = () => {
-    const fd = feldById(sel.value), L = fd && Array.isArray(fd.grenzen) ? fd.grenzen.slice().sort((x, y) => (y.aktiv - x.aktiv) || String(y.erstellt || y.geaendert || '').localeCompare(String(x.erstellt || x.geaendert || ''))) : [];
-    gbox.hidden = box.hidden || !L.length; if (gbox.hidden) { gbox.innerHTML = ''; return; }
+    const fd = feldById(sel.value), nArch = fd ? grzArchN(fd.grenzen) : 0, L = fd && Array.isArray(fd.grenzen) ? grzSicht(fd.grenzen, gbox.dataset.arch === '1').sort((x, y) => (y.aktiv - x.aktiv) || String(y.erstellt || y.geaendert || '').localeCompare(String(x.erstellt || x.geaendert || ''))) : [];
+    gbox.hidden = box.hidden || (!L.length && !nArch); if (gbox.hidden) { gbox.innerHTML = ''; return; }
     const cur = num(f.flaeche && f.flaeche.value), dd = s => s ? fmtDate(String(s).slice(0, 10), { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
     const btn = (x, v, lbl) => `<button type="button" class="grzb${cur != null && +v === +cur ? ' on' : ''}" data-ha="${v}" title="Fläche ${fmtNum(v)} ha als Auftragsfläche übernehmen">${lbl}</button>`;
     const open = gbox.querySelector('details')?.open ?? ls('lp_grzOpen') === '1';
@@ -3132,10 +3132,12 @@ function wireFeld(f, a) {
       const v = x.ha ?? x.bha; if (v == null) return '';
       return `<div class="grzi${x.archiviert ? ' arch' : ''}">${btn(x, v, `<b>${fmtNum(v)} ha</b> <span>${esc(x.name || '(ohne Namen)')}</span>${x.aktiv ? ' <span class="badge geplant">aktiv</span>' : ''}`)}
         ${x.bha != null && x.ha != null && Math.abs(x.bha - x.ha) >= 0.005 ? btn(x, x.bha, `bearbeitbar ${fmtNum(x.bha)} ha`) : ''}
-        <span class="nr">${[grzSignal(x.signal), x.erstellt ? 'erstellt ' + dd(x.erstellt) : x.geaendert ? dd(x.geaendert) : '', x.archiviert ? 'archiviert' : ''].filter(Boolean).join(' · ')}</span></div>`; }).join('')}</div></details>`;
+        <span class="nr">${[grzSignal(x.signal), x.erstellt ? 'erstellt ' + dd(x.erstellt) : x.geaendert ? dd(x.geaendert) : '', x.archiviert ? 'archiviert' : ''].filter(Boolean).join(' · ')}</span></div>`; }).join('')}
+      ${nArch ? `<a href="#" class="grzarch nr">${gbox.dataset.arch === '1' ? 'Archivierte ausblenden' : `Auch archivierte anzeigen (${nArch})`}</a>` : ''}</div></details>`;
     gbox.querySelector('details').addEventListener('toggle', e => ls('lp_grzOpen', e.target.open ? '1' : '0'));
   };
-  gbox.addEventListener('click', e => { const b = e.target.closest('.grzb'); if (b) { e.preventDefault(); setHa(+b.dataset.ha); } });
+  gbox.addEventListener('click', e => { const b = e.target.closest('.grzb'); if (b) { e.preventDefault(); setHa(+b.dataset.ha); return; }
+    if (e.target.closest('.grzarch')) { e.preventDefault(); gbox.dataset.arch = gbox.dataset.arch === '1' ? '' : '1'; grz(); } });
   const refresh = () => {
     const k = findKunde(f.kunde.value), cur = sel.value || a.kfeld || '';
     sel.innerHTML = feldOptions(k ? k.id : '', cur);
@@ -3146,7 +3148,7 @@ function wireFeld(f, a) {
   sel.addEventListener('change', () => {
     const fd = feldById(sel.value);
     if (fd && fd.flaeche && !f.flaeche.value) { f.flaeche.value = fd.flaeche; f.flaeche.dispatchEvent(new Event('input', { bubbles: true })); }
-    grz();
+    gbox.dataset.arch = ''; grz();
   });
   if (f.flaeche) f.flaeche.addEventListener('input', () => { const v = num(f.flaeche.value); gbox.querySelectorAll('.grzb').forEach(b => b.classList.toggle('on', v != null && +b.dataset.ha === v)); });
   if (f.parzelle) f.parzelle.addEventListener('change', () => { const p = Store.get('parzellen', f.parzelle.value); if (p && p.feldId && feldById(p.feldId)) { refresh(); sel.value = p.feldId; } });
@@ -3160,7 +3162,7 @@ function felderSection(kid) {
   const tot = fs.filter(f => f.aktiv !== false).reduce((s, f) => s + (f.flaeche || 0), 0);
   return `<div class="box"><h4>🌾 Felder aus MyJohnDeere <small class="nr">${fs.filter(f => f.aktiv !== false).length} · ${fmtNum(r2(tot))} ha</small></h4>
     <p class="nr" style="margin:0 0 6px">Feld antippen zeigt alle Vermessungen.</p>
-    <div class="feldlist">${fs.map(f => { const ps = parzOn() ? parzOfFeld(f.id) : [], ng = Array.isArray(f.grenzen) ? f.grenzen.length : null; return `<div class="feldrow ${f.aktiv === false ? 'off' : ''}">
+    <div class="feldlist">${fs.map(f => { const ps = parzOn() ? parzOfFeld(f.id) : [], ng = Array.isArray(f.grenzen) ? grzSicht(f.grenzen).length : null; return `<div class="feldrow ${f.aktiv === false ? 'off' : ''}">
       <div class="grow"><div class="feldhead" data-act="feldGrz" data-id="${f.id}" role="button" title="Vermessungen anzeigen"><b class="fldlink">${esc(f.name)}</b> <span class="nr">${f.flaeche ? fmtNum(f.flaeche) + ' ha' : ''}${f.betrieb ? ' · ' + esc(f.betrieb) : ''}${f.aktiv === false ? ' · archiviert' : ''}${ng ? ` · 📐 ${ng} Vermessung${ng > 1 ? 'en' : ''}` : ''}</span></div>
         ${parzOn() ? `<div class="s">${ps.length ? '🧪 ' + ps.map(p => esc(p.name)).join(', ') : '<span class="nr">keine Pflanzenschutz-Parzelle zugewiesen</span>'}</div>` : ''}</div>
       ${parzOn() ? `<button type="button" class="btn small" data-act="feldAssign" data-id="${f.id}">Parzellen zuweisen</button>` : ''}
@@ -3340,11 +3342,22 @@ function grzSignal(s) {
   return v;
 }
 const grzRtk = s => /^RTK/i.test(grzSignal(s));
-function grenzenHtml(f) {
+// Archivierte Vermessungen nur auf Wunsch (Link «auch archivierte anzeigen», gilt nur für die jeweilige Anzeige)
+const grzSicht = (g, arch) => (g || []).filter(x => arch || !x.archiviert);
+const grzArchN = g => (g || []).filter(x => x.archiviert).length;
+function grenzenHtml(f, arch) {
   if (!f) return '<p class="nr">Kein passendes Feld in den Stammdaten gefunden.</p>';
-  const g = f.grenzen;
-  if (!g) return `<p class="nr">Für «${esc(f.name)}» sind noch keine Vermessungen gespeichert – sie kommen mit dem NAS-Dienst ab Version 46 beim nächsten Abgleich.</p>`;
-  if (!g.length) return `<p class="nr">Für «${esc(f.name)}» ist in MyJohnDeere keine Vermessung gespeichert.</p>`;
+  return `<div class="grzhost" data-fid="${esc(f.id)}" data-arch="${arch ? 1 : 0}">${grenzenInner(f, arch)}</div>`;
+}
+function grzArchLink(f, arch) {
+  const n = grzArchN(f.grenzen); if (!n) return '';
+  return `<p class="nr" style="margin:6px 0 0"><a href="#" data-act="grzArch" data-id="${esc(f.id)}">${arch ? 'Archivierte ausblenden' : `Auch archivierte anzeigen (${n})`}</a></p>`;
+}
+function grenzenInner(f, arch) {
+  const g0 = f.grenzen;
+  if (!g0) return `<p class="nr">Für «${esc(f.name)}» sind noch keine Vermessungen gespeichert – sie kommen mit dem NAS-Dienst ab Version 46 beim nächsten Abgleich.</p>`;
+  const g = grzSicht(g0, arch);
+  if (!g.length) return `<p class="nr">Für «${esc(f.name)}» ist in MyJohnDeere ${g0.length ? 'nur archivierte Vermessungen gespeichert' : 'keine Vermessung gespeichert'}.</p>${grzArchLink(f, arch)}`;
   const dd = s => s ? esc(fmtDate(String(s).slice(0, 10), { day: '2-digit', month: '2-digit', year: 'numeric' })) : '';
   const L = g.slice().sort((a, b) => (b.aktiv - a.aktiv) || String(b.erstellt || b.geaendert || '').localeCompare(String(a.erstellt || a.geaendert || '')));
   const mitE = L.some(x => x.erstellt), mitQ = L.some(x => x.quelle), mitS = L.some(x => x.signal), mitG = L.some(x => x.geaendert && String(x.geaendert) !== String(x.erstellt || ''));
@@ -3352,14 +3365,14 @@ function grenzenHtml(f) {
     ${L.map(x => `<tr class="${x.aktiv ? 'grz-akt' : ''}${x.archiviert ? ' grz-arch' : ''}"><td>${esc(x.name || '(ohne Namen)')}${x.aktiv ? ' <span class="badge geplant">aktiv</span>' : ''}${x.archiviert ? ' <span class="nr">archiviert</span>' : ''}</td>
       <td class="n">${x.ha != null ? fmtNum(x.ha) + ' ha' : ''}</td><td class="n">${x.bha != null ? fmtNum(x.bha) + ' ha' : ''}</td>
       ${mitQ ? `<td title="${esc(x.quelle || '')}">${esc(grzQuelle(x.quelle))}</td>` : ''}${mitS ? `<td title="${esc(x.signal || '')}">${x.signal ? `<span class="sig ${grzRtk(x.signal) ? 'sig-rtk' : ''}">${esc(grzSignal(x.signal))}</span>` : ''}</td>` : ''}
-      ${mitE ? `<td>${dd(x.erstellt)}</td>` : ''}${mitG || !mitE ? `<td>${x.geaendert && String(x.geaendert) !== String(x.erstellt || '') ? dd(x.geaendert) : ''}</td>` : ''}</tr>`).join('')}</tbody></table></div>
+      ${mitE ? `<td>${dd(x.erstellt)}</td>` : ''}${mitG || !mitE ? `<td>${x.geaendert && String(x.geaendert) !== String(x.erstellt || '') ? dd(x.geaendert) : ''}</td>` : ''}</tr>`).join('')}</tbody></table></div>${grzArchLink(f, arch)}
     ${!mitE || !mitS ? `<p class="nr" style="margin-top:6px">${!mitS ? 'Signaltyp' : ''}${!mitS && !mitE ? ' und ' : ''}${!mitE ? 'Erstellungsdatum' : ''}: ${L.some(x => 'signal' in x) || mitE ? 'liefert MyJohnDeere für dieses Feld nicht.' : 'kommt mit dem NAS-Dienst ab Version 48.'}</p>` : ''}`;
 }
 // Eigenes Fenster «Vermessungen» (Klick auf das Feld in den Listen von Bericht und Abrechnung)
 function grenzenDialog(fe, lbl, kunde) {
-  const n = fe && fe.grenzen ? fe.grenzen.length : 0;
+  const n = fe && fe.grenzen ? grzSicht(fe.grenzen).length : 0, na = fe ? grzArchN(fe.grenzen) : 0;
   const kopf = `<table class="btab kv">${kunde ? `<tr><td class="nr">Kunde</td><td>${esc(kunde)}</td></tr>` : ''}<tr><td class="nr">Feld</td><td>${esc(fe ? fe.name : lbl)}</td></tr>
-    ${fe && fe.flaeche != null ? `<tr><td class="nr">Fläche (Stammdaten)</td><td>${fmtNum(fe.flaeche)} ha</td></tr>` : ''}${n ? `<tr><td class="nr">Vermessungen</td><td>${n}</td></tr>` : ''}</table>`;
+    ${fe && fe.flaeche != null ? `<tr><td class="nr">Fläche (Stammdaten)</td><td>${fmtNum(fe.flaeche)} ha</td></tr>` : ''}${n || na ? `<tr><td class="nr">Vermessungen</td><td>${n}${na ? ` <span class="nr">(+ ${na} archiviert)</span>` : ''}</td></tr>` : ''}</table>`;
   Dlg.open(`Vermessungen – ${fe ? fe.name : lbl || 'Feld'}`, `${kopf}<div style="margin-top:12px">${grenzenHtml(fe)}</div>`, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
 }
 
@@ -3368,6 +3381,12 @@ function feldGrzToggle(fid) {
   const box = document.getElementById('grz-' + fid); if (!box) return;
   if (box.hidden) box.innerHTML = grenzenHtml(feldById(fid));
   box.hidden = !box.hidden; box.closest('.feldrow')?.classList.toggle('grzopen', !box.hidden);
+}
+
+function grzArchToggle(el) {
+  const host = el.closest('.grzhost'); if (!host) return;
+  const f = feldById(host.dataset.fid); if (!f) return;
+  host.outerHTML = grenzenHtml(f, host.dataset.arch !== '1');
 }
 /* ================= JD-Arbeitsbericht: Arbeitsgänge aus MyJohnDeere auswerten =================
    Quelle: «jd-arbeiten.json» im Dropbox-Ordner (vom NAS-Dienst jd-sync). Vorerst ohne Verknüpfung zu den Planungsdaten. */
@@ -5186,6 +5205,7 @@ document.addEventListener('click', async e => {
     }
     case 'editKunde': kundeDialog(id); break;
     case 'feldGrz': feldGrzToggle(id); break;
+    case 'grzArch': grzArchToggle(t); break;
     case 'delKunde': {
       const n = Store.all('auftraege').filter(a => a.kunde === id).length;
       if (confirm(n ? `Dieser Kunde hat ${n} Aufträge. Trotzdem löschen?` : 'Kunde löschen?')) { Store.remove('kunden', id); Dlg.close(); } break;
