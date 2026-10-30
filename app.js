@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '76', APP_STAND = '29.10.2026';
+const APP_VERSION = '77', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -579,6 +579,8 @@ const App = {
   alimit: 150,
   go(v) { this.view = v; ls('lp_view', v); this.lastView = null; this.tlScroll = null; window.scrollTo(0, 0); this.render(); },
   render() {
+    if (this.view === 'rueben' && !rsOn()) this.view = 'auftraege';
+    rsNav();
     const navV = this.view === 'maschinen' ? 'mehr' : this.view;
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === navV));
     const fresh = this.lastView !== this.view; this.lastView = this.view;
@@ -880,6 +882,7 @@ const Views = {
   spritzen: sprayView(),
   jdbericht: jdBerichtView(),
   abrechnung: abView(),
+  rueben: rsView(),
 
   /* ---------- Kunden ---------- */
   kunden: {
@@ -962,6 +965,7 @@ const Views = {
         ${uiScalePanel()}
         ${typeof icsPanel === 'function' ? icsPanel() : ''}
         ${jdOcPanel()}
+        ${rsPanel()}
         <div class="panel"><h2>Planung: Achsen</h2>
           <div class="two">
             <label class="fld"><span>Wochenansicht</span><select class="input" data-plain data-in="axW"><option value="tage">Tage untereinander, Maschinen nebeneinander</option><option value="maschinen" ${App.plan.axW === 'maschinen' ? 'selected' : ''}>Maschinen untereinander, Tage nebeneinander</option></select></label>
@@ -1074,7 +1078,8 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
   const isNew = !id;
   const a = isNew ? { id: uid(), erfasst: Date.now(), nr: Store.nextAuftragNr(), status: 'offen', kunde: kundeId || '', arbeit: arbeit || '' } : structuredClone(Store.get('auftraege', id));
   if (!a) return;
-  if (isNew && vorlage) Object.assign(a, structuredClone(vorlage));
+  const vTitel = vorlage && vorlage.titel;
+  if (isNew && vorlage) { Object.assign(a, structuredClone(vorlage)); delete a.titel; }
   if (isNew) sprayDefaults(a);
   if (isNew && pre) { a.maschine = pre.maschine || ''; a.zeit = pre.zeit || ''; plan = true; }
   const k = a.kunde && Store.get('kunden', a.kunde);
@@ -1130,7 +1135,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
     <p class="nr">Auftrag ${esc(a.nr || '')}</p>`;
   const footer = saveFooter(isNew ? '' : `<button type="button" class="btn danger" data-act="delOrder" data-id="${a.id}">Löschen</button><button type="button" class="btn" data-act="dupOrder" data-id="${a.id}">Kopie</button>`);
 
-  Dlg.open(isNew ? (vorlage ? 'Spritzauftrag erfassen' : 'Neuer Auftrag') : 'Auftrag', body, footer, fd => {
+  Dlg.open(isNew ? (vorlage ? (vTitel || 'Spritzauftrag erfassen') : 'Neuer Auftrag') : 'Auftrag', body, footer, fd => {
     const kTxt = (fd.get('kunde') || '').trim();
     const kunde = findKunde(kTxt);
     if (!kunde) { toast('Kunde nicht gefunden – bitte aus den Vorschlägen wählen.', 4000); Dlg.form.kunde.focus(); return false; }
@@ -5022,6 +5027,437 @@ function icsPanel() {
         Outlook holt Änderungen selbst ab, je nach Version alle paar Stunden. Der Kalender ist nur zum Lesen.</div>` : '<p class="nr">Freigabe-Link erstellen (oder in Dropbox bei der Datei «planung.ics» › Teilen › Link kopieren) und hier einfügen.</p>'}` : ''}
   </div>`;
 }
+/* ================= Rübensamen: Saatgutbestellung Zuckerrüben (Saisonmodul, ein-/ausschaltbar) ================= */
+// Ein Datensatz pro Jahr in «einstellungen», id «rs-<jahr>»:
+// { jahr, dpha (Dosen/ha), mwst, versand (pro Dose), lege, fga, fgp,
+//   sorten:[{id,name,gruppe:'std'|'conv',preis,versand}], cone:{name,preis,versand,faktor},
+//   rows:[{id,kunde,name,ha:{sid:ha},cone,saat:[{d,ha,txt}],notiz}],
+//   rest:{sid|'cone':Dosen}, extra:[{id,name,d:{sid:Dosen}}], best:{sid|'cone':Anzahl} }
+const rsOn = () => !!Store.cfg().rsOn;
+const rsId = y => 'rs-' + y;
+const rsYears = () => Store.all('einstellungen').filter(r => /^rs-\d{4}$/.test(r.id)).map(r => r.jahr).sort((a, b) => b - a);
+const rsGet = y => Store.get('einstellungen', rsId(y));
+const rsBlank = y => ({ id: rsId(y), jahr: y, dpha: 1.2, mwst: 0.026, versand: 10, lege: 17, fga: 21, fgp: 0.2, sorten: [], cone: { name: 'Conviso One', preis: null, versand: 5, faktor: 1 }, rows: [], rest: {}, extra: [], best: {} });
+const rsDefYear = () => { const d = new Date(); return d.getMonth() >= 7 ? d.getFullYear() + 1 : d.getFullYear(); };
+function rsState() { if (!App.rs) App.rs = { y: null, sub: ls('lp_rsSub') || 'flaechen' }; if (!App.rs.y) App.rs.y = rsYears()[0] || rsDefYear(); return App.rs; }
+const rsYear = () => rsState().y;
+function rsRec() { const y = rsYear(); return rsGet(y) || rsBlank(y); }
+function rsSave(rec, render = true) { Store.put('einstellungen', structuredClone(rec), { silent: true }); if (render) rsRender(); }
+function rsRender() {
+  setTimeout(() => {
+    const a = document.activeElement, key = a && a.dataset ? a.dataset.rsk : null, sx = window.scrollX, sy = window.scrollY;
+    const wrap = $('.rsmatrix'), wl = wrap ? wrap.scrollLeft : 0;
+    App.render(); window.scrollTo(sx, sy);
+    const w2 = $('.rsmatrix'); if (w2) w2.scrollLeft = wl;
+    if (key) { const el = $(`[data-rsk="${key}"]`); if (el) { el.focus(); try { el.select(); } catch { } } }
+  }, 0);
+}
+const rsNum = v => { const n = num(v); return n == null || !isFinite(n) ? null : n; };
+const rsRowName = r => r.kunde ? kundeName(r.kunde) : (r.name || '–');
+const rsConv = rec => rec.sorten.filter(s => s.gruppe === 'conv');
+const rsStd = rec => rec.sorten.filter(s => s.gruppe !== 'conv');
+const rsSorted = rec => [...rsStd(rec), ...rsConv(rec)];
+const rsRowHa = (rec, r) => r2(rec.sorten.reduce((s, x) => s + ((r.ha || {})[x.id] || 0), 0));
+const rsRowConvHa = (rec, r) => r2(rsConv(rec).reduce((s, x) => s + ((r.ha || {})[x.id] || 0), 0));
+const rsRowCone = (rec, r) => r.cone != null ? r.cone : rsRowConvHa(rec, r); // Conviso One: ohne Eingabe = Fläche der Conviso-Sorten
+const rsVersand = (rec, s) => s.versand != null ? s.versand : (rec.versand || 0);
+const rsPreisDose = (rec, s) => s && s.preis != null ? r2(s.preis * (1 + (rec.mwst || 0)) + rsVersand(rec, s)) : null;
+const rsConePreis = rec => rec.cone && rec.cone.preis != null ? r2(rec.cone.preis * (1 + (rec.mwst || 0)) + (rec.cone.versand ?? 0)) : null;
+const rsCeil = x => x > 0 ? Math.ceil(x - 1e-9) : 0;
+// Bedarf und Bestellung pro Sorte (wie in der Excel-Tabelle: Fläche × Dosen/ha − Restmenge + zusätzliche Abnehmer)
+function rsNeed(rec) {
+  const L = rsSorted(rec).map(s => {
+    const ha = r2(rec.rows.reduce((t, r) => t + ((r.ha || {})[s.id] || 0), 0)), bedarf = r2(ha * (rec.dpha || 0)), rest = rec.rest[s.id] || 0;
+    const extra = r2(rec.extra.reduce((t, x) => t + ((x.d || {})[s.id] || 0), 0)), total = r2(bedarf - rest + extra), vorschlag = rsCeil(total);
+    const best = rec.best[s.id] != null ? rec.best[s.id] : vorschlag, pd = rsPreisDose(rec, s);
+    return { key: s.id, s, name: s.name, gruppe: s.gruppe, ha, bedarf, rest, extra, total, vorschlag, best, manuell: rec.best[s.id] != null, pd, betrag: pd != null ? r2(best * pd) : 0 };
+  });
+  const c = rec.cone || {}, cha = r2(rec.rows.reduce((t, r) => t + (rsRowCone(rec, r) || 0), 0));
+  if (cha || rec.best.cone != null || rsConv(rec).length) {
+    const bedarf = r2(cha * (c.faktor ?? 1)), rest = rec.rest.cone || 0, total = r2(bedarf - rest), vorschlag = rsCeil(total), best = rec.best.cone != null ? rec.best.cone : vorschlag, pd = rsConePreis(rec);
+    L.push({ key: 'cone', s: null, name: c.name || 'Conviso One', gruppe: 'cone', ha: cha, bedarf, rest, extra: 0, total, vorschlag, best, manuell: rec.best.cone != null, pd, betrag: pd != null ? r2(best * pd) : 0 });
+  }
+  return L;
+}
+// Kosten pro Kunde: Dosen = ha × Dosen/ha, Preis pro Dose inkl. MwSt und Vertriebskosten
+function rsKosten(rec) {
+  return rec.rows.map(r => {
+    const pos = rsSorted(rec).filter(s => (r.ha || {})[s.id]).map(s => { const ha = r.ha[s.id], d = r2(ha * (rec.dpha || 0)), pd = rsPreisDose(rec, s); return { name: s.name, ha, d, pd, betrag: pd != null ? r2(d * pd) : null }; });
+    const ch = rsRowCone(rec, r); if (ch) { const d = r2(ch * (rec.cone.faktor ?? 1)), pd = rsConePreis(rec); pos.push({ name: rec.cone.name || 'Conviso One', ha: ch, d, pd, betrag: pd != null ? r2(d * pd) : null, cone: true }); }
+    return { r, pos, total: r2(pos.reduce((t, p) => t + (p.betrag || 0), 0)) };
+  }).filter(x => x.pos.length);
+}
+// Saat: verknüpfte Aufträge (aus dem Modul erstellt) und von Hand erfasste Termine
+const rsRef = (rec, r) => `${rec.jahr}|${r.id}`;
+const rsOrders = (rec, r) => Store.all('auftraege').filter(a => a.rsRef === rsRef(rec, r));
+function rsSaatHtml(rec, r) {
+  const d = s => s ? fmtDate(s, { day: '2-digit', month: '2-digit' }) : '';
+  const O = rsOrders(rec, r).map(a => { const st = statusOf(a), done = st === 'erledigt' || st === 'verrechnet', ha = done ? (a.flaecheEff ?? a.flaeche) : a.flaeche;
+    return `<span class="rssaat ${done ? 'ok' : ''}" data-act="editOrder" data-id="${a.id}" title="Auftrag ${esc(a.nr || '')} · ${esc(STATUS[st])}">${done ? '✓ ' : ''}${a.datum || a.erledigtAm ? d(done && a.erledigtAm ? a.erledigtAm : a.datum) : 'offen'}${ha ? ' · ' + fmtNum(ha) + ' ha' : ''}</span>`; });
+  const M = (r.saat || []).map(x => `<span class="rssaat man" title="von Hand erfasst">${x.d ? d(x.d) : esc(x.txt || '')}${x.d && x.txt ? ' ' + esc(x.txt) : ''}${x.ha ? ' · ' + fmtNum(x.ha) + ' ha' : ''}</span>`);
+  return [...O, ...M].join(' ');
+}
+
+/* ---------- Ansicht ---------- */
+function rsView() {
+  return {
+    toolbar() {
+      return `<h1>Rübensamen</h1><span class="spacer"></span>
+        <label class="btn" title="Excel-Tabelle «Bestellung Rübensamen» (.xlsx)">Excel importieren …<input type="file" accept=".xlsx" data-rsin="import" hidden></label>
+        <button class="btn" data-rs="off" title="Modul aus der Navigation entfernen (Daten bleiben gespeichert; einschalten unter Mehr › Einstellungen)">Modul ausblenden</button>`;
+    },
+    content: rsContent
+  };
+}
+function rsContent() {
+  const S = rsState(), y = S.y, rec = rsRec(), has = !!rsGet(y), sub = ['flaechen', 'bestellung', 'kosten', 'sorten'].includes(S.sub) ? S.sub : 'flaechen';
+  const years = [...new Set([...rsYears(), rsDefYear(), y])].sort((a, b) => b - a);
+  const head = `<div class="filters vbhead">
+      <label class="fld" style="margin:0"><span>Jahr</span><select class="input" data-rsin="year" style="width:auto">${years.map(j => `<option value="${j}" ${j === y ? 'selected' : ''}>${j}${rsGet(j) ? '' : ' (neu)'}</option>`).join('')}</select></label>
+      <div class="seg">${[['flaechen', 'Flächen & Saat'], ['bestellung', 'Bestellung'], ['kosten', 'Kosten pro Kunde'], ['sorten', 'Sorten & Preise']].map(([k, l]) => `<button type="button" data-rs="sub" data-v="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <span class="spacer"></span>
+      ${rsGet(y - 1) && !has ? `<button class="btn" data-rs="fromPrev">Aus ${y - 1} übernehmen</button>` : ''}
+      ${has ? `<button class="btn" data-rs="print">Drucken / PDF</button><button class="btn" data-rs="xlsx">Excel</button>` : ''}
+    </div>`;
+  if (!has) return head + `<div class="panel"><h2>Rübensamen ${y}</h2>
+      <p>Für ${y} ist noch nichts erfasst. ${rsGet(y - 1) ? `Übernimm Sorten, Preise und Kunden aus ${y - 1}, ` : ''}importiere die bisherige Excel-Tabelle «Bestellung Rübensamen» (oben rechts) oder beginne mit den Sorten.</p>
+      <div class="btns">${rsGet(y - 1) ? `<button class="btn primary" data-rs="fromPrev">Aus ${y - 1} übernehmen</button>` : ''}<button class="btn ${rsGet(y - 1) ? '' : 'primary'}" data-rs="start">${y} neu beginnen</button></div></div>`;
+  return head + (sub === 'bestellung' ? rsOrderView(rec) : sub === 'kosten' ? rsKostenView(rec) : sub === 'sorten' ? rsSortenView(rec) : rsAreaView(rec));
+}
+function rsAreaView(rec) {
+  const St = rsStd(rec), Cv = rsConv(rec), All = [...St, ...Cv];
+  if (!All.length) return `<div class="panel"><h2>Flächen ${rec.jahr}</h2><p class="nr">Zuerst unter «Sorten & Preise» die Sorten erfassen.</p><div class="btns"><button class="btn primary" data-rs="sub" data-v="sorten">Sorten & Preise</button></div></div>`;
+  const grp = `<tr class="rsgrp"><th></th>${St.length ? `<th colspan="${St.length}">Standard</th>` : ''}${Cv.length ? `<th colspan="${Cv.length}" class="conv">Conviso Smart</th>` : ''}<th></th><th class="conv">${esc(rec.cone.name || 'Conviso One')}</th><th></th><th></th></tr>`;
+  const th = All.map(s => `<th class="n ${s.gruppe === 'conv' ? 'conv' : ''}" title="${s.preis != null ? 'Grundpreis ' + chf(s.preis) : 'ohne Preis'}">${esc(s.name)}</th>`).join('');
+  const rows = rec.rows.map(r => `<tr><th class="vbrh" data-rs="rowEdit" data-id="${r.id}" title="Kunde, Bemerkung und Saattermine bearbeiten">${esc(rsRowName(r))}${r.kunde ? '' : ' <span class="warnchip" title="Keinem Kunden zugeordnet">?</span>'}${r.notiz ? `<div class="nr rsnotiz">${esc(r.notiz)}</div>` : ''}</th>
+      ${All.map(s => `<td class="n ${s.gruppe === 'conv' ? 'conv' : ''}"><input class="vbin" inputmode="decimal" data-rsin="ha" data-r="${r.id}" data-s="${s.id}" data-rsk="h-${r.id}-${s.id}" value="${(r.ha || {})[s.id] ?? ''}"></td>`).join('')}
+      <td class="n tot">${fmtNum(rsRowHa(rec, r)) || ''}</td>
+      <td class="n conv"><input class="vbin ${r.cone == null ? 'auto' : ''}" inputmode="decimal" data-rsin="cone" data-r="${r.id}" data-rsk="c-${r.id}" value="${r.cone ?? (rsRowConvHa(rec, r) || '')}" title="${r.cone == null ? 'automatisch = Fläche der Conviso-Sorten; überschreibbar' : 'von Hand (leeren = automatisch)'}"></td>
+      <td class="rssaatc">${rsSaatHtml(rec, r)}</td>
+      <td><button type="button" class="btn mini" data-rs="mkOrder" data-id="${r.id}" title="Auftrag «Rüben säen» mit Fläche und Sorten erfassen">＋ Saat</button></td></tr>`).join('');
+  const need = rsNeed(rec), nb = Object.fromEntries(need.map(x => [x.key, x]));
+  const tot = r2(rec.rows.reduce((t, r) => t + rsRowHa(rec, r), 0));
+  return `<div class="panel"><h2>Flächen ${rec.jahr} <small class="nr">ha pro Kunde und Sorte · ${fmtNum(rec.dpha)} Dosen/ha</small></h2>
+    <div class="vbmatrix rsmatrix"><table class="vbtab rstab"><thead>${grp}<tr><th class="vbc">Kunde</th>${th}<th class="n">Total ha</th><th class="n conv">ha</th><th>Saat</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><th>Total ha</th>${All.map(s => `<td class="n"><b>${fmtNum(nb[s.id]?.ha) || ''}</b></td>`).join('')}<td class="n"><b>${fmtNum(tot)}</b></td><td class="n"><b>${fmtNum(nb.cone?.ha) || ''}</b></td><td></td><td></td></tr>
+        <tr class="rsdosen"><th>Bedarf Dosen</th>${All.map(s => `<td class="n">${fmtNum(nb[s.id]?.bedarf) || ''}</td>`).join('')}<td class="n">${fmtNum(r2(tot * rec.dpha))}</td><td class="n">${fmtNum(nb.cone?.bedarf) || ''}</td><td></td><td></td></tr></tfoot></table></div>
+    <div class="btns"><button class="btn" data-rs="rowNew">＋ Kunde</button><button class="btn" data-rs="sortNew">＋ Sorte</button></div>
+    <p class="nr">Fläche direkt in die Zelle tippen (Tab springt weiter). Conviso One grau = automatisch (Fläche der Conviso-Sorten), überschreibbar. Kundennamen antippen für Zuordnung, Bemerkung und Saattermine. «＋ Saatauftrag» erfasst einen Auftrag «Rüben säen»; er erscheint danach in der Spalte Saat (✓ = erledigt).</p></div>`;
+}
+function rsOrderView(rec) {
+  const need = rsNeed(rec), All = rsSorted(rec), sum = need.reduce((t, x) => t + x.betrag, 0);
+  const gl = { std: 'Standard', conv: 'Conviso Smart', cone: 'Herbizid' };
+  let lastG = '';
+  const tr = x => { const g = x.gruppe === 'conv' ? 'conv' : x.gruppe === 'cone' ? 'cone' : 'std', gh = g !== lastG ? `<tr class="gk"><td colspan="10">${gl[g]}</td></tr>` : ''; lastG = g;
+    return gh + `<tr class="${x.total < 0 ? 'vbover' : ''}"><td>${esc(x.name)}</td><td class="n">${fmtNum(x.ha)}</td><td class="n">${fmtNum(x.bedarf)}</td>
+      <td class="n"><input class="vbin" inputmode="decimal" data-rsin="rest" data-k="${x.key}" data-rsk="r-${x.key}" value="${x.rest || ''}" placeholder="0" title="Restmenge an Lager (Dosen)"></td>
+      <td class="n">${x.extra ? fmtNum(x.extra) : ''}</td><td class="n">${fmtNum(x.total)}</td>
+      <td class="n"><input class="vbin ${x.manuell ? '' : 'auto'}" inputmode="decimal" data-rsin="best" data-k="${x.key}" data-rsk="b-${x.key}" value="${x.manuell ? x.best : ''}" placeholder="${x.vorschlag}" title="${x.manuell ? 'von Hand (leeren = Vorschlag)' : 'Vorschlag = Total aufgerundet'}"></td>
+      <td class="n">${x.pd != null ? chf(x.pd) : '<span class="nr">–</span>'}</td><td class="n"><b>${x.betrag ? chf(x.betrag) : ''}</b></td></tr>`; };
+  const ex = rec.extra.map(e => `<tr><th class="vbrh"><input class="vbin wide" data-rsin="exName" data-id="${e.id}" data-rsk="en-${e.id}" value="${esc(e.name || '')}" placeholder="Abnehmer"></th>
+      ${All.map(s => `<td class="n"><input class="vbin" inputmode="decimal" data-rsin="exD" data-id="${e.id}" data-s="${s.id}" data-rsk="ed-${e.id}-${s.id}" value="${(e.d || {})[s.id] ?? ''}"></td>`).join('')}
+      <td><button type="button" class="x" data-rs="exDel" data-id="${e.id}" aria-label="Entfernen">×</button></td></tr>`).join('');
+  return `<div class="panel"><h2>Bestellung ${rec.jahr}</h2>
+    <div class="tscroll"><table class="need vbneed rsneed"><thead><tr><th>Sorte</th><th class="n">ha</th><th class="n">Bedarf Dosen</th><th class="n">Restmenge</th><th class="n">Zusätzlich</th><th class="n">Total Bedarf</th><th class="n">Bestellung</th><th class="n">Preis/Dose</th><th class="n">Betrag CHF</th></tr></thead>
+      <tbody>${need.map(tr).join('') || '<tr><td colspan="9" class="nr">Noch keine Sorten.</td></tr>'}</tbody>
+      <tfoot><tr><th colspan="6">Total Bestellung</th><td class="n"><b>${fmtNum(need.reduce((t, x) => t + (x.key === 'cone' ? 0 : x.best), 0))} Dosen</b></td><td></td><td class="n"><b>${chf(sum)}</b></td></tr></tfoot></table></div>
+    <p class="nr">Bedarf = ha × ${fmtNum(rec.dpha)} Dosen/ha (Conviso One: ha × ${fmtNum(rec.cone.faktor ?? 1)}). Total Bedarf = Bedarf − Restmenge + Zusätzlich. Bestellung grau = Vorschlag (aufgerundet), überschreibbar. Preis/Dose = Grundpreis + ${fmtNum(r2((rec.mwst || 0) * 100))} % MwSt + Vertriebskosten.</p></div>
+    <div class="panel"><h2>Zusätzliche Abnehmer <small class="nr">Dosen, z.B. Dardel</small></h2>
+      ${rec.extra.length ? `<div class="vbmatrix"><table class="vbtab"><thead><tr><th class="vbc">Abnehmer</th>${All.map(s => `<th class="n">${esc(s.name)}</th>`).join('')}<th></th></tr></thead><tbody>${ex}</tbody></table></div>` : '<p class="nr">Keine.</p>'}
+      <div class="btns"><button class="btn" data-rs="exAdd">＋ Abnehmer</button></div></div>`;
+}
+function rsKostenView(rec) {
+  const K = rsKosten(rec), sum = r2(K.reduce((t, k) => t + k.total, 0)), miss = rec.sorten.filter(s => s.preis == null && rec.rows.some(r => (r.ha || {})[s.id])).map(s => s.name);
+  return `<div class="panel"><h2>Kosten pro Kunde ${rec.jahr} <small class="nr">${fmtNum(rec.dpha)} Dosen/ha</small></h2>
+    ${miss.length ? `<p class="warnline">Ohne Preis: ${esc(miss.join(', '))} – unter «Sorten & Preise» erfassen.</p>` : ''}
+    <div class="tscroll"><table class="need rskost"><thead><tr><th>Kunde / Sorte</th><th class="n">ha</th><th class="n">Dosen</th><th class="n">Preis/Dose</th><th class="n">Betrag CHF</th></tr></thead>
+      ${K.map(k => `<tbody><tr class="gk"><td colspan="4">${esc(rsRowName(k.r))}</td><td class="n"><b>${chf(k.total)}</b></td></tr>
+        ${k.pos.map(p => `<tr><td>${esc(p.name)}</td><td class="n">${fmtNum(p.ha)}</td><td class="n">${fmtNum(p.d)}${p.cone ? ' <span class="nr">Einh.</span>' : ''}</td><td class="n">${p.pd != null ? chf(p.pd) : '–'}</td><td class="n">${p.betrag != null ? chf(p.betrag) : ''}</td></tr>`).join('')}</tbody>`).join('')}
+      <tfoot><tr><th colspan="4">Total</th><td class="n"><b>${chf(sum)}</b></td></tr></tfoot></table></div>
+    <p class="nr">Dosen = ha × Dosen/ha (nicht gerundet). Preis pro Dose inkl. MwSt und Vertriebskosten, wie in der Preisberechnung der Excel-Tabelle.</p></div>`;
+}
+function rsSortenView(rec) {
+  const S = rec.sorten, c = rec.cone;
+  const korr = rsKorr(rec), dCalc = r2(2e6 / (rec.lege || 17) / 1e5 * korr);
+  return `<div class="panel"><h2>Sorten & Preise ${rec.jahr}</h2>
+    <div class="tscroll"><table class="need rssort"><thead><tr><th>Sorte</th><th>Gruppe</th><th class="n">Grundpreis CHF</th><th class="n">Vertriebskosten</th><th class="n">Preis/Dose</th><th></th></tr></thead><tbody>
+      ${S.map((s, i) => `<tr><td><input class="vbin wide" data-rsin="sName" data-id="${s.id}" data-rsk="sn-${s.id}" value="${esc(s.name)}"></td>
+        <td><select class="input small" data-rsin="sGruppe" data-id="${s.id}"><option value="std" ${s.gruppe !== 'conv' ? 'selected' : ''}>Standard</option><option value="conv" ${s.gruppe === 'conv' ? 'selected' : ''}>Conviso Smart</option></select></td>
+        <td class="n"><input class="vbin" inputmode="decimal" data-rsin="sPreis" data-id="${s.id}" data-rsk="sp-${s.id}" value="${s.preis ?? ''}"></td>
+        <td class="n"><input class="vbin ${s.versand == null ? 'auto' : ''}" inputmode="decimal" data-rsin="sVersand" data-id="${s.id}" data-rsk="sv-${s.id}" value="${s.versand ?? ''}" placeholder="${fmtNum(rec.versand)}"></td>
+        <td class="n">${rsPreisDose(rec, s) != null ? chf(rsPreisDose(rec, s)) : '–'}</td>
+        <td class="nowrap"><button type="button" class="btn mini" data-rs="sMove" data-id="${s.id}" data-d="-1" ${i ? '' : 'disabled'} title="nach oben">▲</button><button type="button" class="btn mini" data-rs="sMove" data-id="${s.id}" data-d="1" ${i < S.length - 1 ? '' : 'disabled'} title="nach unten">▼</button><button type="button" class="x" data-rs="sDel" data-id="${s.id}" aria-label="Entfernen">×</button></td></tr>`).join('')}
+      <tr class="gk"><td colspan="6">Herbizid</td></tr>
+      <tr><td><input class="vbin wide" data-rsin="cName" data-rsk="cn" value="${esc(c.name || '')}"></td><td><span class="nr">Einheiten/ha</span> <input class="vbin" inputmode="decimal" data-rsin="cFaktor" data-rsk="cf" value="${c.faktor ?? 1}" style="width:4em"></td>
+        <td class="n"><input class="vbin" inputmode="decimal" data-rsin="cPreis" data-rsk="cp" value="${c.preis ?? ''}"></td><td class="n"><input class="vbin" inputmode="decimal" data-rsin="cVersand" data-rsk="cv" value="${c.versand ?? ''}"></td>
+        <td class="n">${rsConePreis(rec) != null ? chf(rsConePreis(rec)) : '–'}</td><td></td></tr></tbody></table></div>
+    <div class="btns"><button class="btn" data-rs="sortNew">＋ Sorte</button></div></div>
+    <div class="panel"><h2>Berechnung</h2>
+      <div class="three"><label class="fld"><span>Dosen pro ha</span><input class="input" inputmode="decimal" data-rsin="dpha" data-rsk="dpha" value="${rec.dpha ?? ''}"></label>
+        <label class="fld"><span>MwSt %</span><input class="input" inputmode="decimal" data-rsin="mwst" data-rsk="mwst" value="${rec.mwst != null ? r2(rec.mwst * 1000) / 10 : ''}"></label>
+        <label class="fld"><span>Vertriebs- und Verwaltungskosten pro Dose CHF</span><input class="input" inputmode="decimal" data-rsin="versand" data-rsk="vers" value="${rec.versand ?? ''}"></label></div>
+      <h4 style="margin:12px 0 6px">Dosen pro ha aus Legeabstand und Fahrgassen</h4>
+      <div class="three"><label class="fld"><span>Legeabstand cm (50 cm Reihen)</span><input class="input" inputmode="decimal" data-rsin="lege" data-rsk="lege" value="${rec.lege ?? ''}"></label>
+        <label class="fld"><span>Fahrgassenabstand m</span><input class="input" inputmode="decimal" data-rsin="fga" data-rsk="fga" value="${rec.fga ?? ''}"></label>
+        <label class="fld"><span>Zuschlag Fahrgasse %</span><input class="input" inputmode="decimal" data-rsin="fgp" data-rsk="fgp" value="${rec.fgp != null ? r2(rec.fgp * 100) : ''}"></label></div>
+      <p>${fmtNum(Math.round(2e6 / (rec.lege || 17)))} Körner/ha · Korrekturfaktor Fahrgassen ${fmtNum(r2(korr * 1000) / 1000)} → <b>${fmtNum(dCalc)} Dosen/ha</b> (1 Dose = 100 000 Körner)
+        <button type="button" class="btn small" data-rs="dphaCalc" data-v="${dCalc}">Übernehmen</button></p>
+      <p class="nr">Formel wie im Blatt «Preisberechnung»: Körner/ha = 2 000 000 / Legeabstand; Faktor = ((FG/3 − 1) × 6 + 4 × Zuschlag + 4) / (FG × 2).</p></div>`;
+}
+const rsKorr = rec => { const fg = rec.fga || 21, p = rec.fgp ?? 0.2; return (((fg / 3 - 1) * 6) + (4 * p + 4)) / (fg * 2); };
+
+/* ---------- Dialoge ---------- */
+function rsRowDialog(id) {
+  const rec = rsRec(), isNew = !id, r = isNew ? { id: uid(), kunde: '', name: '', ha: {}, cone: null, saat: [], notiz: '' } : structuredClone(rec.rows.find(x => x.id === id));
+  if (!r) return;
+  const kOpts = Store.all('kunden').filter(k => k.aktiv !== false || k.id === r.kunde).sort(byName).map(k => `<option value="${k.id}" ${k.id === r.kunde ? 'selected' : ''}>${esc(kundeLabel(k))}</option>`).join('');
+  const sl = (x = {}) => `<div class="prow rssl"><input class="input" type="date" name="sd" value="${esc(x.d || '')}"><input class="input" name="sha" inputmode="decimal" value="${x.ha ?? ''}" placeholder="ha"><input class="input" name="stxt" value="${esc(x.txt || '')}" placeholder="Bemerkung (z.B. Legeabstand)"><button type="button" class="x" data-rs="slDel" aria-label="Entfernen">×</button></div>`;
+  const O = isNew ? [] : rsOrders(rec, r);
+  const body = `<label class="fld"><span>Kunde</span><select class="input" name="kunde" data-combo><option value="">— ohne Zuordnung —</option>${kOpts}</select></label>
+    ${!r.kunde ? `<label class="fld"><span>Bezeichnung (ohne Kunde)${r.name ? ' – aus der Excel-Tabelle' : ''}</span><input class="input" name="name" value="${esc(r.name || '')}"></label>` : ''}
+    <label class="fld"><span>Bemerkung</span><input class="input" name="notiz" value="${esc(r.notiz || '')}"></label>
+    ${O.length ? `<h4 style="margin:10px 0 4px">Saataufträge</h4><div class="rssaatc">${rsSaatHtml(rec, { ...r, saat: [] })}</div>` : ''}
+    <h4 style="margin:10px 0 4px">Saattermine von Hand</h4><div class="rssll">${(r.saat || []).map(sl).join('')}</div>
+    <button type="button" class="btn small" data-rs="slAdd">＋ Termin</button>`;
+  Dlg.open(isNew ? 'Kunde hinzufügen' : 'Rübensamen – Kunde', body, saveFooter(isNew ? '' : `<button type="button" class="btn danger" data-rs="rowDel" data-id="${r.id}">Entfernen</button>`), fd => {
+    const rr = rsRec(), k = fd.get('kunde') || '';
+    if (k && rr.rows.some(x => x.kunde === k && x.id !== r.id)) { toast('Dieser Kunde ist schon in der Liste.'); return false; }
+    r.kunde = k; r.name = k ? (r.name || '') : (fd.get('name') || r.name || '').trim(); r.notiz = (fd.get('notiz') || '').trim();
+    if (!k && !r.name) { toast('Kunde wählen oder Bezeichnung eingeben.'); return false; }
+    r.saat = $$('.rssl', Dlg.form).map(l => ({ d: l.querySelector('[name=sd]').value || '', ha: rsNum(l.querySelector('[name=sha]').value), txt: l.querySelector('[name=stxt]').value.trim() })).filter(x => x.d || x.ha || x.txt);
+    const i = rr.rows.findIndex(x => x.id === r.id); if (i >= 0) rr.rows[i] = r; else rr.rows.push(r);
+    rr.rows.sort((a, b) => rsRowName(a).localeCompare(rsRowName(b), 'de'));
+    rsSave(rr); return true;
+  });
+  Dlg.rsSl = sl;
+}
+function rsSortDialog() {
+  const body = `<label class="fld"><span>Sorte</span><input class="input" name="name" required autofocus placeholder="z.B. Beppina"></label>
+    <div class="two"><label class="fld"><span>Gruppe</span><select class="input" name="gruppe"><option value="std">Standard</option><option value="conv">Conviso Smart</option></select></label>
+      <label class="fld"><span>Grundpreis CHF pro Dose</span><input class="input" name="preis" inputmode="decimal"></label></div>`;
+  Dlg.open('Sorte hinzufügen', body, saveFooter(''), fd => {
+    const rr = rsRec(), name = (fd.get('name') || '').trim(); if (!name) return false;
+    if (rr.sorten.some(s => norm(s.name) === norm(name))) { toast('Diese Sorte gibt es schon.'); return false; }
+    rr.sorten.push({ id: uid(), name, gruppe: fd.get('gruppe') === 'conv' ? 'conv' : 'std', preis: rsNum(fd.get('preis')), versand: null });
+    rsSave(rr); return true;
+  });
+}
+function rsFromPrev() {
+  const y = rsYear(), prev = rsGet(y - 1); if (!prev) return;
+  const body = `<p style="margin-top:0">Übernimmt Sorten, Preise, Einstellungen und die Kunden aus ${y - 1}.</p>
+    <label class="tog"><input type="checkbox" name="fl"> Flächen aus ${y - 1} als Vorschlag übernehmen</label>`;
+  Dlg.open(`Rübensamen ${y} aus ${y - 1}`, body, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">Übernehmen</button>`, fd => {
+    const r = structuredClone(prev); r.id = rsId(y); r.jahr = y; r.rest = {}; r.best = {}; r.extra = r.extra.map(e => ({ ...e, d: {} }));
+    r.rows = r.rows.map(x => ({ ...x, id: uid(), saat: [], notiz: '', cone: fd.get('fl') ? x.cone : null, ha: fd.get('fl') ? { ...x.ha } : {} }));
+    rsSave(r); toast(`Rübensamen ${y} angelegt`); return true;
+  });
+}
+function rsOrderNew(rid) {
+  const rec = rsRec(), r = rec.rows.find(x => x.id === rid); if (!r) return;
+  if (!r.kunde) { toast('Zuerst einen Kunden zuordnen (Kundennamen antippen).'); return; }
+  const arbeit = Lists.arbeitsarten().find(a => /rüben\s*s[äa]/i.test(a)) || Lists.arbeitsarten().find(a => /s[äa]en|saat/i.test(a)) || 'Säen';
+  const kultur = Lists.kulturen().find(k => /zuckerr/i.test(k)) || Lists.kulturen().find(k => /rübe/i.test(k)) || 'Zuckerrüben';
+  const so = rsSorted(rec).filter(s => (r.ha || {})[s.id]).map(s => `${s.name} ${fmtNum(r.ha[s.id])} ha`);
+  const done = rsOrders(rec, r).reduce((t, a) => t + (a.flaeche || 0), 0), ha = r2(Math.max(0, rsRowHa(rec, r) - done)) || null;
+  orderDialog(null, { kunde: r.kunde, arbeit, vorlage: { kultur, flaeche: ha, erntejahr: rec.jahr, rsRef: rsRef(rec, r), notiz: so.length ? 'Rübensaat: ' + so.join(', ') : '', titel: 'Saatauftrag Rüben' } });
+}
+
+/* ---------- Druck & Excel ---------- */
+function rsPrint() {
+  const rec = rsRec(), need = rsNeed(rec), All = rsSorted(rec), sum = need.reduce((t, x) => t + x.betrag, 0);
+  const order = `<h2>Bestellung</h2><table class="btab"><thead><tr><th>Sorte</th><th class="n">ha</th><th class="n">Bedarf</th><th class="n">Restmenge</th><th class="n">Zusätzlich</th><th class="n">Total</th><th class="n">Bestellung</th><th class="n">Preis/Dose</th><th class="n">Betrag CHF</th></tr></thead><tbody>
+    ${need.map(x => `<tr><td>${esc(x.name)}</td><td class="n">${fmtNum(x.ha)}</td><td class="n">${fmtNum(x.bedarf)}</td><td class="n">${x.rest ? fmtNum(x.rest) : ''}</td><td class="n">${x.extra ? fmtNum(x.extra) : ''}</td><td class="n">${fmtNum(x.total)}</td><td class="n"><b>${fmtNum(x.best)}</b></td><td class="n">${x.pd != null ? chf(x.pd) : ''}</td><td class="n">${x.betrag ? chf(x.betrag) : ''}</td></tr>`).join('')}
+    <tr class="gp"><td colspan="8"><b>Total</b></td><td class="n"><b>${chf(sum)}</b></td></tr></tbody></table>
+    ${rec.extra.length ? `<p>Zusätzlich: ${rec.extra.map(e => `${esc(e.name)} (${All.filter(s => (e.d || {})[s.id]).map(s => `${esc(s.name)} ${fmtNum(e.d[s.id])}`).join(', ')})`).join('; ')}</p>` : ''}`;
+  const area = `<h2 style="break-before:page">Flächen ${rec.jahr} (ha) · ${fmtNum(rec.dpha)} Dosen/ha</h2><table class="btab"><thead><tr><th>Kunde</th>${All.map(s => `<th class="n">${esc(s.name)}</th>`).join('')}<th class="n">Total</th><th class="n">${esc(rec.cone.name || 'Conviso One')}</th><th>Saat</th></tr></thead><tbody>
+    ${rec.rows.map(r => `<tr><td>${esc(rsRowName(r))}</td>${All.map(s => `<td class="n">${fmtNum((r.ha || {})[s.id]) || ''}</td>`).join('')}<td class="n">${fmtNum(rsRowHa(rec, r))}</td><td class="n">${fmtNum(rsRowCone(rec, r)) || ''}</td><td>${rsSaatHtml(rec, r).replace(/<[^>]+>/g, ' ')}</td></tr>`).join('')}
+    <tr class="gp"><td><b>Total</b></td>${All.map(s => `<td class="n"><b>${fmtNum(need.find(x => x.key === s.id)?.ha)}</b></td>`).join('')}<td class="n"><b>${fmtNum(r2(rec.rows.reduce((t, r) => t + rsRowHa(rec, r), 0)))}</b></td><td class="n"><b>${fmtNum(need.find(x => x.key === 'cone')?.ha) || ''}</b></td><td></td></tr></tbody></table>`;
+  const K = rsKosten(rec), kost = `<h2 style="break-before:page">Kosten pro Kunde</h2><table class="btab"><thead><tr><th>Kunde / Sorte</th><th class="n">ha</th><th class="n">Dosen</th><th class="n">Preis/Dose</th><th class="n">Betrag CHF</th></tr></thead><tbody>
+    ${K.map(k => `<tr class="gp"><td colspan="4"><b>${esc(rsRowName(k.r))}</b></td><td class="n"><b>${chf(k.total)}</b></td></tr>${k.pos.map(p => `<tr><td>${esc(p.name)}</td><td class="n">${fmtNum(p.ha)}</td><td class="n">${fmtNum(p.d)}</td><td class="n">${p.pd != null ? chf(p.pd) : ''}</td><td class="n">${p.betrag != null ? chf(p.betrag) : ''}</td></tr>`).join('')}`).join('')}</tbody></table>`;
+  printHtml(`Rübensamen ${rec.jahr}`, LETTERHEAD + `<h1 class="ptitle">Saatgutbestellung Zuckerrüben ${rec.jahr}</h1>` + order + area + kost, { noTitle: true });
+}
+function rsXlsx() {
+  const rec = rsRec(), need = rsNeed(rec), All = rsSorted(rec);
+  const fl = [['Kunde', ...All.map(s => s.name), 'Total ha', rec.cone.name || 'Conviso One', 'Saat', 'Bemerkung'], ...rec.rows.map(r => [rsRowName(r), ...All.map(s => (r.ha || {})[s.id] ?? ''), rsRowHa(rec, r), rsRowCone(rec, r) || '', rsSaatHtml(rec, r).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), r.notiz || ''])];
+  fl.push(['Total', ...All.map(s => need.find(x => x.key === s.id)?.ha ?? ''), r2(rec.rows.reduce((t, r) => t + rsRowHa(rec, r), 0)), need.find(x => x.key === 'cone')?.ha ?? '']);
+  const be = [['Sorte', 'Gruppe', 'ha', 'Bedarf Dosen', 'Restmenge', 'Zusätzlich', 'Total Bedarf', 'Bestellung', 'Preis/Dose CHF', 'Betrag CHF'], ...need.map(x => [x.name, x.gruppe === 'conv' ? 'Conviso Smart' : x.gruppe === 'cone' ? 'Herbizid' : 'Standard', x.ha, x.bedarf, x.rest || '', x.extra || '', x.total, x.best, x.pd ?? '', x.betrag || ''])];
+  const ko = [['Kunde', 'Sorte', 'ha', 'Dosen', 'Preis/Dose CHF', 'Betrag CHF']]; rsKosten(rec).forEach(k => k.pos.forEach(p => ko.push([rsRowName(k.r), p.name, p.ha, p.d, p.pd ?? '', p.betrag ?? ''])));
+  download(`Ruebensamen_${rec.jahr}.xlsx`, xlsxBlob([{ name: `Bestellung ${rec.jahr}`, rows: be }, { name: `Flächen ${rec.jahr}`, rows: fl }, { name: 'Kosten pro Kunde', rows: ko }]));
+}
+
+/* ---------- Excel «Bestellung Rübensamen» einlesen (Blätter «2026», «2025», … und «Preisberechnung Rübensamen 2026») ---------- */
+const rsSortKey = s => norm(s).replace(/\b(smart|kws|bts)\b/g, ' ').replace(/[^a-z0-9äöü]/g, '');
+function rsLev(a, b) { const m = a.length, n = b.length, d = Array.from({ length: m + 1 }, (_, i) => [i]); for (let j = 1; j <= n; j++) d[0][j] = j; for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[m][n]; }
+const rsSameSort = (a, b) => { const x = rsSortKey(a), y = rsSortKey(b); return !!x && !!y && (x === y || (x.length > 3 && y.length > 3 && (x.includes(y) || y.includes(x))) || (x.length > 5 && rsLev(x, y) <= 2)); };
+function rsXlDate(v, y) {
+  if (typeof v === 'number' && v > 30000) { const d = new Date(Date.UTC(1899, 11, 30) + v * 864e5); return { d: d.toISOString().slice(0, 10), txt: '' }; }
+  const s = String(v ?? '').trim(), m = /^(\d{1,2})\.(\d{1,2})\.(\d{2,4})?\s*(.*)$/.exec(s);
+  if (m) { const yy = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : y; return { d: `${yy}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`, txt: m[4].trim() }; }
+  return s ? { d: '', txt: s } : null;
+}
+function rsMatchKunde(name) {
+  const parts = norm(name).split(/[\s/(,]+/).filter(Boolean); if (!parts.length) return null;
+  const K = Store.all('kunden').filter(k => k.aktiv !== false);
+  const full = K.filter(k => parts.every(p => norm(k.name).includes(p))); if (full.length === 1) return full[0];
+  const sur = K.filter(k => norm(k.name).split(/[\s-]/)[0] === parts[0]); if (sur.length === 1) return sur[0];
+  const two = sur.filter(k => parts[1] && norm(k.name).includes(parts[1].slice(0, 3))); return two.length === 1 ? two[0] : null;
+}
+function rsParseYear(book, y) {
+  const R = book[String(y)]; if (!R) return null;
+  const cell = (r, c) => (R[r] || [])[c];
+  const rows = R.length, findRow = re => { for (let i = 0; i < rows; i++) if (R[i] && typeof R[i][0] === 'string' && re.test(R[i][0].trim())) return i; return -1; };
+  const rec = rsBlank(y); rec.sorten = []; rec.cone = { name: 'Conviso One', preis: null, versand: 5, faktor: 1 };
+  const dr = findRow(/^Dosen\/ha/i); if (dr >= 0) { const v = (R[dr] || []).find((x, i) => i > 0 && typeof x === 'number'); if (v) rec.dpha = v; }
+  const tr = findRow(/^Total$/i); if (tr < 0) return null;
+  // erste Kundenzeile: nach der letzten Kopfzeile oberhalb von «Total», die Text in den Spalten rechts der Namen enthält
+  let h = -1; for (let i = (dr >= 0 ? dr + 1 : 0); i < tr; i++) { const r = R[i] || []; const txt = r.slice(1).filter(x => typeof x === 'string' && x.trim() && !/^=/.test(x)).length; if (txt >= 1 && !(typeof r[0] === 'string' && r[0].trim() && r.slice(1).some(x => typeof x === 'number'))) h = i; else if (h >= 0) break; }
+  if (h < 0) return null;
+  const hdr = R[h] || [], grp = h > 0 ? (R[h - 1] || []) : [];
+  const grpAt = c => { for (let i = c; i >= 0; i--) if (typeof grp[i] === 'string' && grp[i].trim()) return grp[i]; return ''; };
+  const sCols = [], dCols = []; let coneCol = -1;
+  const maxC = Math.max(hdr.length, grp.length);
+  let nachSorten = false; // Sorten stehen links; ab Conviso One / Datum folgen nur noch Saat- und Nebenspalten
+  for (let c = 1; c < maxC; c++) {
+    const a = typeof hdr[c] === 'string' ? hdr[c].trim() : '', g = typeof grp[c] === 'string' ? grp[c].trim() : '';
+    if (/datum/i.test(a) || /datum/i.test(g)) { dCols.push(c); nachSorten = true; continue; }
+    if (/^fläche|^flächen$|^dosen$/i.test(a) || /^fläche|^dosen$/i.test(g)) { if (c > 1) nachSorten = true; continue; }
+    if (/one/i.test(g) && !a) { coneCol = c; nachSorten = true; continue; }
+    if (a && !nachSorten && !/^flächen$/i.test(a)) { const name = a.replace(/-\s+/g, '').replace(/\s+/g, ' '); sCols.push({ c, s: { id: uid(), name, gruppe: /conv/i.test(grpAt(c)) ? 'conv' : 'std', preis: null, versand: null } }); }
+  }
+  if (!sCols.length) return null;
+  rec.sorten = sCols.map(x => x.s);
+  const val = (r, c) => { const v = cell(r, c); return typeof v === 'number' ? v : null; };
+  for (let i = h + 1; i < tr; i++) {
+    const nm = cell(i, 0); if (typeof nm !== 'string' || !nm.trim()) continue;
+    const ha = {}, notes = []; sCols.forEach(({ c, s }) => { const v = cell(i, c); if (typeof v === 'number' && v) ha[s.id] = r2(v); else if (typeof v === 'string' && v.trim() && !/^\s*$/.test(v)) notes.push(`${s.name}: ${v.trim()}`); });
+    const cone = coneCol >= 0 ? val(i, coneCol) : null;
+    const saat = []; dCols.forEach(c => { const dv = cell(i, c); if (dv == null || dv === '') return; const x = rsXlDate(dv, y); if (!x) return; const f = val(i, c + 1); saat.push({ d: x.d, ha: f, txt: x.txt }); });
+    if (!Object.keys(ha).length && cone == null && !saat.length && !notes.length) continue;
+    const k = rsMatchKunde(nm);
+    rec.rows.push({ id: uid(), kunde: k ? k.id : '', name: nm.trim(), ha, cone: cone != null ? r2(cone) : null, saat, notiz: notes.join(' · ') });
+  }
+  // Conviso One wie in der Tabelle: gleich der Conviso-Fläche → automatisch, sonst fester Wert (leer = 0)
+  if (coneCol >= 0) rec.rows.forEach(r => { const cv = rsRowConvHa(rec, r), v = r.cone ?? 0; r.cone = Math.abs(v - cv) < 0.005 ? null : v; });
+  const rowVals = (re, into, key) => { const i = findRow(re); if (i < 0) return; sCols.forEach(({ c, s }) => { const v = val(i, c); if (v != null && v !== 0) into[s.id] = r2(v); }); if (key && coneCol >= 0) { const v = val(i, coneCol); if (v != null && v !== 0) into.cone = r2(v); } };
+  rowVals(/^Restmenge/i, rec.rest, true);
+  const di = findRow(/^Dardel/i); if (di >= 0) { const d = {}; sCols.forEach(({ c, s }) => { const v = val(di, c); if (v) d[s.id] = v; }); if (Object.keys(d).length) rec.extra.push({ id: uid(), name: 'Dardel', d }); }
+  const bi = findRow(/^Bestellung/i); if (bi >= 0) { sCols.forEach(({ c, s }) => { const v = val(bi, c); if (v != null && Math.abs(v - Math.round(v)) < 1e-6) rec.best[s.id] = Math.round(v); }); if (coneCol >= 0) { const v = val(bi, coneCol); if (v != null && Math.abs(v - Math.round(v)) < 1e-6) rec.best.cone = Math.round(v); } }
+  rec.rows.sort((a, b) => rsRowName(a).localeCompare(rsRowName(b), 'de'));
+  return rec;
+}
+function rsParsePrices(R) { // Preisberechnung: MwSt, Vertriebskosten, Zeilen Sorte | Anzahl | Grundpreis | … | Versand
+  const out = { mwst: null, versand: null, L: [] }; let hr = -1;
+  R.forEach((r, i) => { if (!r) return; if (typeof r[0] === 'string' && /mwst/i.test(r[0]) && typeof r[1] === 'number') out.mwst = r[1]; const vi = r.findIndex(x => typeof x === 'string' && /vertrieb/i.test(x)); if (vi >= 0) { const v = r.slice(vi + 1).find(x => typeof x === 'number'); if (v != null) out.versand = v; } if (r.some(x => typeof x === 'string' && /grundpreis/i.test(x))) hr = i; });
+  if (hr < 0) return out;
+  const H = R[hr], ci = re => H.findIndex(x => typeof x === 'string' && re.test(x)), cA = ci(/anzahl/i), cP = ci(/grundpreis/i), cV = ci(/versand/i);
+  for (let i = hr + 1; i < R.length; i++) { const r = R[i]; if (!r || typeof r[0] !== 'string' || !r[0].trim()) continue; const p = typeof r[cP] === 'number' ? r[cP] : null; if (p == null) continue; out.L.push({ name: r[0].trim(), anzahl: typeof r[cA] === 'number' ? r[cA] : null, preis: p, versand: cV >= 0 && typeof r[cV] === 'number' ? r[cV] : null }); }
+  return out;
+}
+function rsApplyPrices(rec, P) {
+  if (P.mwst != null) rec.mwst = P.mwst; if (P.versand != null) rec.versand = P.versand;
+  P.L.forEach(x => {
+    if (/convis/i.test(x.name) && !rec.sorten.some(s => rsSameSort(s.name, x.name))) { rec.cone.preis = x.preis; rec.cone.versand = x.versand ?? rec.cone.versand; if (x.anzahl != null && rec.best.cone == null) rec.best.cone = x.anzahl; return; }
+    const s = rec.sorten.find(s => rsSameSort(s.name, x.name)); if (!s) return;
+    s.preis = x.preis; if (x.versand != null && x.versand !== rec.versand) s.versand = x.versand;
+    if (x.anzahl != null && rec.best[s.id] == null) rec.best[s.id] = x.anzahl;
+  });
+}
+async function rsImportFile(file) {
+  let book; try { book = await xlsxRead(await file.arrayBuffer()); } catch (e) { toast('Datei konnte nicht gelesen werden: ' + e.message, 5000); return; }
+  const years = Object.keys(book).map(n => (/^(\d{4})$/.exec(n.trim()) || [])[1]).filter(Boolean).map(Number).sort((a, b) => b - a);
+  if (!years.length) { toast('Keine Jahresblätter («2026», «2025», …) gefunden.', 5000); return; }
+  const body = `<p style="margin-top:0">Gefundene Jahre in «${esc(file.name)}». Welche sollen übernommen werden?</p>
+    <div class="chips">${years.map(y => `<label><input type="checkbox" name="y" value="${y}" ${y >= years[0] - 1 ? 'checked' : ''}><span>${y}${rsGet(y) ? ' (ersetzt)' : ''}</span></label>`).join('')}</div>
+    <p class="nr">Übernommen werden Sorten, Flächen pro Kunde, Conviso One, Saattermine, Dosen/ha, Restmenge, Dardel, Bestellung und – aus «Preisberechnung Rübensamen &lt;Jahr&gt;» – die Preise. Excel-Namen werden den Kunden zugeordnet (Nachname); nicht zugeordnete sind mit ? markiert und lassen sich durch Antippen zuordnen.</p>`;
+  Dlg.open('Rübensamen – Excel importieren', body, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">Importieren</button>`, fd => {
+    const ys = fd.getAll('y').map(Number); if (!ys.length) { toast('Mindestens ein Jahr wählen.'); return false; }
+    // Preisblätter: «Preisberechnung Rübensamen 2026»; eines ohne Jahr wird dem Jahr mit den meisten gleichen Sorten zugeordnet
+    const recs = ys.map(y => rsParseYear(book, y)).filter(Boolean), priced = new Set();
+    recs.forEach(rec => { const n = Object.keys(book).find(k => new RegExp(`preis.*${rec.jahr}`, 'i').test(k)); if (n) { rsApplyPrices(rec, rsParsePrices(book[n])); priced.add(rec.jahr); } });
+    Object.keys(book).filter(k => /^preis/i.test(k) && !/\d{4}/.test(k)).forEach(k => {
+      const P = rsParsePrices(book[k]); let best = null, bs = 0;
+      recs.filter(r => !priced.has(r.jahr)).forEach(r => { const sc = P.L.filter(x => r.sorten.some(s => rsSameSort(s.name, x.name))).length; if (sc > bs) { bs = sc; best = r; } });
+      if (best && bs >= 2) { rsApplyPrices(best, P); priced.add(best.jahr); }
+    });
+    if (!recs.length) { toast('In den gewählten Blättern wurde nichts erkannt.', 5000); return false; }
+    Store.putMany('einstellungen', recs.map(r => structuredClone(r)));
+    const S = rsState(); S.y = Math.max(...recs.map(r => r.jahr)); S.sub = 'flaechen';
+    const offen = recs.reduce((t, r) => t + r.rows.filter(x => !x.kunde).length, 0);
+    setTimeout(() => { App.render(); toast(`${recs.length} ${recs.length === 1 ? 'Jahr' : 'Jahre'} importiert${offen ? ` · ${offen} Namen ohne Kundenzuordnung (?)` : ''}`, 5000); }, 0);
+    return true;
+  });
+}
+
+/* ---------- Saisonmodul ein-/ausschalten (Mehr › Einstellungen) ---------- */
+function rsPanel() {
+  return `<div class="panel"><h2>Saisonmodule</h2>
+    <label class="tog"><input type="checkbox" data-rsin="on" ${rsOn() ? 'checked' : ''}> Rübensamen (Saatgutbestellung Zuckerrüben) in der Navigation anzeigen</label>
+    <p class="nr" style="margin:6px 0 0">Nur während der Bestell- und Saatzeit einschalten. Ausgeschaltet bleiben alle Daten gespeichert. Gilt für alle Geräte.</p></div>`;
+}
+function rsNav() {
+  const b = $('#tabs [data-view="rueben"]'); if (b) b.hidden = !rsOn();
+  const t = $('#tabs'); if (t) t.style.setProperty('--n', $$('#tabs button:not([hidden])').length);
+}
+
+/* ---------- Ereignisse ---------- */
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-rs]'); if (!t) return;
+  const a = t.dataset.rs, id = t.dataset.id; e.preventDefault();
+  const rec = () => rsRec();
+  switch (a) {
+    case 'sub': { const S = rsState(); S.sub = t.dataset.v; ls('lp_rsSub', S.sub); App.render(); break; }
+    case 'start': { const r = rsBlank(rsYear()); rsSave(r); rsState().sub = 'sorten'; break; }
+    case 'fromPrev': rsFromPrev(); break;
+    case 'off': if (confirm('Modul «Rübensamen» ausblenden? Die Daten bleiben gespeichert; einschalten unter Mehr › Einstellungen › Saisonmodule.')) { Store.setCfg({ rsOn: false }); App.go('auftraege'); } break;
+    case 'rowNew': rsRowDialog(null); break;
+    case 'rowEdit': rsRowDialog(id); break;
+    case 'rowDel': { const r = rec(); const row = r.rows.find(x => x.id === id); if (row && confirm(`«${rsRowName(row)}» aus der Liste entfernen?`)) { r.rows = r.rows.filter(x => x.id !== id); rsSave(r); Dlg.close(); } break; }
+    case 'slAdd': { const box = $('.rssll', Dlg.form); if (box && Dlg.rsSl) box.insertAdjacentHTML('beforeend', Dlg.rsSl({})); break; }
+    case 'slDel': t.closest('.rssl')?.remove(); break;
+    case 'mkOrder': rsOrderNew(id); break;
+    case 'sortNew': rsSortDialog(); break;
+    case 'sDel': { const r = rec(), s = r.sorten.find(x => x.id === id); if (!s) break; const used = r.rows.some(x => (x.ha || {})[id]); if (!confirm(`Sorte «${s.name}» entfernen?${used ? ' Die erfassten Flächen dieser Sorte gehen verloren.' : ''}`)) break; r.sorten = r.sorten.filter(x => x.id !== id); r.rows.forEach(x => { if (x.ha) delete x.ha[id]; }); delete r.rest[id]; delete r.best[id]; rsSave(r); break; }
+    case 'sMove': { const r = rec(), i = r.sorten.findIndex(x => x.id === id), j = i + +t.dataset.d; if (i < 0 || j < 0 || j >= r.sorten.length) break; [r.sorten[i], r.sorten[j]] = [r.sorten[j], r.sorten[i]]; rsSave(r); break; }
+    case 'exAdd': { const r = rec(); r.extra.push({ id: uid(), name: r.extra.length ? '' : 'Dardel', d: {} }); rsSave(r); break; }
+    case 'exDel': { const r = rec(); r.extra = r.extra.filter(x => x.id !== id); rsSave(r); break; }
+    case 'dphaCalc': { const r = rec(); r.dpha = +t.dataset.v; rsSave(r); toast(`Dosen/ha = ${fmtNum(r.dpha)}`); break; }
+    case 'print': rsPrint(); break;
+    case 'xlsx': rsXlsx(); break;
+  }
+});
+document.addEventListener('change', e => {
+  const t = e.target.closest('[data-rsin]'); if (!t) return;
+  const k = t.dataset.rsin, v = t.value;
+  if (k === 'on') { Store.setCfg({ rsOn: t.checked }); rsNav(); toast(t.checked ? 'Modul «Rübensamen» eingeschaltet' : 'Modul «Rübensamen» ausgeblendet'); return; }
+  if (k === 'import') { const f = t.files && t.files[0]; t.value = ''; if (f) rsImportFile(f); return; }
+  if (k === 'year') { rsState().y = +v; App.render(); return; }
+  const r = rsRec(), n = rsNum(v);
+  switch (k) {
+    case 'ha': { const row = r.rows.find(x => x.id === t.dataset.r); if (!row) return; row.ha = row.ha || {}; if (n) row.ha[t.dataset.s] = n; else delete row.ha[t.dataset.s]; break; }
+    case 'cone': { const row = r.rows.find(x => x.id === t.dataset.r); if (!row) return; row.cone = v.trim() === '' ? null : n; break; }
+    case 'rest': if (n) r.rest[t.dataset.k] = n; else delete r.rest[t.dataset.k]; break;
+    case 'best': if (v.trim() === '') delete r.best[t.dataset.k]; else if (n != null) r.best[t.dataset.k] = n; break;
+    case 'exName': { const x = r.extra.find(x => x.id === t.dataset.id); if (x) x.name = v.trim(); break; }
+    case 'exD': { const x = r.extra.find(x => x.id === t.dataset.id); if (!x) return; x.d = x.d || {}; if (n) x.d[t.dataset.s] = n; else delete x.d[t.dataset.s]; break; }
+    case 'sName': { const s = r.sorten.find(x => x.id === t.dataset.id); if (s && v.trim()) s.name = v.trim(); break; }
+    case 'sGruppe': { const s = r.sorten.find(x => x.id === t.dataset.id); if (s) s.gruppe = v === 'conv' ? 'conv' : 'std'; break; }
+    case 'sPreis': { const s = r.sorten.find(x => x.id === t.dataset.id); if (s) s.preis = n; break; }
+    case 'sVersand': { const s = r.sorten.find(x => x.id === t.dataset.id); if (s) s.versand = v.trim() === '' ? null : n; break; }
+    case 'cName': r.cone.name = v.trim() || 'Conviso One'; break;
+    case 'cFaktor': r.cone.faktor = n ?? 1; break;
+    case 'cPreis': r.cone.preis = n; break;
+    case 'cVersand': r.cone.versand = n ?? 0; break;
+    case 'dpha': if (n) r.dpha = n; break;
+    case 'mwst': r.mwst = n != null ? n / 100 : 0; break;
+    case 'versand': r.versand = n ?? 0; break;
+    case 'lege': if (n) r.lege = n; break;
+    case 'fga': if (n) r.fga = n; break;
+    case 'fgp': r.fgp = n != null ? n / 100 : 0; break;
+    default: return;
+  }
+  rsSave(r);
+});
 function pickFile(accept) {
   return new Promise(res => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.onchange = () => res(i.files[0]); i.click(); });
 }
