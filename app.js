@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '69', APP_STAND = '29.10.2026';
+const APP_VERSION = '70', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -3232,8 +3232,10 @@ function jdApply(d, map) {
       const of = Store.data.felder.find(x => x.id === 'jdf-' + f.id && !x.del) || Store.data.felder.find(x => !x.del && x.jdId === f.id)
         || Store.data.felder.find(x => !x.del && x.kunde === k.id && !x.jdId && !seen.has(x.id) && norm(x.jdName || x.name) === norm(f.name));
       const id = of ? of.id : 'jdf-' + f.id; seen.add(id);
-      const nf = { ...(of || {}), id, kunde: k.id, jdId: f.id, jdName: f.name, name: f.name, betrieb: farms[f.farm] || '', flaeche: f.flaeche != null ? r2(+f.flaeche) : (of ? of.flaeche ?? null : null), aktiv: !f.archived };
-      if (!of) fNeu++; else if (!same(of, nf, ['kunde', 'jdId', 'name', 'betrieb', 'flaeche', 'aktiv'])) fUpd++; else return;
+      const nf = { ...(of || {}), id, kunde: k.id, jdId: f.id, jdName: f.name, name: f.name, betrieb: farms[f.farm] || '', flaeche: f.flaeche != null ? r2(+f.flaeche) : (of ? of.flaeche ?? null : null), aktiv: !f.archived,
+        grenzen: Array.isArray(f.grenzen) ? f.grenzen : (of ? of.grenzen : undefined) };
+      if (!nf.grenzen) delete nf.grenzen;
+      if (!of) fNeu++; else if (!same(of, nf, ['kunde', 'jdId', 'name', 'betrieb', 'flaeche', 'aktiv']) || JSON.stringify(of.grenzen || null) !== JSON.stringify(nf.grenzen || null)) fUpd++; else return;
       fOut.push(nf);
     });
     Store.all('felder').filter(x => x.kunde === k.id && (x.jdId || x.jdName) && !seen.has(x.id) && x.aktiv !== false).forEach(x => { fArch++; fOut.push({ ...x, aktiv: false }); });
@@ -3289,6 +3291,23 @@ function jdSyncDialog(d, src) {
     const r = jdApply({ ...d, full: false }, c => fd.get('map_' + c.id));
     toast(`Abgleich: ${jdSummary(r)}`, 6000); return true;
   });
+}
+
+/* ---------- Vermessungen (Feldgrenzen) eines Feldes, vom NAS-Dienst ab Version 46 ---------- */
+function feldFuer({ fid, feldId, kunde, kundeId, feld }) {
+  const F = Store.all('felder');
+  return (feldId && F.find(f => f.id === feldId)) || (fid && F.find(f => f.jdId === fid))
+    || (feld && F.find(f => norm(f.jdName || f.name) === norm(feld) && (kundeId ? f.kunde === kundeId : norm(kundeName(f.kunde)) === norm(kunde) || norm((Store.get('kunden', f.kunde) || {}).jdName) === norm(kunde)))) || null;
+}
+function grenzenHtml(f) {
+  if (!f) return '<p class="nr">Kein passendes Feld in den Stammdaten gefunden.</p>';
+  const g = f.grenzen;
+  if (!g) return `<p class="nr">Für «${esc(f.name)}» sind noch keine Vermessungen gespeichert – sie kommen mit dem NAS-Dienst ab Version 46 beim nächsten Abgleich.</p>`;
+  if (!g.length) return `<p class="nr">Für «${esc(f.name)}» ist in MyJohnDeere keine Vermessung gespeichert.</p>`;
+  const L = g.slice().sort((a, b) => (b.aktiv - a.aktiv) || String(b.geaendert || '').localeCompare(String(a.geaendert || '')));
+  return `<table class="btab kv grz"><thead><tr><th>Vermessung</th><th class="n">Fläche</th><th class="n">bearbeitbar</th><th>Stand</th></tr></thead><tbody>
+    ${L.map(x => `<tr class="${x.aktiv ? 'grz-akt' : ''}${x.archiviert ? ' grz-arch' : ''}"><td>${esc(x.name || '(ohne Namen)')}${x.aktiv ? ' <span class="badge geplant">aktiv</span>' : ''}${x.archiviert ? ' <span class="nr">archiviert</span>' : ''}</td>
+      <td class="n">${x.ha != null ? fmtNum(x.ha) + ' ha' : ''}</td><td class="n">${x.bha != null ? fmtNum(x.bha) + ' ha' : ''}</td><td>${x.geaendert ? esc(fmtDate(String(x.geaendert).slice(0, 10), { day: '2-digit', month: '2-digit', year: 'numeric' })) : ''}</td></tr>`).join('')}</tbody></table>`;
 }
 /* ================= JD-Arbeitsbericht: Arbeitsgänge aus MyJohnDeere auswerten =================
    Quelle: «jd-arbeiten.json» im Dropbox-Ordner (vom NAS-Dienst jd-sync). Vorerst ohne Verknüpfung zu den Planungsdaten. */
@@ -3382,7 +3401,7 @@ function jdbRow(o) {
   const details = ms.map(m => ({ n: JDB_MNAME[m.measurementName] || m.measurementName || m['@type'] || 'Messwerte', v: Object.entries(m).filter(([k, v]) => !JDB_SKIP.has(k) && v != null)
     .map(([k, v]) => [JDB_KEYS[k] || k, typeof v === 'object' && !Array.isArray(v) ? jdbFmt(v) || JSON.stringify(v).slice(0, 80) : Array.isArray(v) ? jdbNames(v).join(', ') || `${v.length} Einträge` : String(v)]).filter(([, v]) => v) }));
   const type = o.type || raw.fieldOperationType || '';
-  return { id: o.id, d: String(start).slice(0, 10), start, end, dauer, type, arbeit: JDB_ART[type] || type || '–',
+  return { id: o.id, fid: o.field || '', d: String(start).slice(0, 10), start, end, dauer, type, arbeit: JDB_ART[type] || type || '–',
     kunde: o.clientName || '', feld: o.fieldName || '', ha: haV != null ? Math.round(haV * 100) / 100 : null, quelle, maschine: mach.join(', ') || JDB_MACH[o.machineType || raw.adaptMachineType] || o.machineType || raw.adaptMachineType || '',
     fahrer: fahrer.join(', '), kultur: crop, produkte: prodTxt, sorten: sorten.join(', '), menge: rate, gesamt: jdbGesamt(ms), saison: o.cropSeason || raw.cropSeason || '', details };
 }
@@ -3601,6 +3620,7 @@ function jdbDetail(id) {
   const dt = s => s ? new Date(s).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '';
   const body = `<table class="btab kv">${kv('Arbeit', r.arbeit)}${kv('Kunde', r.kunde)}${kv('Feld', r.feld)}${kv('Fläche', r.ha != null ? fmtNum(r.ha) + ' ha' + (r.quelle ? ` (${r.quelle})` : '') : '')}${kv('Abgerechnet', jdbAbr(r.id) ? fmtDate(jdbAbr(r.id).am, { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'offen')}${kv('Beginn', dt(r.start))}${kv('Ende', dt(r.end))}${kv('Dauer', r.dauer != null ? hrs(r.dauer) : '')}
     ${kv('Maschine', r.maschine)}${kv('Fahrer', r.fahrer)}${kv('Kultur', r.kultur)}${kv('Saison', r.saison)}${kv('Produkte', jdbProdTxt(r))}${kv('Sorten', r.sorten)}${kv('Menge/ha', r.menge)}${kv('Gesamtmenge', jdbGesTxt(r))}</table>
+    <div class="fld" style="margin-top:12px"><span>Vermessungen des Feldes${r.feld ? ` «${esc(r.feld)}»` : ''}</span></div>${grenzenHtml(feldFuer({ fid: r.fid, kunde: r.kunde, feld: r.feld }))}
     ${r.details.map(m => `<div class="fld" style="margin-top:12px"><span>${esc(m.n)}</span></div><table class="btab kv">${m.v.map(([k, v]) => kv(k, v)).join('')}</table>`).join('')}
     <p class="nr" style="margin-top:12px">Quelle: MyJohnDeere · ID ${esc(r.id)}</p>`;
   const ab = jdbAbr(r.id);
@@ -3905,7 +3925,10 @@ function abDetail(id) {
       ${kv('Maschine', j.maschine)}${kv('Fahrer', j.fahrer)}${kv('Kultur', j.kultur)}${kv('Produkte', jdbProdTxt(j))}${kv('Sorten', j.sorten)}${kv('Gesamtmenge', jdbGesTxt(j))}</table>
       <div class="btns" style="margin-top:8px"><button type="button" class="btn small" data-ab="jdDetail" data-id="${esc(j.id)}">Alle Messwerte</button></div>`
     : `<p class="nr">Kein Arbeitsgang aus MyJohnDeere verbunden.</p>${o ? `<div class="btns"><button type="button" class="btn small" data-ab="linkPick" data-id="${esc(r.id)}">Mit Arbeitsgang verknüpfen…</button></div>` : ''}`;
+  const fe = (j && feldFuer({ fid: j.fid, kunde: j.kunde, feld: j.feld })) || (o && feldFuer({ feldId: o.kfeld, kundeId: o.kunde, feld: aFeld(o) })) || null;
+  const feLbl = fe ? fe.name : ((j && j.feld) || (o && aFeld(o)) || '');
   const body = `<div class="abdet"><div><h4>Auftrag (Planer)</h4>${left}</div><div><h4>Arbeitsgang (MyJohnDeere)</h4>${right}</div></div>
+    <h4 style="margin:14px 0 6px">Vermessungen des Feldes${feLbl ? ` «${esc(feLbl)}»` : ''}</h4>${grenzenHtml(fe)}
     ${o && j ? `<p class="nr" style="margin-top:10px">${o.jdLink ? 'Von Hand verknüpft.' : 'Automatisch verbunden (Kunde, Datum, Arbeit, Feld).'} <a href="#" data-ab="unlink" data-id="${esc(r.id)}">Verknüpfung lösen</a></p>` : ''}`;
   Dlg.open('Abrechnung – Eintrag', body, `${r.abr ? `<span class="badge verrechnet">✓ abgerechnet${r.am ? ' ' + abD(r.am) : ''}</span><button type="button" class="btn" data-ab="markOne" data-id="${esc(r.id)}" data-v="0">Wieder offen</button>` : `<button type="button" class="btn primary" data-ab="markOne" data-id="${esc(r.id)}" data-v="1">✓ Als abgerechnet markieren</button>`}<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
 }
@@ -4085,7 +4108,7 @@ function uiScalePanel() {
     <p class="nr">Für grosse Bildschirme (z.B. 27 Zoll mit 3840 × 2160). «Automatisch» vergrössert, wenn Windows den Bildschirm nicht selbst skaliert. Die Einstellung gilt nur für dieses Gerät und diesen Browser; Ausdrucke und PDF bleiben unverändert.</p></div>`;
 }
 /* ---------- Versionsanzeige ---------- */
-const NAS_MIN = '45'; // mindestens nötige Version des NAS-Dienstes
+const NAS_MIN = '46'; // mindestens nötige Version des NAS-Dienstes
 function versionInfo() {
   const c = Store.cfg(), nas = c.jdDienst, ver = v => +String(v || '').replace(/[^\d.]/g, '') || 0;
   const nasTxt = nas ? `Version ${esc(nas)}${ver(nas) < ver(NAS_MIN) ? ` <span class="badge offen">zu alt – NAS-Dienst auf Version ${NAS_MIN} oder neuer aktualisieren</span>` : ' <span class="nr">(aktuell)</span>'}`
