@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '75', APP_STAND = '29.10.2026';
+const APP_VERSION = '76', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -961,6 +961,7 @@ const Views = {
           <p>Aufträge ohne feste Startzeit docken ab Arbeitsbeginn aneinander.</p></div>
         ${uiScalePanel()}
         ${typeof icsPanel === 'function' ? icsPanel() : ''}
+        ${jdOcPanel()}
         <div class="panel"><h2>Planung: Achsen</h2>
           <div class="two">
             <label class="fld"><span>Wochenansicht</span><select class="input" data-plain data-in="axW"><option value="tage">Tage untereinander, Maschinen nebeneinander</option><option value="maschinen" ${App.plan.axW === 'maschinen' ? 'selected' : ''}>Maschinen untereinander, Tage nebeneinander</option></select></label>
@@ -1469,7 +1470,7 @@ function kundeDialog(id) {
     <label class="tog"><input type="checkbox" name="aktiv" ${k.aktiv !== false ? 'checked' : ''}> Aktiv (inaktive Kunden werden in Listen und bei neuen Aufträgen nicht mehr angezeigt)</label>
 `;
   Dlg.open(id ? (lock ? 'Kunde' : 'Kunde bearbeiten') : 'Neuer Kunde', body,
-    saveFooter(id ? `${lock ? '' : `<button type="button" class="btn danger" data-act="delKunde" data-id="${k.id}">Löschen</button>`}<button type="button" class="btn" data-act="newOrderFor" data-id="${k.id}">＋ Auftrag</button>` : ''), fd => {
+    saveFooter(id ? `${lock ? '' : `<button type="button" class="btn danger" data-act="delKunde" data-id="${k.id}">Löschen</button>`}<button type="button" class="btn" data-act="newOrderFor" data-id="${k.id}">＋ Auftrag</button>${k.jdId ? `<button type="button" class="btn" data-act="jdOc" data-k="kunde" data-id="${k.id}" title="Kunde im John Deere Operations Center öffnen (Name wird kopiert)">↗ MyJohnDeere</button>` : ''}` : ''), fd => {
       if (!lock) k.name = (fd.get('name') || '').trim();
       ['nr', 'anrede', 'adresse', 'plz', 'ort', 'tel', 'handy', 'mail', 'notiz'].forEach(x => { k[x] = (fd.get(x) || '').trim(); });
       ['preisSpritze', 'preisFahrer', 'preisTraktor'].forEach(x => { k[x] = num(fd.get(x)); });
@@ -3165,6 +3166,7 @@ function felderSection(kid) {
     <div class="feldlist">${fs.map(f => { const ps = parzOn() ? parzOfFeld(f.id) : [], ng = Array.isArray(f.grenzen) ? grzSicht(f.grenzen).length : null; return `<div class="feldrow ${f.aktiv === false ? 'off' : ''}">
       <div class="grow"><div class="feldhead" data-act="feldGrz" data-id="${f.id}" role="button" title="Vermessungen anzeigen"><b class="fldlink">${esc(f.name)}</b> <span class="nr">${f.flaeche ? fmtNum(f.flaeche) + ' ha' : ''}${f.betrieb ? ' · ' + esc(f.betrieb) : ''}${f.aktiv === false ? ' · archiviert' : ''}${ng ? ` · 📐 ${ng} Vermessung${ng > 1 ? 'en' : ''}` : ''}</span></div>
         ${parzOn() ? `<div class="s">${ps.length ? '🧪 ' + ps.map(p => esc(p.name)).join(', ') : '<span class="nr">keine Pflanzenschutz-Parzelle zugewiesen</span>'}</div>` : ''}</div>
+      ${f.jdId ? `<button type="button" class="btn small" data-act="jdOc" data-k="feld" data-id="${f.id}" title="Feld im John Deere Operations Center öffnen (Name wird kopiert)">↗ JD</button>` : ''}
       ${parzOn() ? `<button type="button" class="btn small" data-act="feldAssign" data-id="${f.id}">Parzellen zuweisen</button>` : ''}
       <div class="grzbox" id="grz-${f.id}" hidden></div></div>`; }).join('')}</div></div>`;
 }
@@ -3270,7 +3272,7 @@ function jdApply(d, map) {
   if (d.full !== false && d.clients.length) Store.all('kunden').filter(k => k.jdId && !ids.has(k.jdId) && k.aktiv !== false && !kOut.some(x => x.id === k.id)).forEach(k => { kInakt++; kOut.push({ ...k, aktiv: false }); });
   if (kOut.length) Store.putMany('kunden', kOut);
   if (fOut.length) Store.putMany('felder', fOut);
-  Store.setCfg({ jdStand: d.stand || new Date().toISOString(), jdOrg: d.org?.name || '', jdDienst: d.dienst || '' }, { silent: false });
+  Store.setCfg({ jdStand: d.stand || new Date().toISOString(), jdOrg: d.org?.name || '', jdOrgId: d.org?.id ? String(d.org.id) : (Store.cfg().jdOrgId || ''), jdDienst: d.dienst || '' }, { silent: false });
   Store.setCfg({ jdEbene: d.kundenEbene || '' }, { silent: true });
   return { neu, fNeu, fUpd, fArch, kInakt, react, changed: kOut.length + fOut.length };
 }
@@ -3373,7 +3375,7 @@ function grenzenDialog(fe, lbl, kunde) {
   const n = fe && fe.grenzen ? grzSicht(fe.grenzen).length : 0, na = fe ? grzArchN(fe.grenzen) : 0;
   const kopf = `<table class="btab kv">${kunde ? `<tr><td class="nr">Kunde</td><td>${esc(kunde)}</td></tr>` : ''}<tr><td class="nr">Feld</td><td>${esc(fe ? fe.name : lbl)}</td></tr>
     ${fe && fe.flaeche != null ? `<tr><td class="nr">Fläche (Stammdaten)</td><td>${fmtNum(fe.flaeche)} ha</td></tr>` : ''}${n || na ? `<tr><td class="nr">Vermessungen</td><td>${n}${na ? ` <span class="nr">(+ ${na} archiviert)</span>` : ''}</td></tr>` : ''}</table>`;
-  Dlg.open(`Vermessungen – ${fe ? fe.name : lbl || 'Feld'}`, `${kopf}<div style="margin-top:12px">${grenzenHtml(fe)}</div>`, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
+  Dlg.open(`Vermessungen – ${fe ? fe.name : lbl || 'Feld'}`, `${kopf}<div style="margin-top:12px">${grenzenHtml(fe)}</div>`, `${fe && fe.jdId ? `<button type="button" class="btn" data-act="jdOc" data-k="feld" data-id="${fe.id}" title="Feld im John Deere Operations Center öffnen (Name wird kopiert)">↗ MyJohnDeere</button>` : ''}<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
 }
 
 // Kundenkarte: Feld antippen klappt die Vermessungen auf/zu
@@ -3387,6 +3389,33 @@ function grzArchToggle(el) {
   const host = el.closest('.grzhost'); if (!host) return;
   const f = feldById(host.dataset.fid); if (!f) return;
   host.outerHTML = grenzenHtml(f, host.dataset.arch !== '1');
+}
+
+/* ---------- Knopf «In MyJohnDeere öffnen» (nur öffnen, im Planer wird in John Deere nichts geändert) ---------- */
+// John Deere veröffentlicht keine festen Direktlinks ins Operations Center. Standard: Startseite öffnen und den Namen in die
+// Zwischenablage kopieren (dort in die Suche einfügen). Unter Mehr › Einstellungen lässt sich eine eigene Adresse mit Platzhaltern hinterlegen.
+const JD_OC = 'https://operationscenter.deere.com/';
+function jdOcUrl(kind, id) {
+  const c = Store.cfg(), e = encodeURIComponent;
+  const f = kind === 'feld' ? feldById(id) : null, k = kind === 'feld' ? (f && Store.get('kunden', f.kunde)) : Store.get('kunden', id);
+  const tpl = ((kind === 'feld' ? c.jdOcFeld : c.jdOcKunde) || '').trim() || JD_OC;
+  return { url: tpl.replace(/\{org\}/g, e(c.jdOrgId || '')).replace(/\{kunde\}/g, e(k?.jdId || '')).replace(/\{feld\}/g, e(f?.jdId || '')).replace(/\{name\}/g, e((f || k)?.jdName || (f || k)?.name || '')),
+    name: (f || k)?.jdName || (f || k)?.name || '' };
+}
+function jdOcOpen(kind, id) {
+  const { url, name } = jdOcUrl(kind, id);
+  window.open(url, '_blank', 'noopener');
+  if (name) { try { navigator.clipboard.writeText(name).then(() => toast(`«${name}» kopiert – im Operations Center in die Suche einfügen`), () => {}); } catch { } }
+}
+function jdOcPanel() {
+  const c = Store.cfg();
+  return `<div class="panel"><h2>MyJohnDeere Operations Center</h2>
+    <p class="nr" style="margin-top:0">Knopf «↗ MyJohnDeere» bei Kunden und Feldern: öffnet das Operations Center und kopiert den Namen in die Zwischenablage (dort in die Suche einfügen). Im Planer wird in John Deere nichts geändert.
+      Wer einen Direktlink möchte: im Operations Center einen Kunden bzw. ein Feld öffnen, die Adresse kopieren und die Nummern darin durch Platzhalter ersetzen –
+      <code>{org}</code> Organisation${c.jdOrgId ? ` (${esc(c.jdOrgId)})` : ''}, <code>{kunde}</code> Kunden-ID, <code>{feld}</code> Feld-ID, <code>{name}</code> Name. Leer = Startseite.</p>
+    <label class="fld"><span>Adresse für Kunden</span><input class="input" data-in="jdOcKunde" value="${esc(c.jdOcKunde || '')}" placeholder="${JD_OC}"></label>
+    <label class="fld"><span>Adresse für Felder</span><input class="input" data-in="jdOcFeld" value="${esc(c.jdOcFeld || '')}" placeholder="${JD_OC}"></label>
+  </div>`;
 }
 /* ================= JD-Arbeitsbericht: Arbeitsgänge aus MyJohnDeere auswerten =================
    Quelle: «jd-arbeiten.json» im Dropbox-Ordner (vom NAS-Dienst jd-sync). Vorerst ohne Verknüpfung zu den Planungsdaten. */
@@ -5205,6 +5234,7 @@ document.addEventListener('click', async e => {
     }
     case 'editKunde': kundeDialog(id); break;
     case 'feldGrz': feldGrzToggle(id); break;
+    case 'jdOc': jdOcOpen(t.dataset.k, id); break;
     case 'grzArch': grzArchToggle(t); break;
     case 'delKunde': {
       const n = Store.all('auftraege').filter(a => a.kunde === id).length;
@@ -5292,6 +5322,7 @@ document.addEventListener('change', e => {
   if (k === 'spVon' && e.target.value) { App.spray.von = e.target.value; if (App.spray.bis < App.spray.von) App.spray.bis = App.spray.von; App.render(); return; }
   if (k === 'spBis' && e.target.value) { App.spray.bis = e.target.value; if (App.spray.bis < App.spray.von) App.spray.von = App.spray.bis; App.render(); return; }
   if (k === 'icsOn') { Store.setCfg({ ics: { ...icsCfg(), on: e.target.checked } }, { silent: false }); if (e.target.checked) { ls('lp_icsHash', null); Sync.run(); } return; }
+  if (k === 'jdOcKunde' || k === 'jdOcFeld') { Store.setCfg({ [k]: e.target.value.trim() }); return; }
   if (k === 'icsLink') { Store.setCfg({ ics: { ...icsCfg(), link: e.target.value.trim() } }, { silent: false }); return; }
   if (k === 'spInc') { const S = spInit(), a = Store.get('auftraege', e.target.value); if (a) { const set = a.datum ? S.ex : S.inc; if (e.target.checked === !!a.datum) set.delete(a.id); else set.add(a.id); spSave(); } App.render(); return; }
   if (k === 'spDay') { if (e.target.checked) App.spray.off.delete(e.target.value); else App.spray.off.add(e.target.value); App.render(); return; }
