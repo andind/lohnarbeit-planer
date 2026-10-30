@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '60', APP_STAND = '29.10.2026';
+const APP_VERSION = '61', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1044,10 +1044,11 @@ function machineOptions(iso, arbeit, selected) {
     (andere.length ? `<optgroup label="Andere Maschinen in Saison">${andere.map(opt).join('')}</optgroup>` : '');
 }
 
-function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
+function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
   const isNew = !id;
   const a = isNew ? { id: uid(), erfasst: Date.now(), nr: Store.nextAuftragNr(), status: 'offen', kunde: kundeId || '', arbeit: arbeit || '' } : structuredClone(Store.get('auftraege', id));
   if (!a) return;
+  if (isNew && vorlage) Object.assign(a, structuredClone(vorlage));
   if (isNew) sprayDefaults(a);
   if (isNew && pre) { a.maschine = pre.maschine || ''; a.zeit = pre.zeit || ''; plan = true; }
   const k = a.kunde && Store.get('kunden', a.kunde);
@@ -1100,7 +1101,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit } = {}) {
     <p class="nr">Auftrag ${esc(a.nr || '')}</p>`;
   const footer = saveFooter(isNew ? '' : `<button type="button" class="btn danger" data-act="delOrder" data-id="${a.id}">Löschen</button><button type="button" class="btn" data-act="dupOrder" data-id="${a.id}">Kopie</button>`);
 
-  Dlg.open(isNew ? 'Neuer Auftrag' : 'Auftrag', body, footer, fd => {
+  Dlg.open(isNew ? (vorlage ? 'Spritzauftrag erfassen' : 'Neuer Auftrag') : 'Auftrag', body, footer, fd => {
     const kTxt = (fd.get('kunde') || '').trim();
     const kunde = findKunde(kTxt);
     if (!kunde) { toast('Kunde nicht gefunden – bitte aus den Vorschlägen wählen.', 4000); Dlg.form.kunde.focus(); return false; }
@@ -1800,7 +1801,7 @@ function sprayView() {
     },
     content() {
       const t = App.spray.tab;
-      const body = t === 'journal' ? journalContent() : t === 'abrechnung' ? abrechnungContent() : t === 'nachweis' ? nachweisContent() : t === 'stamm' ? stammContent() : t === 'vorbestellung' ? vbContent() : this.planContent();
+      const body = t === 'journal' ? journalContent() : t === 'abrechnung' ? abrechnungContent() : t === 'nachweis' ? nachweisContent() : t === 'stamm' ? stammContent() : t === 'vorbestellung' ? vbContent() : t === 'programme' ? vbProgContent() : this.planContent();
       return spTabs() + body;
     },
     planContent() {
@@ -2122,7 +2123,7 @@ function parzelleDialog(id, { kunde, fromOrder } = {}) {
 }
 
 /* ---------- Unteransichten des Moduls ---------- */
-const SP_TABS = [['plan', 'Planung'], ['vorbestellung', 'Vorbestellung'], ['journal', 'Journal'], ['abrechnung', 'Abrechnung'], ['nachweis', 'ÖLN-Nachweis'], ['stamm', 'Stammdaten']];
+const SP_TABS = [['plan', 'Planung'], ['programme', 'Spritzprogramme'], ['journal', 'Journal'], ['abrechnung', 'Abrechnung'], ['nachweis', 'ÖLN-Nachweis'], ['vorbestellung', 'Vorbestellung'], ['stamm', 'Stammdaten']];
 function spTabs() { return `<div class="seg sptabs">${SP_TABS.map(([k, l]) => `<button type="button" data-act="spTab" data-v="${k}" class="${App.spray.tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>`; }
 const yearsOf = () => [...new Set(sprayOrders().map(ernteOf).filter(Boolean))].sort((a, b) => b - a);
 
@@ -3751,11 +3752,11 @@ function vbZusatz(rec) {
 
 /* ---------- Ansicht ---------- */
 function vbContent() {
-  const S = App.spray, y = vbYear(), rec = vbRec(), has = !!vbGet(y), sub = S.vbSub || 'flaechen';
+  const S = App.spray, y = vbYear(), rec = vbRec(), has = !!vbGet(y); if (S.vbSub !== 'bestellung') S.vbSub = 'flaechen'; const sub = S.vbSub;
   const years = [...new Set([...vbYears(), ernteDefault(todayIso()), y])].sort((a, b) => b - a);
   const head = `<div class="filters vbhead">
       <label class="fld" style="margin:0"><span>Erntejahr</span><select class="input" data-vbin="year" style="width:auto">${years.map(j => `<option value="${j}" ${j === y ? 'selected' : ''}>${j}${vbGet(j) ? '' : ' (neu)'}</option>`).join('')}</select></label>
-      <div class="seg">${[['flaechen', 'Flächenplan'], ['programme', 'Spritzprogramme'], ['bestellung', 'Bedarf & Bestellung']].map(([k, l]) => `<button type="button" data-vb="sub" data-v="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="seg">${[['flaechen', 'Flächenplan'], ['bestellung', 'Bedarf & Bestellung']].map(([k, l]) => `<button type="button" data-vb="sub" data-v="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <span class="spacer"></span>
       ${vbGet(y - 1) && !has ? `<button class="btn" data-vb="fromPrev">Aus ${y - 1} übernehmen</button>` : ''}
       <label class="btn" title="Excel-Tabelle «Flächen Bestellung» (.xlsx) oder Spritzprogramm-Datei (.json)">Importieren …<input type="file" accept=".xlsx,.json" data-vbin="import" hidden></label>
@@ -3764,7 +3765,16 @@ function vbContent() {
   if (!has && !rec.progs.length) return head + `<div class="panel"><h2>Vorbestellung ${y}</h2>
       <p>Für das Erntejahr ${y} ist noch nichts erfasst. ${vbGet(y - 1) ? `Übernimm die Spritzprogramme (und auf Wunsch die Flächen) aus ${y - 1}, ` : ''}importiere deine bisherige Excel-Tabelle «Flächen Bestellung» bzw. eine Spritzprogramm-Datei (.json) aus dem Pflanzenschutzplan oder beginne mit einem ersten Spritzprogramm.</p>
       <div class="btns">${vbGet(y - 1) ? `<button class="btn primary" data-vb="fromPrev">Aus ${y - 1} übernehmen</button>` : ''}<button class="btn ${vbGet(y - 1) ? '' : 'primary'}" data-vb="progNew">＋ Spritzprogramm</button></div></div>`;
-  return head + (sub === 'programme' ? vbProgView(rec) : sub === 'bestellung' ? vbOrderView(rec) : vbAreaView(rec));
+  return head + (sub === 'bestellung' ? vbOrderView(rec) : vbAreaView(rec));
+}
+// Eigener Reiter «Spritzprogramme» (pro Erntejahr)
+function vbProgContent() {
+  const y = vbYear(), rec = vbRec(), years = [...new Set([...vbYears(), ernteDefault(todayIso()), y])].sort((a, b) => b - a);
+  return `<div class="filters vbhead">
+      <label class="fld" style="margin:0"><span>Erntejahr</span><select class="input" data-vbin="year" style="width:auto">${years.map(j => `<option value="${j}" ${j === y ? 'selected' : ''}>${j}${vbGet(j) ? '' : ' (neu)'}</option>`).join('')}</select></label>
+      <span class="spacer"></span>
+      ${vbGet(y - 1) && !vbGet(y) ? `<button class="btn" data-vb="fromPrev">Aus ${y - 1} übernehmen</button>` : ''}
+    </div>` + vbProgView(rec);
 }
 function vbAreaView(rec) {
   const P = rec.progs, R = rec.rows;
@@ -3792,14 +3802,14 @@ function vbProgView(rec) {
       <label class="btn">Spritzprogramme importieren (.json)<input type="file" accept=".json,application/json" data-vbin="importJson" hidden></label>
       ${miss.length ? `<button class="btn" data-vb="prodMissing">⚠ ${miss.length} ${miss.length === 1 ? 'Mittel' : 'Mittel'} nicht in den Stammdaten …</button>` : ''}</div>
     <div class="list grid vbprogs">${rec.progs.map(p => {
-      const ha = vbProgHa(rec, p), B = vbBeh(p), kd = rec.rows.filter(r => vbCell(rec, r.id, p.id)).map(r => esc(vbRowName(r).split(' ')[0])).join(', ');
+      const ha = vbProgHa(rec, p), B = vbBeh(p), hasL = vbLines(rec, p).length > 0, kd = rec.rows.filter(r => vbCell(rec, r.id, p.id)).map(r => esc(vbRowName(r).split(' ')[0])).join(', ');
       return `<article class="card vbpcard">
         <div class="row1"><div class="title">${esc(p.name)}</div><span class="chip">${fmtNum(ha)} ha</span></div>
         <div class="sub">${[p.kultur ? `<span class="kultur">${esc(p.kultur)}</span>` : '', p.variante ? esc(p.variante) : '', kd || 'noch keine Flächen'].filter(Boolean).join(' · ')}</div>
         ${B.map(b => {
           const n = vbOrdersOf(rec, p, b).length;
           return `<div class="vbbeh"><div class="vbbh"><b>${esc(b.name || 'Behandlung')}</b>${b.stadium ? `<span class="chip">BBCH ${esc(b.stadium)}</span>` : ''}
-              <button type="button" class="btn mini vbmk" data-vb="mkOrders" data-id="${p.id}" data-b="${b.id}" title="Spritzaufträge für diese Behandlung erstellen">→ Aufträge${n ? ` · ${n} erstellt` : ''}</button></div>
+              <span class="vbmkw">${n ? `<span class="nr" title="Aus dieser Behandlung erstellte Aufträge">${n} erstellt</span>` : ''}${hasL ? `<button type="button" class="btn mini vbmk" data-vb="mkOrders" data-id="${p.id}" data-b="${b.id}" title="Für mehrere Kunden/Parzellen aus dem Flächenplan auf einmal">⇉ Flächenplan</button>` : ''}<button type="button" class="btn mini vbmk primary" data-vb="mkOrder" data-id="${p.id}" data-b="${b.id}" title="Spritzauftrag erfassen – Mittel aus dieser Behandlung vorausgefüllt">＋ Auftrag</button></span></div>
             ${b.hinweis ? `<div class="nr vbhin">${esc(b.hinweis)}</div>` : ''}
             <table class="sptab"><tbody>${b.mittel.map(m => `<tr class="${m.optional ? 'vbopt' : ''}"><td>${esc(mName(m))}${mProd(m) ? '' : ' <span class="warnchip" title="Nicht in den Produkt-Stammdaten">?</span>'}${m.optional ? ' <span class="nr">optional</span>' : ''}</td>
               <td class="n" title="${esc(m.spanne || '')}">${fmtNum(m.menge)} ${esc(mUnit(m))}/ha</td><td class="n"><b>${ha && (!m.optional || p.optMit) ? `${fmtNum(r2(ha * (m.menge || 0)))} ${esc(mUnit(m))}` : ''}</b></td></tr>`).join('')}</tbody></table></div>`;
@@ -4125,6 +4135,7 @@ document.addEventListener('click', e => {
   if (a === 'bUp') { const bx = t.closest('.vbbox'), pv = bx.previousElementSibling; if (pv) bx.parentNode.insertBefore(bx, pv); return; }
   if (a === 'progCopy') return vbCopyDialog(id);
   if (a === 'mkOrders') return vbOrdersDialog(id, t.dataset.b);
+  if (a === 'mkOrder') return vbOrderNew(id, t.dataset.b);
   if (a === 'prodMissing') return vbProdAddDialog(vbMissing(vbRec()));
   if (a === 'zAddProd') return vbZProdDialog();
   if (a === 'mDel') { t.closest('.vbmrow').remove(); return; }
@@ -4209,7 +4220,7 @@ function vbCopyDialog(id) {
     const ty = +fd.get('jahr'), t = structuredClone(vbGet(ty) || vbBlank(ty)), c = structuredClone(p);
     vbBeh(c); c.id = uid(); c.name = fd.get('name').trim() || p.name; c.extraHa = null; c.beh.forEach(b => { b.id = uid(); });
     t.progs.push(c); Store.put('einstellungen', t, { silent: true });
-    App.spray.vbY = ty; App.spray.vbSub = 'programme'; App.render(); toast(`Kopie in ${ty} angelegt`);
+    App.spray.vbY = ty; App.spray.tab = 'programme'; App.render(); toast(`Kopie in ${ty} angelegt`);
     setTimeout(() => vbProgDialog(c.id), 50); return true;
   });
 }
@@ -4225,6 +4236,17 @@ function vbLines(rec, p) {
     else { const v = (rec.fl[r.id] || {})[p.id]; if (v) L.push({ r, pz: '', ha: v }); }
   });
   return L;
+}
+// Mittel einer Behandlung → Produktzeilen eines Auftrags (in der Einheit der Stammdaten)
+const vbProdsFor = ms => ms.map(m => { const pr = mProd(m), u = pr ? pr.einheit || 'l' : mUnit(m), f = pr ? uFac(mUnit(m), u) : 1;
+  return { pid: pr ? pr.id : '', name: pr ? pr.name : m.name, menge: m.menge == null ? null : r2((m.menge * (f || 1)) * 1000) / 1000, einheit: f ? u : mUnit(m), nichtOeln: false }; });
+// Ein Spritzauftrag aus einer Behandlung: normales Auftragsfenster mit vorausgefüllten Mitteln
+function vbOrderNew(pid, bid) {
+  const rec = vbRec(), p = rec.progs.find(x => x.id === pid); if (!p) return;
+  const b = vbBeh(p).find(x => x.id === bid); if (!b) return;
+  const vorlage = { kultur: p.kultur || '', stadium: b.stadium ? 'BBCH ' + b.stadium : '', erntejahr: rec.jahr, vbRef: vbRefOf(rec, p, b, '', ''),
+    notiz: [p.name + ' – ' + (b.name || 'Behandlung'), b.hinweis].filter(Boolean).join(': '), produkte: vbProdsFor(b.mittel.filter(m => (m.name || m.pid) && !m.optional)) };
+  orderDialog(null, { arbeit: sprayArbeit(), vorlage });
 }
 function vbOrdersDialog(pid, bid) {
   const rec = vbRec(), p = rec.progs.find(x => x.id === pid); if (!p) return;
@@ -4246,8 +4268,7 @@ function vbOrdersDialog(pid, bid) {
     if (!sel.length) { toast('Mindestens einen Kunden wählen.'); return false; }
     const arbeit = sprayArbeit(), sm = soleMachine(arbeit);
     let nr = +(Store.nextAuftragNr().split('-')[1]); const yy = new Date().getFullYear();
-    const produkte = ms.map(m => { const pr = mProd(m), u = pr ? pr.einheit || 'l' : mUnit(m), f = pr ? uFac(mUnit(m), u) : 1;
-      return { pid: pr ? pr.id : '', name: pr ? pr.name : m.name, menge: m.menge == null ? null : r2((m.menge * (f || 1)) * 1000) / 1000, einheit: f ? u : mUnit(m), nichtOeln: false }; });
+    const produkte = vbProdsFor(ms);
     const list = sel.map(l => {
       const pz = l.pz ? Store.get('parzellen', l.pz) : null;
       const a = sprayDefaults({ id: uid(), erfasst: Date.now(), nr: `${yy}-${String(nr++).padStart(3, '0')}`, status: 'offen', kunde: l.r.kunde, arbeit, kultur: p.kultur || (pz && pz.kultur) || '',
@@ -4301,7 +4322,7 @@ async function vbImportJson(file) {
       n++;
     });
     Store.put('einstellungen', r, { silent: true });
-    App.spray.vbY = ty; App.spray.vbSub = 'programme'; App.render();
+    App.spray.vbY = ty; App.spray.tab = 'programme'; App.render();
     toast(`${n} Spritzprogramme importiert`);
     const miss = vbMissing(r);
     if (miss.length) setTimeout(() => vbProdAddDialog(miss), 50);
