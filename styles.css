@@ -937,3 +937,7 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 .warnchip.vbmiss { cursor: pointer; }
 @media (max-width: 560px) { .vbpanew { grid-template-columns: 1fr 1fr; } }
 .vbit td:first-child .nr { white-space: nowrap; }
+/* v65: Erledigt melden oben im Auftrag */
+.odtop { display: flex; align-items: center; gap: 8px; margin: -4px 0 10px; }
+.odtop .odone { margin-left: auto; font-size: 13px; padding: 5px 12px; min-height: 0; border-color: color-mix(in srgb, var(--s-erledigt) 50%, var(--line)); color: var(--s-erledigt); background: var(--surface); }
+.odtop .odone:hover { background: color-mix(in srgb, var(--s-erledigt) 12%, var(--surface)); }

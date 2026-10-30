@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '64', APP_STAND = '29.10.2026';
+const APP_VERSION = '65', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1046,7 +1046,7 @@ const Dlg = {
     const nf = this.form.cloneNode(false); this.form.replaceWith(nf); this.form = nf;
     this.form.innerHTML = `<div class="dh"><h2>${title}</h2><button type="button" class="x" data-act="close" aria-label="Schliessen">×</button></div>
       <div class="db">${body}</div><div class="df">${footer}</div>`;
-    this.onSubmit = onSubmit;
+    this.onSubmit = onSubmit; this.afterSave = null;
     if (!this.el.open) this.el.showModal();
     this.form.querySelector('.db').scrollTop = 0;
     const first = this.form.querySelector('[autofocus]'); if (first && matchMedia('(pointer:fine)').matches) first.focus();
@@ -1074,6 +1074,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
   const s = statusOf(a), done = s === 'erledigt' || s === 'verrechnet';
   const planDate = a.datum || pre?.datum || (plan ? (a.wunsch && a.wunsch >= todayIso() ? a.wunsch : (App.view === 'plan' ? isoDate(App.plan.date) : todayIso())) : '');
   const body = `
+    ${isOpen(a) ? `<div class="odtop"><span class="nr">${isNew ? 'Neuer Auftrag' : `Auftrag ${esc(a.nr || '')}`}</span><button type="button" class="btn small donebtn odone" data-act="doneSave" data-id="${a.id}" title="Auftrag speichern und direkt als erledigt melden (Datum, Fläche, Stunden, Bemerkungen)">✓ Erledigt melden</button></div>` : ''}
     <label class="fld"><span>Kunde</span>
       <div class="combo">
         <input class="input combo-in" name="kunde" value="${esc(k ? kundeLabel(k) : '')}" placeholder="Name, Ort oder Nr. eingeben" autocomplete="off" autocapitalize="words" spellcheck="false" required ${isNew && !kundeId ? 'autofocus' : ''}>
@@ -4573,6 +4574,7 @@ document.addEventListener('click', async e => {
     case 'editOrder': orderDialog(id); break;
     case 'planOrder': e.stopPropagation(); orderDialog(id, { plan: 'vorschlag' }); break;
     case 'done': e.stopPropagation(); doneDialog(id); break;
+    case 'doneSave': Dlg.afterSave = () => doneDialog(id); if (!Dlg.form.reportValidity()) { Dlg.afterSave = null; break; } Dlg.form.requestSubmit(); break;
     case 'unplan': f.datum.value = ''; f.zeit.value = ''; toast('Beim Speichern wird die Einplanung entfernt'); break;
     case 'quickKunde': if (jdLock()) toast('Neue Kunden werden in MyJohnDeere erfasst.'); else quickKundeDialog(); break;
     case 'feldAssign': feldAssignDialog(id); break;
@@ -4798,7 +4800,8 @@ document.addEventListener('touchmove', e => { if (App.tdrag) e.preventDefault();
   Dlg.el.addEventListener('submit', e => { // am Dialog, damit das Formular bei jedem Öffnen frisch ersetzt werden kann
     if (e.target !== Dlg.form) return;
     e.preventDefault();
-    if (Dlg.onSubmit && Dlg.onSubmit(new FormData(Dlg.form)) !== false) Dlg.close();
+    const after = Dlg.afterSave; Dlg.afterSave = null;
+    if (Dlg.onSubmit && Dlg.onSubmit(new FormData(Dlg.form)) !== false) { Dlg.close(); if (after) setTimeout(after, 0); }
   });
   Dlg.el.addEventListener('cancel', () => { Dlg.onSubmit = null; });
   Store.load();
