@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '72', APP_STAND = '29.10.2026';
+const APP_VERSION = '73', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -4146,7 +4146,7 @@ function uiScalePanel() {
     <p class="nr">Für grosse Bildschirme (z.B. 27 Zoll mit 3840 × 2160). «Automatisch» vergrössert, wenn Windows den Bildschirm nicht selbst skaliert. Die Einstellung gilt nur für dieses Gerät und diesen Browser; Ausdrucke und PDF bleiben unverändert.</p></div>`;
 }
 /* ---------- Versionsanzeige ---------- */
-const NAS_MIN = '48'; // mindestens nötige Version des NAS-Dienstes
+const NAS_MIN = '49'; // mindestens nötige Version des NAS-Dienstes
 function versionInfo() {
   const c = Store.cfg(), nas = c.jdDienst, ver = v => +String(v || '').replace(/[^\d.]/g, '') || 0;
   const nasTxt = nas ? `Version ${esc(nas)}${ver(nas) < ver(NAS_MIN) ? ` <span class="badge offen">zu alt – NAS-Dienst auf Version ${NAS_MIN} oder neuer aktualisieren</span>` : ' <span class="nr">(aktuell)</span>'}`
