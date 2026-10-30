@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '66', APP_STAND = '29.10.2026';
+const APP_VERSION = '67', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -3806,7 +3806,7 @@ function abTable(list, { print, all } = {}) {
   const row = r => `<tr class="${print ? '' : 'click'}${r.abr ? ' jdab' : ''}${ck && S.has(r.id) ? ' alsel' : ''}" ${print ? '' : `data-ab="row" data-id="${esc(r.id)}"`}>${ck ? `<td class="ck" data-stop><input type="checkbox" data-abin="sel" value="${esc(r.id)}" ${S.has(r.id) ? 'checked' : ''}></td>` : ''}${cols.map(c => `<td class="${c.n ? 'n' : ''} c-${c.id}">${!print && c.html ? c.html(r) : esc(c.v(r))}</td>`).join('')}</tr>`;
   const TL = all || list, sum = k => r2(TL.reduce((s, r) => s + (r[k] || 0), 0));
   const tot = `<tfoot><tr class="tot jdbtot">${ck ? '<td></td>' : ''}${cols.map((c, i) => `<td class="${c.n ? 'n' : ''}">${c.id === 'ha' ? `<b>${fmtNum(abHaSum(TL))}</b>` : c.id === 'haP' ? `<b>${fmtNum(sum('haP'))}</b>` : c.id === 'haJ' ? `<b>${fmtNum(sum('haJ'))}</b>` : c.id === 'std' ? `<b>${fmtNum(sum('std'))}</b>` : c.id === 'dauer' ? `<b>${hrs(sum('dauer'))}</b>` : i === 0 ? `<b>Total ${TL.length}</b>` : ''}</td>`).join('')}</tr></tfoot>`;
-  const tcls = `btab jdbtab abtab${print ? '' : ' abfix'}`, tw = print ? '' : ` style="width:${(ck ? 36 : 0) + cols.reduce((s, c) => s + c.w, 0)}px"`;
+  const tcls = `btab jdbtab abtab${print ? '' : ' jdbfix abfix'}`, tw = print ? '' : ` style="width:${(ck ? 36 : 0) + cols.reduce((s, c) => s + c.w, 0)}px"`;
   if (!g) return `<table class="${tcls}"${tw}>${colg}${head}<tbody>${list.map(row).join('')}</tbody>${tot}</table>`;
   const groups = groupBy(list.slice().sort((a, b) => String(abGroupKey(a, g)).localeCompare(String(abGroupKey(b, g)), 'de') * (g === 'monat' ? -1 : 1)), r => abGroupKey(r, g));
   return `<table class="${tcls}"${tw}>${colg}${head}${groups.map(([k, l]) => `<tbody class="pblk"><tr class="gk"><td colspan="${cols.length + (ck ? 1 : 0)}">${esc(jdbGroupLabel(k, g === 'monat' ? 'monat' : ''))} · ${l.length} ${l.length === 1 ? 'Eintrag' : 'Einträge'} · ${fmtNum(abHaSum(l))} ha</td></tr>${l.map(row).join('')}</tbody>`).join('')}${tot}</table>`;

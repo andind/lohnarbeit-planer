@@ -951,3 +951,4 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 .abdet { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .abdet h4 { margin: 0 0 6px; }
 @media (max-width: 720px) { .abdet { grid-template-columns: 1fr; } }
+.abfix td.c-src, .abfix td.c-nr, .abfix td.c-haJ { white-space: nowrap; }
