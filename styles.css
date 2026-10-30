@@ -960,3 +960,7 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 .btab.grz th.n { text-align: right; }
 .btab.grz tr.grz-akt td { font-weight: 600; }
 .btab.grz tr.grz-arch td { color: var(--muted); }
+/* v71: Feld in Bericht/Abrechnung anklickbar → Vermessungen */
+.fldlink { color: var(--accent, #2e6b30); text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; cursor: pointer; }
+.fldlink:hover { text-decoration-style: solid; }
+.grzwrap { overflow-x: auto; }

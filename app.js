@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '70', APP_STAND = '29.10.2026';
+const APP_VERSION = '71', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -3304,10 +3304,20 @@ function grenzenHtml(f) {
   const g = f.grenzen;
   if (!g) return `<p class="nr">Für «${esc(f.name)}» sind noch keine Vermessungen gespeichert – sie kommen mit dem NAS-Dienst ab Version 46 beim nächsten Abgleich.</p>`;
   if (!g.length) return `<p class="nr">Für «${esc(f.name)}» ist in MyJohnDeere keine Vermessung gespeichert.</p>`;
-  const L = g.slice().sort((a, b) => (b.aktiv - a.aktiv) || String(b.geaendert || '').localeCompare(String(a.geaendert || '')));
-  return `<table class="btab kv grz"><thead><tr><th>Vermessung</th><th class="n">Fläche</th><th class="n">bearbeitbar</th><th>Stand</th></tr></thead><tbody>
+  const dd = s => s ? esc(fmtDate(String(s).slice(0, 10), { day: '2-digit', month: '2-digit', year: 'numeric' })) : '';
+  const L = g.slice().sort((a, b) => (b.aktiv - a.aktiv) || String(b.erstellt || b.geaendert || '').localeCompare(String(a.erstellt || a.geaendert || '')));
+  const mitE = L.some(x => x.erstellt);
+  return `<div class="grzwrap"><table class="btab kv grz"><thead><tr><th>Vermessung</th><th class="n">Fläche</th><th class="n">bearbeitbar</th>${mitE ? '<th>Erstellt</th>' : ''}<th>Geändert</th></tr></thead><tbody>
     ${L.map(x => `<tr class="${x.aktiv ? 'grz-akt' : ''}${x.archiviert ? ' grz-arch' : ''}"><td>${esc(x.name || '(ohne Namen)')}${x.aktiv ? ' <span class="badge geplant">aktiv</span>' : ''}${x.archiviert ? ' <span class="nr">archiviert</span>' : ''}</td>
-      <td class="n">${x.ha != null ? fmtNum(x.ha) + ' ha' : ''}</td><td class="n">${x.bha != null ? fmtNum(x.bha) + ' ha' : ''}</td><td>${x.geaendert ? esc(fmtDate(String(x.geaendert).slice(0, 10), { day: '2-digit', month: '2-digit', year: 'numeric' })) : ''}</td></tr>`).join('')}</tbody></table>`;
+      <td class="n">${x.ha != null ? fmtNum(x.ha) + ' ha' : ''}</td><td class="n">${x.bha != null ? fmtNum(x.bha) + ' ha' : ''}</td>${mitE ? `<td>${dd(x.erstellt)}</td>` : ''}<td>${dd(x.geaendert)}</td></tr>`).join('')}</tbody></table></div>
+    ${!mitE ? '<p class="nr" style="margin-top:6px">Erstellungsdatum: kommt mit dem NAS-Dienst ab Version 47.</p>' : ''}`;
+}
+// Eigenes Fenster «Vermessungen» (Klick auf das Feld in den Listen von Bericht und Abrechnung)
+function grenzenDialog(fe, lbl, kunde) {
+  const n = fe && fe.grenzen ? fe.grenzen.length : 0;
+  const kopf = `<table class="btab kv">${kunde ? `<tr><td class="nr">Kunde</td><td>${esc(kunde)}</td></tr>` : ''}<tr><td class="nr">Feld</td><td>${esc(fe ? fe.name : lbl)}</td></tr>
+    ${fe && fe.flaeche != null ? `<tr><td class="nr">Fläche (Stammdaten)</td><td>${fmtNum(fe.flaeche)} ha</td></tr>` : ''}${n ? `<tr><td class="nr">Vermessungen</td><td>${n}</td></tr>` : ''}</table>`;
+  Dlg.open(`Vermessungen – ${fe ? fe.name : lbl || 'Feld'}`, `${kopf}<div style="margin-top:12px">${grenzenHtml(fe)}</div>`, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
 }
 /* ================= JD-Arbeitsbericht: Arbeitsgänge aus MyJohnDeere auswerten =================
    Quelle: «jd-arbeiten.json» im Dropbox-Ordner (vom NAS-Dienst jd-sync). Vorerst ohne Verknüpfung zu den Planungsdaten. */
@@ -3504,7 +3514,7 @@ const JDB_COLS = [
   { id: 'dauer', l: 'Dauer', w: 64, n: 1, v: r => r.dauer != null ? hrs(r.dauer) : '', csv: r => r.dauer != null ? r2(r.dauer) : '' },
   { id: 'arbeit', l: 'Arbeit', w: 130, v: r => r.arbeit },
   { id: 'kunde', l: 'Kunde', w: 150, v: r => r.kunde },
-  { id: 'feld', l: 'Feld', w: 130, v: r => r.feld },
+  { id: 'feld', l: 'Feld', w: 130, v: r => r.feld, html: r => r.feld ? `<span class="fldlink" data-act="jbGrz" data-id="${esc(r.id)}" title="Vermessungen anzeigen">${esc(r.feld)}</span>` : '' },
   { id: 'ha', l: 'ha', w: 60, n: 1, v: r => r.ha != null ? fmtNum(r.ha) : '', csv: r => r.ha ?? '' },
   { id: 'quelle', l: 'Flächen-Quelle', w: 118, v: r => r.quelle || '', html: r => r.quelle ? `<span class="fq fq-${r.quelle === 'Bedeckungskarte' ? 'b' : 'm'}">${esc(r.quelle)}</span>` : '<span class="nr">–</span>' },
   { id: 'maschine', l: 'Maschine', w: 140, v: r => r.maschine },
@@ -3692,6 +3702,11 @@ function jdbMsQuery(el) { App.jdb.msq = el.value; const q = norm(el.value); $$('
 function jdbMsAll(k, on) { const J = App.jdb, cur = new Set(jdbArr(J[k])); if (!on) { jdbMsSet(k, []); return; } $$('.msel.open .msel-i').filter(x => !x.hidden).forEach(x => cur.add(x.querySelector('input').value)); jdbMsSet(k, [...cur]); }
 document.addEventListener('click', e => { const J = App.jdb; if (J && J.open && !e.target.closest('.msel')) { J.open = null; App.render(); } }, true);
 document.addEventListener('keydown', e => { const J = App.jdb; if (e.key !== 'Escape' || !J || Dlg.el.open) return; if (J.open) { J.open = null; App.render(); } else if (J.fs && App.view === 'jdbericht') { J.fs = false; App.render(); } });
+
+function jdbGrenzen(id) {
+  const r = (App.jdb.rows || []).find(x => x.id === id); if (!r) return;
+  grenzenDialog(feldFuer({ fid: r.fid, kunde: r.kunde, feld: r.feld }), r.feld, r.kunde);
+}
 /* ================= Abrechnung: erledigte Aufträge (Planer) und Arbeitsgänge (MyJohnDeere) kombiniert =================
    Vorlage: Modul «Bericht». Ein Auftrag und ein Arbeitsgang werden zu einer Zeile verbunden, wenn Kunde, Datum (±2 Tage),
    Art der Arbeit und – falls vorhanden – Feld zusammenpassen. Manuell: verknüpfen / Verknüpfung lösen (am Auftrag gespeichert). */
@@ -3810,7 +3825,7 @@ const AB_COLS = [
   { id: 'ende', l: 'Ende (JD)', w: 118, v: r => jdbDT(r.end) },
   { id: 'arbeit', l: 'Arbeit', w: 130, v: r => r.arbeit },
   { id: 'kunde', l: 'Kunde', w: 150, v: r => r.kunde },
-  { id: 'feld', l: 'Feld', w: 130, v: r => r.feld },
+  { id: 'feld', l: 'Feld', w: 130, v: r => r.feld, html: r => r.feld ? `<span class="fldlink" data-ab="grz" data-id="${esc(r.id)}" title="Vermessungen anzeigen">${esc(r.feld)}</span>` : '' },
   { id: 'ha', l: 'ha', w: 60, n: 1, v: r => r.ha != null ? fmtNum(r.ha) : '', csv: r => r.ha ?? '' },
   { id: 'haP', l: 'ha Auftrag', w: 76, n: 1, v: r => r.haP != null ? fmtNum(r.haP) : '', csv: r => r.haP ?? '' },
   { id: 'haJ', l: 'ha JD', w: 66, n: 1, v: r => r.haJ != null ? fmtNum(r.haJ) : '', csv: r => r.haJ ?? '',
@@ -3925,7 +3940,7 @@ function abDetail(id) {
       ${kv('Maschine', j.maschine)}${kv('Fahrer', j.fahrer)}${kv('Kultur', j.kultur)}${kv('Produkte', jdbProdTxt(j))}${kv('Sorten', j.sorten)}${kv('Gesamtmenge', jdbGesTxt(j))}</table>
       <div class="btns" style="margin-top:8px"><button type="button" class="btn small" data-ab="jdDetail" data-id="${esc(j.id)}">Alle Messwerte</button></div>`
     : `<p class="nr">Kein Arbeitsgang aus MyJohnDeere verbunden.</p>${o ? `<div class="btns"><button type="button" class="btn small" data-ab="linkPick" data-id="${esc(r.id)}">Mit Arbeitsgang verknüpfen…</button></div>` : ''}`;
-  const fe = (j && feldFuer({ fid: j.fid, kunde: j.kunde, feld: j.feld })) || (o && feldFuer({ feldId: o.kfeld, kundeId: o.kunde, feld: aFeld(o) })) || null;
+  const fe = abFeld(o, j);
   const feLbl = fe ? fe.name : ((j && j.feld) || (o && aFeld(o)) || '');
   const body = `<div class="abdet"><div><h4>Auftrag (Planer)</h4>${left}</div><div><h4>Arbeitsgang (MyJohnDeere)</h4>${right}</div></div>
     <h4 style="margin:14px 0 6px">Vermessungen des Feldes${feLbl ? ` «${esc(feLbl)}»` : ''}</h4>${grenzenHtml(fe)}
@@ -4035,6 +4050,8 @@ document.addEventListener('click', e => {
   const S = App.abrSel || (App.abrSel = new Set());
   switch (a) {
     case 'row': abDetail(id); break;
+    case 'grz': { const r = abRows().find(x => x.id === id); if (!r) break; const o = r.oid ? Store.get('auftraege', r.oid) : null, j = r.jid ? (App.jdb.rows || []).find(x => x.id === r.jid) : null;
+      grenzenDialog(abFeld(o, j), r.feld, r.kunde); break; }
     case 'load': jdbLoad(); break;
     case 'fs': A.fs = !A.fs; App.render(); break;
     case 'fsFilter': A.fsNoFilter = !A.fsNoFilter; App.render(); break;
@@ -4076,6 +4093,9 @@ document.addEventListener('change', e => {
   else if (k === 'selAll') { abList().slice(0, A.limit || 300).forEach(r => e.target.checked ? S.add(r.id) : S.delete(r.id)); App.render(); }
 });
 document.addEventListener('keydown', e => { const A = App.abr; if (e.key !== 'Escape' || !A || Dlg.el.open || App.view !== 'abrechnung') return; if (A.open) { A.open = null; App.render(); } else if (A.fs) { A.fs = false; App.render(); } });
+
+// Feld zu einem Abrechnungs-Eintrag: zuerst über den JD-Arbeitsgang, sonst über das Feld des Auftrags
+const abFeld = (o, j) => (j && feldFuer({ fid: j.fid, kunde: j.kunde, feld: j.feld })) || (o && feldFuer({ feldId: o.kfeld, kundeId: o.kunde, feld: aFeld(o) })) || null;
 /* ---------- Zoom der Planung: Tages- und Wochenansicht unabhängig, gespeichert ---------- */
 {
   const old = +(ls('lp_zoom') || 1) || 1, key = () => App.plan.mode === 'tag' ? 'tag' : 'woche';
@@ -4108,7 +4128,7 @@ function uiScalePanel() {
     <p class="nr">Für grosse Bildschirme (z.B. 27 Zoll mit 3840 × 2160). «Automatisch» vergrössert, wenn Windows den Bildschirm nicht selbst skaliert. Die Einstellung gilt nur für dieses Gerät und diesen Browser; Ausdrucke und PDF bleiben unverändert.</p></div>`;
 }
 /* ---------- Versionsanzeige ---------- */
-const NAS_MIN = '46'; // mindestens nötige Version des NAS-Dienstes
+const NAS_MIN = '47'; // mindestens nötige Version des NAS-Dienstes
 function versionInfo() {
   const c = Store.cfg(), nas = c.jdDienst, ver = v => +String(v || '').replace(/[^\d.]/g, '') || 0;
   const nasTxt = nas ? `Version ${esc(nas)}${ver(nas) < ver(NAS_MIN) ? ` <span class="badge offen">zu alt – NAS-Dienst auf Version ${NAS_MIN} oder neuer aktualisieren</span>` : ' <span class="nr">(aktuell)</span>'}`
@@ -5031,6 +5051,7 @@ document.addEventListener('click', async e => {
     case 'jbCsv': jdbCsv(); break;
     case 'jbPrint': jdbPrint(); break;
     case 'jbRow': jdbDetail(id); break;
+    case 'jbGrz': jdbGrenzen(id); break;
     case 'jbMark': jdbMarkSel(t.dataset.v === '1'); break;
     case 'jbMarkOne': { const on = t.dataset.v === '1'; jdbMark([id], on); toast(on ? 'Als abgerechnet markiert' : 'Wieder offen'); jdbDetail(id); break; }
     case 'jbSelAllList': { const S = App.jdbSel || (App.jdbSel = new Set()); jdbList().forEach(r => S.add(r.id)); App.render(); break; }
