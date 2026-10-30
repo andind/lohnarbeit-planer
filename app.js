@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '63', APP_STAND = '29.10.2026';
+const APP_VERSION = '64', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1092,6 +1092,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
       <label class="fld"><span>Wunschdatum</span><input class="input" type="date" name="wunsch" value="${a.wunsch || ''}"></label>
     </div>
     <label class="fld" id="vmBox" ${a.datum ? 'hidden' : ''}><span>Maschine (Vorauswahl)</span><select class="input" name="vmasch"></select><div class="sub2" id="vmHint">Wird beim Einplanen vorgeschlagen; in der Planung bei «Noch nicht eingeplant» angezeigt und filterbar.</div></label>
+    ${typeof vbInfoHtml === 'function' && a.vbInfo ? vbInfoHtml(a.vbInfo) : ''}
     ${sprayBox(a)}
     <label class="fld"><span>Bemerkungen</span><textarea class="input" name="notiz" placeholder="Zufahrt, Besonderheiten, Ansprechperson…">${esc(a.notiz || '')}</textarea></label>
 
@@ -3823,7 +3824,7 @@ function vbProgView(rec) {
   return `<div class="btns" style="margin:0 0 10px"><button class="btn primary" data-vb="progNew">＋ Spritzprogramm</button>
       <label class="btn">Spritzprogramme importieren (.json)<input type="file" accept=".json,application/json" data-vbin="importJson" hidden></label>
       ${miss.length ? `<button class="btn" data-vb="prodMissing">⚠ ${miss.length} ${miss.length === 1 ? 'Mittel' : 'Mittel'} nicht in den Stammdaten …</button>` : ''}</div>
-    <div class="list grid vbprogs">${rec.progs.map(p => {
+    <div class="list grid vbprogs">${rec.progs.map((p, pi) => {
       const ha = vbProgHa(rec, p), B = vbBeh(p), hasL = vbLines(rec, p).length > 0, kd = rec.rows.filter(r => vbCell(rec, r.id, p.id)).map(r => esc(vbRowName(r).split(' ')[0])).join(', ');
       return `<article class="card vbpcard">
         <div class="row1"><div class="title">${esc(p.name)}</div><span class="chip">${fmtNum(ha)} ha</span></div>
@@ -3833,11 +3834,12 @@ function vbProgView(rec) {
           return `<div class="vbbeh"><div class="vbbh"><b>${esc(b.name || 'Behandlung')}</b>${b.stadium ? `<span class="chip">BBCH ${esc(b.stadium)}</span>` : ''}
               <span class="vbmkw">${n ? `<span class="nr" title="Aus dieser Behandlung erstellte Aufträge">${n} erstellt</span>` : ''}${hasL ? `<button type="button" class="btn mini vbmk" data-vb="mkOrders" data-id="${p.id}" data-b="${b.id}" title="Für mehrere Kunden/Parzellen aus dem Flächenplan auf einmal">⇉ Flächenplan</button>` : ''}<button type="button" class="btn mini vbmk primary" data-vb="mkOrder" data-id="${p.id}" data-b="${b.id}" title="Spritzauftrag erfassen – Mittel aus dieser Behandlung vorausgefüllt">＋ Auftrag</button></span></div>
             ${b.hinweis ? `<div class="nr vbhin">${esc(b.hinweis)}</div>` : ''}
-            <table class="sptab"><tbody>${b.mittel.map(m => `<tr class="${m.optional ? 'vbopt' : ''}"><td>${esc(mName(m))}${mProd(m) ? '' : ' <span class="warnchip" title="Nicht in den Produkt-Stammdaten">?</span>'}${m.optional ? ' <span class="nr">optional</span>' : ''}</td>
+            <table class="sptab"><tbody>${b.mittel.map(m => `<tr class="${m.optional ? 'vbopt' : ''}"><td>${esc(mName(m))}${mProd(m) ? '' : ' <span class="warnchip vbmiss" data-vb="prodMissing" title="Nicht in den Produkt-Stammdaten – antippen zum Aufnehmen oder Zuordnen">?</span>'}${m.optional ? ' <span class="nr">optional</span>' : ''}</td>
               <td class="n" title="${esc(m.spanne || '')}">${fmtNum(m.menge)} ${esc(mUnit(m))}/ha</td><td class="n"><b>${ha && (!m.optional || p.optMit) ? `${fmtNum(r2(ha * (m.menge || 0)))} ${esc(mUnit(m))}` : ''}</b></td></tr>`).join('')}</tbody></table></div>`;
         }).join('')}
         ${p.quelle ? `<div class="nr vbq">${esc(p.quelle)}</div>` : ''}
-        <div class="btns vbpbtns"><button class="btn small" data-vb="progEdit" data-id="${p.id}">Bearbeiten</button><button class="btn small" data-vb="progCopy" data-id="${p.id}">Kopieren</button></div>
+        <div class="btns vbpbtns"><button class="btn small" data-vb="progEdit" data-id="${p.id}">Bearbeiten</button><button class="btn small" data-vb="progCopy" data-id="${p.id}">Kopieren</button>
+          <span class="spacer"></span><button class="btn small" data-vb="progMove" data-id="${p.id}" data-d="-1" title="Nach vorne verschieben" ${pi ? '' : 'disabled'}>◀</button><button class="btn small" data-vb="progMove" data-id="${p.id}" data-d="1" title="Nach hinten verschieben" ${pi < rec.progs.length - 1 ? '' : 'disabled'}>▶</button></div>
       </article>`;
     }).join('') || '<p class="nr">Noch keine Spritzprogramme.</p>'}</div>`;
 }
@@ -3872,7 +3874,7 @@ function vbProgDialog(id) {
     <input class="input" name="mmenge" inputmode="decimal" value="${m.menge ?? ''}" placeholder="Menge" title="${esc(m.spanne ? 'Empfehlung: ' + m.spanne : '')}"><input class="input vbu" name="meinh" value="${esc(m.name || m.pid ? mUnit(m) : '')}" placeholder="l">
     <label class="noeln" title="Optional (z.B. «evtl.»): zählt im Mittelbedarf nur, wenn oben eingeschaltet"><input type="checkbox" name="mopt" ${m.optional ? 'checked' : ''}><span>opt.</span></label>
     <button type="button" class="x" data-vb="mDel" aria-label="Entfernen">×</button>
-    <input type="hidden" name="mx" value="${esc(JSON.stringify({ zul: m.zul || '', spanne: m.spanne || '', wf: m.wf || '', gs: m.gs || '', drift: m.drift || '', bemerkung: m.bemerkung || '', hinweisMenge: m.hinweisMenge || '' }))}"></div>`; };
+    <input type="hidden" name="mx" value="${esc(JSON.stringify({ zul: m.zul || '', spanne: m.spanne || '', wf: m.wf || '', gs: m.gs || '', drift: m.drift || '', abschwemmung: m.abschwemmung || '', bemerkung: m.bemerkung || '', hinweisMenge: m.hinweisMenge || '', alias: m.alias || '' }))}"></div>`; };
   const brow = (b = {}) => `<div class="vbbox" data-b="${b.id || uid()}">
     <div class="vbb2"><label class="fld"><span>Behandlung</span><input class="input" name="bname" value="${esc(b.name || '')}" placeholder="z.B. 1. Fungizid"></label>
       <label class="fld"><span>Stadium (BBCH)</span><input class="input" name="bstad" value="${esc(b.stadium || '')}" placeholder="z.B. 31-32"></label></div>
@@ -4156,6 +4158,7 @@ document.addEventListener('click', e => {
   if (a === 'bDel') { const bx = t.closest('.vbbox'); if ($$('.vbmrow select', bx).some(x => x.value) && !confirm('Behandlung mit ihren Mitteln entfernen?')) return; bx.remove(); return; }
   if (a === 'bUp') { const bx = t.closest('.vbbox'), pv = bx.previousElementSibling; if (pv) bx.parentNode.insertBefore(bx, pv); return; }
   if (a === 'progCopy') return vbCopyDialog(id);
+  if (a === 'progMove') { const r = vbRec(), i = r.progs.findIndex(x => x.id === id), j = i + (+t.dataset.d); if (i < 0 || j < 0 || j >= r.progs.length) return; [r.progs[i], r.progs[j]] = [r.progs[j], r.progs[i]]; vbSave(r); return; }
   if (a === 'mkOrders') return vbOrdersDialog(id, t.dataset.b);
   if (a === 'mkOrder') return vbOrderNew(id, t.dataset.b);
   if (a === 'prodMissing') return vbProdAddDialog(vbMissing(vbRec()));
@@ -4205,31 +4208,52 @@ function vbMissing(recs) {
 }
 function vbProdAddDialog(list, after) {
   if (!list.length) { toast('Alle Mittel sind in den Stammdaten erfasst.'); return; }
-  const units = ['l', 'kg', 'g', 'ml'];
-  const body = `<p style="margin-top:0">Diese Mittel aus den Spritzprogrammen fehlen in den Produkt-Stammdaten. Ausgewählte werden als neue Produkte angelegt (Preis später unter Stammdaten › Produkte ergänzen).</p>
-    <div class="vbpadd">${list.map((m, i) => `<div class="vbparow"><label class="tog"><input type="checkbox" name="c${i}" checked></label>
-      <input class="input" name="n${i}" value="${esc(m.name)}" title="Name"><input class="input" name="z${i}" value="${esc(m.zul)}" placeholder="Zulassung" title="Zulassungsnummer">
-      <select class="input" name="u${i}">${units.map(u => `<option ${uNorm(m.einheit) === u ? 'selected' : ''}>${u}</option>`).join('')}</select>
-      <input class="input" name="p${i}" inputmode="decimal" placeholder="Preis" title="Preis CHF pro Einheit (optional)">
-      <div class="nr vbpap">${esc([...m.progs].join(', '))}</div></div>`).join('')}</div>`;
-  Dlg.open('Mittel in die Stammdaten aufnehmen', body, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Nicht jetzt</button><button type="submit" class="btn primary">Ausgewählte aufnehmen</button>`, fd => {
-    const add = [];
+  const units = ['l', 'kg', 'g', 'ml'], all = Store.all('produkte').filter(p => p.name).sort(byName);
+  // naheliegendes bestehendes Produkt (gleiches erstes Wort, eindeutig) vorschlagen
+  const guess = m => { const w = norm(m.name).split(/[\s(]/)[0]; if (w.length < 3) return null; const l = all.filter(p => norm(p.name).split(/[\s(-]/)[0] === w); const akt = l.filter(p => p.aktuell !== false); const c = akt.length ? akt : l; return c.length === 1 ? c[0] : null; };
+  const opts = (m, g) => `<option value="neu" ${g ? '' : 'selected'}>＋ als neues Produkt aufnehmen</option><option value="">– nicht jetzt –</option>
+    <optgroup label="Bestehendem Produkt zuordnen">${all.map(p => `<option value="${p.id}" ${g && g.id === p.id ? 'selected' : ''}>→ ${esc(p.name)}${p.zulassung ? ' – ' + esc(p.zulassung) : ''}${p.aktuell === false ? ' (nicht aktuell)' : ''}</option>`).join('')}</optgroup>`;
+  const body = `<p style="margin-top:0">Diese Mittel aus den Spritzprogrammen fehlen in den Produkt-Stammdaten. Pro Mittel wählen: als neues Produkt aufnehmen (Preis später unter Stammdaten › Produkte ergänzen) oder einem bestehenden Produkt zuordnen.</p>
+    <div class="vbpadd">${list.map((m, i) => { const g = guess(m); return `<div class="vbparow2" data-i="${i}">
+      <div class="vbpah"><b>${esc(m.name)}</b>${m.zul ? ` <span class="nr">${esc(m.zul)}</span>` : ''} <span class="nr">· ${esc([...m.progs].join(', '))}</span></div>
+      <select class="input" name="a${i}" data-plain>${opts(m, g)}</select>
+      <div class="vbpanew" ${g ? 'hidden' : ''}><input class="input" name="n${i}" value="${esc(m.name)}" title="Name"><input class="input" name="z${i}" value="${esc(m.zul)}" placeholder="Zulassung" title="Zulassungsnummer">
+        <select class="input" name="u${i}" data-plain>${units.map(u => `<option ${uNorm(m.einheit) === u ? 'selected' : ''}>${u}</option>`).join('')}</select>
+        <input class="input" name="p${i}" inputmode="decimal" placeholder="Preis" title="Preis CHF pro Einheit (optional)"></div></div>`; }).join('')}</div>`;
+  Dlg.open('Fehlende Mittel aufnehmen oder zuordnen', body, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Nicht jetzt</button><button type="submit" class="btn primary">Übernehmen</button>`, fd => {
+    const add = [], map = [];
     list.forEach((m, i) => {
-      if (!fd.get('c' + i)) return;
-      const name = (fd.get('n' + i) || '').trim(); if (!name || prodByName(name)) return;
-      add.push({ id: uid(), name, zulassung: (fd.get('z' + i) || '').trim(), einheit: fd.get('u' + i) || 'l', preis: vbNum(fd.get('p' + i)) || 0, aktuell: true, _alt: m.name });
+      const act = fd.get('a' + i) || '';
+      if (act === 'neu') {
+        const name = (fd.get('n' + i) || '').trim(); if (!name) return;
+        const ex = prodByName(name);
+        if (ex) map.push({ alt: m.name, p: ex });
+        else { const np = { id: uid(), name, zulassung: (fd.get('z' + i) || '').trim(), einheit: fd.get('u' + i) || 'l', preis: vbNum(fd.get('p' + i)) || 0, aktuell: true }; add.push(np); map.push({ alt: m.name, p: np }); }
+      } else if (act) { const p = prodById(act); if (p) map.push({ alt: m.name, p }); }
     });
-    if (!add.length) return true;
-    // Mittel in allen Vorbestellungen mit dem neuen Produkt verknüpfen
+    if (!map.length) return true;
+    if (add.length) Store.putMany('produkte', add);
+    // Mittel in allen Vorbestellungen verknüpfen (Menge bei g↔kg bzw. ml↔l umrechnen)
     Store.all('einstellungen').filter(r => /^vb-\d{4}$/.test(r.id)).forEach(r0 => {
       const r = structuredClone(r0); let ch = false;
-      r.progs.forEach(p => vbBeh(p).forEach(b => b.mittel.forEach(m => { const a = add.find(x => norm(x._alt) === norm(m.name)); if (a && !m.pid) { m.pid = a.id; m.name = a.name; ch = true; } })));
+      r.progs.forEach(p => vbBeh(p).forEach(b => b.mittel.forEach(m => {
+        const x = map.find(y => norm(y.alt) === norm(m.name)); if (!x || (m.pid && prodById(m.pid))) return;
+        const u = x.p.einheit || 'l', f = uFac(m.einheit || u, u);
+        if (f && f !== 1 && m.menge != null) { m.menge = r2(m.menge * f * 1000) / 1000; m.einheit = u; } else if (f) m.einheit = u;
+        if (!m.zul && x.p.zulassung) m.zul = zulOf(x.p.zulassung);
+        m.alias = m.alias || m.name; m.pid = x.p.id; m.name = x.p.name; ch = true;
+      })));
       if (ch) Store.put('einstellungen', r, { silent: true });
     });
-    Store.putMany('produkte', add.map(({ _alt, ...p }) => p));
-    toast(`${add.length} ${add.length === 1 ? 'Produkt' : 'Produkte'} in die Stammdaten aufgenommen`);
+    App.render();
+    const nz = map.length - add.length;
+    toast([add.length ? `${add.length} neu aufgenommen` : '', nz ? `${nz} zugeordnet` : ''].filter(Boolean).join(' · '));
     if (after) setTimeout(after, 0);
     return true;
+  });
+  Dlg.form.addEventListener('change', e => {
+    const m = /^a(\d+)$/.exec(e.target.name || ''); if (!m) return;
+    e.target.closest('.vbparow2').querySelector('.vbpanew').hidden = e.target.value !== 'neu';
   });
 }
 function vbCopyDialog(id) {
@@ -4263,11 +4287,30 @@ function vbLines(rec, p) {
 const vbProdsFor = ms => ms.map(m => { const pr = mProd(m), u = pr ? pr.einheit || 'l' : mUnit(m), f = pr ? uFac(mUnit(m), u) : 1;
   return { pid: pr ? pr.id : '', name: pr ? pr.name : m.name, menge: m.menge == null ? null : r2((m.menge * (f || 1)) * 1000) / 1000, einheit: f ? u : mUnit(m), nichtOeln: false }; });
 // Ein Spritzauftrag aus einer Behandlung: normales Auftragsfenster mit vorausgefüllten Mitteln
+// Angaben aus dem Spritzprogramm für das Infofenster im Auftrag (nicht bearbeitbar)
+function vbInfoOf(rec, p, b) {
+  return { prog: p.name, variante: p.variante || '', beh: b.name || '', stadium: b.stadium || '', hinweis: b.hinweis || '', quelle: p.quelle || '', jahr: rec.jahr,
+    mittel: b.mittel.filter(m => m.name || m.pid).map(m => ({ name: mName(m), zul: m.zul || zulOf((mProd(m) || {}).zulassung), menge: m.menge, einheit: mUnit(m), spanne: m.spanne || '', optional: !!m.optional,
+      wf: m.wf || '', gs: m.gs || '', drift: m.drift || '', abschw: m.abschwemmung || m.abschw || '', bem: [m.hinweisMenge, m.bemerkung].filter(Boolean).join(' · ') })) };
+}
+function vbInfoHtml(i) {
+  if (!i) return '';
+  const au = m => [m.wf ? `WF ${m.wf} T` : '', m.gs ? `GS ${m.gs}` : '', m.drift ? `Drift ${m.drift}` : '', m.abschw ? `Abschw. ${m.abschw}` : ''].filter(Boolean).join(' · ');
+  return `<details class="box vbinfo" open><summary><b>ℹ Aus Spritzprogramm</b> <span class="nr">${esc(i.prog)}${i.beh ? ' › ' + esc(i.beh) : ''}</span></summary>
+    <div class="vbinfob">
+      <div><b>${esc(i.prog)}</b>${i.variante ? ` · ${esc(i.variante)}` : ''}${i.jahr ? ` · Erntejahr ${i.jahr}` : ''}</div>
+      ${i.beh ? `<div>Behandlung: <b>${esc(i.beh)}</b>${i.stadium ? ` · BBCH ${esc(i.stadium)}` : ''}</div>` : ''}
+      ${i.hinweis ? `<div class="vbih">${esc(i.hinweis)}</div>` : ''}
+      ${i.mittel.length ? `<table class="sptab vbit"><thead><tr><th>Mittel</th><th class="n">Menge/ha</th><th>Empfehlung</th><th>Auflagen</th></tr></thead><tbody>${i.mittel.map(m => `<tr class="${m.optional ? 'vbopt' : ''}"><td>${esc(m.name)}${m.optional ? ' <span class="nr">(optional)</span>' : ''}${m.zul ? `<div class="nr">${esc(m.zul)}</div>` : ''}</td>
+        <td class="n">${m.menge != null ? `${fmtNum(m.menge)} ${esc(m.einheit)}` : ''}</td><td>${esc(m.spanne)}</td><td>${esc(au(m))}${m.bem ? `<div class="nr">${esc(m.bem)}</div>` : ''}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${i.quelle ? `<div class="nr">${esc(i.quelle)}</div>` : ''}
+    </div></details>`;
+}
 function vbOrderNew(pid, bid) {
   const rec = vbRec(), p = rec.progs.find(x => x.id === pid); if (!p) return;
   const b = vbBeh(p).find(x => x.id === bid); if (!b) return;
   const vorlage = { kultur: p.kultur || '', stadium: b.stadium ? 'BBCH ' + b.stadium : '', erntejahr: rec.jahr, vbRef: vbRefOf(rec, p, b, '', ''),
-    notiz: [p.name + ' – ' + (b.name || 'Behandlung'), b.hinweis].filter(Boolean).join(': '), produkte: vbProdsFor(b.mittel.filter(m => (m.name || m.pid) && !m.optional)) };
+    vbInfo: vbInfoOf(rec, p, b), produkte: vbProdsFor(b.mittel.filter(m => (m.name || m.pid) && !m.optional)) };
   orderDialog(null, { arbeit: sprayArbeit(), vorlage });
 }
 function vbOrdersDialog(pid, bid) {
@@ -4284,7 +4327,8 @@ function vbOrdersDialog(pid, bid) {
       : '<p class="nr">Im Flächenplan sind für dieses Programm noch keine Flächen eingetragen.</p>'}
     <div class="two" style="margin-top:10px"><label class="fld"><span>Wunschdatum</span><input class="input" type="date" name="wunsch"></label>
       <label class="fld"><span>Stadium</span><input class="input" name="stadium" value="${esc(b.stadium ? 'BBCH ' + b.stadium : '')}"></label></div>
-    <label class="fld"><span>Bemerkung im Auftrag</span><input class="input" name="notiz" value="${esc([p.name + ' – ' + (b.name || 'Behandlung'), b.hinweis].filter(Boolean).join(': '))}"></label>`;
+    <label class="fld"><span>Bemerkung im Auftrag (optional)</span><input class="input" name="notiz" value=""></label>
+    <p class="nr">Programm, Behandlung, Hinweise und Auflagen der Mittel werden im Auftrag als Info angezeigt.</p>`;
   Dlg.open('Spritzaufträge erstellen', body, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">Aufträge erstellen</button>`, fd => {
     const sel = L.filter((l, i) => fd.get('l' + i) && l.r.kunde), ms = mit.filter((m, i) => fd.get('m' + i));
     if (!sel.length) { toast('Mindestens einen Kunden wählen.'); return false; }
@@ -4294,7 +4338,7 @@ function vbOrdersDialog(pid, bid) {
     const list = sel.map(l => {
       const pz = l.pz ? Store.get('parzellen', l.pz) : null;
       const a = sprayDefaults({ id: uid(), erfasst: Date.now(), nr: `${yy}-${String(nr++).padStart(3, '0')}`, status: 'offen', kunde: l.r.kunde, arbeit, kultur: p.kultur || (pz && pz.kultur) || '',
-        flaeche: l.ha, wunsch: fd.get('wunsch') || '', datum: '', zeit: '', produkte: structuredClone(produkte), stadium: (fd.get('stadium') || '').trim(), notiz: (fd.get('notiz') || '').trim(),
+        flaeche: l.ha, wunsch: fd.get('wunsch') || '', datum: '', zeit: '', produkte: structuredClone(produkte), stadium: (fd.get('stadium') || '').trim(), notiz: (fd.get('notiz') || '').trim(), vbInfo: vbInfoOf(rec, p, b),
         parzelle: l.pz || '', feld: pz ? pz.name : '', erntejahr: rec.jahr, vbRef: vbRefOf(rec, p, b, l.r.id, l.pz), maschine: sm ? sm.id : '' });
       a.dauer = defaultDauer(sm, a.flaeche); a.dauerManuell = false;
       return a;
@@ -4336,7 +4380,7 @@ async function vbImportJson(file) {
           const pr = prodByZul(m.zulassung) || vbMatchProd(m.name);
           const u = m.einheit || 'l', f = pr ? uFac(u, pr.einheit || 'l') : null;
           return { pid: pr ? pr.id : '', name: pr ? pr.name : m.name, zul: m.zulassung || '', einheit: pr && f ? pr.einheit || 'l' : u, menge: m.menge == null ? null : (pr && f ? r2(m.menge * f * 1000) / 1000 : m.menge),
-            optional: !!m.optional, spanne: m.spanne || '', wf: m.wf || '', gs: m.gs || '', drift: m.drift || '', bemerkung: m.bemerkung || '', hinweisMenge: m.hinweisMenge || '' };
+            optional: !!m.optional, spanne: m.spanne || '', wf: m.wf || '', gs: m.gs || '', drift: m.drift || '', abschwemmung: m.abschwemmung || '', bemerkung: m.bemerkung || '', hinweisMenge: m.hinweisMenge || '' };
         }) }));
       const ex = mode === 'ersetzen' && r.progs.find(x => norm(x.name) === norm(src.name));
       if (ex) { vbBeh(ex); Object.assign(ex, { beh, variante: src.variante || ex.variante || '', quelle: doc.quelle || '' }); }

@@ -925,3 +925,15 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 .vbmkw { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .vbbh .vbmkw .vbmk { margin-left: 0; }
 #icsPanel .withbtn .btn { font-size: 14px; padding: 6px 12px; min-height: 0; } #icsPanel .icshow { line-height: 1.5; }
+/* v64: Info aus Spritzprogramm, fehlende Mittel zuordnen */
+.vbinfo { background: color-mix(in srgb, var(--s-geplant) 6%, var(--surface)); border-color: color-mix(in srgb, var(--s-geplant) 30%, var(--line)); }
+.vbinfo summary { cursor: pointer; }
+.vbinfob { margin-top: 8px; display: grid; gap: 4px; font-size: 13px; }
+.vbinfob .vbih { font-style: italic; }
+.vbit { font-size: 12px; margin-top: 4px; } .vbit th { text-align: left; font-weight: 600; color: var(--muted); }
+.vbparow2 { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; display: grid; gap: 6px; }
+.vbpanew { display: grid; grid-template-columns: minmax(0, 1fr) 110px 70px 80px; gap: 6px; }
+.vbpanew[hidden] { display: none; }
+.warnchip.vbmiss { cursor: pointer; }
+@media (max-width: 560px) { .vbpanew { grid-template-columns: 1fr 1fr; } }
+.vbit td:first-child .nr { white-space: nowrap; }
