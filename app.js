@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '62', APP_STAND = '29.10.2026';
+const APP_VERSION = '63', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -97,7 +97,8 @@ const Store = {
       if (a.wunsch === undefined) a.wunsch = a.wunschVon || a.wunschBis || '';
     });
   },
-  save() { ls('lp_data', JSON.stringify(this.data)); },
+  v: 0, // Änderungszähler (Zwischenspeicher der Tagesplanung)
+  save() { this.v++; ls('lp_data', JSON.stringify(this.data)); },
   all(c) { return this.data[c].filter(x => !x.del); },
   get(c, id) { return this.data[c].find(x => x.id === id && !x.del); },
   put(c, obj, { silent } = {}) {
@@ -365,34 +366,47 @@ const fromMin = m => m >= 1440 ? '24:00' : `${pad(Math.floor(m / 60))}:${pad(Mat
 const lenOf = a => Math.round((dauerOf(a) || 1) * 60);
 // Ablauf einer Maschine an einem Tag. Aufträge überlappen nie: wer in einen laufenden Auftrag fällt,
 // wird direkt dahinter angedockt. Aufträge ohne feste Startzeit docken ab Arbeitsbeginn bzw. am vorherigen an.
+// Tagesplan einer Maschine. Mehrtägige Aufträge: «durchgehend» (Standard, rund um die Uhr über Mitternacht)
+// oder a.mehrtag === 'arbeitszeit' (pro Tag nur von Arbeitsbeginn bis Arbeitsende, Rest am Folgetag).
+// Items: { a, start, end (≤1440), rawEnd, rest (Minuten für die Folgetage), fixed, pushed, noDur, over, tag, az, cont }
+const SCHED_MAXD = 31, _sched = new Map(); let _schedV = -1;
 function schedule(d, mid, depth = 0) {
+  if (_schedV !== Store.v) { _sched.clear(); _schedV = Store.v; }
+  const key = d + '|' + mid; if (_sched.has(key)) return _sched.get(key);
   const orders = Store.all('auftraege').filter(a => a.datum === d && (a.maschine || '') === mid)
     .sort((x, y) => (toMin(x.zeit) ?? 9999) - (toMin(y.zeit) ?? 9999) || (x.nr || '').localeCompare(y.nr || ''));
-  const beginn = toMin(Store.cfg().beginn) ?? 420;
-  // Aufträge vom Vortag (bzw. davor), die über Mitternacht laufen: Rest als Fortsetzung ab 00:00
+  const cfg = Store.cfg(), beginn = toMin(cfg.beginn) ?? 420, ende = toMin(cfg.ende) ?? 1140, azEnd = ende > beginn ? ende : 1440;
+  // Aufträge der Vortage, die noch weiterlaufen: Rest als Fortsetzung
   const carry = [];
-  if (depth < 3) {
+  if (depth < SCHED_MAXD) {
     const pd = isoDate(addDays(parseDate(d), -1)), prev = schedule(pd, mid, depth + 1);
-    [...prev.carry, ...prev.items].filter(it => it.rawEnd > 1440).forEach(it => {
-      const re = it.rawEnd - 1440;
-      carry.push({ a: it.a, start: 0, end: Math.min(1440, re), rawEnd: re, cont: true, fixed: true, over: re > 1440 });
+    [...prev.carry, ...prev.items].filter(it => it.rest > 0).forEach(it => {
+      const az = it.a.mehrtag === 'arbeitszeit', s = az ? beginn : 0, cap = az ? azEnd - beginn : 1440;
+      const seg = Math.min(it.rest, cap), rest = it.rest - seg;
+      carry.push({ a: it.a, start: s, end: s + seg, rawEnd: az ? s + seg : it.rest, rest, cont: true, fixed: true, over: rest > 0, tag: (it.tag || 1) + 1, az });
     });
   }
   const carryEnd = carry.reduce((m, c) => Math.max(m, c.end), 0);
   let prevEnd = carryEnd || null;
   const items = orders.map(a => {
-    const want = toMin(a.zeit), fixed = want != null;
+    const want = toMin(a.zeit), fixed = want != null, len = lenOf(a), az = a.mehrtag === 'arbeitszeit';
     let t = fixed ? want : Math.max(prevEnd ?? beginn, carryEnd ? beginn : 0);
     if (prevEnd != null && t < prevEnd) t = prevEnd;
-    const end = t + lenOf(a); prevEnd = end;
-    return { a, start: t, end: Math.min(1440, end), rawEnd: end, fixed, pushed: fixed && t !== want, noDur: !dauerOf(a), over: end > 1440 };
+    let end, rest;
+    if (az) { const cap = t < azEnd ? azEnd - t : 1440 - t, seg = Math.min(len, Math.max(0, cap)); end = t + seg; rest = len - seg; prevEnd = end; }
+    else { end = t + len; rest = Math.max(0, end - 1440); prevEnd = end; }
+    return { a, start: t, end: Math.min(1440, end), rawEnd: end, rest, fixed, pushed: fixed && t !== want, noDur: !dauerOf(a), over: rest > 0, tag: 1, az };
   });
-  return { items, carry, all: [...carry, ...items] };
+  const res = { items, carry, all: [...carry, ...items] };
+  _sched.set(key, res);
+  return res;
 }
 // Endzeit mit Tagesangabe, z. B. «03:00 (+1)» bei Aufträgen über Mitternacht
 const endLbl = it => it.rawEnd > 1440 ? `${fromMin(it.rawEnd % 1440)} (+${Math.floor(it.rawEnd / 1440)})` : fromMin(it.end);
 const rangeLbl = it => `${fromMin(it.start)}–${endLbl(it)}`;
-const contLbl = it => `↪ Fortsetzung vom ${fmtDate(it.a.datum, { day: '2-digit', month: '2-digit' })}`;
+const contLbl = it => `↪ Fortsetzung vom ${fmtDate(it.a.datum, { day: '2-digit', month: '2-digit' })}${it.tag > 2 || it.over ? ` (Tag ${it.tag})` : ''}`;
+// Hinweis für Aufträge, die am Folgetag weiterlaufen
+const weiterLbl = it => it.az ? `⏩ weiter am ${fmtDate(isoDate(addDays(parseDate(it.a.datum), (it.tag || 1))), { weekday: 'short', day: '2-digit', month: '2-digit' })}` : `🌙 läuft bis ${endLbl(it)}`;
 const startOf = a => a.datum ? (schedule(a.datum, a.maschine || '').items.find(i => i.a.id === a.id)?.start ?? null) : null;
 function capacity() { const c = Store.cfg(); return Math.max(0, (toMin(c.ende) ?? 1140) - (toMin(c.beginn) ?? 420)); }
 // Magnet: Startzeit rastet an Arbeitsbeginn, am Ende eines Auftrags oder so ein, dass das Ende an den nächsten Auftrag stösst
@@ -464,17 +478,20 @@ function attachResize(h) {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault(); e.stopPropagation();
     const a0 = Store.get('auftraege', h.dataset.rsz); if (!a0) return;
-    // start = Beginn des Auftrags bezogen auf 00:00 dieses Tages (bei einer Fortsetzung negativ)
-    const start = +h.dataset.s, len0 = lenOf(a0), p0 = horiz ? e.clientX : e.clientY, vis0 = Math.max(0, start), minLen = Math.max(STEP, -start + STEP);
+    // start = Beginn dieses Blocks, used = Minuten des Auftrags vor diesem Block (Vortage), cap = Platz an diesem Tag
+    const cfg = Store.cfg(), b0 = toMin(cfg.beginn) ?? 420, e0 = toMin(cfg.ende) ?? 1140, azEnd = e0 > b0 ? e0 : 1440;
+    const start = +h.dataset.s, used = +h.dataset.c || 0, az = !!h.dataset.az, cap = (az && start < azEnd ? azEnd : 1440) - start;
+    const len0 = lenOf(a0), p0 = horiz ? e.clientX : e.clientY, minLen = used + STEP;
     let len = len0;
     const drg = blk.getAttribute('draggable'); blk.removeAttribute('draggable');
     blk.classList.add('resizing');
     const lbl = document.createElement('span'); lbl.className = 'rszlbl'; blk.appendChild(lbl);
     const show = () => {
-      const px = Math.max(20, (Math.min(1440, start + len) - vis0) * PX - 2);
-      blk.style[horiz ? 'width' : 'height'] = px + 'px';
-      lbl.textContent = start < 0 ? `bis ${endLbl({ end: Math.min(1440, start + len), rawEnd: start + len })} · total ${hrs(len / 60)}`
-        : `${fromMin(start)}–${endLbl({ end: Math.min(1440, start + len), rawEnd: start + len })} · ${hrs(len / 60)}`;
+      const seg = Math.min(cap, len - used), more = len - used > cap;
+      blk.style[horiz ? 'width' : 'height'] = Math.max(20, seg * PX - 2) + 'px';
+      const tot = Math.round(len / 60 * 100) / 100, dt = tot >= 24 ? ` (${Math.floor(tot / 24)} T ${fmtNum(r2(tot % 24))} h)` : '';
+      lbl.textContent = az ? `${fromMin(start)}–${fromMin(start + seg)}${more ? ' ⏩' : ''} · total ${hrs(tot)}${dt}`
+        : `${used ? 'bis' : fromMin(start) + '–'} ${endLbl({ end: Math.min(1440, start + len - used), rawEnd: start + len - used })} · total ${hrs(tot)}${dt}`;
     };
     show();
     try { h.setPointerCapture(e.pointerId); } catch { }
@@ -492,8 +509,8 @@ function attachResize(h) {
       if (len === len0) { lbl.remove(); App.render(); return; }
       const a = { ...Store.get('auftraege', a0.id), dauer: Math.round(len / 60 * 100) / 100, dauerManuell: true };
       Store.putMany('auftraege', [a]);
-      const d = a.datum, mid = a.maschine || '';
-      [0, 1, 2].forEach(n => settleDay(isoDate(addDays(parseDate(d), n)), mid));
+      const d = a.datum, mid = a.maschine || '', days = Math.min(SCHED_MAXD, Math.ceil(Math.max(len, len0) / (az ? Math.max(60, azEnd - b0) : 1440)) + 1);
+      for (let n = 0; n <= days; n++) settleDay(isoDate(addDays(parseDate(d), n)), mid);
       toast(`${kundeName(a.kunde)}: Dauer ${hrs(a.dauer)}`);
     };
     h.addEventListener('pointermove', move); h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
@@ -771,7 +788,7 @@ const Views = {
     blkHtml(it, horiz) {
       const s = it.start, q = it.end, a = it.a, st = statusOf(a), len = Math.max(20, (q - s) * PX - 2);
       const h = horiz ? 999 : len, w = horiz ? len : 999;
-      const op = isOpen(a) && !it.cont, info = it.cont ? contLbl(it) : it.pushed && op ? `⤵ angedockt (gewünscht ${esc(a.zeit)})` : it.noDur && op ? '⚠ Dauer fehlt (1 h angenommen)' : it.over && op ? `🌙 läuft bis ${endLbl(it)}` : '';
+      const op = isOpen(a) && !it.cont, info = it.cont ? contLbl(it) : it.pushed && op ? `⤵ angedockt (gewünscht ${esc(a.zeit)})` : it.noDur && op ? '⚠ Dauer fehlt (1 h angenommen)' : it.over && op ? weiterLbl(it) : '';
       const pos = horiz ? `left:${s * PX + 1}px;width:${len}px` : `top:${s * PX + 1}px;height:${len}px`;
       const big = w > 90;
       const tm = it.cont ? `${fromMin(s)}–${endLbl(it)}` : rangeLbl(it);
@@ -783,7 +800,7 @@ const Views = {
         ${h > 54 && big ? sprayShort(a, { noFeld: true }) : ''}
         ${h > 70 && big && a.notiz ? `<span class="note">${esc(a.notiz)}</span>` : ''}
         ${op ? `<button type="button" class="blkdone" data-act="done" data-id="${a.id}" title="Als erledigt melden">✓</button>` : ''}
-        ${isOpen(a) ? `<i class="rsz" data-rsz="${a.id}" data-s="${it.cont ? it.rawEnd - lenOf(a) : s}" title="Ziehen: Auftragslänge ändern"></i>` : ''}
+        ${isOpen(a) ? `<i class="rsz" data-rsz="${a.id}" data-s="${s}" data-c="${Math.max(0, lenOf(a) - (q - s) - (it.rest || 0))}" data-az="${it.az ? 1 : ''}" title="Ziehen: Auftragslänge ändern"></i>` : ''}
       </div>`;
     },
     // ---- Tag getauscht: waagrechte Zeitachse 0–24 Uhr, Maschinen als Zeilen
@@ -1004,7 +1021,7 @@ function planCard(it) {
     <div class="tm">${fromMin(it.start)}–${endLbl(it)}</div>
     <b>${kfHtml(a)}</b><div class="sub contlbl">${contLbl(it)}</div></div>`;
   return `<div class="pcard ${s} ${App.sel.has(a.id) ? 'sel' : ''}" data-act="editOrder" data-id="${a.id}" ${isOpen(a) ? 'draggable="true"' : ''}>
-    <div class="tmrow"><div class="tm">${rangeLbl(it)}${it.fixed ? ' 📌' : ''}${it.pushed ? ' ⤵' : ''}${it.over ? ' 🌙' : ''}</div>${isOpen(a) ? `<button type="button" class="btn mini donebtn donetop" data-act="done" data-id="${a.id}" title="Als erledigt melden: Datum, Fläche, Stunden, Bemerkungen">✓ Erledigt</button>` : ''}</div>
+    <div class="tmrow"><div class="tm">${rangeLbl(it)}${it.fixed ? ' 📌' : ''}${it.pushed ? ' ⤵' : ''}${it.over ? `<span title="${esc(weiterLbl(it))}">${it.az ? ' ⏩' : ' 🌙'}</span>` : ''}</div>${isOpen(a) ? `<button type="button" class="btn mini donebtn donetop" data-act="done" data-id="${a.id}" title="Als erledigt melden: Datum, Fläche, Stunden, Bemerkungen">✓ Erledigt</button>` : ''}</div>
     <b>${kfHtml(a)}</b>
     <div class="sub">${artKultur(a)}</div>
     <div class="sub">${a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''}${a.flaeche && (d || isOpen(a)) ? ' · ' : ''}${d ? '⏱ ' + hrs(d) : isOpen(a) ? '⏱ Dauer fehlt' : ''}${s === 'erledigt' || s === 'verrechnet' ? ' · ✓' : ''}</div>
@@ -1087,6 +1104,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
         </div>
         <label class="fld"><span>Maschine</span><select class="input" name="maschine"></select><div class="hint" id="mHint"></div></label>
         <label class="fld"><span>Dauer (h)</span><input class="input" name="dauer" inputmode="decimal" value="${a.dauerManuell ? (a.dauer ?? '') : ''}" style="max-width:200px"><div class="sub2" id="dHint"></div></label>
+        <label class="tog" title="Für Arbeiten über mehrere Tage: pro Tag nur von Arbeitsbeginn bis Arbeitsende, der Rest folgt am nächsten Tag. Ohne Häkchen läuft der Auftrag durchgehend (auch über Nacht)."><input type="checkbox" name="mehrtag" ${a.mehrtag === 'arbeitszeit' ? 'checked' : ''}> Mehrtägig nur in der Arbeitszeit (${esc(Store.cfg().beginn || '07:00')}–${esc(Store.cfg().ende || '19:00')}, Rest am nächsten Tag)</label>
         ${a.datum ? '<a href="#" data-act="unplan">Einplanung entfernen</a>' : ''}
       </div>
     </details>
@@ -1114,7 +1132,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
     });
     if (planOpen && fd.get('datum')) {
       const m = maschine(fd.get('maschine')); const manual = num(fd.get('dauer'));
-      Object.assign(o, { datum: fd.get('datum'), zeit: fd.get('zeit'), maschine: m?.id || '', dauerManuell: manual != null, dauer: manual ?? defaultDauer(m, o.flaeche) });
+      Object.assign(o, { datum: fd.get('datum'), zeit: fd.get('zeit'), maschine: m?.id || '', dauerManuell: manual != null, dauer: manual ?? defaultDauer(m, o.flaeche), mehrtag: fd.get('mehrtag') ? 'arbeitszeit' : '' });
     } else if (!o.datum || planOpen) {
       Object.assign(o, { datum: '', zeit: '' });
       // Vorauswahl der Maschine für nicht eingeplante Aufträge
@@ -1154,6 +1172,8 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
     $('#dHint', f).innerHTML = d != null
       ? `Standard: ${hrs(d)} (${fmtNum(fl)} ha ÷ ${fmtNum(m.leistung)} ha/h)${f.dauer.value ? ' · <a href="#" data-act="dauerReset">zurücksetzen</a>' : ''}`
       : (m && !m.leistung ? 'Keine Flächenleistung erfasst – Dauer von Hand eingeben.' : '');
+    const h = num(f.dauer.value) ?? d;
+    if (h >= 24) $('#dHint', f).insertAdjacentHTML('beforeend', `<div>= ${Math.floor(h / 24)} ${Math.floor(h / 24) === 1 ? 'Tag' : 'Tage'} ${fmtNum(r2(h % 24))} h rund um die Uhr${capacity() ? ` · in der Arbeitszeit ≈ ${fmtNum(Math.ceil(h * 60 / capacity() * 10) / 10)} Arbeitstage` : ''}</div>`);
   };
   const checkKunde = () => {
     const t = f.kunde.value.trim();
@@ -4358,11 +4378,17 @@ function icsBuild() {
         a.flaeche ? `Fläche: ${fmtNum(a.flaeche)} ha` : '', dauerOf(a) ? `Dauer: ${hrs(dauerOf(a))}` : '', a.stadium ? `Stadium: ${a.stadium}` : '',
         prods.length ? 'Mittel:\n' + prods.join('\n') : '', a.wasser && isSpray(a) ? `Wasser: ${fmtNum(a.wasser)} l/ha` : '', a.notiz ? `Bemerkung: ${a.notiz}` : ''].filter(Boolean).join('\n');
       const upd = new Date(a.upd || Date.now()).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-      ev.push(['BEGIN:VEVENT', `UID:${a.id}@lohnarbeit-planer`, `DTSTAMP:${upd}`, `LAST-MODIFIED:${upd}`,
-        `DTSTART:${icsUtc(a.datum, it.start)}`, `DTEND:${icsUtc(a.datum, Math.max(it.start + 15, it.rawEnd ?? it.end))}`,
-        `SUMMARY:${icsEsc(`${done ? '✓ ' : ''}${kfText(a)} – ${a.arbeit || 'Auftrag'}${m ? ' (' + (m.kurz || m.name) + ')' : ''}`)}`,
+      // Mehrtägig in der Arbeitszeit: ein Termin pro Tag; durchgehend: ein Termin über alle Tage
+      const segs = [{ iso: a.datum, s: it.start, e: Math.max(it.start + 15, it.az ? it.end : (it.rawEnd ?? it.end)) }];
+      if (it.az && it.rest > 0) for (let n = 1; n <= SCHED_MAXD; n++) {
+        const iso = isoDate(addDays(parseDate(a.datum), n)), c = schedule(iso, mid).carry.find(x => x.a.id === a.id); if (!c) break;
+        segs.push({ iso, s: c.start, e: c.end }); if (!(c.rest > 0)) break;
+      }
+      segs.forEach((g, i) => ev.push(['BEGIN:VEVENT', `UID:${a.id}${i ? '-' + (i + 1) : ''}@lohnarbeit-planer`, `DTSTAMP:${upd}`, `LAST-MODIFIED:${upd}`,
+        `DTSTART:${icsUtc(g.iso, g.s)}`, `DTEND:${icsUtc(g.iso, g.e)}`,
+        `SUMMARY:${icsEsc(`${done ? '✓ ' : ''}${kfText(a)} – ${a.arbeit || 'Auftrag'}${m ? ' (' + (m.kurz || m.name) + ')' : ''}${segs.length > 1 ? ` · Tag ${i + 1}/${segs.length}` : ''}`)}`,
         m ? `LOCATION:${icsEsc(m.name)}` : '', `DESCRIPTION:${icsEsc(desc)}`, `CATEGORIES:${icsEsc(a.arbeit || 'Auftrag')}`,
-        `STATUS:${done ? 'CONFIRMED' : 'TENTATIVE'}`, 'TRANSP:OPAQUE', 'END:VEVENT'].filter(Boolean));
+        `STATUS:${done ? 'CONFIRMED' : 'TENTATIVE'}`, 'TRANSP:OPAQUE', 'END:VEVENT'].filter(Boolean)));
     });
   });
   ev.sort((x, y) => x[4].localeCompare(y[4]));
