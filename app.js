@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '61', APP_STAND = '29.10.2026';
+const APP_VERSION = '62', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -295,6 +295,7 @@ const Sync = {
         catch (e) { if (!e.conflict || i === 3) throw e; }
       }
       ls('lp_dirty', null); this.last = new Date(); this.setState('ok');
+      if (typeof icsWrite === 'function') icsWrite().catch(e => console.warn(e));
     } catch (e) {
       this.err = e.message || String(e);
       this.setState(e.auth ? 'login' : (navigator.onLine ? 'error' : 'offline'));
@@ -936,6 +937,7 @@ const Views = {
           </div>
           <p>Aufträge ohne feste Startzeit docken ab Arbeitsbeginn aneinander.</p></div>
         ${uiScalePanel()}
+        ${typeof icsPanel === 'function' ? icsPanel() : ''}
         <div class="panel"><h2>Planung: Achsen</h2>
           <div class="two">
             <label class="fld"><span>Wochenansicht</span><select class="input" data-plain data-in="axW"><option value="tage">Tage untereinander, Maschinen nebeneinander</option><option value="maschinen" ${App.plan.axW === 'maschinen' ? 'selected' : ''}>Maschinen untereinander, Tage nebeneinander</option></select></label>
@@ -4329,6 +4331,85 @@ async function vbImportJson(file) {
     return true;
   });
 }
+/* ================= Kalenderabo: Planung als .ics in Dropbox (für Outlook, iPhone, Google) ================= */
+// Einstellung (in cfg, gilt für alle Geräte): ics = { on, link } ; jedes Gerät schreibt nach dem Abgleich planung.ics, wenn sich etwas geändert hat
+const ICS_PATH = () => (CFG.dataPath || '/planung.json').replace(/[^/]*$/, '') + 'planung.ics';
+const icsCfg = () => Store.cfg().ics || {};
+const icsEsc = s => String(s ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+// Zeilen nach RFC 5545 auf 75 Bytes falten (UTF-8-sicher)
+function icsFold(line) {
+  const enc = new TextEncoder(); if (enc.encode(line).length <= 75) return line;
+  const out = []; let cur = '', n = 0, lim = 75;
+  for (const ch of line) { const b = enc.encode(ch).length; if (n + b > lim) { out.push(cur); cur = ' '; n = 1; lim = 75; } cur += ch; n += b; }
+  out.push(cur); return out.join('\r\n');
+}
+const icsUtc = (iso, min) => { const d = parseDate(iso); d.setMinutes(min); return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, ''); };
+function icsBuild() {
+  const von = isoDate(addDays(new Date(), -60));
+  const list = Store.all('auftraege').filter(a => a.datum && a.datum >= von);
+  const groups = new Map(); list.forEach(a => { const k = a.datum + '|' + (a.maschine || ''); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(a.id); });
+  const ev = [];
+  groups.forEach((ids, k) => {
+    const [d, mid] = k.split('|'), items = schedule(d, mid).items, m = maschine(mid);
+    items.filter(it => ids.includes(it.a.id)).forEach(it => {
+      const a = it.a, st = statusOf(a), done = st === 'erledigt' || st === 'verrechnet';
+      const prods = prodList(a).map(p => `• ${p.name}${p.menge != null ? ` ${fmtNum(p.menge)} ${p.einheit || prodUnit(p.name)}/ha` : ''}${p.menge != null && a.flaeche ? ` (total ${fmtNum(r2(p.menge * a.flaeche))} ${p.einheit || prodUnit(p.name)})` : ''}`);
+      const desc = [`Auftrag ${a.nr || ''} · ${STATUS[st]}`, m ? `Maschine: ${m.name}` : 'Maschine: –', [a.arbeit, a.kultur].filter(Boolean).join(' · '),
+        a.flaeche ? `Fläche: ${fmtNum(a.flaeche)} ha` : '', dauerOf(a) ? `Dauer: ${hrs(dauerOf(a))}` : '', a.stadium ? `Stadium: ${a.stadium}` : '',
+        prods.length ? 'Mittel:\n' + prods.join('\n') : '', a.wasser && isSpray(a) ? `Wasser: ${fmtNum(a.wasser)} l/ha` : '', a.notiz ? `Bemerkung: ${a.notiz}` : ''].filter(Boolean).join('\n');
+      const upd = new Date(a.upd || Date.now()).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+      ev.push(['BEGIN:VEVENT', `UID:${a.id}@lohnarbeit-planer`, `DTSTAMP:${upd}`, `LAST-MODIFIED:${upd}`,
+        `DTSTART:${icsUtc(a.datum, it.start)}`, `DTEND:${icsUtc(a.datum, Math.max(it.start + 15, it.rawEnd ?? it.end))}`,
+        `SUMMARY:${icsEsc(`${done ? '✓ ' : ''}${kfText(a)} – ${a.arbeit || 'Auftrag'}${m ? ' (' + (m.kurz || m.name) + ')' : ''}`)}`,
+        m ? `LOCATION:${icsEsc(m.name)}` : '', `DESCRIPTION:${icsEsc(desc)}`, `CATEGORIES:${icsEsc(a.arbeit || 'Auftrag')}`,
+        `STATUS:${done ? 'CONFIRMED' : 'TENTATIVE'}`, 'TRANSP:OPAQUE', 'END:VEVENT'].filter(Boolean));
+    });
+  });
+  ev.sort((x, y) => x[4].localeCompare(y[4]));
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Indermuehle Lohnarbeiten//Lohnarbeit-Planer//DE', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    'X-WR-CALNAME:Lohnarbeit-Planung', 'X-WR-TIMEZONE:Europe/Zurich', 'REFRESH-INTERVAL;VALUE=DURATION:PT1H', 'X-PUBLISHED-TTL:PT1H', ...ev.flat(), 'END:VCALENDAR'];
+  return { text: lines.map(icsFold).join('\r\n') + '\r\n', n: ev.length };
+}
+const icsHash = s => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return String(h); };
+// nach jedem erfolgreichen Abgleich: Kalender schreiben, wenn eingeschaltet und geändert
+async function icsWrite(force) {
+  if (!icsCfg().on || !Auth.hasSession()) return;
+  const { text, n } = icsBuild(), h = icsHash(text);
+  if (!force && ls('lp_icsHash') === h) return;
+  const r = await Drive.req('https://content.dropboxapi.com/2/files/upload', { headers: { 'Content-Type': 'application/octet-stream', 'Dropbox-API-Arg': dbxArg({ path: ICS_PATH(), mode: 'overwrite', mute: true }) }, body: new TextEncoder().encode(text) });
+  if (!r.ok) throw new Error('Kalender: ' + (await Drive.errSummary(r) || r.status));
+  ls('lp_icsHash', h); ls('lp_icsAt', new Date().toISOString()); ls('lp_icsN', String(n));
+}
+// Freigabe-Link über die Dropbox-API (klappt nur, wenn die Dropbox-App die Berechtigung «sharing.write» hat)
+async function icsShareLink() {
+  const api = (u, body) => Drive.req(u, { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  let r = await api('https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings', { path: ICS_PATH(), settings: { requested_visibility: 'public', audience: 'public', access: 'viewer' } });
+  let j = await r.json().catch(() => ({}));
+  if (!r.ok && /shared_link_already_exists/.test(j.error_summary || '')) {
+    r = await api('https://api.dropboxapi.com/2/sharing/list_shared_links', { path: ICS_PATH(), direct_only: true }); j = await r.json().catch(() => ({}));
+    if (r.ok && j.links && j.links[0]) return j.links[0].url;
+  }
+  if (r.ok && j.url) return j.url;
+  const e = new Error(j.error_summary || ('HTTP ' + r.status)); e.scope = /missing_scope|not_permitted|insufficient/.test(j.error_summary || ''); throw e;
+}
+// Dropbox-Freigabelink → direkte Adresse für das Kalenderabo
+function icsSubUrl(link) {
+  if (!link) return '';
+  try { const u = new URL(link.trim()); u.searchParams.delete('dl'); u.searchParams.delete('raw'); u.searchParams.set('dl', '1'); return u.toString(); } catch { return ''; }
+}
+function icsPanel() {
+  const c = icsCfg(), at = ls('lp_icsAt'), n = ls('lp_icsN'), sub = icsSubUrl(c.link);
+  return `<div class="panel" id="icsPanel"><h2>Kalenderabo (Outlook)</h2>
+    <label class="tog"><input type="checkbox" data-in="icsOn" ${c.on ? 'checked' : ''}> Planung als Kalender «planung.ics» in Dropbox bereitstellen</label>
+    ${c.on ? `<p class="nr" style="margin:6px 0 10px">Wird nach jedem Abgleich aktualisiert (eingeplante Aufträge ab 60 Tagen zurück).${at ? ` Zuletzt geschrieben: ${new Date(at).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}${n ? ` · ${n} Termine` : ''}.` : ''} <a href="#" data-act="icsNow">Jetzt schreiben</a></p>
+      <div class="btns" style="margin-bottom:8px"><button type="button" class="btn" data-act="icsLink">Freigabe-Link erstellen</button></div>
+      <label class="fld"><span>Dropbox-Freigabelink der Datei planung.ics</span><input class="input" data-in="icsLink" value="${esc(c.link || '')}" placeholder="https://www.dropbox.com/scl/fi/…/planung.ics?…"></label>
+      ${sub ? `<label class="fld"><span>Adresse für das Kalenderabo</span><div class="withbtn"><input class="input" readonly value="${esc(sub)}" id="icsSub"><button type="button" class="btn" data-act="icsCopy">Kopieren</button></div></label>
+      <div class="nr icshow"><b>Outlook (Windows, neues Outlook / Outlook im Web):</b> Kalender › Kalender hinzufügen › <i>Aus dem Internet abonnieren</i> › Adresse einfügen › Name «Lohnarbeit-Planung» › Importieren.<br>
+        <b>Klassisches Outlook:</b> Kalender › Kalender hinzufügen › <i>Aus dem Internet…</i> › Adresse einfügen › OK › Ja.<br>
+        Outlook holt Änderungen selbst ab, je nach Version alle paar Stunden. Der Kalender ist nur zum Lesen.</div>` : '<p class="nr">Freigabe-Link erstellen (oder in Dropbox bei der Datei «planung.ics» › Teilen › Link kopieren) und hier einfügen.</p>'}` : ''}
+  </div>`;
+}
 function pickFile(accept) {
   return new Promise(res => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.onchange = () => res(i.files[0]); i.click(); });
 }
@@ -4513,6 +4594,10 @@ document.addEventListener('click', async e => {
     case 'spPreset': sprayPreset(t.dataset.v); break;
     case 'spCsv': sprayCsv(); break;
     case 'spImg': sprayImage(); break;
+    case 'icsNow': e.preventDefault(); icsWrite(true).then(() => { toast('Kalender geschrieben'); App.render(); }).catch(err => toast(err.message, 5000)); break;
+    case 'icsLink': icsWrite(true).then(icsShareLink).then(url => { Store.setCfg({ ics: { ...icsCfg(), link: url } }, { silent: false }); toast('Freigabe-Link erstellt'); })
+      .catch(err => toast(err.scope ? 'Die Dropbox-App darf keine Links erstellen. Bitte in Dropbox bei «planung.ics» › Teilen › Link kopieren und hier einfügen.' : 'Link konnte nicht erstellt werden: ' + err.message, 7000)); break;
+    case 'icsCopy': { const el = $('#icsSub'); try { navigator.clipboard.writeText(el.value); toast('Adresse kopiert'); } catch { el.select(); document.execCommand('copy'); toast('Adresse kopiert'); } break; }
     case 'uPos': App.plan.upos = App.plan.upos === 'unter' ? 'neben' : 'unter'; ls('lp_upos', App.plan.upos); App.render(); break;
     case 'spIncAll': { const S = spInit(); Store.all('auftraege').filter(a => isSpray(a) && isOpen(a) && !a.datum).forEach(a => t.dataset.v === '1' ? S.inc.add(a.id) : S.inc.delete(a.id)); spSave(); App.render(); break; }
     case 'spExAll': { const S = spInit(), sel = sprayDays().filter(d => !S.off.has(d)); Store.all('auftraege').filter(a => isSpray(a) && isOpen(a) && a.datum && sel.includes(a.datum)).forEach(a => t.dataset.v === '1' ? S.ex.add(a.id) : S.ex.delete(a.id)); spSave(); App.render(); break; }
@@ -4619,6 +4704,8 @@ document.addEventListener('change', e => {
   if (SPB[k]) { App.spray[SPB[k]] = e.target.checked; App.render(); return; }
   if (k === 'spVon' && e.target.value) { App.spray.von = e.target.value; if (App.spray.bis < App.spray.von) App.spray.bis = App.spray.von; App.render(); return; }
   if (k === 'spBis' && e.target.value) { App.spray.bis = e.target.value; if (App.spray.bis < App.spray.von) App.spray.von = App.spray.bis; App.render(); return; }
+  if (k === 'icsOn') { Store.setCfg({ ics: { ...icsCfg(), on: e.target.checked } }, { silent: false }); if (e.target.checked) { ls('lp_icsHash', null); Sync.run(); } return; }
+  if (k === 'icsLink') { Store.setCfg({ ics: { ...icsCfg(), link: e.target.value.trim() } }, { silent: false }); return; }
   if (k === 'spInc') { const S = spInit(), a = Store.get('auftraege', e.target.value); if (a) { const set = a.datum ? S.ex : S.inc; if (e.target.checked === !!a.datum) set.delete(a.id); else set.add(a.id); spSave(); } App.render(); return; }
   if (k === 'spDay') { if (e.target.checked) App.spray.off.delete(e.target.value); else App.spray.off.add(e.target.value); App.render(); return; }
   if (k === 'mpDate' && e.target.value) { machinePlanDialog(e.target.dataset.id, e.target.value); return; }

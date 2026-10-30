@@ -924,3 +924,4 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 /* v61 */
 .vbmkw { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .vbbh .vbmkw .vbmk { margin-left: 0; }
+#icsPanel .withbtn .btn { font-size: 14px; padding: 6px 12px; min-height: 0; } #icsPanel .icshow { line-height: 1.5; }
