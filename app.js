@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '67', APP_STAND = '29.10.2026';
+const APP_VERSION = '68', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -3369,7 +3369,7 @@ function jdbRow(o) {
   ms.forEach(m => { jdbCollect(m.applicationProductTotals, pl); jdbCollect(m.productTotals, pl); });
   exOf(/product|tankmix/i).forEach(n => pl.push({ n }));
   const seenP = new Map(); pl.forEach(p => { const k = p.n.toLowerCase(); if (!seenP.has(k) || (!seenP.get(k).r && p.r)) seenP.set(k, p); });
-  const prodTxt = [...seenP.values()].map(p => p.r ? `${p.n} ${p.r}` : p.n).join(', ');
+  const prodTxt = [...seenP.values()].map(p => p.n).join(', '); // nur Produktnamen, ohne Menge
   const sl = []; jdbCollect(raw.varieties, sl); ms.forEach(m => jdbCollect(m.varietyTotals, sl)); exOf(/variet/i).forEach(n => sl.push({ n }));
   const sorten = [...new Set(sl.map(x => x.n))];
   const crop = jdbCrops(raw, ms);
@@ -3388,7 +3388,9 @@ function jdbRow(o) {
 }
 const JDB_KEY = 'lp_jdb';
 function jdbCache(rows, meta) { try { localStorage.setItem(JDB_KEY, JSON.stringify({ meta, rows })); } catch { } }
-function jdbFromCache() { try { const c = JSON.parse(localStorage.getItem(JDB_KEY) || 'null'); if (c && Array.isArray(c.rows)) { App.jdb.rows = c.rows; App.jdb.meta = c.meta; return true; } } catch { } return false; }
+// ältere Zwischenspeicher enthielten «Produkt 2 l/ha» – Menge entfernen
+const jdbProdNames = t => String(t || '').split(', ').map(x => x.replace(/\s+[\d'.,]+\s*\S*\/(ha|ac)$/, '')).join(', ');
+function jdbFromCache() { try { const c = JSON.parse(localStorage.getItem(JDB_KEY) || 'null'); if (c && Array.isArray(c.rows)) { c.rows.forEach(r => { r.produkte = jdbProdNames(r.produkte); }); App.jdb.rows = c.rows; App.jdb.meta = c.meta; return true; } } catch { } return false; }
 function jdbApply(d, src) {
   if (!d || d.format !== 'jd-arbeiten' || !Array.isArray(d.operations)) { toast('Keine gültige Datei mit Arbeitsdaten (jd-arbeiten.json)'); return false; }
   const rows = d.operations.map(jdbRow).filter(r => r.d);
