@@ -952,3 +952,6 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 .abdet h4 { margin: 0 0 6px; }
 @media (max-width: 720px) { .abdet { grid-template-columns: 1fr; } }
 .abfix td.c-src, .abfix td.c-nr, .abfix td.c-haJ { white-space: nowrap; }
+/* v69: Vollbild Bericht/Abrechnung – Spaltenüberschriften fixiert */
+.jdbfs-body .jdbtab thead th { position: sticky; top: -12px; z-index: 4; background: var(--surface-2, var(--surface)); box-shadow: 0 1px 0 var(--line); }
+.jdbfs-body .jdbtab thead th.ck { z-index: 5; }

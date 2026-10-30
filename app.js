@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '68', APP_STAND = '29.10.2026';
+const APP_VERSION = '69', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -3369,7 +3369,7 @@ function jdbRow(o) {
   ms.forEach(m => { jdbCollect(m.applicationProductTotals, pl); jdbCollect(m.productTotals, pl); });
   exOf(/product|tankmix/i).forEach(n => pl.push({ n }));
   const seenP = new Map(); pl.forEach(p => { const k = p.n.toLowerCase(); if (!seenP.has(k) || (!seenP.get(k).r && p.r)) seenP.set(k, p); });
-  const prodTxt = [...seenP.values()].map(p => p.n).join(', '); // nur Produktnamen, ohne Menge
+  const prodTxt = [...seenP.values()].map(p => p.r ? `${p.n} ${p.r}` : p.n).join(', ');
   const sl = []; jdbCollect(raw.varieties, sl); ms.forEach(m => jdbCollect(m.varietyTotals, sl)); exOf(/variet/i).forEach(n => sl.push({ n }));
   const sorten = [...new Set(sl.map(x => x.n))];
   const crop = jdbCrops(raw, ms);
@@ -3388,9 +3388,21 @@ function jdbRow(o) {
 }
 const JDB_KEY = 'lp_jdb';
 function jdbCache(rows, meta) { try { localStorage.setItem(JDB_KEY, JSON.stringify({ meta, rows })); } catch { } }
-// ältere Zwischenspeicher enthielten «Produkt 2 l/ha» – Menge entfernen
-const jdbProdNames = t => String(t || '').split(', ').map(x => x.replace(/\s+[\d'.,]+\s*\S*\/(ha|ac)$/, '')).join(', ');
-function jdbFromCache() { try { const c = JSON.parse(localStorage.getItem(JDB_KEY) || 'null'); if (c && Array.isArray(c.rows)) { c.rows.forEach(r => { r.produkte = jdbProdNames(r.produkte); }); App.jdb.rows = c.rows; App.jdb.meta = c.meta; return true; } } catch { } return false; }
+function jdbFromCache() { try { const c = JSON.parse(localStorage.getItem(JDB_KEY) || 'null'); if (c && Array.isArray(c.rows)) { App.jdb.rows = c.rows; App.jdb.meta = c.meta; return true; } } catch { } return false; }
+/* ---------- Pflanzenschutzmittel (Produkte aus den Stammdaten des Moduls Spritzen): nur Name, keine Gesamtmenge ---------- */
+const jdbPk = s => norm(s).replace(/[^a-z0-9äöü]/g, '');
+let _psmV = -1, _psmSet = null;
+function isPsm(name) {
+  if (_psmV !== Store.v || !_psmSet) { _psmSet = new Set(Store.all('produkte').filter(p => p.name).map(p => jdbPk(p.name)).filter(Boolean)); _psmV = Store.v; }
+  const k = jdbPk(name); if (!k) return false; if (k === 'psm' || _psmSet.has(k)) return true;
+  if (k.length < 4) return false;
+  for (const x of _psmSet) if (x.length >= 4 && (k.startsWith(x) || x.startsWith(k))) return true;
+  return false;
+}
+// «Name Menge» zerlegen; bei Produkten muss die Menge eine Einheit pro Fläche haben (z.B. l/ha)
+const jdbSplit = (t, perHa) => String(t || '').split(', ').filter(Boolean).map(x => { const m = /^(.*?)\s+(-?[\d'.,]+\s*\S*)$/.exec(x); return m && (!perHa || m[2].includes('/')) ? { n: m[1], v: m[2] } : { n: x, v: '' }; });
+const jdbProdTxt = r => jdbSplit(r.produkte, true).map(p => isPsm(p.n) || !p.v ? p.n : `${p.n} ${p.v}`).join(', ');
+const jdbGesTxt = r => jdbSplit(r.gesamt).filter(g => !isPsm(g.n)).map(g => g.v ? `${g.n} ${g.v}` : g.n).join(', ');
 function jdbApply(d, src) {
   if (!d || d.format !== 'jd-arbeiten' || !Array.isArray(d.operations)) { toast('Keine gültige Datei mit Arbeitsdaten (jd-arbeiten.json)'); return false; }
   const rows = d.operations.map(jdbRow).filter(r => r.d);
@@ -3479,9 +3491,9 @@ const JDB_COLS = [
   { id: 'maschine', l: 'Maschine', w: 140, v: r => r.maschine },
   { id: 'fahrer', l: 'Fahrer', w: 120, v: r => r.fahrer },
   { id: 'kultur', l: 'Kultur', w: 110, v: r => r.kultur },
-  { id: 'produkte', l: 'Produkte / Sorte', w: 220, v: r => [r.produkte, r.sorten].filter(Boolean).join(' · ') },
+  { id: 'produkte', l: 'Produkte / Sorte', w: 220, v: r => [jdbProdTxt(r), r.sorten].filter(Boolean).join(' · ') },
   { id: 'menge', l: 'Menge/ha', w: 90, n: 1, v: r => r.menge },
-  { id: 'gesamt', l: 'Gesamtmenge', w: 190, v: r => r.gesamt || '' },
+  { id: 'gesamt', l: 'Gesamtmenge', w: 190, v: r => jdbGesTxt(r) },
   { id: 'abr', l: 'Abgerechnet', w: 104, v: r => { const x = jdbAbr(r.id); return x ? '✓ ' + fmtDate(x.am, { day: '2-digit', month: '2-digit', year: '2-digit' }) : ''; }, html: r => { const x = jdbAbr(r.id); return x ? `<span class="badge verrechnet">✓ ${fmtDate(x.am, { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>` : '<span class="nr">offen</span>'; } }
 ];
 const JDB_DEF = { order: ['beginn', 'ende', 'dauer', 'arbeit', 'kunde', 'feld', 'ha', 'quelle', 'maschine', 'kultur', 'produkte', 'menge', 'gesamt', 'abr'], w: {} };
@@ -3572,7 +3584,7 @@ function jdbSummenPrint() {
 }
 function jdbCsv() {
   const rows = [['Datum', 'Beginn', 'Ende', 'Dauer h', 'Arbeit', 'Kunde', 'Feld', 'Fläche ha', 'Flächen-Quelle', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Sorten', 'Menge/ha', 'Gesamtmenge', 'Saison', 'Abgerechnet am', 'ID']];
-  jdbList().forEach(r => rows.push([r.d, jdbDT(r.start), jdbDT(r.end), r.dauer != null ? r.dauer.toFixed(2) : '', r.arbeit, r.kunde, r.feld, r.ha ?? '', r.quelle || '', r.maschine, r.fahrer, r.kultur, r.produkte, r.sorten, r.menge, r.gesamt || '', r.saison, jdbAbr(r.id)?.am || '', r.id]));
+  jdbList().forEach(r => rows.push([r.d, jdbDT(r.start), jdbDT(r.end), r.dauer != null ? r.dauer.toFixed(2) : '', r.arbeit, r.kunde, r.feld, r.ha ?? '', r.quelle || '', r.maschine, r.fahrer, r.kultur, jdbProdTxt(r), r.sorten, r.menge, jdbGesTxt(r), r.saison, jdbAbr(r.id)?.am || '', r.id]));
   const J = App.jdb;
   download(`JD-Arbeitsbericht_${J.von || 'alle'}_${J.bis || ''}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }
@@ -3588,7 +3600,7 @@ function jdbDetail(id) {
   const kv = (k, v) => v ? `<tr><td class="nr">${esc(k)}</td><td>${esc(v)}</td></tr>` : '';
   const dt = s => s ? new Date(s).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '';
   const body = `<table class="btab kv">${kv('Arbeit', r.arbeit)}${kv('Kunde', r.kunde)}${kv('Feld', r.feld)}${kv('Fläche', r.ha != null ? fmtNum(r.ha) + ' ha' + (r.quelle ? ` (${r.quelle})` : '') : '')}${kv('Abgerechnet', jdbAbr(r.id) ? fmtDate(jdbAbr(r.id).am, { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'offen')}${kv('Beginn', dt(r.start))}${kv('Ende', dt(r.end))}${kv('Dauer', r.dauer != null ? hrs(r.dauer) : '')}
-    ${kv('Maschine', r.maschine)}${kv('Fahrer', r.fahrer)}${kv('Kultur', r.kultur)}${kv('Saison', r.saison)}${kv('Produkte', r.produkte)}${kv('Sorten', r.sorten)}${kv('Menge/ha', r.menge)}${kv('Gesamtmenge', r.gesamt)}</table>
+    ${kv('Maschine', r.maschine)}${kv('Fahrer', r.fahrer)}${kv('Kultur', r.kultur)}${kv('Saison', r.saison)}${kv('Produkte', jdbProdTxt(r))}${kv('Sorten', r.sorten)}${kv('Menge/ha', r.menge)}${kv('Gesamtmenge', jdbGesTxt(r))}</table>
     ${r.details.map(m => `<div class="fld" style="margin-top:12px"><span>${esc(m.n)}</span></div><table class="btab kv">${m.v.map(([k, v]) => kv(k, v)).join('')}</table>`).join('')}
     <p class="nr" style="margin-top:12px">Quelle: MyJohnDeere · ID ${esc(r.id)}</p>`;
   const ab = jdbAbr(r.id);
@@ -3713,8 +3725,9 @@ function abRows() {
 function abRow(o, j, km) {
   const k = o ? Store.get('kunden', o.kunde) : km.get(abKeyK(j.kunde)) || null;
   const m = o ? maschine(o.maschine) : null, haP = o ? (o.flaecheEff ?? o.flaeche ?? null) : null, haJ = j ? j.ha : null;
-  const prodP = o ? prodList(o).map(p => `${p.name}${p.menge != null ? ` ${fmtNum(p.menge)} ${p.einheit || prodUnit(p.name)}/ha` : ''}`).join(', ') : '';
-  const gesP = o && haP ? prodList(o).filter(p => p.menge != null).map(p => `${p.name} ${fmtNum(r2(p.menge * haP))} ${p.einheit || prodUnit(p.name)}`).join(', ') : '';
+  // Pflanzenschutzmittel (Stammdaten Spritzen): nur Name, keine Gesamtmenge
+  const prodP = o ? prodList(o).map(p => `${p.name}${p.menge != null && !isPsm(p.name) ? ` ${fmtNum(p.menge)} ${p.einheit || prodUnit(p.name)}/ha` : ''}`).join(', ') : '';
+  const gesP = o && haP ? prodList(o).filter(p => p.menge != null && !isPsm(p.name)).map(p => `${p.name} ${fmtNum(r2(p.menge * haP))} ${p.einheit || prodUnit(p.name)}`).join(', ') : '';
   const d = o ? (o.erledigtAm || o.datum) : j.d;
   const abJ = j ? jdbAbr(j.id) : null, abO = o && statusOf(o) === 'verrechnet';
   const abr = o ? abO : !!abJ, am = o ? (o.verrechnetAm || (abJ && abJ.am) || '') : (abJ ? abJ.am : '');
@@ -3722,7 +3735,7 @@ function abRow(o, j, km) {
     dauer: j ? j.dauer : null, std: o ? (o.stundenEff ?? dauerOf(o) ?? null) : null, nr: o ? o.nr || '' : '',
     kunde: k ? k.name : (j ? j.kunde : ''), feld: (o && aFeld(o)) || (j ? j.feld : ''), arbeit: o ? o.arbeit || '' : j.arbeit, kultur: (o && o.kultur) || (j ? j.kultur : ''),
     haP, haJ, ha: haP ?? haJ, quelle: j ? j.quelle : '', maschine: (m && m.name) || (j ? j.maschine : ''), fahrer: j ? j.fahrer : '',
-    produkte: prodP || (j ? [j.produkte, j.sorten].filter(Boolean).join(' · ') : ''), gesamt: gesP || (j ? j.gesamt : ''), notiz: o ? o.notiz || '' : '', abr, am, link: !!(o && o.jdLink) };
+    produkte: prodP || (j ? [jdbProdTxt(j), j.sorten].filter(Boolean).join(' · ') : ''), gesamt: o ? gesP : (j ? jdbGesTxt(j) : ''), notiz: o ? o.notiz || '' : '', abr, am, link: !!(o && o.jdLink) };
 }
 /* ---------- Filter (Mehrfachauswahl wie im Bericht) ---------- */
 const AB_MS = { k: ['kunde', 'Kunde', 'Alle Kunden'], a: ['arbeit', 'Arbeit', 'Alle Arbeiten'], f: ['feld', 'Feld', 'Alle Felder'], m: ['maschine', 'Maschine', 'Alle Maschinen'], c: ['kultur', 'Kultur', 'Alle Kulturen'] };
@@ -3889,7 +3902,7 @@ function abDetail(id) {
       <div class="btns" style="margin-top:8px"><button type="button" class="btn small" data-ab="openOrder" data-id="${o.id}">Auftrag öffnen</button></div>`
     : `<p class="nr">Kein Auftrag im Planer verbunden.</p>${j ? `<div class="btns"><button type="button" class="btn small" data-ab="linkPick" data-id="${esc(r.id)}">Mit Auftrag verknüpfen…</button></div>` : ''}`;
   const right = j ? `<table class="btab kv">${kv('Arbeit', j.arbeit)}${kv('Kunde (JD)', j.kunde)}${kv('Feld', j.feld)}${kv('Fläche', j.ha != null ? fmtNum(j.ha) + ' ha' + (j.quelle ? ` (${j.quelle})` : '') : '')}${kv('Beginn', dt(j.start))}${kv('Ende', dt(j.end))}${kv('Dauer', j.dauer != null ? hrs(r2(j.dauer)) : '')}
-      ${kv('Maschine', j.maschine)}${kv('Fahrer', j.fahrer)}${kv('Kultur', j.kultur)}${kv('Produkte', j.produkte)}${kv('Sorten', j.sorten)}${kv('Gesamtmenge', j.gesamt)}</table>
+      ${kv('Maschine', j.maschine)}${kv('Fahrer', j.fahrer)}${kv('Kultur', j.kultur)}${kv('Produkte', jdbProdTxt(j))}${kv('Sorten', j.sorten)}${kv('Gesamtmenge', jdbGesTxt(j))}</table>
       <div class="btns" style="margin-top:8px"><button type="button" class="btn small" data-ab="jdDetail" data-id="${esc(j.id)}">Alle Messwerte</button></div>`
     : `<p class="nr">Kein Arbeitsgang aus MyJohnDeere verbunden.</p>${o ? `<div class="btns"><button type="button" class="btn small" data-ab="linkPick" data-id="${esc(r.id)}">Mit Arbeitsgang verknüpfen…</button></div>` : ''}`;
   const body = `<div class="abdet"><div><h4>Auftrag (Planer)</h4>${left}</div><div><h4>Arbeitsgang (MyJohnDeere)</h4>${right}</div></div>
