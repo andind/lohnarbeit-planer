@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '71', APP_STAND = '29.10.2026';
+const APP_VERSION = '72', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -3299,6 +3299,22 @@ function feldFuer({ fid, feldId, kunde, kundeId, feld }) {
   return (feldId && F.find(f => f.id === feldId)) || (fid && F.find(f => f.jdId === fid))
     || (feld && F.find(f => norm(f.jdName || f.name) === norm(feld) && (kundeId ? f.kunde === kundeId : norm(kundeName(f.kunde)) === norm(kunde) || norm((Store.get('kunden', f.kunde) || {}).jdName) === norm(kunde)))) || null;
 }
+// Quelle und Signaltyp der Feldgrenze lesbar machen (Werte von John Deere, unbekannte bleiben wie geliefert)
+function grzQuelle(q) {
+  const k = String(q || '').toLowerCase().replace(/[^a-z]/g, ''); if (!k) return '';
+  const M = { handdrawn: 'von Hand gezeichnet', drawn: 'von Hand gezeichnet', manual: 'von Hand gezeichnet', machine: 'Maschine (abgefahren)', equipment: 'Maschine (abgefahren)', recorded: 'Maschine (abgefahren)', driven: 'Maschine (abgefahren)', logged: 'Maschine (abgefahren)',
+    external: 'importiert', imported: 'importiert', import: 'importiert', shapefile: 'importiert (Shape)', file: 'importiert', partner: 'Partner', api: 'Schnittstelle (API)', generated: 'automatisch erzeugt', coverage: 'aus Bedeckung' };
+  return M[k] || String(q);
+}
+function grzSignal(s) {
+  const v = String(s || '').replace(/^dtiSignalType/i, '').trim(); if (!v) return '';
+  const u = v.toUpperCase();
+  if (/^RTK/.test(u)) return u === 'RTK' ? 'RTK' : v;
+  if (/^SF\s?([0-9])/.test(u)) return 'SF' + u.match(/^SF\s?([0-9])/)[1];
+  if (/NONE|UNKNOWN/.test(u)) return 'unbekannt';
+  return v;
+}
+const grzRtk = s => /^RTK/i.test(grzSignal(s));
 function grenzenHtml(f) {
   if (!f) return '<p class="nr">Kein passendes Feld in den Stammdaten gefunden.</p>';
   const g = f.grenzen;
@@ -3306,11 +3322,13 @@ function grenzenHtml(f) {
   if (!g.length) return `<p class="nr">Für «${esc(f.name)}» ist in MyJohnDeere keine Vermessung gespeichert.</p>`;
   const dd = s => s ? esc(fmtDate(String(s).slice(0, 10), { day: '2-digit', month: '2-digit', year: 'numeric' })) : '';
   const L = g.slice().sort((a, b) => (b.aktiv - a.aktiv) || String(b.erstellt || b.geaendert || '').localeCompare(String(a.erstellt || a.geaendert || '')));
-  const mitE = L.some(x => x.erstellt);
-  return `<div class="grzwrap"><table class="btab kv grz"><thead><tr><th>Vermessung</th><th class="n">Fläche</th><th class="n">bearbeitbar</th>${mitE ? '<th>Erstellt</th>' : ''}<th>Geändert</th></tr></thead><tbody>
+  const mitE = L.some(x => x.erstellt), mitQ = L.some(x => x.quelle), mitS = L.some(x => x.signal);
+  return `<div class="grzwrap"><table class="btab kv grz"><thead><tr><th>Vermessung</th><th class="n">Fläche</th><th class="n">bearbeitbar</th>${mitQ ? '<th>Quelle</th>' : ''}${mitS ? '<th>Signal</th>' : ''}${mitE ? '<th>Erstellt</th>' : ''}<th>Geändert</th></tr></thead><tbody>
     ${L.map(x => `<tr class="${x.aktiv ? 'grz-akt' : ''}${x.archiviert ? ' grz-arch' : ''}"><td>${esc(x.name || '(ohne Namen)')}${x.aktiv ? ' <span class="badge geplant">aktiv</span>' : ''}${x.archiviert ? ' <span class="nr">archiviert</span>' : ''}</td>
-      <td class="n">${x.ha != null ? fmtNum(x.ha) + ' ha' : ''}</td><td class="n">${x.bha != null ? fmtNum(x.bha) + ' ha' : ''}</td>${mitE ? `<td>${dd(x.erstellt)}</td>` : ''}<td>${dd(x.geaendert)}</td></tr>`).join('')}</tbody></table></div>
-    ${!mitE ? '<p class="nr" style="margin-top:6px">Erstellungsdatum: kommt mit dem NAS-Dienst ab Version 47.</p>' : ''}`;
+      <td class="n">${x.ha != null ? fmtNum(x.ha) + ' ha' : ''}</td><td class="n">${x.bha != null ? fmtNum(x.bha) + ' ha' : ''}</td>
+      ${mitQ ? `<td title="${esc(x.quelle || '')}">${esc(grzQuelle(x.quelle))}</td>` : ''}${mitS ? `<td title="${esc(x.signal || '')}">${x.signal ? `<span class="sig ${grzRtk(x.signal) ? 'sig-rtk' : ''}">${esc(grzSignal(x.signal))}</span>` : ''}</td>` : ''}
+      ${mitE ? `<td>${dd(x.erstellt)}</td>` : ''}<td>${dd(x.geaendert)}</td></tr>`).join('')}</tbody></table></div>
+    ${!mitE || !mitS ? `<p class="nr" style="margin-top:6px">${!mitS ? 'Signaltyp' : ''}${!mitS && !mitE ? ' und ' : ''}${!mitE ? 'Erstellungsdatum' : ''}: ${L.some(x => 'signal' in x) || mitE ? 'liefert MyJohnDeere für dieses Feld nicht.' : 'kommt mit dem NAS-Dienst ab Version 48.'}</p>` : ''}`;
 }
 // Eigenes Fenster «Vermessungen» (Klick auf das Feld in den Listen von Bericht und Abrechnung)
 function grenzenDialog(fe, lbl, kunde) {
@@ -4128,7 +4146,7 @@ function uiScalePanel() {
     <p class="nr">Für grosse Bildschirme (z.B. 27 Zoll mit 3840 × 2160). «Automatisch» vergrössert, wenn Windows den Bildschirm nicht selbst skaliert. Die Einstellung gilt nur für dieses Gerät und diesen Browser; Ausdrucke und PDF bleiben unverändert.</p></div>`;
 }
 /* ---------- Versionsanzeige ---------- */
-const NAS_MIN = '47'; // mindestens nötige Version des NAS-Dienstes
+const NAS_MIN = '48'; // mindestens nötige Version des NAS-Dienstes
 function versionInfo() {
   const c = Store.cfg(), nas = c.jdDienst, ver = v => +String(v || '').replace(/[^\d.]/g, '') || 0;
   const nasTxt = nas ? `Version ${esc(nas)}${ver(nas) < ver(NAS_MIN) ? ` <span class="badge offen">zu alt – NAS-Dienst auf Version ${NAS_MIN} oder neuer aktualisieren</span>` : ' <span class="nr">(aktuell)</span>'}`

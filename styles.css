@@ -964,3 +964,6 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 .fldlink { color: var(--accent, #2e6b30); text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; cursor: pointer; }
 .fldlink:hover { text-decoration-style: solid; }
 .grzwrap { overflow-x: auto; }
+/* v72: Signaltyp der Vermessung */
+.sig { display: inline-block; padding: 1px 7px; border-radius: 9px; font-size: 12px; font-weight: 600; background: var(--surface-2); border: 1px solid var(--line); color: var(--text); }
+.sig.sig-rtk { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
