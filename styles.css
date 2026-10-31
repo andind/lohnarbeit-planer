@@ -1158,3 +1158,16 @@ td.ebbu, .ebleg.ebbu { background: color-mix(in srgb, #3b6fd1 16%, var(--surface
 .undogrp { display: inline-flex; gap: 4px; }
 .top .undogrp .btn.hbtn { padding: 7px 10px; font-size: 17px; line-height: 1; min-width: 38px; }
 .top .undogrp .btn.hbtn:disabled { opacity: .35; cursor: default; }
+.ebk.ebx { border-left-color: var(--danger); background: color-mix(in srgb, var(--danger) 16%, var(--surface)); outline: 1px solid var(--danger); }
+.ebxi { display: block; font-size: 10px; font-weight: 700; color: var(--danger); }
+.ebfft td.ebvar, .ebfft th.ebvar { background-image: repeating-linear-gradient(135deg, transparent 0 6px, color-mix(in srgb, var(--accent) 7%, transparent) 6px 12px); }
+.ebvl { display: block; font-size: 10px; font-weight: 500; color: var(--accent); }
+.ebvarbar { margin-top: -4px; }
+.ebvarbar .fld.inl { display: flex; align-items: center; gap: 6px; margin: 0; }
+.ebvarbar .fld.inl > span { margin: 0; }
+.ebkmv .x { font-size: 11px; padding: 0 4px; color: var(--accent); }
+.ebkmv .x:disabled { opacity: .25; }
+.ebkt .ebmsel { width: auto; min-height: 30px; padding: 2px 6px; font-size: 13px; }
+.ebvj { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ebgbtns { margin-top: 4px; }
+.ebkt .ebmv:disabled { opacity: .25; }
