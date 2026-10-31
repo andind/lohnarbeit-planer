@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '83', APP_STAND = '31.10.2026';
+const APP_VERSION = '84', APP_STAND = '31.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -2018,6 +2018,7 @@ function sprayBox(a) {
         <button type="button" class="btn" data-act="parzNew" title="Neue Parzelle" aria-label="Neue Parzelle">＋</button></div></label>
       <label class="fld"><span>Feld (Bezeichnung)</span><input class="input" name="feld" value="${esc(a.feld || '')}" placeholder="z.B. Grossacker"></label>
     </div>
+    ${typeof ebSprayHtml === 'function' ? ebSprayHtml(a) : ''}
     <div class="two">
       <label class="fld"><span>Wassermenge (l/ha)</span><input class="input" name="wasser" inputmode="decimal" value="${a.wasser ?? ''}" placeholder="z.B. 200"></label>
       <label class="fld"><span>Stadium</span><input class="input" name="stadium" value="${esc(a.stadium || '')}" placeholder="z.B. BBCH 31"></label>
@@ -2044,7 +2045,8 @@ function readSpray(f) {
   return {
     parzelle: f.parzelle.value, feld: f.feld.value.trim(), wasser: num(f.wasser.value), stadium: f.stadium.value.trim(),
     duese: f.duese.value, traktor: f.traktor.value, nichtOeln: f.nichtOeln.checked,
-    erntejahr: ej || ernteDefault(f.datum.value || f.wunsch.value || todayIso(), f.kultur.value), produkte
+    erntejahr: ej || ernteDefault(f.datum.value || f.wunsch.value || todayIso(), f.kultur.value), produkte,
+    ...(typeof ebReadSpray === 'function' ? ebReadSpray(f) : {})
   };
 }
 function wireSpray(f) {
@@ -2072,6 +2074,7 @@ function wireSpray(f) {
   f.addEventListener('input', e => { if (e.target.closest('#sprayBox') || e.target.name === 'flaeche') upd(); });
   f.addEventListener('change', e => { if (['pname', 'kultur', 'datum', 'wunsch', 'erledigtAm'].includes(e.target.name)) upd(); });
   f._sprayUpd = upd; f._refreshParz = refreshParz; upd();
+  if (typeof ebWireSpray === 'function') ebWireSpray(f);
 }
 
 /* ---------- Produkte ---------- */

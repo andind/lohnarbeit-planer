@@ -48,7 +48,7 @@ function ebStamm() {
   return s;
 }
 function ebState() {
-  if (!App.eb) App.eb = { sub: ls('lp_ebSub') || 'fruchtfolge', y: null, ffEnd: null, bAll: false, ffSum: false };
+  if (!App.eb) App.eb = { sub: ls('lp_ebSub') || 'fruchtfolge', y: null, ffEnd: null, bAll: false, ffSum: false, showOff: ls('lp_ebShowOff') === '1' };
   if (!App.eb.y) App.eb.y = ebCurYear();
   if (!App.eb.ffEnd) App.eb.ffEnd = Math.max(ebCurYear() + 1, ...ebYears().filter(y => y <= ebCurYear() + 3));
   return App.eb;
@@ -112,7 +112,16 @@ function ebNBedarf(s) {
 const ebParz = id => id ? ebStamm().parz.find(p => p.id === id) : null;
 const ebParzLabel = p => p ? `${p.name}${p.teil ? ' ' + p.teil : ''}` : '';
 const ebParzHa = p => p ? (p.ha != null ? p.ha : (feldById(p.feld) || {}).flaeche ?? null) : null;
-const ebParzSorted = (alle) => ebStamm().parz.filter(p => alle || p.aktiv !== false).slice().sort((a, b) => ((a.gruppe ?? 999) - (b.gruppe ?? 999)) || a.name.localeCompare(b.name, 'de') || String(a.teil || '').localeCompare(String(b.teil || ''), 'de'));
+// Reihenfolge: von Hand festgelegt (pos, Parzellen ▲▼), sonst Gruppe und Name
+const ebParzSorted = (alle) => ebStamm().parz.filter(p => alle || p.aktiv !== false).slice().sort((a, b) => ((a.pos ?? 1e6) - (b.pos ?? 1e6)) || ((a.gruppe ?? 999) - (b.gruppe ?? 999)) || a.name.localeCompare(b.name, 'de') || String(a.teil || '').localeCompare(String(b.teil || ''), 'de'));
+// Parzelle in der (sichtbaren) Liste um eine Stelle verschieben
+function ebParzMove(id, d) {
+  const st = ebStamm(), S = ebState(), L = ebParzSorted(true);
+  L.forEach((p, i) => { st.parz.find(x => x.id === p.id).pos = i; });
+  const V = L.filter(p => S.showOff || p.aktiv !== false), i = V.findIndex(p => p.id === id), j = i + d; if (i < 0 || j < 0 || j >= V.length) return;
+  const a = st.parz.find(x => x.id === V[i].id), b = st.parz.find(x => x.id === V[j].id); [a.pos, b.pos] = [b.pos, a.pos];
+  ebSaveS(st);
+}
 const ebSchlagName = s => s.parz ? ebParzLabel(ebParz(s.parz)) || s.name || '?' : (s.name || '–');
 const ebSchlagHa = s => s.ha != null ? s.ha : ebParzHa(ebParz(s.parz));
 // Eigener Betrieb in den Kunden (Felder aus MyJohnDeere)
@@ -218,25 +227,27 @@ function ebContent() {
 
 /* ---------- Parzellen ---------- */
 function ebParzView(st) {
-  const K = ebKunde(), F = ebFelder(), P = ebParzSorted(true), y = ebCurYear();
+  const S = ebState(), K = ebKunde(), F = ebFelder(), Pall = ebParzSorted(true), P = Pall.filter(p => S.showOff || p.aktiv !== false), y = ebCurYear();
+  const nOff = Pall.length - Pall.filter(p => p.aktiv !== false).length;
   const linked = new Set(st.parz.map(p => p.feld).filter(Boolean)), freeF = F.filter(f => f.aktiv !== false && !linked.has(f.id));
   const guess = ebFeldGuessAll(st);
   const yrs = [y - 2, y - 1, y, y + 1];
   const kul = (yy, p) => { const L = ebGet(yy) ? ebGet(yy).schlaege.filter(s => s.parz === p.id && s.art !== 'zwischen') : []; return L.map(s => `<span class="ebk sm" style="--kc:${ebColor(s.kultur)}">${esc(s.kultur || '?')}</span>`).join(' '); };
   const boden = p => { const b = st.boden.filter(x => x.parz === p.id).sort((a, b) => (b.jahr || 0) - (a.jahr || 0))[0]; return b ? `<a href="#" data-eb="bEdit" data-id="${b.id}">${b.jahr || '?'}${b.w && b.w.ph != null ? ' · pH ' + fmtNum(b.w.ph) : ''}</a>` : ''; };
   const tot = r2(P.filter(p => p.aktiv !== false).reduce((t, p) => t + (ebParzHa(p) || 0), 0));
-  const rows = P.map(p => { const f = feldById(p.feld), g = guess[p.id];
-    return `<tr class="click ${p.aktiv === false ? 'ebOff' : ''}" data-eb="parzEdit" data-id="${p.id}"><td class="n nr">${p.gruppe ?? ''}</td><td><b>${esc(p.name)}</b>${p.teil ? ` <span class="nr">${esc(p.teil)}</span>` : ''}${p.aktiv === false ? ' <span class="nr">(inaktiv)</span>' : ''}</td>
+  const rows = P.map((p, i) => { const f = feldById(p.feld), g = guess[p.id];
+    return `<tr class="click ${p.aktiv === false ? 'ebOff' : ''}" data-eb="parzEdit" data-id="${p.id}"><td class="nowrap"><button type="button" class="x ebmv" data-eb="parzMove" data-id="${p.id}" data-d="-1" ${i ? '' : 'disabled'} aria-label="nach oben" title="nach oben">▲</button><button type="button" class="x ebmv" data-eb="parzMove" data-id="${p.id}" data-d="1" ${i < P.length - 1 ? '' : 'disabled'} aria-label="nach unten" title="nach unten">▼</button></td><td class="n nr">${p.gruppe ?? ''}</td><td><b>${esc(p.name)}</b>${p.teil ? ` <span class="nr">${esc(p.teil)}</span>` : ''}${p.aktiv === false ? ' <span class="nr">(inaktiv)</span>' : ''}</td>
       <td class="n">${ebFmt(ebParzHa(p))}</td>
       <td>${f ? `🌾 ${esc(f.name)} <span class="nr">${f.flaeche ? fmtNum(f.flaeche) + ' ha' : ''}</span>` : g ? `<button type="button" class="btn mini" data-eb="parzLink" data-id="${p.id}" data-f="${g.id}" title="Mit diesem Feld aus MyJohnDeere verknüpfen">↦ ${esc(g.name)}?</button>` : '<span class="nr">–</span>'}</td>
       ${yrs.map(yy => `<td>${kul(yy, p)}</td>`).join('')}<td>${boden(p)}</td></tr>`; }).join('');
   const kOpts = Store.all('kunden').filter(k => k.aktiv !== false || (K && k.id === K.id)).sort(byName).map(k => `<option value="${k.id}" ${K && k.id === K.id ? 'selected' : ''}>${esc(kundeLabel(k))}</option>`).join('');
   return `<div class="panel" style="margin-top:12px"><h2>Parzellen <small class="nr">${P.filter(p => p.aktiv !== false).length} aktiv · ${fmtNum(tot)} ha</small></h2>
     <div class="filters"><label class="fld" style="margin:0;min-width:260px"><span>Eigener Betrieb (Kunde mit den Feldern aus MyJohnDeere)</span><select class="input" data-combo data-ebin="kunde"><option value="">— wählen —</option>${kOpts}</select></label>
+      ${nOff ? `<label class="tog"><input type="checkbox" data-ebin="showOff" ${S.showOff ? 'checked' : ''}> inaktive Parzellen anzeigen (${nOff})</label>` : ''}
       <span class="spacer ebsp"></span><button class="btn" data-eb="parzNew">＋ Parzelle</button></div>
-    ${P.length ? `<div class="tscroll ebscroll"><table class="btab ebtab"><thead><tr><th class="n" title="Fruchtfolge-Gruppe">Gr.</th><th>Parzelle</th><th class="n">ha</th><th>Feld MyJohnDeere</th>${yrs.map(yy => `<th>${yy}</th>`).join('')}<th>Bodenprobe</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="nr">Noch keine Parzellen.</p>'}
+    ${P.length ? `<div class="tscroll ebscroll"><table class="btab ebtab"><thead><tr><th title="Reihenfolge in Fruchtfolge, Düngung und Ausdrucken">Reihenfolge</th><th class="n" title="Fruchtfolge-Gruppe">Gr.</th><th>Parzelle</th><th class="n">ha</th><th>Feld MyJohnDeere</th>${yrs.map(yy => `<th>${yy}</th>`).join('')}<th>Bodenprobe</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="nr">Noch keine Parzellen.</p>'}
     ${Object.keys(guess).length ? `<div class="btns"><button class="btn" data-eb="parzLinkAll">Alle Vorschläge (↦ …?) übernehmen</button></div>` : ''}
-    <p class="nr">Eine Parzelle ist die Einheit für Fruchtfolge, Düngung und Bodenproben. Wird ein Feld in Teilen bewirtschaftet (z.B. Lysshübeli West/Ost), erfasse pro Teil eine Parzelle und verknüpfe beide mit demselben Feld. Ohne eigene Fläche gilt die Fläche des Feldes aus MyJohnDeere.</p></div>
+    <p class="nr">Mit ▲▼ legst du die Reihenfolge fest – so erscheinen die Parzellen in Fruchtfolge und Ausdrucken. Eine Parzelle ist die Einheit für Fruchtfolge, Düngung und Bodenproben. Wird ein Feld in Teilen bewirtschaftet (z.B. Lysshübeli West/Ost), erfasse pro Teil eine Parzelle und verknüpfe beide mit demselben Feld. Ohne eigene Fläche gilt die Fläche des Feldes aus MyJohnDeere.</p></div>
     ${K ? `<div class="panel"><h2>Felder von ${esc(K.name)} ohne Parzelle <small class="nr">${freeF.length}</small></h2>
       ${freeF.length ? `<div class="chips static">${freeF.map(f => `<span class="chip">${esc(f.name)}${f.flaeche ? ' · ' + fmtNum(f.flaeche) + ' ha' : ''}</span>`).join('')}</div>
       <div class="btns"><button class="btn" data-eb="feldImport">Als Parzellen übernehmen …</button></div>` : '<p class="nr">Alle Felder sind einer Parzelle zugeordnet.</p>'}</div>`
@@ -292,36 +303,39 @@ function ebFeldImportDialog() {
 
 /* ---------- Fruchtfolge ---------- */
 const EB_FF_N = 9; // angezeigte Jahre
-function ebFfCell(y, L, p) {
-  const pHa = p ? ebParzHa(p) : null;
+function ebFfCell(y, L, p, SP) {
   const H = L.filter(s => s.art !== 'zwischen'), Z = L.filter(s => s.art === 'zwischen');
   const pause = s => { const k = ebKultur(s.kultur), n = k && k.pause; if (!p || !n) return '';
     for (let i = 1; i <= n; i++) { const r = ebGet(y - i); if (r && r.schlaege.some(x => x.parz === p.id && x.art !== 'zwischen' && ebSameKultur(x.kultur, s.kultur))) return ` <span class="warnchip" title="Anbaupause ${n} Jahre: ${esc(s.kultur)} stand schon ${y - i} hier">⚠ Pause</span>`; }
     return ''; };
-  return H.map(s => { const ha = ebSchlagHa(s); return `<div class="ebk" style="--kc:${ebColor(s.kultur)}">${esc(s.kultur || '?')}${ha != null && pHa != null && Math.abs(ha - pHa) > 0.04 ? ` <small>${fmtNum(ha)}</small>` : ''}${pause(s)}</div>`; }).join('') +
-    Z.map(s => `<div class="ebz" title="Zwischenfrucht nach der Hauptkultur ${y}">↳ ${esc(s.kultur || '?')}</div>`).join('');
+  const ha = s => { const v = ebSchlagHa(s); return v != null ? ` <small>${fmtNum(v)} ha</small>` : ''; };
+  const sp = s => SP && SP.get(s.id) ? ` <span class="ebsp1" title="${SP.get(s.id)} Spritzaufträge">🧪${SP.get(s.id) > 1 ? SP.get(s.id) : ''}</span>` : '';
+  return H.map(s => `<div class="ebk" style="--kc:${ebColor(s.kultur)}">${esc(s.kultur || '?')}${ha(s)}${sp(s)}${pause(s)}</div>`).join('') +
+    Z.map(s => `<div class="ebz" title="Zwischenfrucht nach der Hauptkultur ${y}">↳ ${esc(s.kultur || '?')}${ha(s)}${sp(s)}</div>`).join('');
 }
 function ebFfView(st) {
   const S = ebState(), end = S.ffEnd, years = Array.from({ length: EB_FF_N }, (_, i) => end - EB_FF_N + 1 + i), cy = ebCurYear();
-  const recs = Object.fromEntries(years.map(y => [y, ebGet(y) || null]));
+  const recs = Object.fromEntries(years.map(y => [y, ebGet(y) || null])), SP = ebSprayIndex(years);
   const L = (y, f) => recs[y] ? recs[y].schlaege.filter(f) : [];
-  const P = ebParzSorted(true).filter(p => p.aktiv !== false || years.some(y => L(y, s => s.parz === p.id).length));
+  const Pin = ebParzSorted(true).filter(p => p.aktiv !== false || years.some(y => L(y, s => s.parz === p.id).length));
+  const P = Pin.filter(p => S.showOff || p.aktiv !== false), nOff = Pin.length - P.length;
   const free = [...new Set(years.flatMap(y => L(y, s => !s.parz).map(s => s.name || '–')))].sort((a, b) => a.localeCompare(b, 'de'));
   let lastG = Symbol();
   const rowP = p => { const g = p.gruppe ?? null, gh = g !== lastG && g != null ? `<tr class="ebgrp"><th class="ebrh">Gruppe ${g} <span class="nr">${fmtNum(r2(P.filter(x => x.gruppe === g && x.aktiv !== false).reduce((t, x) => t + (ebParzHa(x) || 0), 0)))} ha</span></th>${years.map(() => '<td></td>').join('')}</tr>` : ''; lastG = g;
     return gh + `<tr><th class="ebrh" data-eb="parzEdit" data-id="${p.id}" title="Parzelle bearbeiten">${esc(p.name)}${p.teil ? ` <span class="nr">${esc(p.teil)}</span>` : ''}<div class="nr">${ebParzHa(p) != null ? ebFmt(ebParzHa(p)) + ' ha' : ''}${p.feld ? ' · 🌾' : ''}</div></th>
-      ${years.map(y => `<td class="ebc ${y === cy ? 'cur' : ''}" data-eb="ffCell" data-y="${y}" data-p="${p.id}">${ebFfCell(y, L(y, s => s.parz === p.id), p)}</td>`).join('')}</tr>`; };
+      ${years.map(y => `<td class="ebc ${y === cy ? 'cur' : ''}" data-eb="ffCell" data-y="${y}" data-p="${p.id}">${ebFfCell(y, L(y, s => s.parz === p.id), p, SP)}</td>`).join('')}</tr>`; };
   const rowF = n => `<tr><th class="ebrh">${esc(n)}<div class="nr">ohne Parzelle</div></th>${years.map(y => `<td class="ebc ${y === cy ? 'cur' : ''}" data-eb="ffCell" data-y="${y}" data-n="${esc(n)}">${ebFfCell(y, L(y, s => !s.parz && (s.name || '–') === n), null)}</td>`).join('')}</tr>`;
   const totY = y => r2(L(y, s => s.art !== 'zwischen').reduce((t, s) => t + (ebSchlagHa(s) || 0), 0));
   const head = `<div class="filters vbhead" style="margin-top:12px">
       <button class="btn small" data-eb="ffShift" data-d="-1" title="ein Jahr zurück">◀</button><b>${years[0]} – ${end}</b><button class="btn small" data-eb="ffShift" data-d="1" title="ein Jahr vor">▶</button>
       <label class="tog"><input type="checkbox" data-ebin="ffSum" ${S.ffSum ? 'checked' : ''}> Flächen pro Kultur</label>
+      ${nOff || S.showOff ? `<label class="tog"><input type="checkbox" data-ebin="showOff" ${S.showOff ? 'checked' : ''}> inaktive Parzellen anzeigen${nOff ? ` (${nOff})` : ''}</label>` : ''}
       <span class="spacer ebsp"></span><button class="btn" data-eb="ffPrint">Drucken / PDF</button><button class="btn" data-eb="xlsx">Excel</button></div>`;
   if (!P.length && !free.length) return head + `<div class="panel"><p>Noch keine Parzellen. Lege sie unter «Parzellen» an oder importiere die Excel-Mappe.</p></div>`;
   const tab = `<div class="vbmatrix ebscroll ebff"><table class="vbtab ebfft"><thead><tr><th class="vbc">Parzelle</th>${years.map(y => `<th class="${y === cy ? 'cur' : ''}">${y}</th>`).join('')}</tr></thead>
     <tbody>${P.map(rowP).join('')}${free.length ? `<tr class="ebgrp"><th class="ebrh">Weitere Flächen</th>${years.map(() => '<td></td>').join('')}</tr>` + free.map(rowF).join('') : ''}</tbody>
     <tfoot><tr><th>Total Hauptkulturen</th>${years.map(y => `<td class="n"><b>${ebFmt(totY(y)) || ''}</b></td>`).join('')}</tr></tfoot></table></div>`;
-  return head + `<div class="panel">${tab}<p class="nr">Feld antippen: Haupt- und Zwischenfrucht eines Jahres erfassen. ↳ = Zwischenfrucht nach der Hauptkultur. Kleine Zahl = Fläche, wenn nur ein Teil der Parzelle. ⚠ Pause = Anbaupause der Kultur (Stammdaten) nicht eingehalten.</p></div>` + (S.ffSum ? ebFfSummary(years, recs) : '');
+  return head + `<div class="panel">${tab}<p class="nr">Feld antippen: Haupt- und Zwischenfrucht eines Jahres erfassen. ↳ = Zwischenfrucht nach der Hauptkultur. Reihenfolge der Parzellen unter «Parzellen» (▲▼). ⚠ Pause = Anbaupause der Kultur (Stammdaten) nicht eingehalten. 🧪 = Spritzaufträge zu dieser Kultur (Modul Spritzen).</p></div>` + (S.ffSum ? ebFfSummary(years, recs) : '');
 }
 function ebFfSummary(years, recs) {
   const sum = (art) => { const m = new Map(); years.forEach(y => (recs[y] ? recs[y].schlaege : []).filter(s => (s.art === 'zwischen') === (art === 'zwischen') && s.kultur).forEach(s => { const k = ebKultur(s.kultur) && art !== 'zwischen' && ebKultKey(ebKultur(s.kultur).name) === ebKultKey(s.kultur) ? ebKultur(s.kultur).name : s.kultur; const o = m.get(k) || {}; o[y] = r2((o[y] || 0) + (ebSchlagHa(s) || 0)); m.set(k, o); })); return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'de')); };
@@ -374,6 +388,7 @@ function ebSchlagDialog(y, id, pre = {}) {
       <label class="fld"><span>Vorkultur ${y - 1}</span><input class="input" name="vk" value="${esc(vk)}" ${s.parz && vk && !s.vk ? 'readonly tabindex="-1" title="aus der Fruchtfolge"' : ''} placeholder="—"></label></div>
     <div class="fld"><span>Programme</span><div class="chips">${progs.map(x => `<label><input type="checkbox" name="prog" value="${esc(x)}" ${(s.prog || []).includes(x) ? 'checked' : ''}><span>${esc(x)}</span></label>`).join('')}</div></div>
     <label class="fld"><span>Bemerkung</span><input class="input" name="bem" value="${esc(s.bem || '')}"></label>
+    ${isNew ? '' : ebSprayList(y, s)}
     <div class="box"><h4>🌱 Düngung ${y} <small class="nr" id="ebNInfo"></small></h4>
       <div class="three"><label class="fld"><span>N-Bedarf kg/ha <small class="nr">GRUDAF</small></span><input class="input" name="nBed" inputmode="decimal" value="${s.nBed ?? ''}"></label>
         <label class="fld"><span>Korrektur ± kg N/ha</span><input class="input" name="korr" inputmode="decimal" value="${s.korr ?? ''}" placeholder="0"></label>
@@ -636,6 +651,8 @@ function ebStammView(st) {
         <td>${nUse(k) ? '' : `<button type="button" class="x" data-eb="kDel" data-id="${k.id}" aria-label="Entfernen">×</button>`}</td></tr>`).join('')}</tbody></table></div>
       <div class="btns"><button class="btn" data-eb="kNew">＋ Kultur</button></div>
       <p class="nr">«Weizen» und «Winterweizen» gelten als gleiche Kultur, «Sommerhafer» rechnet mit «Hafer». Anbaupause: Die Fruchtfolge warnt (⚠), wenn die Kultur innerhalb dieser Anzahl Jahre schon auf derselben Parzelle stand.</p></div>
+    <div class="panel"><h2>Betriebsadresse</h2><p>Erscheint oben rechts auf allen Ausdrucken und PDF im Bereich Betrieb (ohne Logo). Leer = Adresse des Kunden ${esc(ebKunde() ? ebKunde().name : 'des eigenen Betriebs')}.</p>
+      <textarea class="input" rows="4" data-ebin="adresse" placeholder="${esc(ebAdresse())}">${esc(st.adresse || '')}</textarea></div>
     <div class="panel"><h2>Programme</h2><p>Auswahl in der Düngungsplanung (Extenso, IP-Suisse, Ressourcenprogramme …). Ein Programm pro Zeile.</p>
       <textarea class="input" rows="6" data-ebin="prog">${esc(st.programme.join('\n'))}</textarea></div></div>
     <div><div class="panel"><h2>Richtwerte Bodenproben</h2>
@@ -662,6 +679,84 @@ function ebPanel() {
 function ebNav() {
   const b = $('#tabs [data-view="betrieb"]'); if (b) b.hidden = !ebOn();
   const t = $('#tabs'); if (t) t.style.setProperty('--n', $$('#tabs button:not([hidden])').length);
+}
+
+/* ================= Verknüpfung mit dem Modul Spritzen ================= */
+// Spritzauftrag für den eigenen Betrieb: Fläche aus der Fruchtfolge des Erntejahres wählen → Kultur, Fläche, Feld.
+// Der Auftrag merkt sich den Schlag (ebSchlag, ebJahr); in der Fruchtfolge erscheint er beim Schlag (🧪).
+const ebIsOwn = kid => ebOn() && !!kid && !!ebKunde() && ebKunde().id === kid;
+const ebSchlagById = (y, id) => id && ebGet(y) ? ebGet(y).schlaege.find(s => s.id === id) : null;
+function ebSprayHtml(a) {
+  return `<div class="ebspray" id="ebSprayF" hidden><label class="fld"><span>🌾 Fläche aus der Fruchtfolge <span class="nr" id="ebSprayY"></span></span>
+    <select class="input" name="ebSchlag" data-plain data-cur="${esc(a.ebSchlag || '')}"><option value="">— keine —</option></select></label>
+    <div class="nr" id="ebSprayHint"></div></div>`;
+}
+function ebSprayOpts(y, cur) {
+  const rec = ebGet(y), pos = new Map(ebParzSorted(true).map((p, i) => [p.id, i]));
+  const L = rec ? rec.schlaege.filter(s => s.parz && s.art !== 'zwischen').sort((a, b) => (pos.get(a.parz) ?? 999) - (pos.get(b.parz) ?? 999)) : [];
+  const Z = rec ? rec.schlaege.filter(s => s.parz && s.art === 'zwischen') : [];
+  const o = s => `<option value="${s.id}" ${s.id === cur ? 'selected' : ''}>${esc(ebSchlagName(s))} · ${esc(s.kultur || '?')}${ebSchlagHa(s) != null ? ' · ' + fmtNum(ebSchlagHa(s)) + ' ha' : ''}</option>`;
+  return `<option value="">— keine —</option>${L.map(o).join('')}${Z.length ? `<optgroup label="Zwischenfrüchte">${Z.map(o).join('')}</optgroup>` : ''}`;
+}
+function ebWireSpray(f) {
+  const box = $('#ebSprayF', f); if (!box || !f.ebSchlag) return;
+  const sel = f.ebSchlag, hint = $('#ebSprayHint', box);
+  const year = () => num(f.erntejahr.value) || num(f.erntejahr.placeholder) || ebCurYear();
+  const refresh = () => {
+    const k = findKunde(f.kunde.value);
+    box.hidden = !(k && ebIsOwn(k.id)); if (box.hidden) return;
+    const y = year(), cur = sel.value || sel.dataset.cur || ''; sel.innerHTML = ebSprayOpts(y, cur);
+    $('#ebSprayY', box).textContent = `(Erntejahr ${y})`;
+    hint.textContent = ebGet(y) ? '' : `In der Fruchtfolge ${y} ist noch nichts erfasst.`;
+  };
+  const setKultur = k => { if (!k || !f.kultur) return; if (![...f.kultur.options].some(o => o.value === k)) f.kultur.insertAdjacentHTML('beforeend', `<option>${esc(k)}</option>`); f.kultur.value = k; f.kultur.dispatchEvent(new Event('change', { bubbles: true })); };
+  const apply = () => {
+    const s = ebSchlagById(year(), sel.value); sel.dataset.cur = sel.value; if (!s) return;
+    const p = ebParz(s.parz);
+    setKultur(s.kultur);
+    if (ebSchlagHa(s) != null) { f.flaeche.value = ebSchlagHa(s); f.flaeche.dispatchEvent(new Event('input', { bubbles: true })); }
+    if (p) { f.feld.value = ebParzLabel(p); if (p.feld && f.kfeld && [...f.kfeld.options].some(o => o.value === p.feld)) { f.kfeld.value = p.feld; } }
+    hint.textContent = `Kultur, Fläche und Feld aus der Fruchtfolge übernommen${s.sorte ? ` · Sorte ${s.sorte}` : ''}.`;
+  };
+  sel.addEventListener('change', apply);
+  // Feld (MyJohnDeere) gewählt: passenden Schlag vorschlagen, wenn eindeutig
+  if (f.kfeld) f.kfeld.addEventListener('change', () => {
+    if (box.hidden || sel.value) return; const rec = ebGet(year()); if (!rec) return;
+    const L = rec.schlaege.filter(s => s.art !== 'zwischen' && (ebParz(s.parz) || {}).feld === f.kfeld.value);
+    if (L.length === 1) { sel.value = L[0].id; apply(); }
+  });
+  f.kunde.addEventListener('input', refresh); f.erntejahr.addEventListener('input', refresh);
+  f.addEventListener('change', e => { if (['datum', 'wunsch'].includes(e.target.name)) setTimeout(refresh, 0); });
+  refresh();
+}
+function ebReadSpray(f) {
+  const box = f && $('#ebSprayF', f); if (!box || box.hidden || !f.ebSchlag || !f.ebSchlag.value) return { ebSchlag: '', ebJahr: null };
+  return { ebSchlag: f.ebSchlag.value, ebJahr: num(f.erntejahr.value) || num(f.erntejahr.placeholder) || ebCurYear() };
+}
+// Spritzaufträge eines Schlags: verknüpft, sonst eigener Betrieb + gleiches Feld + gleiches Erntejahr
+function ebSprayOrders(y, s) {
+  const k = ebKunde(); if (!k || typeof isSpray !== 'function') return [];
+  const p = ebParz(s.parz);
+  return Store.all('auftraege').filter(a => isSpray(a) && (a.ebSchlag ? a.ebSchlag === s.id :
+    (s.art !== 'zwischen' && a.kunde === k.id && p && p.feld && a.kfeld === p.feld && ernteOf(a) === y && (!a.kultur || ebSameKultur(a.kultur, s.kultur)))))
+    .sort((a, b) => String(a.erledigtAm || a.datum || a.wunsch || '').localeCompare(String(b.erledigtAm || b.datum || b.wunsch || '')));
+}
+// Anzahl Spritzaufträge pro Schlag (für die Fruchtfolge-Übersicht)
+function ebSprayIndex(years) {
+  const k = ebKunde(), out = new Map(); if (!k || typeof isSpray !== 'function') return out;
+  const recs = Object.fromEntries(years.map(y => [y, ebGet(y)]));
+  Store.all('auftraege').forEach(a => {
+    if (!isSpray(a)) return; let s = null;
+    if (a.ebSchlag) { const r = recs[a.ebJahr] || null; s = r ? r.schlaege.find(x => x.id === a.ebSchlag) : null; if (!s) years.some(y => recs[y] && (s = recs[y].schlaege.find(x => x.id === a.ebSchlag))); }
+    else if (a.kunde === k.id && a.kfeld) { const r = recs[ernteOf(a)]; if (r) s = r.schlaege.find(x => x.art !== 'zwischen' && (ebParz(x.parz) || {}).feld === a.kfeld && (!a.kultur || ebSameKultur(a.kultur, x.kultur))); }
+    if (s) out.set(s.id, (out.get(s.id) || 0) + 1);
+  });
+  return out;
+}
+function ebSprayList(y, s) {
+  const L = ebSprayOrders(y, s); if (!L.length) return '';
+  return `<div class="box"><h4>🧪 Pflanzenschutz ${y} <small class="nr">${L.length} ${L.length === 1 ? 'Auftrag' : 'Aufträge'}</small></h4><div class="rows">${L.map(a => { const st = statusOf(a), d = a.erledigtAm || a.datum || a.wunsch;
+    return `<div class="rowi" data-act="editOrder" data-id="${a.id}"><span class="badge ${st}">${esc(STATUS[st])}</span><div class="grow"><div class="t">${d ? esc(fmtDate(d, { day: '2-digit', month: '2-digit', year: '2-digit' })) : 'ohne Datum'}${a.stadium ? ' · ' + esc(a.stadium) : ''}</div><div class="s">${esc(prodList(a).map(x => `${x.name}${x.menge != null ? ' ' + fmtNum(x.menge) + ' ' + (x.einheit || '') + '/ha' : ''}`).join(', ') || '—')}</div></div></div>`; }).join('')}</div></div>`;
 }
 
 /* ================= Ereignisse ================= */
@@ -693,7 +788,8 @@ document.addEventListener('click', e => {
     case 'sDel': { const y = +t.dataset.y, rec = ebRecY(y), s = rec.schlaege.find(x => x.id === id); if (!s) break;
       if (!confirm(`${s.kultur || 'Eintrag'} auf ${ebSchlagName(s)} (${y}) löschen?${(s.gaben || []).length ? ' Die geplanten Gaben gehen verloren.' : ''}`)) break;
       rec.schlaege = rec.schlaege.filter(x => x.id !== id); ebSaveY(rec); Dlg.close(); break; }
-    case 'ffPrint': ebFfPrint(); break;
+    case 'ffPrint': ebFfPrintDialog(); break;
+    case 'parzMove': ebParzMove(id, +t.dataset.d); break;
     // Düngung
     case 'dNew': ebDuengerDialog(); break;
     case 'dDel': { const rec = ebRecY(S.y); rec.duenger = rec.duenger.filter(d => d.id !== id); ebSaveY(rec); break; }
@@ -730,13 +826,15 @@ document.addEventListener('change', e => {
   if (k === 'year') { S.y = +v; App.render(); return; }
   if (k === 'ffSum') { S.ffSum = t.checked; App.render(); return; }
   if (k === 'bAll') { S.bAll = t.checked; App.render(); return; }
+  if (k === 'showOff') { S.showOff = t.checked; ls('lp_ebShowOff', t.checked ? '1' : '0'); App.render(); return; }
   // Stammdaten
-  if (['kunde', 'kName', 'kN', 'kPause', 'prog', 'ri'].includes(k)) {
+  if (['kunde', 'kName', 'kN', 'kPause', 'prog', 'ri', 'adresse'].includes(k)) {
     const st = ebStamm(), ku = st.kulturen.find(x => x.id === id);
     if (k === 'kunde') st.kunde = v;
     else if (k === 'kName') { if (ku && v.trim()) ku.name = v.trim(); }
     else if (k === 'kN') { if (ku) ku.n = n; }
     else if (k === 'kPause') { if (ku) ku.pause = n ? Math.round(n) : null; }
+    else if (k === 'adresse') st.adresse = v.trim();
     else if (k === 'prog') st.programme = [...new Set(v.split(/\n|;/).map(x => x.trim()).filter(Boolean))];
     else if (k === 'ri') { const r = st.richt[t.dataset.k] || (st.richt[t.dataset.k] = {}); r[t.dataset.f] = t.dataset.f === 'ziel' ? v.trim() : n; }
     ebSaveS(st); return;
@@ -763,14 +861,37 @@ document.addEventListener('change', e => {
 });
 
 /* ================= Drucken & Excel ================= */
-function ebFfPrint() {
-  const S = ebState(), end = S.ffEnd, years = Array.from({ length: EB_FF_N }, (_, i) => end - EB_FF_N + 1 + i);
+// Kopf der Ausdrucke im Bereich Betrieb: Betriebsadresse aus den Stammdaten (kein Logo)
+function ebAdresse() {
+  const st = ebStamm(); if ((st.adresse || '').trim()) return st.adresse.trim();
+  const k = ebKunde(); return k ? [k.name, k.adresse, [k.plz, k.ort].filter(Boolean).join(' ')].filter(Boolean).join('\n') : '';
+}
+const ebPrintHead = title => `<div class="ebphead"><h1 class="ptitle">${esc(title)}</h1>${ebAdresse() ? `<div class="ebaddr">${ebAdresse().split('\n').map(esc).join('<br>')}</div>` : ''}</div>`;
+// Fruchtfolgerapport: Jahre und Umfang vor dem Drucken wählen (bleibt auf dem Gerät gespeichert)
+function ebFfPrintDialog() {
+  const S = ebState(), n = +(ls('lp_ebPrN') || EB_FF_N), end = S.ffEnd, ys = ebYears();
+  const body = `<div class="two"><label class="fld"><span>Anzahl Jahre</span><input class="input" name="n" inputmode="numeric" value="${n}"></label>
+      <label class="fld"><span>bis und mit Jahr</span><input class="input" name="bis" inputmode="numeric" value="${end}"></label></div>
+    <p class="nr" style="margin-top:0">Erfasst sind ${ys.length ? `${Math.min(...ys)}–${Math.max(...ys)}` : 'noch keine Jahre'}. Ab 8 Jahren wird quer gedruckt.</p>
+    <label class="tog"><input type="checkbox" name="zw" ${ls('lp_ebPrZw') !== '0' ? 'checked' : ''}> Zwischenfrüchte mitdrucken</label><br>
+    <label class="tog"><input type="checkbox" name="off" ${S.showOff ? 'checked' : ''}> inaktive Parzellen mitdrucken</label>`;
+  smallDialog('Fruchtfolgerapport drucken', body, 'Drucken / PDF', fd => {
+    const nn = Math.max(1, Math.min(30, Math.round(ebNum(fd.get('n')) || EB_FF_N))), bis = Math.round(ebNum(fd.get('bis')) || end);
+    ls('lp_ebPrN', String(nn)); ls('lp_ebPrZw', fd.get('zw') ? '1' : '0');
+    setTimeout(() => ebFfPrint(bis - nn + 1, bis, !!fd.get('zw'), !!fd.get('off')), 50);
+  });
+}
+function ebFfPrint(von, bis, mitZw = true, mitOff = false) {
+  const years = Array.from({ length: bis - von + 1 }, (_, i) => von + i);
   const L = (y, f) => ebGet(y) ? ebGet(y).schlaege.filter(f) : [];
-  const P = ebParzSorted(true).filter(p => p.aktiv !== false || years.some(y => L(y, s => s.parz === p.id).length));
-  const cell = (y, A) => A.map(s => `${s.art === 'zwischen' ? '<i>↳ ' : '<b>'}${esc(s.kultur || '?')}${s.art === 'zwischen' ? '</i>' : '</b>'}`).join('<br>');
-  const html = `<table class="btab ebpt"><thead><tr><th>Parzelle</th><th class="n">ha</th>${years.map(y => `<th>${y}</th>`).join('')}</tr></thead><tbody>
-    ${P.map(p => `<tr><td>${esc(ebParzLabel(p))}</td><td class="n">${ebFmt(ebParzHa(p))}</td>${years.map(y => `<td>${cell(y, L(y, s => s.parz === p.id))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
-  printHtml(`Fruchtfolge ${years[0]}–${end}`, LETTERHEAD + `<h1 class="ptitle">Fruchtfolgerapport ${years[0]}–${end}</h1>` + html, { noTitle: true });
+  const P = ebParzSorted(true).filter(p => p.aktiv !== false ? true : mitOff && years.some(y => L(y, s => s.parz === p.id).length));
+  const ha = s => { const v = ebSchlagHa(s); return v != null ? ` <span class="ebpha">${fmtNum(v)}</span>` : ''; };
+  const cell = (y, A) => A.filter(s => mitZw || s.art !== 'zwischen').map(s => s.art === 'zwischen' ? `<i>↳ ${esc(s.kultur || '?')}${ha(s)}</i>` : `<b>${esc(s.kultur || '?')}</b>${ha(s)}`).join('<br>');
+  const fs = years.length > 12 ? 6.5 : years.length > 9 ? 7 : 8;
+  const html = `<table class="btab ebpt" style="font-size:${fs}pt"><thead><tr><th>Parzelle</th><th class="n">ha</th>${years.map(y => `<th>${y}</th>`).join('')}</tr></thead><tbody>
+    ${P.map(p => `<tr><td>${esc(ebParzLabel(p))}</td><td class="n">${ebFmt(ebParzHa(p))}</td>${years.map(y => `<td>${cell(y, L(y, s => s.parz === p.id))}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    <p class="nr">Kultur mit Fläche in ha${mitZw ? ' · ↳ = Zwischenfrucht nach der Hauptkultur' : ''}</p>`;
+  printHtml(`Fruchtfolge ${von}–${bis}`, `<div class="${years.length >= 8 ? 'ebland' : ''}">${ebPrintHead(`Fruchtfolgerapport ${von}–${bis}`)}${html}</div>`, { noTitle: true });
 }
 function ebDPrint() {
   const y = ebState().y, rec = ebRecY(y), B = ebBilanz(rec);
@@ -779,10 +900,10 @@ function ebDPrint() {
     return `<tr><td>${esc(s.kultur)}</td><td>${esc(ebSchlagName(s))}</td><td class="n">${ebFmt(c.ha)}</td><td>${esc(ebVorkultur(rec, s))}</td><td class="n">${ebFmt(c.bed)}</td><td class="n">${s.korr ? fmtNum(s.korr) : ''}</td><td class="n">${ebFmt(c.geplant)}</td><td class="n"><b>${ebFmt(c.rest)}</b></td>
       <td>${(s.gaben || []).map(g => { const d = ebDuenger(rec, g.d); return `${esc(d ? d.name : '?')} ${fmtNum(g.menge)} ${esc(d ? d.einheit || '' : '')}${g.datum ? ' (' + esc(ebDatum(g.datum)) + ')' : ''}`; }).join('<br>')}</td><td>${esc(s.sorte || '')}</td><td>${esc((s.prog || []).join(', '))}</td></tr>`; }).join('');
   const lag = ebLager(rec).map(({ d, bedarf, saldo, zufuhr }) => `<tr><td>${esc(d.name)}</td><td class="n">${ebFmt(d.n)}</td><td>${esc(d.einheit || '')}</td><td class="n">${ebFmt(d.vorrat)}</td><td class="n">${ebFmt(bedarf)}</td><td class="n">${ebFmt(saldo)}</td><td class="n">${zufuhr != null ? fmtNum(zufuhr) : ''}</td></tr>`).join('');
-  printHtml(`Düngungsplanung ${y}`, LETTERHEAD + `<h1 class="ptitle">Düngungsplanung ${y}</h1>
+  printHtml(`Düngungsplanung ${y}`, '<div class="ebland">' + ebPrintHead(`Düngungsplanung ${y}`) + `
     <table class="btab ebpt"><thead><tr><th>Kultur</th><th>Parzelle</th><th class="n">ha</th><th>Vorkultur</th><th class="n">Bedarf N</th><th class="n">±</th><th class="n">geplant</th><th class="n">Rest</th><th>Gaben pro ha</th><th>Sorte</th><th>Programme</th></tr></thead><tbody>${rows}</tbody></table>
     <h2>Dünger & Lager</h2><table class="btab"><thead><tr><th>Dünger</th><th class="n">kg N/Einh.</th><th>Einheit</th><th class="n">Vorrat</th><th class="n">Bedarf</th><th class="n">Saldo</th><th class="n">N-Zufuhr</th></tr></thead><tbody>${lag}</tbody></table>
-    <p>Geplante Zufuhr ${fmtNum(B.total)} kg N · Abzug Schleppschlauch ${fmtNum(B.abzug || 0)} kg N · Maximale Zufuhr ${B.max != null ? fmtNum(B.max) + ' kg N' : '–'} · <b>Reserve ${B.reserve != null ? fmtNum(B.reserve) + ' kg N' : '–'}</b></p>`, { noTitle: true });
+    <p>Geplante Zufuhr ${fmtNum(B.total)} kg N · Abzug Schleppschlauch ${fmtNum(B.abzug || 0)} kg N · Maximale Zufuhr ${B.max != null ? fmtNum(B.max) + ' kg N' : '–'} · <b>Reserve ${B.reserve != null ? fmtNum(B.reserve) + ' kg N' : '–'}</b></p></div>`, { noTitle: true });
 }
 function ebZfPrint() {
   const y = ebState().y, rec = ebRecY(y), N = ebZfNeed(rec), M = rec.zf.mix, kg = Object.fromEntries(M.map(m => [m.id, ebMixKg(rec, m)]));
@@ -791,13 +912,13 @@ function ebZfPrint() {
   const best = `<table class="btab"><thead><tr><th>Art</th><th class="n">Preis CHF/kg</th><th class="n">Bedarf kg</th><th class="n">Lager kg</th><th class="n">Restbedarf</th><th class="n">Bestellung kg</th><th class="n">Betrag CHF</th></tr></thead><tbody>
     ${N.filter(x => x.bedarf || x.best).map(x => `<tr><td>${esc(x.a.name)}</td><td class="n">${x.a.preis != null ? chf(x.a.preis) : ''}</td><td class="n">${ebFmt(x.bedarf)}</td><td class="n">${ebFmt(x.a.rest)}</td><td class="n">${ebFmt(x.rest)}</td><td class="n"><b>${fmtNum(x.best)}</b></td><td class="n">${x.betrag ? chf(x.betrag) : ''}</td></tr>`).join('')}
     <tr class="gp"><td colspan="6"><b>Total</b></td><td class="n"><b>${chf(r2(N.reduce((t, x) => t + (x.betrag || 0), 0)))}</b></td></tr></tbody></table>`;
-  printHtml(`Zwischenfrüchte ${y}`, LETTERHEAD + `<h1 class="ptitle">Bestellung Zwischenfrüchte ${y}</h1>` + best + '<h2>Mischungen</h2>' + mixT, { noTitle: true });
+  printHtml(`Zwischenfrüchte ${y}`, '<div class="ebhoch">' + ebPrintHead(`Bestellung Zwischenfrüchte ${y}`) + best + '<h2>Mischungen</h2>' + mixT + '</div>', { noTitle: true });
 }
 function ebBPrint() {
   const st = ebStamm(), keys = EB_BODEN.filter(([k]) => st.boden.some(b => b.w && b.w[k] != null));
   const L = st.boden.slice().sort((a, b) => ebBodenName(a).localeCompare(ebBodenName(b), 'de') || (b.jahr || 0) - (a.jahr || 0));
-  printHtml('Bodenproben', LETTERHEAD + `<h1 class="ptitle">Bodenproben</h1><table class="btab ebpt"><thead><tr><th>Parzelle</th><th>Jahr</th>${keys.map(([, l]) => `<th class="n">${esc(l)}</th>`).join('')}</tr></thead><tbody>
-    ${L.map(b => `<tr><td>${esc(ebBodenName(b))}</td><td>${b.jahr || ''}</td>${keys.map(([k]) => `<td class="n eb${ebBodenClass(st, k, b.w ? b.w[k] : null)}">${b.w && b.w[k] != null ? fmtNum(b.w[k]) : ''}</td>`).join('')}</tr>`).join('')}</tbody></table>`, { noTitle: true });
+  printHtml('Bodenproben', '<div class="ebland">' + ebPrintHead('Bodenproben') + `<table class="btab ebpt"><thead><tr><th>Parzelle</th><th>Jahr</th>${keys.map(([, l]) => `<th class="n">${esc(l)}</th>`).join('')}</tr></thead><tbody>
+    ${L.map(b => `<tr><td>${esc(ebBodenName(b))}</td><td>${b.jahr || ''}</td>${keys.map(([k]) => `<td class="n eb${ebBodenClass(st, k, b.w ? b.w[k] : null)}">${b.w && b.w[k] != null ? fmtNum(b.w[k]) : ''}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`, { noTitle: true });
 }
 function ebXlsx() {
   const S = ebState(), y = S.y, rec = ebRecY(y), st = ebStamm(), years = [...new Set([...ebYears()])].sort((a, b) => a - b);
@@ -979,7 +1100,7 @@ function ebImportBuild({ book, K, ff, dSheets, zSheets, bo }) {
   const oldBy = new Map(old.parz.map(p => [ebKey(p.name) + '|' + ebKey(p.teil), p]));
   const mkParz = (name, teil, ha, gruppe) => {
     const key = ebKey(name) + '|' + ebKey(teil), ex = st.parz.find(p => ebKey(p.name) + '|' + ebKey(p.teil) === key); if (ex) return ex;
-    const o = oldBy.get(key), p = { id: o ? o.id : uid(), name, teil: teil || '', feld: o ? o.feld || '' : '', ha: ha ?? null, gruppe: gruppe ?? (o ? o.gruppe ?? null : null), aktiv: true, notiz: o ? o.notiz || '' : '' };
+    const o = oldBy.get(key), p = { id: o ? o.id : uid(), name, teil: teil || '', feld: o ? o.feld || '' : '', ha: ha ?? null, gruppe: gruppe ?? (o ? o.gruppe ?? null : null), aktiv: true, notiz: o ? o.notiz || '' : '', pos: o && o.pos != null ? o.pos : st.parz.length };
     st.parz.push(p); return p;
   };
   const recs = {}, R = y => recs[y] || (recs[y] = ebBlank(y));

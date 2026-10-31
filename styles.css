@@ -1127,3 +1127,18 @@ td.ebbu, .ebleg.ebbu { background: color-mix(in srgb, #3b6fd1 16%, var(--surface
 }
 .ebfft th.ebrh, .ebfft tfoot th { text-align: left; }
 .ebld .vbin.wide { min-width: 190px; }
+.ebtab .ebmv { font-size: 13px; padding: 2px 5px; }
+.ebtab .ebmv:disabled { opacity: .25; cursor: default; }
+.ebz small { font-style: normal; }
+#printArea .ebphead { display: flex; justify-content: space-between; align-items: flex-start; gap: 10mm; margin-bottom: 4mm; }
+#printArea .ebphead .ptitle { margin: 0; }
+#printArea .ebaddr { font-size: 9pt; line-height: 1.35; text-align: right; white-space: nowrap; }
+#printArea .ebpha { color: #555; font-size: .9em; }
+@media print {
+  #printArea .ebland { page: ebquer; } #printArea .ebhoch { page: ebhoch; }
+  /* Bereich Betrieb: ohne Firmenname in der Fusszeile – oben steht die Betriebsadresse */
+  @page ebquer { size: A4 landscape; margin: 10mm 10mm 14mm; @bottom-left { content: none; } }
+  @page ebhoch { size: A4 portrait; @bottom-left { content: none; } }
+}
+.ebsp1 { font-size: 11px; font-weight: 500; }
+.ebspray { border-top: 1px dashed var(--line); padding-top: 6px; margin-bottom: 6px; }
