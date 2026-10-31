@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '91', APP_STAND = '31.10.2026';
+const APP_VERSION = '92', APP_STAND = '31.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1099,7 +1099,7 @@ const Views = {
           <div class="btns"><button class="btn primary" data-act="export">CSV herunterladen</button></div></div>
         <div class="panel"><h2>Datensicherung</h2>
           <p>Zusätzliche Sicherung aller Daten als Datei. Dropbox führt zudem selbst einen Versionsverlauf der Datendatei.</p>
-          <p><b>Alles als Excel:</b> sämtliche Daten in einer Excel-Datei mit je einem Blatt für Aufträge, Spritzprodukte, Kunden, Felder, Parzellen, Produkte, Preisverlauf, Maschinen und Listen – zum Auswerten, Archivieren oder Weitergeben.</p>
+          <p><b>Alles als Excel:</b> sämtliche Daten in einer Excel-Datei mit je einem Blatt für Aufträge, Spritzprodukte, Kunden, Felder, Parzellen, Produkte, Preisverlauf, Maschinen, Listen, Vermessungen, Spritzprogramme, Vorbestellung, Rübensamen, Rübensamen Sorten, JD-Abrechnung, Einstellungen sowie Eigener Betrieb (Parzellen, Kulturen, Fruchtfolge, Düngung, Dünger, Zwischenfrüchte, Bodenproben) – zum Auswerten, Archivieren oder Weitergeben. <b>Sicherung herunterladen</b> enthält alle Daten aller Module zum Wiedereinlesen.</p>
           <div class="btns"><button class="btn primary" data-act="exportAllXlsx">Alles als Excel (.xlsx)</button><button class="btn" data-act="backup">Sicherung herunterladen (zum Einlesen)</button><button class="btn" data-act="restore">Sicherung einlesen</button></div>
           <p class="nr">Zum Zurückspielen dient die Sicherungsdatei (.json); die Excel-Datei ist zum Lesen und Auswerten gedacht.</p></div>
         <div class="panel"><h2>Version</h2>${versionInfo()}</div>
@@ -3215,8 +3215,8 @@ function exportAllSheets() {
 }
 function exportAllXlsx() {
   try {
-    const sh = exportAllSheets();
-    download(`Lohnarbeit-Daten_${todayIso()}.xlsx`, xlsxBlob(sh));
+    const sh = bakErweitern(exportAllSheets(), Store.data);
+    download(`IM-Verwalter-Daten_${todayIso()}.xlsx`, xlsxBlob(sh));
     toast(`Excel-Datei erstellt: ${sh.map(s => `${s.name} ${s.rows.length - 1}`).join(' · ')}`, 6000);
   } catch (e) { toast('Excel-Export fehlgeschlagen: ' + e.message, 6000); }
 }
@@ -5987,7 +5987,7 @@ document.addEventListener('click', async e => {
     case 'lrowSort': { const w = $('#lrows', f); [...w.children].sort((x, y) => x.querySelector('input').value.localeCompare(y.querySelector('input').value, 'de')).forEach(r => w.appendChild(r)); break; }
     case 'export': exportCsv(); break;
     case 'exportAllXlsx': exportAllXlsx(); break;
-    case 'backup': download(`Lohnarbeit-Sicherung_${todayIso()}.json`, JSON.stringify(Store.data, null, 1), 'application/json'); break;
+    case 'backup': download(`IM-Verwalter-Sicherung_${todayIso()}.json`, JSON.stringify({ ...Store.data, _sicherung: { app: 'IM-Verwalter', version: APP_VERSION, erstellt: new Date().toISOString() } }, null, 1), 'application/json'); toast('Sicherung enthält alle Daten aller Module (Aufträge, Spritzen, Vorbestellung, Rübensamen, Eigener Betrieb, Kunden, Felder mit Vermessungen, Abrechnungs-Markierungen, Einstellungen).', 6000); break;
     case 'restore': restoreBackup(); break;
   }
 });
@@ -6089,3 +6089,127 @@ document.addEventListener('touchmove', e => { if (App.tdrag) e.preventDefault();
   setInterval(() => { if (document.visibilityState === 'visible' && !Dlg.el.open) Sync.run(); }, 60000);
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
+
+/* ================= Datensicherung Excel: zusätzliche Blätter (gleicher Code im IM-Verwalter und im NAS-Dienst) ================= */
+// Arbeitet nur mit den Rohdaten D (Inhalt von planung.json), damit beide Seiten dieselbe Datei erzeugen.
+const BAK_VER = 2;
+function bakHelpers(D) {
+  const all = k => (D[k] || []).filter(x => x && !x.del), byId = k => new Map(all(k).map(x => [x.id, x]));
+  const Kd = byId('kunden'), Fd = byId('felder'), Pd = byId('produkte'), Zd = byId('parzellen');
+  const r2 = x => x == null || x === '' || isNaN(+x) ? '' : Math.round(+x * 100) / 100;
+  const kn = id => (Kd.get(id) || {}).name || '';
+  const einst = all('einstellungen'), cfg = einst.find(x => x.id === 'cfg') || {};
+  const yearRecs = pre => einst.filter(x => new RegExp(`^${pre}-\\d{4}$`).test(x.id)).sort((a, b) => b.jahr - a.jahr);
+  const pName = (pid, name) => (pid && Pd.get(pid) || {}).name || name || '';
+  const dt = s => s ? String(s).slice(0, 10) : '';
+  return { all, Kd, Fd, Pd, Zd, r2, kn, einst, cfg, yearRecs, pName, dt };
+}
+// Zusätzliche Spalten im Blatt «Aufträge» (vor der ID)
+const BAK_AUFTRAG_KOPF = ['Mehrtägig', 'Rübensaat Sorten (geplant)', 'Rübensaat gesät pro Sorte', 'Spritzprogramm', 'Verknüpfter JD-Arbeitsgang'];
+function bakAuftragCols(a) {
+  const r2 = x => x == null || x === '' ? '' : Math.round(+x * 100) / 100;
+  const S = a.rsSorten || [], ist = a.rsIst || {};
+  const vb = a.vbInfo ? [a.vbInfo.prog, a.vbInfo.beh].filter(Boolean).join(' › ') : '';
+  return [a.mehrtag === 'arbeitszeit' ? 'in der Arbeitszeit' : a.mehrtag ? 'durchgehend' : '',
+    S.map(x => `${x.name} ${r2(x.ha)} ha`).join(', '),
+    S.filter(x => ist[x.sid] != null).map(x => `${x.name} ${r2(ist[x.sid])} ha`).join(', '),
+    vb, a.jdLink || ''];
+}
+function bakSheets(D) {
+  const H = bakHelpers(D), { all, Fd, r2, kn, cfg, yearRecs, pName, dt } = H, out = [];
+  // Vermessungen (Feldgrenzen aus MyJohnDeere)
+  const ve = [['Kunde', 'Feld', 'Vermessung', 'Fläche ha', 'bearbeitbar ha', 'Aktiv', 'Archiviert', 'Quelle', 'Signal', 'Erstellt', 'Geändert', 'Feld-ID']];
+  all('felder').sort((a, b) => kn(a.kunde).localeCompare(kn(b.kunde), 'de') || String(a.name).localeCompare(String(b.name), 'de'))
+    .forEach(f => (f.grenzen || []).forEach(g => ve.push([kn(f.kunde), f.name, g.name || '', r2(g.ha), r2(g.bha), g.aktiv ? 'ja' : 'nein', g.archiviert ? 'ja' : '', g.quelle || '', String(g.signal || '').replace(/^dtiSignalType/i, ''), dt(g.erstellt), dt(g.geaendert), f.id])));
+  out.push({ name: 'Vermessungen', rows: ve });
+  // Spritzprogramme und Vorbestellung
+  const VB = yearRecs('vb'), sp = [['Erntejahr', 'Programm', 'Kultur', 'Variante', 'Behandlung', 'Stadium BBCH', 'Hinweis', 'Mittel', 'Menge/ha', 'Einheit', 'Optional', 'Zusatzfläche ha']];
+  VB.forEach(r => (r.progs || []).forEach(p => { const B = p.beh || [{ name: '', mittel: p.mittel || [] }];
+    B.forEach(b => { const M = b.mittel && b.mittel.length ? b.mittel : [{}]; M.forEach(m => sp.push([r.jahr, p.name, p.kultur || '', p.variante || '', b.name || '', b.stadium || '', b.hinweis || '', m.name || m.pid ? pName(m.pid, m.name) : '', r2(m.menge), m.einheit || '', m.optional ? 'ja' : '', r2(p.extraHa)])); }); }));
+  out.push({ name: 'Spritzprogramme', rows: sp });
+  const vo = [['Erntejahr', 'Art', 'Kunde', 'Programm', 'Parzelle', 'Artikel', 'Menge', 'Einheit']];
+  VB.forEach(r => { const P = new Map((r.progs || []).map(p => [p.id, p])), R = new Map((r.rows || []).map(x => [x.id, x])), rn = x => x ? (x.kunde ? kn(x.kunde) : x.name || '') : '';
+    (r.rows || []).forEach(x => (r.progs || []).forEach(p => { const L = (r.parz || {})[x.id + '|' + p.id];
+      if (L && L.length) L.forEach(z => vo.push([r.jahr, 'Fläche (Parzelle)', rn(x), p.name, (H.Zd.get(z.pz) || {}).name || '', '', r2(z.ha), 'ha']));
+      else { const v = ((r.fl || {})[x.id] || {})[p.id]; if (v) vo.push([r.jahr, 'Fläche', rn(x), p.name, '', '', r2(v), 'ha']); } }));
+    Object.entries(r.vorrat || {}).forEach(([k, v]) => { if (v) vo.push([r.jahr, 'Vorrat', '', '', '', k.startsWith('n:') ? k.slice(2) : pName(k, (r.vnames || {})[k] || k), r2(v), (r.vunits || {})[k] || '']); });
+    (r.zusatz || []).forEach(z => vo.push([r.jahr, 'Zusatzprodukt', '', '', '', pName(z.pid, z.name), r2(z.menge), z.einheit || '']));
+  });
+  out.push({ name: 'Vorbestellung', rows: vo });
+  // Rübensamen
+  const RS = yearRecs('rs'), korr = (fg, p) => (((fg / 3 - 1) * 6) + (4 * p + 4)) / (fg * 2);
+  const dpha = (r, x) => { const eigen = x.lege || x.fga || x.fga === 0; let d = r.dpha || 0;
+    if (eigen) { const lege = x.lege || r.lege || 17, fga = x.fga === 0 ? 0 : (x.fga || r.fga || 21); d = Math.round(2e6 / lege / 1e5 * (fga ? korr(fga, r.fgp ?? 0.2) : 1) * 100) / 100; }
+    return Math.round(d * (1 + (r.ueber || 0)) * 100) / 100; };
+  const rf = [['Jahr', 'Kunde', 'Legeabstand cm', 'Fahrgasse m', 'Dosen/ha', 'Sorte', 'Gruppe', 'bestellt ha', 'Dosen', 'Conviso One', 'Conviso One Abrechnung', 'Abgerechnet am', 'Saattermine', 'Bemerkung']];
+  const rso = [['Jahr', 'Sorte', 'Gruppe', 'Grundpreis CHF', 'Vertriebskosten CHF', 'Preis/Dose CHF', 'Restmenge', 'Zusätzlich', 'Bestellung']];
+  RS.forEach(r => { const S = r.sorten || [], sn = id => (S.find(s => s.id === id) || {}).name || '';
+    (r.rows || []).forEach(x => { const d = dpha(r, x), conv = S.filter(s => s.gruppe === 'conv').reduce((t, s) => t + ((x.ha || {})[s.id] || 0), 0), cone = x.cone != null ? x.cone : conv;
+      const saat = (x.saat || []).map(z => [z.d, z.ha != null ? z.ha + ' ha' : '', sn(z.sid), z.txt].filter(Boolean).join(' ')).join('; ');
+      const L = S.filter(s => (x.ha || {})[s.id]);
+      (L.length ? L : [null]).forEach((s, i) => rf.push([r.jahr, x.kunde ? kn(x.kunde) : x.name || '', x.lege ?? '', x.fga === 0 ? '–' : (x.fga ?? ''), d, s ? s.name : '', s ? (s.gruppe === 'conv' ? 'Conviso Smart' : 'Standard') : '',
+        s ? r2(x.ha[s.id]) : '', s ? r2(x.ha[s.id] * d) : '', i ? '' : r2(cone) || '', i ? '' : (x.coneAbr ?? ''), i ? '' : dt(x.abr), i ? '' : saat, i ? '' : x.notiz || ''])); });
+    const vers = s => s.versand != null ? s.versand : (r.versand || 0);
+    S.forEach(s => rso.push([r.jahr, s.name, s.gruppe === 'conv' ? 'Conviso Smart' : 'Standard', r2(s.preis), r2(vers(s)), s.preis != null ? r2(s.preis * (1 + (r.mwst || 0)) + vers(s)) : '', r2((r.rest || {})[s.id]),
+      (r.extra || []).filter(e => (e.d || {})[s.id]).map(e => `${e.name} ${e.d[s.id]}`).join(', '), (r.best || {})[s.id] ?? 'Vorschlag']));
+    const c = r.cone || {}; rso.push([r.jahr, c.name || 'Conviso One', 'Herbizid', r2(c.preis), r2(c.versand), c.preis != null ? r2(c.preis * (1 + (r.mwst || 0)) + (c.versand || 0)) : '', r2((r.rest || {}).cone), '', (r.best || {}).cone ?? 'Vorschlag']); });
+  out.push({ name: 'Rübensamen', rows: rf }, { name: 'Rübensamen Sorten', rows: rso });
+  // MyJohnDeere: als abgerechnet markierte Arbeitsgänge und von Hand verknüpfte Aufträge
+  const jd = [['Art', 'Arbeitsgang-ID', 'Auftrag-Nr', 'Datum', 'Auftrag-ID']];
+  H.einst.filter(x => /^jdabr-/.test(x.id)).forEach(x => jd.push(['abgerechnet', x.id.slice(6), '', dt(x.am), '']));
+  all('auftraege').forEach(a => { if (a.jdLink) jd.push(['verknüpft', a.jdLink, a.nr || '', '', a.id]); (a.jdUnlink || []).forEach(j => jd.push(['Verknüpfung gelöst', j, a.nr || '', '', a.id])); });
+  out.push({ name: 'JD-Abrechnung', rows: jd });
+  // Einstellungen (alle Geräte) und Jahreswerte der Module
+  const es = [['Bereich', 'Einstellung', 'Wert']], yn = b => b ? 'ja' : 'nein';
+  es.push(['Planung', 'Arbeitsbeginn', cfg.beginn || ''], ['Planung', 'Arbeitsende', cfg.ende || ''],
+    ['Kalenderabo', 'eingeschaltet', yn(cfg.ics && cfg.ics.on)], ['Kalenderabo', 'Freigabelink', (cfg.ics && cfg.ics.link) || ''],
+    ['Kunden', 'Parzellen-Zuweisung (Spritzen)', yn(cfg.parzZuweisung !== false)], ['Module', 'Rübensamen eingeschaltet', yn(cfg.rsOn)],
+    ['MyJohnDeere', 'Organisation', cfg.jdOrg || ''], ['MyJohnDeere', 'Organisations-ID', cfg.jdOrgId || ''], ['MyJohnDeere', 'letzter Abgleich', cfg.jdStand || ''], ['MyJohnDeere', 'NAS-Dienst Version', cfg.jdDienst || ''],
+    ['MyJohnDeere', 'Adresse Kunden', cfg.jdOcKunde || ''], ['MyJohnDeere', 'Adresse Felder', cfg.jdOcFeld || '']);
+  RS.forEach(r => es.push([`Rübensamen ${r.jahr}`, 'Dosen/ha (Standard)', r.dpha ?? ''], [`Rübensamen ${r.jahr}`, 'MwSt %', r2((r.mwst || 0) * 100)], [`Rübensamen ${r.jahr}`, 'Vertriebskosten pro Dose CHF', r.versand ?? ''],
+    [`Rübensamen ${r.jahr}`, 'Zuschlag Überlappungen %', r2((r.ueber || 0) * 100)], [`Rübensamen ${r.jahr}`, 'Legeabstand cm (Standard)', r.lege ?? ''], [`Rübensamen ${r.jahr}`, 'Fahrgassenabstand m (Standard)', r.fga ?? ''],
+    [`Rübensamen ${r.jahr}`, 'Zuschlag Fahrgasse %', r2((r.fgp ?? 0.2) * 100)], [`Rübensamen ${r.jahr}`, 'Conviso One Einheiten/ha', (r.cone || {}).faktor ?? 1]));
+  es.push(['Modul', 'Eigener Betrieb eingeschaltet', yn(cfg.ebOn)]);
+  es.push(['Sicherung', 'Format', `Excel-Sicherung Version ${BAK_VER}`]);
+  out.push({ name: 'Einstellungen', rows: es });
+  return [...out, ...bakBetrieb(D, H)];
+}
+// Modul «Eigener Betrieb»: Daten in einstellungen «eb-stamm» und «eb-<Jahr>» (Parzellen, Fruchtfolge, Düngung, Zwischenfrüchte, Bodenproben)
+function bakBetrieb(D, H) {
+  const { r2, yearRecs, dt } = H, st = H.einst.find(x => x.id === 'eb-stamm'), EB = yearRecs('eb');
+  if (!st && !EB.length) return [];
+  const S = st || {}, P = new Map((S.parz || []).map(p => [p.id, p])), pn = id => { const p = P.get(id); return p ? [p.name, p.teil].filter(Boolean).join(' ') : ''; };
+  const K = new Map((S.kulturen || []).map(k => [k.id, k])), kul = v => (K.get(v) || {}).name || v || '';
+  const txt = v => v == null ? '' : Array.isArray(v) ? v.map(txt).filter(Boolean).join(', ') : typeof v === 'object' ? (v.name || v.label || JSON.stringify(v)) : v;
+  const out = [];
+  out.push({ name: 'Betrieb Parzellen', rows: [['Parzelle', 'Teil', 'Gruppe', 'Fläche ha', 'Feld (MyJohnDeere)', 'Aktiv', 'Notiz', 'ID'],
+    ...(S.parz || []).map(p => [p.name || '', p.teil || '', p.gruppe || '', r2(p.ha), (H.Fd.get(p.feld) || {}).name || p.feld || '', p.aktiv === false ? 'nein' : 'ja', p.notiz || '', p.id])] });
+  out.push({ name: 'Betrieb Kulturen', rows: [['Kultur', 'N-Bedarf kg/ha', 'Anbaupause Jahre', 'Dauerkultur', 'Farbe'],
+    ...(S.kulturen || []).map(k => [k.name, k.n ?? '', k.pause ?? '', k.dauer ? 'ja' : '', k.farbe || ''])] });
+  const ff = [['Jahr', 'Parzelle', 'Art', 'Kultur', 'Mischung', 'Fläche ha', 'Sorte', 'Programme', 'N-Bedarf', 'Korrektur', 'Vorkultur', 'Bemerkung', 'ID']];
+  const dg = [['Jahr', 'Parzelle', 'Kultur', 'Datum', 'Dünger', 'Menge', 'Einheit', 'N je Einheit']];
+  const du = [['Jahr', 'Dünger', 'Einheit', 'N je Einheit', 'Zufuhr', 'Vorrat']];
+  const zf = [['Jahr', 'Typ', 'Name', 'Preis CHF', 'Rein', 'Rest', 'Bestellung', 'Fläche ha', 'Zusammensetzung']];
+  EB.forEach(r => {
+    const Dn = new Map((r.duenger || []).map(d => [d.id, d])), Z = r.zf || {}, Ar = new Map((Z.arten || []).map(a => [a.id, a])), Mx = new Map((Z.mix || []).map(m => [m.id, m]));
+    (r.schlaege || []).forEach(z => {
+      const ha = z.ha != null ? z.ha : (P.get(z.parz) || {}).ha;
+      ff.push([r.jahr, pn(z.parz) || z.name || '', z.art === 'zwischen' ? 'Zwischenfrucht' : 'Hauptkultur', kul(z.kultur), (Mx.get(z.mix) || {}).name || txt(z.mix), r2(ha), z.sorte || '', txt(z.prog), z.nBed ?? '', z.korr ?? '', txt(z.vk), z.bem || '', z.id]);
+      (z.gaben || []).forEach(g => { const d = Dn.get(g.d) || {}; dg.push([r.jahr, pn(z.parz) || z.name || '', kul(z.kultur), dt(g.datum), d.name || txt(g.d), r2(g.menge), d.einheit || '', d.n ?? '']); });
+    });
+    (r.duenger || []).forEach(d => du.push([r.jahr, d.name || '', d.einheit || '', d.n ?? '', d.zufuhr ?? '', r2(d.vorrat)]));
+    (Z.arten || []).forEach(a => zf.push([r.jahr, 'Art', a.name || '', r2(a.preis), r2(a.rein), r2(a.rest), r2(a.best), '', '']));
+    (Z.mix || []).forEach(m => zf.push([r.jahr, 'Mischung', m.name || '', '', '', '', '', r2(m.ha), Object.entries(m.anteile || {}).map(([id, v]) => `${(Ar.get(id) || {}).name || id} ${v}`).join(', ')]));
+  });
+  out.push({ name: 'Betrieb Fruchtfolge', rows: ff }, { name: 'Betrieb Düngung', rows: dg }, { name: 'Betrieb Dünger', rows: du }, { name: 'Betrieb Zwischenfrüchte', rows: zf });
+  const BL = { humus: 'Humus %', ph: 'pH', kak: 'KAK', ca: 'Calcium %', mg: 'Magnesium %', k: 'Kali %', na: 'Natrium %', basen: 'Andere Basen %', h: 'H+ %', n: 'Stickstoff', s: 'Schwefel ppm', p: 'Phosphor', b: 'Bor ppm', fe: 'Eisen ppm', mn: 'Mangan ppm', cu: 'Kupfer ppm', zn: 'Zink ppm', mo: 'Molybdän ppm', co: 'Kobalt ppm', eZn: 'Empf. Zinksulfat', eB: 'Empf. Borsäure', eMo: 'Empf. Molybdän', eSalz: 'Empf. Salz' };
+  const B = S.boden || [], keys = [...new Set(B.flatMap(b => Object.keys(b.w || {})))];
+  out.push({ name: 'Betrieb Bodenproben', rows: [['Parzelle', 'Probe', 'Jahr', 'Labor', 'ÖLN', ...keys.map(k => BL[k] || k), 'Notiz'], ...B.map(b => [pn(b.parz), b.name || '', b.jahr || '', b.labor || '', b.oeln ? 'ja' : '', ...keys.map(k => (b.w || {})[k] ?? ''), b.notiz || ''])] });
+  return out;
+}
+// Blatt «Aufträge» um die neuen Felder ergänzen (vor der Spalte ID) und die neuen Blätter anhängen
+function bakErweitern(sheets, D) {
+  const A = new Map((D.auftraege || []).map(a => [a.id, a])), sh = sheets.find(x => x.name === 'Aufträge');
+  if (sh && sh.rows.length) { const i = sh.rows[0].lastIndexOf('ID'); if (i >= 0) { sh.rows[0].splice(i, 0, ...BAK_AUFTRAG_KOPF); for (let k = 1; k < sh.rows.length; k++) { const a = A.get(sh.rows[k][i]); sh.rows[k].splice(i, 0, ...(a ? bakAuftragCols(a) : BAK_AUFTRAG_KOPF.map(() => ''))); } } }
+  return [...sheets, ...bakSheets(D)];
+}
