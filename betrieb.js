@@ -13,7 +13,7 @@
    aus dem Vorjahr derselben Parzelle, die Fläche einer Zwischenfrucht-Mischung aus den Schlägen, die sie verwenden. */
 'use strict';
 
-const EB_SUBS = [['parzellen', 'Parzellen'], ['fruchtfolge', 'Fruchtfolge'], ['duengung', 'Düngung'], ['zf', 'Zwischenfrüchte'], ['boden', 'Bodenproben'], ['stamm', 'Stammdaten']];
+const EB_SUBS = [['fruchtfolge', 'Fruchtfolge'], ['zf', 'Zwischenfrüchte'], ['duengung', 'Düngung'], ['boden', 'Bodenproben'], ['stamm', 'Stammdaten']];
 // Werte aus dem Blatt «Kulturen» der bisherigen Excel-Mappe (N-Bedarf gemäss GRUDAF)
 const EB_KULTUREN = [['Zuckerrüben', 100], ['Winterweizen', 140], ['Raps', 150], ['Silomais', 110], ['Hafer', 90], ['Soja', 0], ['Eiweisserbsen', 0],
   ['Triticale', 110], ['Gerste', 110], ['Kunstwiese', 150], ['Naturwiese', 60], ['Weide', 60], ['Gründüngung', 30]];
@@ -62,6 +62,12 @@ function ebSync() {
     const h = H.find(x => z.ha != null && x.ha != null && Math.abs(x.ha - z.ha) < 0.001) || H[0]; z.nach = h ? h.id : '';
     if (h && z.ha == null && h.ha != null) z.ha = ebParzHa(ebParz(z.parz)); // bisherige Fläche (Parzelle) beibehalten
     if (h && z.ha != null && h.ha != null && Math.abs(h.ha - z.ha) < 0.001) z.ha = null; mod = true; }); return mod; };
+  // einmalig: Flächen ohne Parzelle entfernen (frühere Sammelzeilen «Weitere Flächen»)
+  const st0 = ebStamm();
+  if (!st0.ohneFreiV1 && Store.get('einstellungen', 'eb-stamm')) {
+    ys.forEach(y => { const r = get(y); if (r && r.schlaege.some(x => !x.parz)) { r.schlaege = r.schlaege.filter(x => x.parz); put(r); } });
+    const s2 = structuredClone(st0); s2.ohneFreiV1 = true; Store.put('einstellungen', s2, { silent: true });
+  }
   const r0 = get(ys[0]); if (r0 && link(r0)) put(r0);
   for (let y = ys[0] + 1; y <= Math.max(ys[ys.length - 1], ebCurYear() + 1); y++) {
     const prev = get(y - 1); let cur = get(y), mod = false; if (!prev && !cur) continue;
@@ -85,7 +91,8 @@ function ebDauerEnde(y, parz) {
   if (mod) Store.put('einstellungen', p, { silent: true });
 }
 function ebState() {
-  if (!App.eb) App.eb = { sub: ls('lp_ebSub') || 'fruchtfolge', y: null, ffEnd: null, bAll: false, ffSum: false, showOff: ls('lp_ebShowOff') === '1' };
+  if (!App.eb) App.eb = { sub: ls('lp_ebSub') || 'fruchtfolge', y: null, ffEnd: null, bAll: false, ffSum: false, showOff: ls('lp_ebShowOff') === '1', stSub: ls('lp_ebStSub') || 'parzellen' };
+  if (App.eb.sub === 'parzellen') { App.eb.sub = 'stamm'; App.eb.stSub = 'parzellen'; } // Parzellen liegen neu unter Stammdaten
   if (!App.eb.y) App.eb.y = ebCurYear();
   if (!App.eb.ffEnd) App.eb.ffEnd = Math.max(ebCurYear() + 1, ...ebYears().filter(y => y <= ebCurYear() + 3));
   return App.eb;
@@ -121,11 +128,17 @@ function ebNameDist(a, b) {
 const ebFmt = v => v == null || v === '' ? '' : fmtNum(r2(v));
 const ebDash = v => v == null || v === '' ? '<span class="nr">–</span>' : fmtNum(r2(v));
 const ebDatum = s => !s ? '' : /^\d{4}-\d{2}-\d{2}$/.test(s) ? fmtDate(s, { day: '2-digit', month: '2-digit', year: '2-digit' }) : String(s);
-// Farbe pro Kultur (gleich auf allen Geräten)
-function ebColor(k) {
-  const key = ebKultKey(k); if (!key) return 'var(--muted)';
+// Farbe pro Kultur: in den Stammdaten gewählt, sonst aus dem Namen abgeleitet (gleich auf allen Geräten)
+function ebAutoColor(k) {
+  const key = ebKultKey(k); if (!key) return '#646a65';
   let h = 0; for (const c of key) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return `hsl(${h} 55% 42%)`;
+  // HSL(h, 55 %, 42 %) → #rrggbb (für das Farbfeld)
+  const s = 0.55, l = 0.42, a = s * Math.min(l, 1 - l), f = n => { const kk = (n + h / 30) % 12; return Math.round(255 * (l - a * Math.max(-1, Math.min(kk - 3, 9 - kk, 1)))).toString(16).padStart(2, '0'); };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+function ebColor(k) {
+  const ku = k ? ebKultur(k) : null;
+  return ku && ku.farbe ? ku.farbe : ebAutoColor(ku ? ku.name : k);
 }
 
 /* ---------- Kulturen ---------- */
@@ -267,7 +280,7 @@ function ebContent() {
       <div class="btns"><label class="btn primary">Excel-Mappe importieren …<input type="file" accept=".xlsx" data-ebin="import" hidden></label>
         <button class="btn" data-eb="start">Ohne Excel beginnen</button></div>
       <p class="nr">Die Parzellen lassen sich danach mit den Feldern von ${esc(ebKunde() ? ebKunde().name : 'deinem Betrieb')} aus MyJohnDeere verknüpfen.</p></div>`;
-  const body = sub === 'parzellen' ? ebParzView(st) : sub === 'duengung' ? ebDuengView() : sub === 'zf' ? ebZfView() : sub === 'boden' ? ebBodenView(st) : sub === 'stamm' ? ebStammView(st) : ebFfView(st);
+  const body = sub === 'duengung' ? ebDuengView() : sub === 'zf' ? ebZfView() : sub === 'boden' ? ebBodenView(st) : sub === 'stamm' ? ebStammView(st) : ebFfView(st);
   return nav + body;
 }
 
@@ -367,23 +380,23 @@ function ebFfView(st) {
   const L = (y, f) => recs[y] ? recs[y].schlaege.filter(f) : [];
   const Pin = ebParzSorted(true).filter(p => p.aktiv !== false || years.some(y => L(y, s => s.parz === p.id).length));
   const P = Pin.filter(p => S.showOff || p.aktiv !== false), nOff = Pin.length - P.length;
-  const free = [...new Set(years.flatMap(y => L(y, s => !s.parz).map(s => s.name || '–')))].sort((a, b) => a.localeCompare(b, 'de'));
+  // Parzellen mit Fruchtfolge-Gruppe zuerst (Reihenfolge wie unter Stammdaten), Parzellen ohne Gruppe unter «Weitere Flächen»
+  const Pg = P.filter(p => p.gruppe != null), Pn = P.filter(p => p.gruppe == null);
   let lastG = Symbol();
   const rowP = p => { const g = p.gruppe ?? null, gh = g !== lastG && g != null ? `<tr class="ebgrp"><th class="ebrh">Gruppe ${g} <span class="nr">${fmtNum(r2(P.filter(x => x.gruppe === g && x.aktiv !== false).reduce((t, x) => t + (ebParzHa(x) || 0), 0)))} ha</span></th>${years.map(() => '<td></td>').join('')}</tr>` : ''; lastG = g;
     return gh + `<tr><th class="ebrh" data-eb="parzEdit" data-id="${p.id}" title="Parzelle bearbeiten">${esc(p.name)}${p.teil ? ` <span class="nr">${esc(p.teil)}</span>` : ''}<div class="nr">${ebParzHa(p) != null ? ebFmt(ebParzHa(p)) + ' ha' : ''}${p.feld ? ' · 🌾' : ''}</div></th>
       ${years.map(y => `<td class="ebc ${y === cy ? 'cur' : ''}" data-eb="ffCell" data-y="${y}" data-p="${p.id}">${ebFfCell(y, L(y, s => s.parz === p.id), p, SP)}</td>`).join('')}</tr>`; };
-  const rowF = n => `<tr><th class="ebrh">${esc(n)}<div class="nr">ohne Parzelle</div></th>${years.map(y => `<td class="ebc ${y === cy ? 'cur' : ''}" data-eb="ffCell" data-y="${y}" data-n="${esc(n)}">${ebFfCell(y, L(y, s => !s.parz && (s.name || '–') === n), null)}</td>`).join('')}</tr>`;
-  const totY = y => r2(L(y, s => s.art !== 'zwischen').reduce((t, s) => t + (ebSchlagHa(s) || 0), 0));
+  const totY = y => r2(L(y, s => s.art !== 'zwischen' && s.parz).reduce((t, s) => t + (ebSchlagHa(s) || 0), 0));
   const head = `<div class="filters vbhead" style="margin-top:12px">
       <button class="btn small" data-eb="ffShift" data-d="-1" title="ein Jahr zurück">◀</button><b>${years[0]} – ${end}</b><button class="btn small" data-eb="ffShift" data-d="1" title="ein Jahr vor">▶</button>
       <label class="tog"><input type="checkbox" data-ebin="ffSum" ${S.ffSum ? 'checked' : ''}> Flächen pro Kultur</label>
       ${nOff || S.showOff ? `<label class="tog"><input type="checkbox" data-ebin="showOff" ${S.showOff ? 'checked' : ''}> inaktive Parzellen anzeigen${nOff ? ` (${nOff})` : ''}</label>` : ''}
       <span class="spacer ebsp"></span><button class="btn" data-eb="ffPrint">Drucken / PDF</button><button class="btn" data-eb="xlsx">Excel</button></div>`;
-  if (!P.length && !free.length) return head + `<div class="panel"><p>Noch keine Parzellen. Lege sie unter «Parzellen» an oder importiere die Excel-Mappe.</p></div>`;
+  if (!P.length) return head + `<div class="panel"><p>Noch keine Parzellen. Lege sie unter «Stammdaten › Parzellen» an oder importiere die Excel-Mappe.</p></div>`;
   const tab = `<div class="vbmatrix ebscroll ebff"><table class="vbtab ebfft"><thead><tr><th class="vbc">Parzelle</th>${years.map(y => `<th class="${y === cy ? 'cur' : ''}">${y}</th>`).join('')}</tr></thead>
-    <tbody>${P.map(rowP).join('')}${free.length ? `<tr class="ebgrp"><th class="ebrh">Weitere Flächen</th>${years.map(() => '<td></td>').join('')}</tr>` + free.map(rowF).join('') : ''}</tbody>
+    <tbody>${Pg.map(rowP).join('')}${Pn.length ? `<tr class="ebgrp"><th class="ebrh">${Pg.length ? 'Weitere Flächen' : 'Parzellen'} <span class="nr">${fmtNum(r2(Pn.filter(x => x.aktiv !== false).reduce((t, x) => t + (ebParzHa(x) || 0), 0)))} ha · ohne Gruppe</span></th>${years.map(() => '<td></td>').join('')}</tr>` + Pn.map(rowP).join('') : ''}</tbody>
     <tfoot><tr><th>Total Hauptkulturen</th>${years.map(y => `<td class="n"><b>${ebFmt(totY(y)) || ''}</b></td>`).join('')}</tr></tfoot></table></div>`;
-  return head + `<div class="panel">${tab}<p class="nr">Feld antippen: Haupt- und Zwischenfrucht eines Jahres erfassen. ↳ = Zwischenfrucht nach der Hauptkultur. Reihenfolge der Parzellen unter «Parzellen» (▲▼). ⚠ Pause = Anbaupause der Kultur (Stammdaten) nicht eingehalten. 🧪 = Spritzaufträge zu dieser Kultur (Modul Spritzen).</p></div>` + (S.ffSum ? ebFfSummary(years, recs) : '');
+  return head + `<div class="panel">${tab}<p class="nr">Feld antippen: Haupt- und Zwischenfrucht eines Jahres erfassen. ↳ = Zwischenfrucht nach der Hauptkultur. Reihenfolge der Parzellen unter «Stammdaten › Parzellen» (▲▼). ⚠ Pause = Anbaupause der Kultur (Stammdaten) nicht eingehalten. 🧪 = Spritzaufträge zu dieser Kultur (Modul Spritzen).</p></div>` + (S.ffSum ? ebFfSummary(years, recs) : '');
 }
 function ebFfSummary(years, recs) {
   const sum = (art) => { const m = new Map(); years.forEach(y => (recs[y] ? recs[y].schlaege : []).filter(s => (s.art === 'zwischen') === (art === 'zwischen') && s.kultur).forEach(s => { const k = ebKultur(s.kultur) && art !== 'zwischen' && ebKultKey(ebKultur(s.kultur).name) === ebKultKey(s.kultur) ? ebKultur(s.kultur).name : s.kultur; const o = m.get(k) || {}; o[y] = r2((o[y] || 0) + (ebSchlagHa(s) || 0)); m.set(k, o); })); return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], 'de')); };
@@ -449,8 +462,8 @@ function ebSchlagDialog(y, id, pre = {}) {
   if (isNew && s.art === 'zwischen' && s.parz && s.nach === undefined) { const H = rec.schlaege.filter(h => h.art !== 'zwischen' && h.parz === s.parz); if (H.length === 1) s.nach = H[0].id; }
   const body = `<datalist id="ebKulList">${ebKulturNames().map(k => `<option value="${esc(k)}">`).join('')}</datalist>
     <div class="seg" style="margin-bottom:10px"><label class="ebseg"><input type="radio" name="art" value="haupt" ${s.art !== 'zwischen' ? 'checked' : ''}><span>Hauptkultur</span></label><label class="ebseg"><input type="radio" name="art" value="zwischen" ${s.art === 'zwischen' ? 'checked' : ''}><span>Zwischenfrucht / Gründüngung</span></label></div>
-    <div class="two"><label class="fld"><span>Parzelle</span><select class="input" name="parz" data-plain><option value="">— ohne Parzelle —</option>${P.map(p => `<option value="${p.id}" ${p.id === s.parz ? 'selected' : ''}>${esc(ebParzLabel(p))}${ebParzHa(p) != null ? ' · ' + fmtNum(ebParzHa(p)) + ' ha' : ''}</option>`).join('')}</select></label>
-      <label class="fld" id="ebNameF" ${s.parz ? 'hidden' : ''}><span>Bezeichnung (ohne Parzelle)</span><input class="input" name="name" value="${esc(s.name || '')}" placeholder="z.B. Weide, Gründüngung ZR"></label></div>
+    <div class="two"><label class="fld"><span>Parzelle</span><select class="input" name="parz" data-plain><option value="">— Parzelle wählen —</option>${P.map(p => `<option value="${p.id}" ${p.id === s.parz ? 'selected' : ''}>${esc(ebParzLabel(p))}${ebParzHa(p) != null ? ' · ' + fmtNum(ebParzHa(p)) + ' ha' : ''}</option>`).join('')}</select></label>
+      <label class="fld" id="ebNameF" hidden><span>Bezeichnung (ohne Parzelle)</span><input class="input" name="name" value="${esc(s.name || '')}" placeholder="z.B. Weide, Gründüngung ZR"></label></div>
     <div id="ebHauptF" ${s.art === 'zwischen' ? 'hidden' : ''}><label class="fld"><span>Kultur</span><input class="input" name="kultur" list="ebKulList" value="${esc(s.art === 'zwischen' ? '' : s.kultur || '')}" autocomplete="off"></label>
       <label class="tog" id="ebDauerF" hidden><input type="checkbox" name="weiter" ${s.ende ? '' : 'checked'}> Dauerkultur – ${y + 1} automatisch weiterführen <span class="nr">(ausschalten bei Umbruch)</span></label></div>
     <div id="ebZwF" ${s.art === 'zwischen' ? '' : 'hidden'}>
@@ -493,7 +506,7 @@ function ebSchlagDialog(y, id, pre = {}) {
     o.nBed = nb != null && nb !== kb ? nb : null; o.korr = ebNum(fd.get('korr'));
     if (rec.duenger.length) o.gaben = $$('.ebgabe', Dlg.form).map((row, i) => ({ id: ((s.gaben || [])[i] || {}).id || uid(), d: row.querySelector('[name=gd]').value, datum: row.querySelector('[name=gdat]').value || '', menge: ebNum(row.querySelector('[name=gm]').value) })).filter(g => g.d && g.menge != null);
     if (!o.kultur) { toast(o.art === 'zwischen' ? 'Zwischenfrucht wählen oder eingeben.' : 'Kultur eingeben.'); return false; }
-    if (!o.parz && !o.name) { toast('Parzelle wählen oder Bezeichnung eingeben.'); return false; }
+    if (!o.parz) { toast('Parzelle wählen.'); return false; }
     if (!r.schlaege.includes(o)) r.schlaege.push(o);
     ebSaveY(r); return true;
   });
@@ -504,7 +517,7 @@ function ebWireSchlag(f, rec, s) {
   const zfName = () => { const v = f.zfsel.value; if (v.startsWith('mix:')) return (rec.zf.mix.find(m => m.id === v.slice(4)) || {}).name || ''; if (v.startsWith('k:')) return v.slice(2); return v === 'indiv' ? f.zfind.value : ''; };
   const upd = () => {
     const art = (f.querySelector('[name=art]:checked') || {}).value, zw = art === 'zwischen', parz = f.parz.value, p = ebParz(parz);
-    $('#ebHauptF', f).hidden = zw; $('#ebZwF', f).hidden = !zw; $('#ebNameF', f).hidden = !!parz;
+    $('#ebHauptF', f).hidden = zw; $('#ebZwF', f).hidden = !zw; $('#ebNameF', f).hidden = true;
     if (parz !== lastParz) { lastParz = parz; const cur = f.nach.value; f.nach.innerHTML = `<option value="">— keine —</option>${ebHauptOpts(rec, parz, cur, s.id)}`; if (f.nach.options.length === 2 && !cur) f.nach.selectedIndex = 1; }
     $('#ebIndF', f).hidden = f.zfsel.value !== 'indiv';
     $('#ebDauerF', f).hidden = zw || !ebIsDauer(f.kultur.value);
@@ -733,29 +746,36 @@ function ebBodenDialog(id) {
 }
 
 /* ---------- Stammdaten ---------- */
+const EB_STSUBS = [['parzellen', 'Parzellen'], ['kulturen', 'Kulturen'], ['listen', 'Adresse & Listen'], ['richt', 'Richtwerte Bodenproben']];
 function ebStammView(st) {
+  const S = ebState(), sub = EB_STSUBS.some(([k]) => k === S.stSub) ? S.stSub : 'parzellen';
+  const nav = `<div class="seg mini ebstnav">${EB_STSUBS.map(([k, l]) => `<button type="button" data-eb="stSub" data-v="${k}" class="${sub === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  if (sub === 'parzellen') return nav + ebParzView(st);
   const K = st.kulturen.slice().sort((a, b) => a.name.localeCompare(b.name, 'de'));
   const used = new Set(ebYears().flatMap(y => ebGet(y).schlaege.map(s => s.kultur)));
   const nUse = k => [...used].filter(x => ebKultur(x) === k).length;
-  return `<div class="cols" style="margin-top:12px"><div><div class="panel"><h2>Kulturen <small class="nr">N-Bedarf und Anbaupause</small></h2>
-      <div class="tscroll"><table class="need vbneed"><thead><tr><th>Kultur</th><th class="n">N-Bedarf kg/ha (GRUDAF)</th><th class="n">Anbaupause Jahre</th><th title="Dauerkultur: wird jedes Jahr automatisch weitergeführt">Dauerkultur</th><th></th></tr></thead><tbody>
-      ${K.map(k => `<tr><td><span class="ebdot" style="background:${ebColor(k.name)}"></span><input class="vbin wide" data-ebin="kName" data-id="${k.id}" data-ebk="kn-${k.id}" value="${esc(k.name)}"></td>
+  const kult = `<div class="panel" style="margin-top:12px"><h2>Kulturen <small class="nr">Farbe, N-Bedarf, Anbaupause, Dauerkultur</small></h2>
+      <div class="tscroll"><table class="need vbneed"><thead><tr><th>Kultur</th><th title="Farbe in Fruchtfolge und Auswertungen">Farbe</th><th class="n">N-Bedarf kg/ha (GRUDAF)</th><th class="n">Anbaupause Jahre</th><th title="Dauerkultur: wird jedes Jahr automatisch weitergeführt">Dauerkultur</th><th></th></tr></thead><tbody>
+      ${K.map(k => `<tr><td><input class="vbin wide" data-ebin="kName" data-id="${k.id}" data-ebk="kn-${k.id}" value="${esc(k.name)}"></td>
+        <td class="nowrap"><input type="color" class="ebcol" data-ebin="kFarbe" data-id="${k.id}" value="${esc(k.farbe || ebAutoColor(k.name))}" title="Farbe wählen">${k.farbe ? ` <button type="button" class="x ebcolx" data-eb="kFarbeReset" data-id="${k.id}" title="Standardfarbe" aria-label="Standardfarbe">↺</button>` : ''}</td>
         <td class="n"><input class="vbin" inputmode="decimal" data-ebin="kN" data-id="${k.id}" data-ebk="kv-${k.id}" value="${k.n ?? ''}"></td>
         <td class="n"><input class="vbin" inputmode="numeric" data-ebin="kPause" data-id="${k.id}" data-ebk="kp-${k.id}" value="${k.pause ?? ''}" placeholder="–"></td>
         <td class="c"><input type="checkbox" data-ebin="kDauer" data-id="${k.id}" ${k.dauer ? 'checked' : ''} title="Dauerkultur (z.B. Naturwiese, Weide)"></td>
         <td>${nUse(k) ? '' : `<button type="button" class="x" data-eb="kDel" data-id="${k.id}" aria-label="Entfernen">×</button>`}</td></tr>`).join('')}</tbody></table></div>
       <div class="btns"><button class="btn" data-eb="kNew">＋ Kultur</button></div>
-      <p class="nr">«Weizen» und «Winterweizen» gelten als gleiche Kultur, «Sommerhafer» rechnet mit «Hafer». Anbaupause: Die Fruchtfolge warnt (⚠), wenn die Kultur innerhalb dieser Anzahl Jahre schon auf derselben Parzelle stand. Dauerkultur: wird in der Fruchtfolge jedes Jahr automatisch weitergeführt (↻), bis du beim Eintrag «weiterführen» ausschaltest oder eine andere Kultur erfasst.</p></div>
+      <p class="nr">«Weizen» und «Winterweizen» gelten als gleiche Kultur, «Sommerhafer» rechnet mit «Hafer». Anbaupause: Die Fruchtfolge warnt (⚠), wenn die Kultur innerhalb dieser Anzahl Jahre schon auf derselben Parzelle stand. Dauerkultur: wird in der Fruchtfolge jedes Jahr automatisch weitergeführt (↻), bis du beim Eintrag «weiterführen» ausschaltest oder eine andere Kultur erfasst. Farbe: antippen zum Ändern, ↺ = Standardfarbe.</p></div>`;
+  if (sub === 'kulturen') return nav + kult;
+  if (sub === 'richt') return nav + `<div class="panel" style="margin-top:12px"><h2>Richtwerte Bodenproben</h2>
+      <div class="tscroll"><table class="need vbneed"><thead><tr><th>Wert</th><th class="n">min</th><th class="n">optimal</th><th class="n">max</th><th>Zielwert</th></tr></thead><tbody>
+      ${EB_BODEN.map(([k, l, u]) => { const r = st.richt[k] || {}; return `<tr><td>${esc(l)} <span class="nr">${esc(u)}</span></td>${['min', 'opt', 'max'].map(f => `<td class="n"><input class="vbin" inputmode="decimal" data-ebin="ri" data-k="${k}" data-f="${f}" data-ebk="ri-${k}-${f}" value="${r[f] ?? ''}"></td>`).join('')}
+        <td><input class="vbin wide" data-ebin="ri" data-k="${k}" data-f="ziel" data-ebk="ri-${k}-z" value="${esc(r.ziel || '')}"></td></tr>`; }).join('')}</tbody></table></div></div>`;
+  return nav + `<div class="cols" style="margin-top:12px"><div>
     <div class="panel"><h2>Betriebsadresse</h2><p>Erscheint oben rechts auf allen Ausdrucken und PDF im Bereich Betrieb (ohne Logo). Leer = Adresse des Kunden ${esc(ebKunde() ? ebKunde().name : 'des eigenen Betriebs')}.</p>
       <textarea class="input" rows="4" data-ebin="adresse" placeholder="${esc(ebAdresse())}">${esc(st.adresse || '')}</textarea></div>
     <div class="panel"><h2>Zwischenfrüchte</h2><p>Auswahl für Zwischenfrüchte in der Fruchtfolge, zusätzlich zu den Mischungen der Bestellung. Eine pro Zeile. Individuelle Zwischenfrüchte, die du direkt in der Fruchtfolge eingibst, kommen nicht in diese Liste.</p>
-      <textarea class="input" rows="6" data-ebin="zfListe">${esc((st.zfListe || []).join('\n'))}</textarea></div>
-    <div class="panel"><h2>Programme</h2><p>Auswahl in der Düngungsplanung (Extenso, IP-Suisse, Ressourcenprogramme …). Ein Programm pro Zeile.</p>
-      <textarea class="input" rows="6" data-ebin="prog">${esc(st.programme.join('\n'))}</textarea></div></div>
-    <div><div class="panel"><h2>Richtwerte Bodenproben</h2>
-      <div class="tscroll"><table class="need vbneed"><thead><tr><th>Wert</th><th class="n">min</th><th class="n">optimal</th><th class="n">max</th><th>Zielwert</th></tr></thead><tbody>
-      ${EB_BODEN.map(([k, l, u]) => { const r = st.richt[k] || {}; return `<tr><td>${esc(l)} <span class="nr">${esc(u)}</span></td>${['min', 'opt', 'max'].map(f => `<td class="n"><input class="vbin" inputmode="decimal" data-ebin="ri" data-k="${k}" data-f="${f}" data-ebk="ri-${k}-${f}" value="${r[f] ?? ''}"></td>`).join('')}
-        <td><input class="vbin wide" data-ebin="ri" data-k="${k}" data-f="ziel" data-ebk="ri-${k}-z" value="${esc(r.ziel || '')}"></td></tr>`; }).join('')}</tbody></table></div></div></div></div>`;
+      <textarea class="input" rows="10" data-ebin="zfListe">${esc((st.zfListe || []).join('\n'))}</textarea></div></div>
+    <div><div class="panel"><h2>Programme</h2><p>Auswahl in der Düngungsplanung (Extenso, IP-Suisse, Ressourcenprogramme …). Ein Programm pro Zeile.</p>
+      <textarea class="input" rows="10" data-ebin="prog">${esc(st.programme.join('\n'))}</textarea></div></div></div>`;
 }
 function ebKulturDialog() {
   const body = `<label class="fld"><span>Kultur</span><input class="input" name="name" required></label>
@@ -862,8 +882,10 @@ document.addEventListener('click', e => {
   const a = t.dataset.eb, id = t.dataset.id, S = ebState(); e.preventDefault(); e.stopPropagation();
   switch (a) {
     case 'sub': S.sub = t.dataset.v; ls('lp_ebSub', S.sub); App.render(); break;
+    case 'stSub': S.stSub = t.dataset.v; ls('lp_ebStSub', S.stSub); App.render(); break;
+    case 'kFarbeReset': { const st = ebStamm(), ku = st.kulturen.find(x => x.id === id); if (ku) { delete ku.farbe; ebSaveS(st); } break; }
     case 'off': if (confirm('Modul «Eigener Betrieb» ausblenden? Die Daten bleiben gespeichert; einschalten unter Mehr › Einstellungen.')) { Store.setCfg({ ebOn: false }); App.go('auftraege'); } break;
-    case 'start': { const st = ebStammBlank(); const k = ebKunde(); if (k) st.kunde = k.id; ebSaveS(st); S.sub = 'parzellen'; break; }
+    case 'start': { const st = ebStammBlank(); const k = ebKunde(); if (k) st.kunde = k.id; ebSaveS(st); S.sub = 'stamm'; S.stSub = 'parzellen'; break; }
     // Parzellen
     case 'parzNew': ebParzDialog(null); break;
     case 'parzEdit': ebParzDialog(id); break;
@@ -926,13 +948,14 @@ document.addEventListener('change', e => {
   if (k === 'bAll') { S.bAll = t.checked; App.render(); return; }
   if (k === 'showOff') { S.showOff = t.checked; ls('lp_ebShowOff', t.checked ? '1' : '0'); App.render(); return; }
   // Stammdaten
-  if (['kunde', 'kName', 'kN', 'kPause', 'kDauer', 'prog', 'ri', 'adresse', 'zfListe'].includes(k)) {
+  if (['kunde', 'kName', 'kN', 'kPause', 'kDauer', 'kFarbe', 'prog', 'ri', 'adresse', 'zfListe'].includes(k)) {
     const st = ebStamm(), ku = st.kulturen.find(x => x.id === id);
     if (k === 'kunde') st.kunde = v;
     else if (k === 'kName') { if (ku && v.trim()) ku.name = v.trim(); }
     else if (k === 'kN') { if (ku) ku.n = n; }
     else if (k === 'kPause') { if (ku) ku.pause = n ? Math.round(n) : null; }
     else if (k === 'kDauer') { if (ku) ku.dauer = t.checked; }
+    else if (k === 'kFarbe') { if (ku) ku.farbe = v; }
     else if (k === 'zfListe') st.zfListe = [...new Set(v.split(/\n|;/).map(x => x.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
     else if (k === 'adresse') st.adresse = v.trim();
     else if (k === 'prog') st.programme = [...new Set(v.split(/\n|;/).map(x => x.trim()).filter(Boolean))];
@@ -1233,7 +1256,7 @@ function ebImportBuild({ book, K, ff, dSheets, zSheets, bo }) {
       if (s) { const p = st.parz.find(q => q.id === s.parz); nz++;
         if (ebKey(p.name) !== ebKey(row.parz) && ebKey(ebParzLabel(p)) !== ebKey(row.parz)) rep.zu.push(`${y}: «${row.parz}» ${row.kultur} ${fmtNum(row.ha)} ha ↦ ${ebParzLabel(p)}${ebSchlagHaRaw(s, p) != null ? ` (Fruchtfolge ${fmtNum(ebSchlagHaRaw(s, p))} ha)` : ''}`);
       } else if (zw || !row.parz) {
-        s = sNew({ name: row.parz || row.kultur, art: zw ? 'zwischen' : 'haupt', kultur: row.kultur }); rec.schlaege.push(s); rep.frei.push(`${y}: ${row.kultur}${row.parz ? ' «' + row.parz + '»' : ''} ${fmtNum(row.ha)} ha`);
+        rep.frei.push(`${y}: ${row.kultur}${row.parz ? ' «' + row.parz + '»' : ''} ${fmtNum(row.ha)} ha`); return; // Flächen ohne Parzelle werden nicht übernommen
       } else {
         let p = st.parz.find(q => ebKey(q.name) === ebKey(row.parz) && !q.teil) || null;
         if (!p) { const g = ebFindParz(row.parz, st); if (g && (ebNameDist(g.name, row.parz) ?? 99) <= 1) p = g; }
@@ -1296,11 +1319,11 @@ function ebReportDialog(rep) {
   const sec = (t, L, hint) => L.length ? `<h4 style="margin:12px 0 4px">${t} <small class="nr">${L.length}</small></h4>${hint ? `<p class="nr" style="margin:0 0 4px">${hint}</p>` : ''}<ul class="ebimpl">${L.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
   const body = `<ul class="ebimpl">${rep.info.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
     ${sec('Ähnliche Namen zugeordnet', rep.zu, 'Bitte kurz prüfen. Falsch zugeordnet? Den Eintrag in der Fruchtfolge öffnen und die Parzelle ändern.')}
-    ${sec('Neue Parzellen aus den Düngungsplänen', rep.neu, 'Diese Namen kamen in der Fruchtfolge nicht vor. Ist es der gleiche Acker wie eine bestehende Parzelle (z.B. «Ried» = «Richtersmatt»?), unter Parzellen › Parzelle öffnen › «Zusammenführen».')}
-    ${sec('Flächen ohne Parzelle', rep.frei, 'Zum Beispiel Gründüngungen als Sammelzeile. Sie erscheinen in der Fruchtfolge unter «Weitere Flächen».')}
+    ${sec('Neue Parzellen aus den Düngungsplänen', rep.neu, 'Diese Namen kamen in der Fruchtfolge nicht vor. Ist es der gleiche Acker wie eine bestehende Parzelle (z.B. «Ried» = «Richtersmatt»?), unter Stammdaten › Parzellen › Parzelle öffnen › «Zusammenführen».')}
+    ${sec('Nicht übernommen: Zeilen ohne Parzelle', rep.frei, 'Sammelzeilen wie «Gründüngung Zuckerrüben» oder «Weide» ohne Parzellenname. Plane solche Gaben bei der Zwischenfrucht bzw. Kultur der jeweiligen Parzelle. Der Lagerbedarf der betroffenen Dünger ist darum kleiner als in der Excel-Mappe.')}
     ${sec('Mischungen mit Fläche von Hand', rep.mix, 'Die Fläche aus der Excel-Tabelle wurde übernommen, weil die Zwischenfrüchte in der Fruchtfolge eine andere Fläche ergeben.')}
     ${sec('Bodenproben ohne Parzelle', rep.boden, 'Unter Bodenproben antippen und die Parzelle wählen.')}
-    <p class="nr" style="margin-top:12px">Nächster Schritt: unter «Parzellen» die Vorschläge zur Verknüpfung mit den Feldern aus MyJohnDeere übernehmen.</p>`;
+    <p class="nr" style="margin-top:12px">Nächster Schritt: unter «Stammdaten › Parzellen» die Vorschläge zur Verknüpfung mit den Feldern aus MyJohnDeere übernehmen.</p>`;
   Dlg.open('Import abgeschlossen', body, `<span class="spacer ebsp"></span><button type="button" class="btn primary" data-act="close">OK</button>`, () => true);
   App.render();
 }
