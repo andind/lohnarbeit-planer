@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '79', APP_STAND = '29.10.2026';
+const APP_VERSION = '80', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -5160,7 +5160,7 @@ function rsAreaView(rec) {
       <tbody>${rows}</tbody>
       <tfoot><tr><th>Total ha</th><td></td><td></td><td></td>${All.map(s => `<td class="n"><b>${fmtNum(nb[s.id]?.ha) || ''}</b></td>`).join('')}<td class="n"><b>${fmtNum(tot)}</b></td><td class="n"><b>${fmtNum(nb.cone?.ha) || ''}</b></td><td></td><td></td></tr>
         <tr class="rsdosen"><th>Bedarf Dosen</th><td></td><td></td><td></td>${All.map(s => `<td class="n">${fmtNum(nb[s.id]?.bedarf) || ''}</td>`).join('')}<td class="n">${fmtNum(r2(All.reduce((t, s) => t + (nb[s.id]?.bedarf || 0), 0)))}</td><td class="n">${fmtNum(nb.cone?.bedarf) || ''}</td><td></td><td></td></tr></tfoot></table></div>
-    <div class="btns"><button class="btn" data-rs="rowNew">＋ Kunde</button><button class="btn" data-rs="sortNew">＋ Sorte</button></div>
+    <div class="btns"><button class="btn" data-rs="rowNew">＋ Kunde</button><button class="btn" data-rs="sortNew">＋ Sorte</button><span class="spacer"></span><button class="btn" data-rs="fahrer" title="Eine Seite (A4 quer) für den Schlepperfahrer: pro Kunde Sorten, Fläche, Dosen, Legeabstand und Fahrgassen">🖨 Übersicht Fahrer (PDF)</button></div>
     <p class="nr">Fläche direkt in die Zelle tippen (Tab springt weiter). Saatgutverbrauch: Legeabstand (cm) und Fahrgassenabstand (m) pro Kunde ergeben die Dosen/ha (leer = Standard aus «Sorten & Preise»); sie gelten für Bedarf und Abrechnung. Conviso One grau = automatisch (Fläche der Conviso-Sorten), überschreibbar. Kundennamen antippen für Zuordnung, Bemerkung und Saattermine. «＋ Saatauftrag» erfasst einen Auftrag «Rüben säen»; er erscheint danach in der Spalte Saat (✓ = erledigt).</p></div>`;
 }
 function rsOrderView(rec) {
@@ -5476,6 +5476,7 @@ document.addEventListener('click', e => {
     case 'exDel': { const r = rec(); r.extra = r.extra.filter(x => x.id !== id); rsSave(r); break; }
     case 'dphaCalc': { const r = rec(); r.dpha = +t.dataset.v; rsSave(r); toast(`Dosen/ha = ${fmtNum(r.dpha)}`); break; }
     case 'print': rsPrint(); break;
+    case 'fahrer': rsFahrerPrint(); break;
     case 'abrPrint': rsAbrPrint(); break;
     case 'abrMark': { const r = rec(), row = r.rows.find(x => x.id === id); if (!row) break; if (t.dataset.v === '1') row.abr = todayIso(); else delete row.abr; rsSave(r); toast(t.dataset.v === '1' ? 'Als abgerechnet markiert' : 'Wieder offen'); break; }
     case 'xlsx': rsXlsx(); break;
@@ -5595,6 +5596,31 @@ function rsAbrPrint() {
     ${k.pos.map(p => `<tr><td>${esc(p.name)}</td><td class="n">${p.cone ? '' : fmtNum(p.ha)}</td><td class="n">${fmtNum(p.d)}${p.cone ? ' Einh.' : ''}</td><td class="n">${p.pd != null ? chf(p.pd) : ''}</td><td class="n">${p.betrag != null ? chf(p.betrag) : ''}</td></tr>`).join('')}
     <tr class="gp"><td colspan="4"><b>Total inkl. ${fmtNum(r2((rec.mwst || 0) * 100))} % MwSt</b></td><td class="n"><b>${chf(k.total)}</b></td></tr></tbody></table></div>`).join('');
   printHtml(`Rübensamen ${rec.jahr} Abrechnung`, html || '<p>Keine Einträge.</p>', { noTitle: true });
+}
+
+/* ---------- Übersicht für den Schlepperfahrer: eine Seite A4 quer, ohne Logo und ohne Conviso One ---------- */
+function rsFahrerPrint() {
+  const rec = rsRec(), R = rec.rows.filter(r => rsRowHa(rec, r) > 0);
+  if (!R.length) { toast('Noch keine Flächen erfasst.'); return; }
+  const S = rsSorted(rec).filter(s => R.some(r => (r.ha || {})[s.id]));
+  const n = R.length, fs = n > 34 ? 7 : n > 26 ? 8 : n > 18 ? 9 : n > 12 ? 10 : 11;
+  const k = r => r.kunde ? Store.get('kunden', r.kunde) : null;
+  const kontakt = r => { const x = k(r); if (!x) return ''; return [x.ort || '', x.handy || x.tel || ''].filter(Boolean).join(' · '); };
+  const fg = r => r.fga === 0 ? '–' : fmtNum(r.fga || rec.fga);
+  const lege = r => fmtNum(r.lege || rec.lege);
+  const tot = s => r2(R.reduce((t, r) => t + ((r.ha || {})[s.id] || 0), 0)), totD = s => r2(R.reduce((t, r) => t + ((r.ha || {})[s.id] || 0) * rsRowDpha(rec, r), 0));
+  const rows = R.map(r => { const dp = rsRowDpha(rec, r), ha = rsRowHa(rec, r);
+    return `<tr><td class="rfk"><b>${esc(rsRowName(r))}</b>${kontakt(r) ? `<div class="rfs">${esc(kontakt(r))}</div>` : ''}</td>
+      <td class="n">${rsRowEigen(r) ? lege(r) : `<span class="rfs">${lege(r)}</span>`}</td><td class="n">${rsRowEigen(r) ? fg(r) : `<span class="rfs">${fg(r)}</span>`}</td><td class="n"><b>${fmtNum(dp)}</b></td>
+      ${S.map(s => { const v = (r.ha || {})[s.id]; return `<td class="n">${v ? `<b>${fmtNum(v)}</b><div class="rfs">${fmtNum(r2(v * dp))} D</div>` : ''}</td>`; }).join('')}
+      <td class="n"><b>${fmtNum(ha)}</b><div class="rfs">${fmtNum(r2(ha * dp))} D</div></td><td class="rfb">${esc(r.notiz || '')}</td><td class="rfc">☐</td></tr>`; }).join('');
+  const html = `<div class="rsfahrer" style="font-size:${fs}pt">
+    <div class="rfh"><h1>Rübensaat ${rec.jahr} – Übersicht Fahrer</h1><span>${R.length} Kunden · ${fmtNum(r2(R.reduce((t, r) => t + rsRowHa(rec, r), 0)))} ha · Stand ${new Date().toLocaleDateString('de-CH')}</span></div>
+    <table class="btab rft"><thead><tr><th>Kunde</th><th class="n">Lege&shy;abstand cm</th><th class="n">Fahr&shy;gasse m</th><th class="n">Dosen/ha</th>${S.map(s => `<th class="n">${esc(s.name)}</th>`).join('')}<th class="n">Total</th><th>Bemerkung</th><th class="rfc">✓</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td><b>Total</b></td><td></td><td></td><td></td>${S.map(s => `<td class="n"><b>${fmtNum(tot(s))}</b><div class="rfs">${fmtNum(totD(s))} D</div></td>`).join('')}<td class="n"><b>${fmtNum(r2(R.reduce((t, r) => t + rsRowHa(rec, r), 0)))}</b><div class="rfs">${fmtNum(r2(S.reduce((t, s) => t + totD(s), 0)))} D</div></td><td></td><td></td></tr></tfoot></table>
+    <p class="rfs" style="margin-top:2mm">Fläche in ha, darunter Dosen (D) = ha × Dosen/ha des Kunden. Grau = Standardwert. Fahrgasse «–» = keine Fahrgassen.</p></div>`;
+  printHtml(`Rübensaat ${rec.jahr} – Übersicht Fahrer`, html, { noTitle: true });
 }
 function pickFile(accept) {
   return new Promise(res => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.onchange = () => res(i.files[0]); i.click(); });

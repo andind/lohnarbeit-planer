@@ -1033,3 +1033,21 @@ table.need.rskost .vbin.auto::placeholder { color: var(--muted); }
 .switch input:focus-visible + .sl { outline: 2px solid var(--accent); outline-offset: 2px; }
 .switch .lbl { font-size: 12px; color: var(--muted); min-width: 3.6em; }
 .rowi.off .switch { opacity: 1; }
+/* v80: Rübensaat – Übersicht Fahrer (eine Seite A4 quer) */
+@media print {
+  #printArea:has(.rsfahrer), #printArea:has(.rsfahrer) > * { page: quer; }
+  #printArea:has(.rsfahrer) .pfoot { margin-top: 2mm; }
+  #printArea .rsfahrer .rfh { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1.2pt solid #2f6b3a; margin-bottom: 2mm; padding-bottom: 1mm; }
+  #printArea .rsfahrer .rfh h1 { font-size: 1.6em; margin: 0; color: #2f6b3a; }
+  #printArea .rsfahrer .rfh span { font-size: 0.95em; color: #444; }
+  #printArea .rsfahrer .rft { width: 100%; font-size: 1em; border-collapse: collapse; }
+  #printArea .rsfahrer .rft th { font-size: 0.85em; background: #eef3ee; -webkit-print-color-adjust: exact; print-color-adjust: exact; vertical-align: bottom; }
+  #printArea .rsfahrer .rft th, #printArea .rsfahrer .rft td { padding: 0.8mm 1.5mm; border-bottom: 0.4pt solid #bbb; line-height: 1.2; }
+  #printArea .rsfahrer .rft tbody tr { break-inside: avoid; }
+  #printArea .rsfahrer .rft tfoot td { border-top: 1pt solid #333; border-bottom: 0; }
+  #printArea .rsfahrer .rfs { font-size: 0.8em; color: #555; font-weight: 400; }
+  #printArea .rsfahrer .rfb { font-size: 0.85em; min-width: 40mm; max-width: 60mm; }
+  #printArea .rsfahrer .rfc { width: 6mm; text-align: center; font-size: 1.2em; }
+  #printArea .rsfahrer .rfk { white-space: nowrap; }
+  @page quer { size: A4 landscape; margin: 10mm 10mm 12mm; }
+}
