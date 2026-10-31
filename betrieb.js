@@ -91,7 +91,7 @@ function ebDauerEnde(y, parz) {
   if (mod) Store.put('einstellungen', p, { silent: true });
 }
 function ebState() {
-  if (!App.eb) App.eb = { sub: ls('lp_ebSub') || 'fruchtfolge', y: null, ffEnd: null, bAll: false, ffSum: false, showOff: ls('lp_ebShowOff') === '1', stSub: ls('lp_ebStSub') || 'parzellen' };
+  if (!App.eb) App.eb = { sub: ls('lp_ebSub') || 'fruchtfolge', y: null, ffEnd: null, bAll: false, ffSum: false, showOff: ls('lp_ebShowOff') === '1', stSub: ls('lp_ebStSub') || 'parzellen', dSub: ls('lp_ebDSub') || 'plan' };
   if (App.eb.sub === 'parzellen') { App.eb.sub = 'stamm'; App.eb.stSub = 'parzellen'; } // Parzellen liegen neu unter Stammdaten
   if (!App.eb.y) App.eb.y = ebCurYear();
   if (!App.eb.ffEnd) App.eb.ffEnd = Math.max(ebCurYear() + 1, ...ebYears().filter(y => y <= ebCurYear() + 3));
@@ -452,6 +452,15 @@ function ebGabeRow(rec, g = {}) {
     <input class="input" name="gm" inputmode="decimal" value="${g.menge ?? ''}" placeholder="Menge/ha"><span class="u gu">${esc(d ? d.einheit || '' : '')}/ha</span><span class="nr gn"></span>
     <button type="button" class="x" data-ebg="del" aria-label="Entfernen">×</button></div>`;
 }
+// Auswahl «Planung übernehmen von»: andere Schläge desselben Jahres mit Gaben, gleiche Kultur zuerst
+function ebCopyOpts(rec, s) {
+  const L = rec.schlaege.filter(x => x.id !== s.id && (x.gaben || []).length);
+  if (!L.length || !rec.duenger.length) return '';
+  const o = x => { const c = ebSchlagCalc(rec, x); return `<option value="${x.id}">${esc(ebSchlagName(x))} · ${esc(x.kultur || '?')} · ${x.gaben.length} ${x.gaben.length === 1 ? 'Gabe' : 'Gaben'}, ${fmtNum(c.geplant)} kg N/ha</option>`; };
+  const same = L.filter(x => s.kultur && ebSameKultur(x.kultur, s.kultur)), other = L.filter(x => !same.includes(x));
+  const srt = A => A.sort((a, b) => ebSchlagName(a).localeCompare(ebSchlagName(b), 'de'));
+  return `<option value="">— Parzelle wählen —</option>${same.length ? `<optgroup label="Gleiche Kultur">${srt(same).map(o).join('')}</optgroup>` : ''}${other.length ? `<optgroup label="Andere Kulturen">${srt(other).map(o).join('')}</optgroup>` : ''}`;
+}
 function ebSchlagDialog(y, id, pre = {}) {
   const rec = ebRecY(y), st = ebStamm(), isNew = !id;
   const s = isNew ? Object.assign({ id: uid(), parz: '', name: '', art: 'haupt', kultur: '', mix: '', ha: null, sorte: '', prog: [], bem: '', nBed: null, korr: null, gaben: [] }, pre) : structuredClone(rec.schlaege.find(x => x.id === id));
@@ -481,6 +490,7 @@ function ebSchlagDialog(y, id, pre = {}) {
       <div class="three"><label class="fld"><span>N-Bedarf kg/ha <small class="nr">GRUDAF</small></span><input class="input" name="nBed" inputmode="decimal" value="${s.nBed ?? ''}"></label>
         <label class="fld"><span>Korrektur ± kg N/ha</span><input class="input" name="korr" inputmode="decimal" value="${s.korr ?? ''}" placeholder="0"></label>
         <label class="fld"><span>Restbedarf kg N/ha</span><input class="input" name="rest" readonly tabindex="-1"></label></div>
+      ${ebCopyOpts(rec, s) ? `<label class="fld ebcopy"><span>Planung übernehmen von</span><select class="input" name="gcopy" data-plain>${ebCopyOpts(rec, s)}</select></label>` : ''}
       ${rec.duenger.length ? `<div id="ebGaben">${(s.gaben || []).map(g => ebGabeRow(rec, g)).join('')}</div><button type="button" class="btn small" data-ebg="add">＋ Gabe</button>`
         : `<p class="nr">Für ${y} sind noch keine Dünger erfasst (Düngung › Dünger & Lager${ebGet(y - 1) && ebGet(y - 1).duenger.length ? ` – oder «Aus ${y - 1} übernehmen»` : ''}).</p>`}</div>`;
   Dlg.open(`${isNew ? 'Neu' : esc(ebSchlagName(s))} · ${y}`, body, saveFooter(isNew ? '' : `<button type="button" class="btn danger" data-eb="sDel" data-y="${y}" data-id="${s.id}">Löschen</button>`), fd => {
@@ -533,6 +543,16 @@ function ebWireSchlag(f, rec, s) {
     $('#ebNInfo', f).textContent = sum ? `geplant ${fmtNum(sum)} kg N/ha` : '';
   };
   f.addEventListener('input', upd); f.addEventListener('change', e => {
+    if (e.target.name === 'gcopy' && e.target.value) {
+      const src = rec.schlaege.find(x => x.id === e.target.value), box = $('#ebGaben', f);
+      if (src && box) {
+        if (!$$('.ebgabe', f).length || confirm(`Die bisherigen Gaben durch die Planung von ${ebSchlagName(src)} (${src.kultur}) ersetzen?`)) {
+          box.innerHTML = src.gaben.map(g => ebGabeRow(rec, { d: g.d, datum: g.datum, menge: g.menge })).join('');
+          f.korr.value = src.korr ?? ''; toast(`Planung von ${ebSchlagName(src)} übernommen – mit Speichern bestätigen`);
+        }
+      }
+      e.target.value = '';
+    }
     if (e.target.name === 'zfsel' && e.target.value.startsWith('mix:')) f.mix.value = e.target.value.slice(4);
     if (e.target.name === 'zfsel' && e.target.value === 'indiv') setTimeout(() => f.zfind.focus(), 0);
     upd();
@@ -551,13 +571,18 @@ function ebGabenChips(rec, s) {
   return (s.gaben || []).map(g => { const d = ebDuenger(rec, g.d); return `<span class="ebg" title="${esc(d ? d.name : '?')}${g.datum ? ' · ' + esc(ebDatum(g.datum)) : ''}">${esc(d ? d.name : '?')} <b>${fmtNum(g.menge)}</b> ${esc(d ? d.einheit || '' : '')}<small> · ${fmtNum(ebGabeN(rec, g))} N</small></span>`; }).join('');
 }
 function ebDuengView() {
-  const S = ebState(), y = S.y, rec = ebRecY(y), has = !!ebGet(y), prev = ebGet(y - 1);
-  const head = `<div class="filters vbhead" style="margin-top:12px">${ebYearSel(y)}<span class="spacer ebsp"></span>
-      ${prev && !rec.duenger.length ? `<button class="btn" data-eb="dFromPrev">Dünger & Bilanz aus ${y - 1} übernehmen</button>` : ''}
-      ${rec.schlaege.length && prev ? `<button class="btn" data-eb="gFromPrev" title="Für Schläge ohne Gaben die Gaben derselben Kultur aus ${y - 1} vorschlagen">Gaben aus ${y - 1} vorschlagen</button>` : ''}
+  const S = ebState(), y = S.y, rec = ebRecY(y), prev = ebGet(y - 1);
+  const dSub = ['plan', 'lager', 'bilanz'].includes(S.dSub) ? S.dSub : 'plan';
+  const neg = ebLager(rec).filter(x => x.saldo != null && x.saldo < 0).length, B = ebBilanz(rec);
+  const tabs = [['plan', 'Düngungsplanung'], ['lager', `Dünger & Lager${neg ? ' <span class="ebwarnb" title="zu wenig an Lager">⚠</span>' : ''}`], ['bilanz', `Planbilanz${B.reserve != null && B.reserve < 0 ? ' <span class="ebwarnb" title="Reserve negativ">⚠</span>' : ''}`]];
+  const head = `<div class="filters vbhead" style="margin-top:12px">${ebYearSel(y)}<div class="seg mini">${tabs.map(([k, l]) => `<button type="button" data-eb="dSub" data-v="${k}" class="${dSub === k ? 'on' : ''}">${l}</button>`).join('')}</div><span class="spacer ebsp"></span>
+      ${prev && !rec.duenger.length && dSub !== 'plan' ? `<button class="btn" data-eb="dFromPrev">Dünger & Bilanz aus ${y - 1} übernehmen</button>` : ''}
+      ${dSub === 'plan' && rec.schlaege.length && prev ? `<button class="btn" data-eb="gFromPrev" title="Für Schläge ohne Gaben die Gaben derselben Kultur aus ${y - 1} vorschlagen">Gaben aus ${y - 1} vorschlagen</button>` : ''}
       ${rec.schlaege.length ? `<button class="btn" data-eb="dPrint">Drucken / PDF</button><button class="btn" data-eb="xlsx">Excel</button>` : ''}</div>`;
+  if (dSub === 'lager') return head + ebLagerPanel(rec);
+  if (dSub === 'bilanz') return head + ebBilanzPanel(rec);
   if (!rec.schlaege.length) return head + `<div class="panel"><h2>Düngungsplanung ${y}</h2><p>Für ${y} sind noch keine Kulturen erfasst. Trage sie zuerst in der Fruchtfolge ein (Feld antippen) – sie erscheinen dann hier mit dem N-Bedarf.</p>
-      <div class="btns"><button class="btn primary" data-eb="sub" data-v="fruchtfolge">Zur Fruchtfolge</button></div></div>` + (has ? ebLagerPanel(rec) : '');
+      <div class="btns"><button class="btn primary" data-eb="sub" data-v="fruchtfolge">Zur Fruchtfolge</button></div></div>`;
   const zHide = rec.schlaege.filter(s => s.art === 'zwischen' && !(s.gaben || []).length && s.nBed == null).length;
   const L = rec.schlaege.filter(s => !(s.art === 'zwischen' && !(s.gaben || []).length && s.nBed == null)).sort((a, b) => ((a.art === 'zwischen') - (b.art === 'zwischen')) || String(a.kultur).localeCompare(String(b.kultur), 'de') || ebSchlagName(a).localeCompare(ebSchlagName(b), 'de'));
   let lastK = null;
@@ -575,7 +600,7 @@ function ebDuengView() {
   return head + `<div class="panel"><h2>Düngungsplanung ${y} <small class="nr">kg N/ha · Zeile antippen zum Bearbeiten</small></h2>
     ${nOver ? `<p class="warnline">${nOver} ${nOver === 1 ? 'Schlag ist' : 'Schläge sind'} mehr als 5 kg N/ha über dem Bedarf geplant (rot).</p>` : ''}
     <div class="tscroll ebscroll"><table class="btab ebdt"><thead><tr><th>Parzelle</th><th class="n">ha</th><th>Vorkultur</th><th class="n">Bedarf N</th><th class="n">±</th><th class="n">geplant</th><th class="n">Rest</th><th>Gaben (Menge/ha · kg N/ha)</th><th>Sorte</th><th>Programme</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <p class="nr">Rest = Bedarf + Korrektur − geplante Düngung. <span class="ebover">Rot</span> = mehr als 5 kg N/ha über dem Bedarf, <span class="ebunder">orange</span> = noch mehr als 5 kg N/ha offen. Bedarf aus Stammdaten › Kulturen (GRUDAF), * = eigener Wert. Zwischenfrüchte ohne eigene Kultur rechnen mit «Gründüngung».${zHide ? ` ${zHide} Zwischenfrüchte ohne Düngung sind ausgeblendet (in der Fruchtfolge antippen, um eine Gabe zu planen).` : ''}</p></div>` + ebLagerPanel(rec);
+    <p class="nr">Rest = Bedarf + Korrektur − geplante Düngung. <span class="ebover">Rot</span> = mehr als 5 kg N/ha über dem Bedarf, <span class="ebunder">orange</span> = noch mehr als 5 kg N/ha offen. Bedarf aus Stammdaten › Kulturen (GRUDAF), * = eigener Wert. Zwischenfrüchte ohne eigene Kultur rechnen mit «Gründüngung».${zHide ? ` ${zHide} Zwischenfrüchte ohne Düngung sind ausgeblendet (in der Fruchtfolge antippen, um eine Gabe zu planen).` : ''}</p></div>`;
 }
 function ebLagerPanel(rec) {
   const L = ebLager(rec), B = ebBilanz(rec), y = rec.jahr;
@@ -587,18 +612,26 @@ function ebLagerPanel(rec) {
       <td class="c"><input type="checkbox" data-ebin="dZuf" data-id="${d.id}" ${d.zufuhr ? 'checked' : ''} title="Zugekaufter bzw. zugeführter Dünger – zählt in der Planbilanz"></td><td class="n">${zufuhr != null ? fmtNum(zufuhr) : ''}</td>
       <td>${used ? '' : `<button type="button" class="x" data-eb="dDel" data-id="${d.id}" aria-label="Entfernen">×</button>`}</td></tr>`).join('');
   const neg = L.filter(x => x.saldo != null && x.saldo < 0);
-  return `<div class="cols"><div class="panel"><h2>Dünger & Lager ${y}</h2>
+  return `<div class="panel"><h2>Dünger & Lager ${y}</h2>
       ${neg.length ? `<p class="warnline">Zu wenig an Lager: ${neg.map(x => `${esc(x.d.name)} ${fmtNum(-x.saldo)} ${esc(x.d.einheit || '')}`).join(', ')}</p>` : ''}
       <div class="tscroll"><table class="need vbneed ebld"><thead><tr><th>Dünger</th><th>Einheit</th><th class="n">kg N / Einheit</th><th class="n">Vorrat</th><th class="n">Bedarf</th><th class="n">Saldo</th><th title="zugeführt (zählt in der Planbilanz)">Zufuhr</th><th class="n">kg N</th><th></th></tr></thead>
         <tbody>${rows || '<tr><td colspan="9" class="nr">Noch keine Dünger.</td></tr>'}</tbody></table></div>
       <div class="btns"><button class="btn" data-eb="dNew">＋ Dünger</button></div>
-      <p class="nr">Bedarf = Σ Menge/ha × Fläche aller Gaben. Saldo = Vorrat − Bedarf. «Zufuhr» ankreuzen für zugeführte Dünger (Mineraldünger, fremde Gülle); deren N zählt in der Planbilanz (Vorrat × Gehalt, ohne Vorrat Bedarf × Gehalt).</p></div>
-    <div class="panel"><h2>Planbilanz N ${y}</h2>
+      <p class="nr">Bedarf = Σ Menge/ha × Fläche aller Gaben. Saldo = Vorrat − Bedarf. «Zufuhr» ankreuzen für zugeführte Dünger (Mineraldünger, fremde Gülle); deren N zählt in der Planbilanz (Vorrat × Gehalt, ohne Vorrat Bedarf × Gehalt).</p></div>`;
+}
+function ebBilanzPanel(rec) {
+  const L = ebLager(rec), B = ebBilanz(rec), y = rec.jahr, Z = L.filter(x => x.d.zufuhr);
+  return `<div class="cols"><div class="panel"><h2>Planbilanz N ${y}</h2>
       <table class="btab kv ebbil"><tr><td>Geplante Zufuhr</td><td class="n"><b>${fmtNum(B.total)} kg N</b></td></tr>
         <tr><td>Abzug für Schleppschlauch</td><td class="n"><input class="vbin" inputmode="decimal" data-ebin="abzug" data-ebk="abzug" value="${rec.abzug ?? ''}" placeholder="0"> kg N</td></tr>
         <tr><td>Maximale Zufuhr gemäss Planbilanz</td><td class="n"><input class="vbin" inputmode="decimal" data-ebin="maxN" data-ebk="maxN" value="${rec.maxN ?? ''}"> kg N</td></tr>
         <tr class="ebres"><td><b>Reserve</b></td><td class="n ${B.reserve != null && B.reserve < 0 ? 'ebover' : 'ebok'}"><b>${B.reserve == null ? '–' : fmtNum(B.reserve) + ' kg N'}</b></td></tr></table>
-      <p class="nr">Reserve = maximale Zufuhr − Abzug Schleppschlauch − geplante Zufuhr (wie in der Excel-Mappe). Auf den Flächen geplant: ${fmtNum(B.nFeld)} kg N. Die verbindliche Bilanz bleibt die Suisse-Bilanz.</p></div></div>`;
+      <p class="nr">Reserve = maximale Zufuhr − Abzug Schleppschlauch − geplante Zufuhr (wie in der Excel-Mappe). Auf den Flächen geplant: ${fmtNum(B.nFeld)} kg N. Die verbindliche Bilanz bleibt die Suisse-Bilanz.</p></div>
+    <div class="panel"><h2>Zugeführte Dünger ${y}</h2>
+      ${Z.length ? `<div class="tscroll"><table class="btab"><thead><tr><th>Dünger</th><th class="n">Vorrat</th><th class="n">geplant</th><th class="n">kg N / Einheit</th><th class="n">kg N</th></tr></thead><tbody>
+        ${Z.map(x => `<tr><td>${esc(x.d.name)}</td><td class="n">${x.d.vorrat != null ? fmtNum(x.d.vorrat) + ' ' + esc(x.d.einheit || '') : '–'}</td><td class="n">${ebFmt(x.bedarf)} ${esc(x.d.einheit || '')}</td><td class="n">${ebFmt(x.d.n)}</td><td class="n"><b>${fmtNum(x.zufuhr || 0)}</b></td></tr>`).join('')}</tbody>
+        <tfoot><tr><td colspan="4"><b>Total geplante Zufuhr</b></td><td class="n"><b>${fmtNum(B.total)}</b></td></tr></tfoot></table></div>` : '<p class="nr">Kein Dünger als «Zufuhr» markiert (unter Dünger & Lager ankreuzen).</p>'}
+      <p class="nr">Zählt mit dem Vorrat; ohne Vorrat mit der geplanten Menge.</p></div></div>`;
 }
 function ebDuengerDialog() {
   const body = `<label class="fld"><span>Dünger</span><input class="input" name="name" required placeholder="z.B. Harnstoff"></label>
@@ -883,6 +916,7 @@ document.addEventListener('click', e => {
   switch (a) {
     case 'sub': S.sub = t.dataset.v; ls('lp_ebSub', S.sub); App.render(); break;
     case 'stSub': S.stSub = t.dataset.v; ls('lp_ebStSub', S.stSub); App.render(); break;
+    case 'dSub': S.dSub = t.dataset.v; ls('lp_ebDSub', S.dSub); App.render(); break;
     case 'kFarbeReset': { const st = ebStamm(), ku = st.kulturen.find(x => x.id === id); if (ku) { delete ku.farbe; ebSaveS(st); } break; }
     case 'off': if (confirm('Modul «Eigener Betrieb» ausblenden? Die Daten bleiben gespeichert; einschalten unter Mehr › Einstellungen.')) { Store.setCfg({ ebOn: false }); App.go('auftraege'); } break;
     case 'start': { const st = ebStammBlank(); const k = ebKunde(); if (k) st.kunde = k.id; ebSaveS(st); S.sub = 'stamm'; S.stSub = 'parzellen'; break; }

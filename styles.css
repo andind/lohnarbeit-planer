@@ -1149,3 +1149,6 @@ td.ebbu, .ebleg.ebbu { background: color-mix(in srgb, #3b6fd1 16%, var(--surface
 .ebcol { width: 38px; height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; cursor: pointer; vertical-align: middle; }
 .ebcolx { font-size: 15px; padding: 2px 6px; }
 .ebstnav { margin-top: 12px; }
+.ebcopy { margin: 2px 0 10px; }
+.ebwarnb { color: var(--warn); font-size: 12px; }
+.seg.mini button.on .ebwarnb { color: inherit; }
