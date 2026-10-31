@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '87', APP_STAND = '31.10.2026';
+const APP_VERSION = '88', APP_STAND = '31.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -603,7 +603,36 @@ const App = {
 // Unternavigation im Modul «Mehr»: Einstellungen, Kunden, Maschinen
 // Modul Verwaltung = Bericht, Abrechnung und Kunden (Unterreiter); merkt sich den zuletzt benutzten Reiter
 const VERW = ['jdbericht', 'abrechnung', 'kunden'];
-const verwNav = cur => { ls('lp_verw', cur); return `<div class="seg mehrnav">${[['jdbericht', 'Bericht'], ['abrechnung', 'Abrechnung'], ['kunden', 'Kunden']].map(([v, l]) => `<button type="button" data-view="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`; };
+const verwNav = cur => { ls('lp_verw', cur); return `<div class="seg mehrnav">${[['jdbericht', 'Bericht'], ['abrechnung', 'Abrechnung'], ['kunden', 'Kunden']].map(([v, l]) => `<button type="button" data-view="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>${winBtn(cur)}`; };
+
+/* ---------- Zweites Fenster: gleiche App, anderer Bereich, Daten bleiben zwischen den Fenstern abgeglichen ---------- */
+const winBtn = view => `<button type="button" class="btn winbtn" data-act="newWin" data-v="${view}" title="Diesen Bereich zusätzlich in einem zweiten Fenster öffnen, um Daten nebeneinander zu sehen">⧉ <span class="hide-sm">Zweites Fenster</span></button>`;
+function openWin(view) {
+  const u = new URL(location.href); u.search = ''; u.hash = ''; u.searchParams.set('view', view);
+  const sub = view === 'spritzen' ? App.spray.tab : view === 'betrieb' && App.eb ? App.eb.sub : '';
+  if (sub) u.searchParams.set('sub', sub);
+  const w = window.open(u.href, 'imv' + Date.now(), `popup,width=${Math.min(1400, screen.availWidth)},height=${Math.min(950, screen.availHeight)}`);
+  if (!w) toast('Das zweite Fenster wurde blockiert – bitte Pop-ups für den IM-Verwalter erlauben.', 5000);
+}
+// Bereich aus der Adresse (zweites Fenster): ?view=spritzen&sub=…
+(() => {
+  try {
+    const q = new URLSearchParams(location.search), v = q.get('view'), sub = q.get('sub'); if (!v) return;
+    App.view = v; App.winSub = sub || '';
+    if (v === 'spritzen' && sub) App.spray.tab = sub;
+    history.replaceState(null, '', location.pathname); // Adresse wieder neutral (Neuladen öffnet den gleichen Bereich über lp_view)
+  } catch { }
+})();
+// Änderungen aus einem anderen Fenster übernehmen, damit sie hier nicht überschrieben werden
+window.addEventListener('storage', e => {
+  if (e.key !== 'lp_data' || !e.newValue) return;
+  try {
+    const d = JSON.parse(e.newValue); if (!d || typeof d !== 'object') return;
+    COLL.forEach(c => { if (!Array.isArray(d[c])) d[c] = []; });
+    Store.data = d; Store.v++;
+    if (Dlg.el && Dlg.el.open) App.pendingRender = true; else App.render();
+  } catch { }
+});
 const mehrNav = cur => `<div class="seg mehrnav">${[['mehr', 'Einstellungen'], ['maschinen', 'Maschinen']].map(([v, l]) => `<button type="button" data-view="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 const Views = {
   /* ---------- Aufträge ---------- */
@@ -1836,7 +1865,7 @@ function sprayView() {
   return {
     toolbar() {
       return `<h1>Spritzen</h1>
-        <button class="btn primary" data-act="newSpray">＋ Spritzauftrag</button>`;
+        <button class="btn primary" data-act="newSpray">＋ Spritzauftrag</button>${winBtn('spritzen')}`;
     },
     content() {
       const t = App.spray.tab;
@@ -5721,6 +5750,7 @@ document.addEventListener('click', async e => {
   }
   switch (act) {
     case 'close': Dlg.close(); break;
+    case 'newWin': openWin(t.dataset.v || App.view); break;
     case 'sync': if (!Auth.configured()) { App.go('mehr'); toast('Dropbox ist noch nicht eingerichtet.'); } else if (!Auth.hasSession()) Auth.login(); else Sync.run(); break;
     case 'login': Auth.login(); break;
     case 'logout': if (confirm('Abmelden? Die Daten bleiben auf diesem Gerät erhalten.')) Auth.logout(); break;
@@ -5966,6 +5996,7 @@ document.addEventListener('touchmove', e => { if (App.tdrag) e.preventDefault();
     if (Dlg.onSubmit && Dlg.onSubmit(new FormData(Dlg.form)) !== false) { Dlg.close(); if (after) setTimeout(after, 0); }
   });
   Dlg.el.addEventListener('cancel', () => { Dlg.onSubmit = null; });
+  Dlg.el.addEventListener('close', () => { if (App.pendingRender) { App.pendingRender = false; setTimeout(() => App.render(), 0); } });
   Store.load();
   App.render();
   try { await Auth.handleRedirect(); } catch (e) { toast('Anmeldung fehlgeschlagen: ' + e.message, 6000); }

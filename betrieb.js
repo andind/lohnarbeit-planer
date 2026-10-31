@@ -260,6 +260,7 @@ function ebView() {
     toolbar() {
       return `<h1>Eigener Betrieb</h1><span class="spacer ebsp"></span>
         <label class="btn" title="Bisherige Excel-Mappe «Düngungs- und Anbauplanung» (.xlsx)">Excel importieren …<input type="file" accept=".xlsx" data-ebin="import" hidden></label>
+        ${winBtn('betrieb')}
         <button class="btn" data-eb="off" title="Modul aus der Navigation entfernen (Daten bleiben gespeichert; einschalten unter Mehr › Einstellungen)">Modul ausblenden</button>`;
     },
     content: ebContent
@@ -1364,5 +1365,6 @@ function ebReportDialog(rep) {
 
 /* ---------- Anbindung an die App ---------- */
 Views.betrieb = ebView();
+if (App.view === 'betrieb' && App.winSub) { ebState().sub = App.winSub; } // zweites Fenster: gleicher Unterreiter
 App.lastView = null; // Werkzeugleiste neu aufbauen (beim ersten Zeichnen war das Modul noch nicht geladen)
 App.render();
