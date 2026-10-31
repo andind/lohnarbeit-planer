@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '88', APP_STAND = '31.10.2026';
+const APP_VERSION = '89', APP_STAND = '31.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -596,6 +596,7 @@ const App = {
     $('#content').innerHTML = v.content();
     if (v.after) v.after();
     renderSelbar();
+    hdrUpdate();
     Sync.setState();
   }
 };
@@ -603,10 +604,29 @@ const App = {
 // Unternavigation im Modul «Mehr»: Einstellungen, Kunden, Maschinen
 // Modul Verwaltung = Bericht, Abrechnung und Kunden (Unterreiter); merkt sich den zuletzt benutzten Reiter
 const VERW = ['jdbericht', 'abrechnung', 'kunden'];
-const verwNav = cur => { ls('lp_verw', cur); return `<div class="seg mehrnav">${[['jdbericht', 'Bericht'], ['abrechnung', 'Abrechnung'], ['kunden', 'Kunden']].map(([v, l]) => `<button type="button" data-view="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>${winBtn(cur)}`; };
+const verwNav = cur => { ls('lp_verw', cur); return `<div class="seg mehrnav">${[['jdbericht', 'Bericht'], ['abrechnung', 'Abrechnung'], ['kunden', 'Kunden']].map(([v, l]) => `<button type="button" data-view="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`; };
 
 /* ---------- Zweites Fenster: gleiche App, anderer Bereich, Daten bleiben zwischen den Fenstern abgeglichen ---------- */
-const winBtn = view => `<button type="button" class="btn winbtn" data-act="newWin" data-v="${view}" title="Diesen Bereich zusätzlich in einem zweiten Fenster öffnen, um Daten nebeneinander zu sehen">⧉ <span class="hide-sm">Zweites Fenster</span></button>`;
+// Knöpfe in der Titelleiste: «Zweites Fenster» nur am PC (Maus, breiter Bildschirm), «Vollbild» je nach Bereich
+const isPC = () => matchMedia('(pointer: fine) and (hover: hover) and (min-width: 1000px)').matches;
+const FS_VIEWS = { plan: () => App.fs, jdbericht: () => !!(App.jdb && App.jdb.fs), abrechnung: () => !!(App.abr && App.abr.fs) };
+const fsOn = () => FS_VIEWS[App.view] ? FS_VIEWS[App.view]() : !!document.fullscreenElement;
+function fsToggle() {
+  if (App.view === 'plan') App.fs = !App.fs;
+  else if (App.view === 'jdbericht') App.jdb.fs = !App.jdb.fs;
+  else if (App.view === 'abrechnung') App.abr.fs = !App.abr.fs;
+  else { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => toast('Vollbild ist hier nicht möglich.')); return; }
+  App.render();
+}
+function hdrUpdate() {
+  const w = $('#hdrWin'), f = $('#hdrFs'); if (!w || !f) return;
+  w.hidden = !isPC();
+  f.hidden = !FS_VIEWS[App.view] && !document.fullscreenEnabled;
+  const on = fsOn(); f.classList.toggle('on', on); f.title = on ? 'Vollbild beenden (Esc)' : 'Vollbild';
+  f.innerHTML = on ? '✕ <span class="hide-sm">Vollbild beenden</span>' : '⛶ <span class="hide-sm">Vollbild</span>';
+}
+document.addEventListener('fullscreenchange', () => hdrUpdate());
+addEventListener('resize', () => hdrUpdate());
 function openWin(view) {
   const u = new URL(location.href); u.search = ''; u.hash = ''; u.searchParams.set('view', view);
   const sub = view === 'spritzen' ? App.spray.tab : view === 'betrieb' && App.eb ? App.eb.sub : '';
@@ -687,7 +707,6 @@ const Views = {
         <div class="weekhead">
           <button class="btn small" id="selModeBtn" data-act="selMode">☐ Mehrere auswählen</button>
           <span class="zoomctl"><button class="btn small" data-act="zoom" data-d="-1" aria-label="Verkleinern">−</button><span class="zv" id="zv"></span><button class="btn small" data-act="zoom" data-d="1" aria-label="Vergrössern">＋</button></span>
-          <button class="btn small" data-act="fs" title="Kalender im Vollbild">⛶ Vollbild</button>
           <button class="btn small" data-act="planExport" title="Aktuelle Ansicht als PDF oder Bild">⤓ Export</button>
           <button class="btn small sidebtn" data-act="pSide" title="Nicht eingeplante Aufträge ein-/ausblenden">◧ Offene</button>
         </div>`;
@@ -1865,7 +1884,7 @@ function sprayView() {
   return {
     toolbar() {
       return `<h1>Spritzen</h1>
-        <button class="btn primary" data-act="newSpray">＋ Spritzauftrag</button>${winBtn('spritzen')}`;
+        <button class="btn primary" data-act="newSpray">＋ Spritzauftrag</button>`;
     },
     content() {
       const t = App.spray.tab;
@@ -3778,7 +3797,6 @@ function jdBerichtView() {
   return {
     toolbar() {
       return `<h1>Bericht</h1>${verwNav('jdbericht')}
-        <button class="btn" data-act="jbFs" title="Bericht im Vollbild (Esc schliesst)">⛶ Vollbild</button>
         <button class="btn" data-act="jbReq" title="NAS-Dienst holt die neuesten Daten aus MyJohnDeere">⟳ In MyJohnDeere abholen</button>`;
     },
     content() {
@@ -4119,7 +4137,6 @@ function abView() {
   return {
     toolbar() {
       return `<h1>Abrechnung</h1>${verwNav('abrechnung')}
-        <button class="btn" data-ab="fs" title="Vollbild (Esc schliesst)">⛶ Vollbild</button>
         <button class="btn" data-ab="load" title="Arbeitsgänge aus MyJohnDeere neu laden">⟳ JD-Daten neu laden</button>`;
     },
     content() {
@@ -5751,6 +5768,7 @@ document.addEventListener('click', async e => {
   switch (act) {
     case 'close': Dlg.close(); break;
     case 'newWin': openWin(t.dataset.v || App.view); break;
+    case 'hdrFs': fsToggle(); break;
     case 'sync': if (!Auth.configured()) { App.go('mehr'); toast('Dropbox ist noch nicht eingerichtet.'); } else if (!Auth.hasSession()) Auth.login(); else Sync.run(); break;
     case 'login': Auth.login(); break;
     case 'logout': if (confirm('Abmelden? Die Daten bleiben auf diesem Gerät erhalten.')) Auth.logout(); break;

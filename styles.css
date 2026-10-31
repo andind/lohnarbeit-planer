@@ -1153,3 +1153,5 @@ td.ebbu, .ebleg.ebbu { background: color-mix(in srgb, #3b6fd1 16%, var(--surface
 .ebwarnb { color: var(--warn); font-size: 12px; }
 .seg.mini button.on .ebwarnb { color: inherit; }
 .winbtn { white-space: nowrap; }
+.top .btn.hbtn { min-height: 38px; padding: 7px 12px; white-space: nowrap; }
+.top .btn.hbtn.on { border-color: var(--accent); color: var(--accent); }
