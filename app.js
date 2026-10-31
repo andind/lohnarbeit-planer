@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '82', APP_STAND = '29.10.2026';
+const APP_VERSION = '83', APP_STAND = '31.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -580,7 +580,9 @@ const App = {
   go(v) { if (v === 'verwaltung') v = VERW.includes(ls('lp_verw')) ? ls('lp_verw') : 'jdbericht'; this.view = v; ls('lp_view', v); this.lastView = null; this.tlScroll = null; window.scrollTo(0, 0); this.render(); },
   render() {
     if (this.view === 'rueben' && !rsOn()) this.view = 'auftraege';
+    if (this.view === 'betrieb' && typeof ebOn === 'function' && !ebOn()) this.view = 'auftraege'; // Modul «Eigener Betrieb» (betrieb.js)
     rsNav();
+    if (typeof ebNav === 'function') ebNav();
     const navV = this.view === 'maschinen' ? 'mehr' : VERW.includes(this.view) ? 'verwaltung' : this.view;
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === navV));
     const fresh = this.lastView !== this.view; this.lastView = this.view;
@@ -967,6 +969,7 @@ const Views = {
         ${typeof icsPanel === 'function' ? icsPanel() : ''}
         ${jdOcPanel()}
         ${rsPanel()}
+        ${typeof ebPanel === 'function' ? ebPanel() : ''}
         <div class="panel"><h2>Planung: Achsen</h2>
           <div class="two">
             <label class="fld"><span>Wochenansicht</span><select class="input" data-plain data-in="axW"><option value="tage">Tage untereinander, Maschinen nebeneinander</option><option value="maschinen" ${App.plan.axW === 'maschinen' ? 'selected' : ''}>Maschinen untereinander, Tage nebeneinander</option></select></label>
