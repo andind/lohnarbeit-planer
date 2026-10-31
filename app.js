@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '78', APP_STAND = '29.10.2026';
+const APP_VERSION = '79', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -5146,7 +5146,7 @@ function rsAreaView(rec) {
   const th = All.map(s => `<th class="n ${s.gruppe === 'conv' ? 'conv' : ''}" title="${s.preis != null ? 'Grundpreis ' + chf(s.preis) : 'ohne Preis'}">${esc(s.name)}</th>`).join('');
   const rows = rec.rows.map(r => `<tr><th class="vbrh" data-rs="rowEdit" data-id="${r.id}" title="Kunde, Bemerkung und Saattermine bearbeiten">${esc(rsRowName(r))}${r.kunde ? '' : ' <span class="warnchip" title="Keinem Kunden zugeordnet">?</span>'}${r.notiz ? `<div class="nr rsnotiz">${esc(r.notiz)}</div>` : ''}</th>
       <td class="n"><input class="vbin sm" inputmode="decimal" data-rsin="lege" data-r="${r.id}" data-rsk="l-${r.id}" value="${r.lege ?? ''}" placeholder="${fmtNum(rec.lege)}" title="Legeabstand cm (leer = Standard)"></td>
-      <td class="n"><input class="vbin sm" inputmode="decimal" data-rsin="fga" data-r="${r.id}" data-rsk="g-${r.id}" value="${r.fga ?? ''}" placeholder="${fmtNum(rec.fga)}" title="Fahrgassenabstand m (leer = Standard)"></td>
+      <td class="n"><input class="vbin sm" data-rsin="fga" data-r="${r.id}" data-rsk="g-${r.id}" value="${rsFgTxt(r.fga)}" placeholder="${fmtNum(rec.fga)}" title="Fahrgassenabstand m (leer = Standard, – = keine Fahrgassen)"></td>
       <td class="n rsdp ${rsRowEigen(r) ? '' : 'nr'}" title="${rsRowEigen(r) ? 'aus Legeabstand und Fahrgasse des Kunden' : 'Standard (Sorten & Preise)'}">${fmtNum(rsRowDpha(rec, r))}</td>
       ${All.map(s => `<td class="n ${s.gruppe === 'conv' ? 'conv' : ''}"><input class="vbin" inputmode="decimal" data-rsin="ha" data-r="${r.id}" data-s="${s.id}" data-rsk="h-${r.id}-${s.id}" value="${(r.ha || {})[s.id] ?? ''}"></td>`).join('')}
       <td class="n tot">${fmtNum(rsRowHa(rec, r)) || ''}</td>
@@ -5196,7 +5196,7 @@ function rsAbrView(rec) {
       <span class="spacer"></span><span class="nr">${all.length - nOff} von ${all.length} abgerechnet</span>
       ${K.length ? `<button class="btn" data-rs="abrPrint">Drucken / PDF</button>` : ''}</div>`;
   const blk = k => { const r = k.r;
-    return `<tbody class="${r.abr ? 'rsabr' : ''}"><tr class="gk"><td colspan="5"><b>${esc(rsRowName(r))}</b> <span class="nr">${fmtNum(k.dp)} Dosen/ha${rsRowEigen(r) ? ` (Legeabstand ${fmtNum(r.lege || rec.lege)} cm, Fahrgasse ${fmtNum(r.fga || rec.fga)} m)` : ''}</span>
+    return `<tbody class="${r.abr ? 'rsabr' : ''}"><tr class="gk"><td colspan="5"><b>${esc(rsRowName(r))}</b> <span class="nr">${fmtNum(k.dp)} Dosen/ha${rsRowEigen(r) ? ` (Legeabstand ${fmtNum(r.lege || rec.lege)} cm, ${rsFgLbl(rec, r)})` : ''}</span>
         ${r.abr ? ` <span class="badge verrechnet">✓ abgerechnet ${esc(fmtDate(r.abr, { day: '2-digit', month: '2-digit', year: 'numeric' }))}</span>` : ''}
         ${!k.G.any ? ' <span class="badge offen">noch keine Saat gemeldet</span>' : ''}</td>
         <td class="n"><b>${chf(k.total)}</b></td>
@@ -5246,8 +5246,12 @@ const rsKorr = rec => rsKorrFg(rec.fga || 21, rec.fgp ?? 0.2);
 // Dosen/ha aus Legeabstand (cm, 50-cm-Reihen) und Fahrgassenabstand (m): 2 000 000 / Legeabstand Körner/ha, 1 Dose = 100 000 Körner
 const rsCalcDpha = (lege, fga, fgp) => lege ? r2(2e6 / lege / 1e5 * (fga ? rsKorrFg(fga, fgp ?? 0.2) : 1)) : null;
 // Saatgutverbrauch pro Kunde: eigene Werte (Legeabstand / Fahrgassenabstand) oder Standard Dosen/ha
-const rsRowEigen = r => !!(r && (r.lege || r.fga));
-const rsRowDpha = (rec, r) => rsRowEigen(r) ? rsCalcDpha(r.lege || rec.lege || 17, r.fga || rec.fga || 21, rec.fgp) : (rec.dpha || 0);
+const rsRowEigen = r => !!(r && (r.lege || r.fga || r.fga === 0));
+// Fahrgassen: Zahl = Abstand in m, 0 (Eingabe «–») = keine Fahrgassen, leer = Standard
+const rsFgIn = v => { const t = String(v ?? '').trim(); return /^[-–—]$/.test(t) ? 0 : (rsNum(t) || null); };
+const rsFgTxt = v => v === 0 ? '–' : (v ?? '');
+const rsFgLbl = (rec, r) => r.fga === 0 ? 'ohne Fahrgassen' : `Fahrgasse ${fmtNum(r.fga || rec.fga)} m`;
+const rsRowDpha = (rec, r) => rsRowEigen(r) ? rsCalcDpha(r.lege || rec.lege || 17, r.fga === 0 ? 0 : (r.fga || rec.fga || 21), rec.fgp) : (rec.dpha || 0);
 
 /* ---------- Dialoge ---------- */
 function rsRowDialog(id) {
@@ -5261,7 +5265,7 @@ function rsRowDialog(id) {
   const body = `<label class="fld"><span>Kunde</span><select class="input" name="kunde" data-combo><option value="">— ohne Zuordnung —</option>${kOpts}</select></label>
     ${!r.kunde ? `<label class="fld"><span>Bezeichnung (ohne Kunde)${r.name ? ' – aus der Excel-Tabelle' : ''}</span><input class="input" name="name" value="${esc(r.name || '')}"></label>` : ''}
     <div class="three"><label class="fld"><span>Legeabstand cm</span><input class="input" name="lege" inputmode="decimal" value="${r.lege ?? ''}" placeholder="${fmtNum(rec.lege)} (Standard)"></label>
-      <label class="fld"><span>Fahrgassenabstand m</span><input class="input" name="fga" inputmode="decimal" value="${r.fga ?? ''}" placeholder="${fmtNum(rec.fga)} (Standard)"></label>
+      <label class="fld"><span>Fahrgassenabstand m</span><input class="input" name="fga" value="${rsFgTxt(r.fga)}" placeholder="${fmtNum(rec.fga)} (Standard) · – = keine"></label>
       <label class="fld"><span>Saatgutverbrauch</span><input class="input" readonly value="${fmtNum(rsRowDpha(rec, r))} Dosen/ha" tabindex="-1"></label></div>
     <label class="fld"><span>Bemerkung</span><input class="input" name="notiz" value="${esc(r.notiz || '')}"></label>
     ${O.length ? `<h4 style="margin:10px 0 4px">Saataufträge</h4><div class="rssaatc">${rsSaatHtml(rec, { ...r, saat: [] })}</div>` : ''}
@@ -5273,7 +5277,7 @@ function rsRowDialog(id) {
     r.kunde = k; r.name = k ? (r.name || '') : (fd.get('name') || r.name || '').trim(); r.notiz = (fd.get('notiz') || '').trim();
     if (!k && !r.name) { toast('Kunde wählen oder Bezeichnung eingeben.'); return false; }
     r.saat = $$('.rssl', Dlg.form).map(l => ({ d: l.querySelector('[name=sd]').value || '', sid: l.querySelector('[name=ssid]').value || '', ha: rsNum(l.querySelector('[name=sha]').value), txt: l.querySelector('[name=stxt]').value.trim() })).filter(x => x.d || x.ha || x.txt);
-    r.lege = rsNum(fd.get('lege')); r.fga = rsNum(fd.get('fga'));
+    r.lege = rsNum(fd.get('lege')); r.fga = rsFgIn(fd.get('fga'));
     // neuer Kunde: Lege- und Fahrgassenabstand aus dem Vorjahr übernehmen
     if (isNew && k && r.lege == null && r.fga == null) { const pr = (rsGet(rr.jahr - 1)?.rows || []).find(x => x.kunde === k); if (pr) { r.lege = pr.lege ?? null; r.fga = pr.fga ?? null; } }
     delete r._pv;
@@ -5327,7 +5331,7 @@ function rsPrint() {
 }
 function rsXlsx() {
   const rec = rsRec(), need = rsNeed(rec), All = rsSorted(rec);
-  const fl = [['Kunde', 'Legeabstand cm', 'Fahrgasse m', 'Dosen/ha', ...All.map(s => s.name), 'Total ha', rec.cone.name || 'Conviso One', 'Saat', 'Bemerkung'], ...rec.rows.map(r => [rsRowName(r), r.lege ?? '', r.fga ?? '', rsRowDpha(rec, r), ...All.map(s => (r.ha || {})[s.id] ?? ''), rsRowHa(rec, r), rsRowCone(rec, r) || '', rsSaatHtml(rec, r).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), r.notiz || ''])];
+  const fl = [['Kunde', 'Legeabstand cm', 'Fahrgasse m', 'Dosen/ha', ...All.map(s => s.name), 'Total ha', rec.cone.name || 'Conviso One', 'Saat', 'Bemerkung'], ...rec.rows.map(r => [rsRowName(r), r.lege ?? '', rsFgTxt(r.fga), rsRowDpha(rec, r), ...All.map(s => (r.ha || {})[s.id] ?? ''), rsRowHa(rec, r), rsRowCone(rec, r) || '', rsSaatHtml(rec, r).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), r.notiz || ''])];
   fl.push(['Total', '', '', '', ...All.map(s => need.find(x => x.key === s.id)?.ha ?? ''), r2(rec.rows.reduce((t, r) => t + rsRowHa(rec, r), 0)), need.find(x => x.key === 'cone')?.ha ?? '']);
   const be = [['Sorte', 'Gruppe', 'ha', 'Bedarf Dosen', 'Restmenge', 'Zusätzlich', 'Total Bedarf', 'Bestellung', 'Preis/Dose CHF', 'Betrag CHF'], ...need.map(x => [x.name, x.gruppe === 'conv' ? 'Conviso Smart' : x.gruppe === 'cone' ? 'Herbizid' : 'Standard', x.ha, x.bedarf, x.rest || '', x.extra || '', x.total, x.best, x.pd ?? '', x.betrag || ''])];
   const ko = [['Kunde', 'Dosen/ha', 'Sorte', 'bestellt ha', 'gesät ha', 'Dosen', 'Preis/Dose CHF', 'Betrag CHF', 'Abgerechnet']]; rsAbr(rec).forEach(k => k.pos.forEach(p => ko.push([rsRowName(k.r), k.dp, p.name, p.geplant, p.ha ?? '', p.d, p.pd ?? '', p.betrag ?? '', k.r.abr || ''])));
@@ -5504,7 +5508,7 @@ document.addEventListener('change', e => {
     case 'dpha': if (n) r.dpha = n; break;
     case 'mwst': r.mwst = n != null ? n / 100 : 0; break;
     case 'versand': r.versand = n ?? 0; break;
-    case 'lege': case 'fga': { if (t.dataset.r) { const row = r.rows.find(x => x.id === t.dataset.r); if (!row) return; row[k] = n || null; } else if (n) r[k] = n; break; }
+    case 'lege': case 'fga': { if (t.dataset.r) { const row = r.rows.find(x => x.id === t.dataset.r); if (!row) return; row[k] = k === 'fga' ? rsFgIn(v) : (n || null); } else if (n) r[k] = n; break; }
     case 'fgp': r.fgp = n != null ? n / 100 : 0; break;
     default: return;
   }
@@ -5586,7 +5590,7 @@ function rsDoneRead(fd, a) {
 function rsAbrPrint() {
   const rec = rsRec(), S = rsState(), K = rsAbr(rec).filter(k => (!S.ak || k.r.id === S.ak) && (!S.as || S.as === 'alle' || (S.as === 'offen' ? !k.r.abr : !!k.r.abr)));
   const html = K.map((k, i) => `<div style="${i ? 'break-before:page' : ''}">${LETTERHEAD}<h1 class="ptitle">Rübensamen ${rec.jahr} – ${esc(rsRowName(k.r))}</h1>
-    <p>Saatgutverbrauch ${fmtNum(k.dp)} Dosen/ha${rsRowEigen(k.r) ? ` (Legeabstand ${fmtNum(k.r.lege || rec.lege)} cm, Fahrgasse ${fmtNum(k.r.fga || rec.fga)} m)` : ''}</p>
+    <p>Saatgutverbrauch ${fmtNum(k.dp)} Dosen/ha${rsRowEigen(k.r) ? ` (Legeabstand ${fmtNum(k.r.lege || rec.lege)} cm, ${rsFgLbl(rec, k.r)})` : ''}</p>
     <table class="btab"><thead><tr><th>Sorte</th><th class="n">gesät ha</th><th class="n">Dosen</th><th class="n">Preis/Dose CHF</th><th class="n">Betrag CHF</th></tr></thead><tbody>
     ${k.pos.map(p => `<tr><td>${esc(p.name)}</td><td class="n">${p.cone ? '' : fmtNum(p.ha)}</td><td class="n">${fmtNum(p.d)}${p.cone ? ' Einh.' : ''}</td><td class="n">${p.pd != null ? chf(p.pd) : ''}</td><td class="n">${p.betrag != null ? chf(p.betrag) : ''}</td></tr>`).join('')}
     <tr class="gp"><td colspan="4"><b>Total inkl. ${fmtNum(r2((rec.mwst || 0) * 100))} % MwSt</b></td><td class="n"><b>${chf(k.total)}</b></td></tr></tbody></table></div>`).join('');
