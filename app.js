@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '80', APP_STAND = '29.10.2026';
+const APP_VERSION = '81', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -5143,23 +5143,23 @@ function rsAreaView(rec) {
   const St = rsStd(rec), Cv = rsConv(rec), All = [...St, ...Cv];
   if (!All.length) return `<div class="panel"><h2>Flächen ${rec.jahr}</h2><p class="nr">Zuerst unter «Sorten & Preise» die Sorten erfassen.</p><div class="btns"><button class="btn primary" data-rs="sub" data-v="sorten">Sorten & Preise</button></div></div>`;
   const grp = `<tr class="rsgrp"><th></th><th colspan="3">Saatgutverbrauch</th>${St.length ? `<th colspan="${St.length}">Standard</th>` : ''}${Cv.length ? `<th colspan="${Cv.length}" class="conv">Conviso Smart</th>` : ''}<th></th><th class="conv">${esc(rec.cone.name || 'Conviso One')}</th><th></th><th></th></tr>`;
-  const th = All.map(s => `<th class="n ${s.gruppe === 'conv' ? 'conv' : ''}" title="${s.preis != null ? 'Grundpreis ' + chf(s.preis) : 'ohne Preis'}">${esc(s.name)}</th>`).join('');
+  const th = All.map(s => `<th class="n srt ${s.gruppe === 'conv' ? 'conv' : ''}" title="${s.preis != null ? 'Grundpreis ' + chf(s.preis) : 'ohne Preis'}">${esc(s.name)}</th>`).join('');
   const rows = rec.rows.map(r => `<tr><th class="vbrh" data-rs="rowEdit" data-id="${r.id}" title="Kunde, Bemerkung und Saattermine bearbeiten">${esc(rsRowName(r))}${r.kunde ? '' : ' <span class="warnchip" title="Keinem Kunden zugeordnet">?</span>'}${r.notiz ? `<div class="nr rsnotiz">${esc(r.notiz)}</div>` : ''}</th>
       <td class="n"><input class="vbin sm" inputmode="decimal" data-rsin="lege" data-r="${r.id}" data-rsk="l-${r.id}" value="${r.lege ?? ''}" placeholder="${fmtNum(rec.lege)}" title="Legeabstand cm (leer = Standard)"></td>
       <td class="n"><input class="vbin sm" data-rsin="fga" data-r="${r.id}" data-rsk="g-${r.id}" value="${rsFgTxt(r.fga)}" placeholder="${fmtNum(rec.fga)}" title="Fahrgassenabstand m (leer = Standard, – = keine Fahrgassen)"></td>
       <td class="n rsdp ${rsRowEigen(r) ? '' : 'nr'}" title="${rsRowEigen(r) ? 'aus Legeabstand und Fahrgasse des Kunden' : 'Standard (Sorten & Preise)'}">${fmtNum(rsRowDpha(rec, r))}</td>
-      ${All.map(s => `<td class="n ${s.gruppe === 'conv' ? 'conv' : ''}"><input class="vbin" inputmode="decimal" data-rsin="ha" data-r="${r.id}" data-s="${s.id}" data-rsk="h-${r.id}-${s.id}" value="${(r.ha || {})[s.id] ?? ''}"></td>`).join('')}
+      ${All.map(s => `<td class="n srt ${s.gruppe === 'conv' ? 'conv' : ''}"><input class="vbin" inputmode="decimal" data-rsin="ha" data-r="${r.id}" data-s="${s.id}" data-rsk="h-${r.id}-${s.id}" value="${(r.ha || {})[s.id] ?? ''}"></td>`).join('')}
       <td class="n tot">${fmtNum(rsRowHa(rec, r)) || ''}</td>
       <td class="n conv"><input class="vbin ${r.cone == null ? 'auto' : ''}" inputmode="decimal" data-rsin="cone" data-r="${r.id}" data-rsk="c-${r.id}" value="${r.cone ?? (rsRowConvHa(rec, r) || '')}" title="${r.cone == null ? 'automatisch = Fläche der Conviso-Sorten; überschreibbar' : 'von Hand (leeren = automatisch)'}"></td>
       <td class="rssaatc">${rsSaatHtml(rec, r)}</td>
       <td><button type="button" class="btn mini" data-rs="mkOrder" data-id="${r.id}" title="Auftrag «Rüben säen» mit Fläche und Sorten erfassen">＋ Saat</button></td></tr>`).join('');
   const need = rsNeed(rec), nb = Object.fromEntries(need.map(x => [x.key, x]));
   const tot = r2(rec.rows.reduce((t, r) => t + rsRowHa(rec, r), 0));
-  return `<div class="panel"><h2>Flächen ${rec.jahr} <small class="nr">ha pro Kunde und Sorte · ohne eigene Werte ${fmtNum(rec.dpha)} Dosen/ha</small></h2>
+  return `<div class="panel"><h2>Flächen ${rec.jahr} <small class="nr">ha pro Kunde und Sorte · ohne eigene Werte ${fmtNum(rec.dpha)} Dosen/ha${rec.ueber ? ` · Dosen/ha inkl. ${fmtNum(r2(rec.ueber * 100))} % Zuschlag für Überlappungen` : ''}</small></h2>
     <div class="vbmatrix rsmatrix"><table class="vbtab rstab"><thead>${grp}<tr><th class="vbc">Kunde</th><th class="n" title="Legeabstand in cm">Lege cm</th><th class="n" title="Fahrgassenabstand in m">FG m</th><th class="n" title="Saatgutverbrauch Dosen pro ha">Dosen/ha</th>${th}<th class="n">Total ha</th><th class="n conv">ha</th><th>Saat</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
-      <tfoot><tr><th>Total ha</th><td></td><td></td><td></td>${All.map(s => `<td class="n"><b>${fmtNum(nb[s.id]?.ha) || ''}</b></td>`).join('')}<td class="n"><b>${fmtNum(tot)}</b></td><td class="n"><b>${fmtNum(nb.cone?.ha) || ''}</b></td><td></td><td></td></tr>
-        <tr class="rsdosen"><th>Bedarf Dosen</th><td></td><td></td><td></td>${All.map(s => `<td class="n">${fmtNum(nb[s.id]?.bedarf) || ''}</td>`).join('')}<td class="n">${fmtNum(r2(All.reduce((t, s) => t + (nb[s.id]?.bedarf || 0), 0)))}</td><td class="n">${fmtNum(nb.cone?.bedarf) || ''}</td><td></td><td></td></tr></tfoot></table></div>
+      <tfoot><tr><th>Total ha</th><td></td><td></td><td></td>${All.map(s => `<td class="n srt ${s.gruppe === 'conv' ? 'conv' : ''}"><b>${fmtNum(nb[s.id]?.ha) || ''}</b></td>`).join('')}<td class="n"><b>${fmtNum(tot)}</b></td><td class="n"><b>${fmtNum(nb.cone?.ha) || ''}</b></td><td></td><td></td></tr>
+        <tr class="rsdosen"><th>Bedarf Dosen</th><td></td><td></td><td></td>${All.map(s => `<td class="n srt ${s.gruppe === 'conv' ? 'conv' : ''}">${fmtNum(nb[s.id]?.bedarf) || ''}</td>`).join('')}<td class="n">${fmtNum(r2(All.reduce((t, s) => t + (nb[s.id]?.bedarf || 0), 0)))}</td><td class="n">${fmtNum(nb.cone?.bedarf) || ''}</td><td></td><td></td></tr></tfoot></table></div>
     <div class="btns"><button class="btn" data-rs="rowNew">＋ Kunde</button><button class="btn" data-rs="sortNew">＋ Sorte</button><span class="spacer"></span><button class="btn" data-rs="fahrer" title="Eine Seite (A4 quer) für den Schlepperfahrer: pro Kunde Sorten, Fläche, Dosen, Legeabstand und Fahrgassen">🖨 Übersicht Fahrer (PDF)</button></div>
     <p class="nr">Fläche direkt in die Zelle tippen (Tab springt weiter). Saatgutverbrauch: Legeabstand (cm) und Fahrgassenabstand (m) pro Kunde ergeben die Dosen/ha (leer = Standard aus «Sorten & Preise»); sie gelten für Bedarf und Abrechnung. Conviso One grau = automatisch (Fläche der Conviso-Sorten), überschreibbar. Kundennamen antippen für Zuordnung, Bemerkung und Saattermine. «＋ Saatauftrag» erfasst einen Auftrag «Rüben säen»; er erscheint danach in der Spalte Saat (✓ = erledigt).</p></div>`;
 }
@@ -5168,7 +5168,7 @@ function rsOrderView(rec) {
   const gl = { std: 'Standard', conv: 'Conviso Smart', cone: 'Herbizid' };
   let lastG = '';
   const tr = x => { const g = x.gruppe === 'conv' ? 'conv' : x.gruppe === 'cone' ? 'cone' : 'std', gh = g !== lastG ? `<tr class="gk"><td colspan="10">${gl[g]}</td></tr>` : ''; lastG = g;
-    return gh + `<tr class="${x.total < 0 ? 'vbover' : ''}"><td>${esc(x.name)}</td><td class="n">${fmtNum(x.ha)}</td><td class="n">${fmtNum(x.bedarf)}</td>
+    return gh + `<tr class="${x.total < 0 ? 'vbover' : ''}${x.gruppe === 'conv' ? ' rsconv' : ''}"><td>${esc(x.name)}</td><td class="n">${fmtNum(x.ha)}</td><td class="n">${fmtNum(x.bedarf)}</td>
       <td class="n"><input class="vbin" inputmode="decimal" data-rsin="rest" data-k="${x.key}" data-rsk="r-${x.key}" value="${x.rest || ''}" placeholder="0" title="Restmenge an Lager (Dosen)"></td>
       <td class="n">${x.extra ? fmtNum(x.extra) : ''}</td><td class="n">${fmtNum(x.total)}</td>
       <td class="n"><input class="vbin ${x.manuell ? '' : 'auto'}" inputmode="decimal" data-rsin="best" data-k="${x.key}" data-rsk="b-${x.key}" value="${x.manuell ? x.best : ''}" placeholder="${x.vorschlag}" title="${x.manuell ? 'von Hand (leeren = Vorschlag)' : 'Vorschlag = Total aufgerundet'}"></td>
@@ -5180,7 +5180,7 @@ function rsOrderView(rec) {
     <div class="tscroll"><table class="need vbneed rsneed"><thead><tr><th>Sorte</th><th class="n">ha</th><th class="n">Bedarf Dosen</th><th class="n">Restmenge</th><th class="n">Zusätzlich</th><th class="n">Total Bedarf</th><th class="n">Bestellung</th><th class="n">Preis/Dose</th><th class="n">Betrag CHF</th></tr></thead>
       <tbody>${need.map(tr).join('') || '<tr><td colspan="9" class="nr">Noch keine Sorten.</td></tr>'}</tbody>
       <tfoot><tr><th colspan="6">Total Bestellung</th><td class="n"><b>${fmtNum(need.reduce((t, x) => t + (x.key === 'cone' ? 0 : x.best), 0))} Dosen</b></td><td></td><td class="n"><b>${chf(sum)}</b></td></tr></tfoot></table></div>
-    <p class="nr">Bedarf = ha × Saatgutverbrauch des Kunden (ohne eigene Werte ${fmtNum(rec.dpha)} Dosen/ha; Conviso One: ha × ${fmtNum(rec.cone.faktor ?? 1)}). Total Bedarf = Bedarf − Restmenge + Zusätzlich. Bestellung grau = Vorschlag (aufgerundet), überschreibbar. Preis/Dose = Grundpreis + ${fmtNum(r2((rec.mwst || 0) * 100))} % MwSt + Vertriebskosten.</p></div>
+    <p class="nr">Bedarf = ha × Saatgutverbrauch des Kunden (ohne eigene Werte ${fmtNum(rec.dpha)} Dosen/ha${rec.ueber ? `, inkl. ${fmtNum(r2(rec.ueber * 100))} % Zuschlag für Überlappungen` : ''}; Conviso One: ha × ${fmtNum(rec.cone.faktor ?? 1)}). Total Bedarf = Bedarf − Restmenge + Zusätzlich. Bestellung grau = Vorschlag (aufgerundet), überschreibbar. Preis/Dose = Grundpreis + ${fmtNum(r2((rec.mwst || 0) * 100))} % MwSt + Vertriebskosten.</p></div>
     <div class="panel"><h2>Zusätzliche Abnehmer <small class="nr">Dosen, z.B. Dardel</small></h2>
       ${rec.extra.length ? `<div class="vbmatrix"><table class="vbtab"><thead><tr><th class="vbc">Abnehmer</th>${All.map(s => `<th class="n">${esc(s.name)}</th>`).join('')}<th></th></tr></thead><tbody>${ex}</tbody></table></div>` : '<p class="nr">Keine.</p>'}
       <div class="btns"><button class="btn" data-rs="exAdd">＋ Abnehmer</button></div></div>`;
@@ -5201,7 +5201,7 @@ function rsAbrView(rec) {
         ${!k.G.any ? ' <span class="badge offen">noch keine Saat gemeldet</span>' : ''}</td>
         <td class="n"><b>${chf(k.total)}</b></td>
         <td class="n">${r.abr ? `<button type="button" class="btn mini" data-rs="abrMark" data-id="${r.id}" data-v="0">Wieder offen</button>` : `<button type="button" class="btn mini primary" data-rs="abrMark" data-id="${r.id}" data-v="1">✓ Abgerechnet</button>`}</td></tr>
-      ${k.pos.map(p => `<tr><td>${esc(p.name)}</td><td class="n nr">${p.cone ? fmtNum(p.geplant) + ' ha' : fmtNum(p.geplant)}</td><td class="n">${p.cone ? '' : (p.ha ? fmtNum(p.ha) : '<span class="nr">–</span>')}</td>
+      ${k.pos.map(p => `<tr class="${p.sid && (rec.sorten.find(x => x.id === p.sid) || {}).gruppe === 'conv' ? 'rsconv' : ''}"><td>${esc(p.name)}</td><td class="n nr">${p.cone ? fmtNum(p.geplant) + ' ha' : fmtNum(p.geplant)}</td><td class="n">${p.cone ? '' : (p.ha ? fmtNum(p.ha) : '<span class="nr">–</span>')}</td>
         <td class="n">${p.cone ? `<input class="vbin ${p.manuell ? '' : 'auto'}" inputmode="decimal" data-rsin="coneAbr" data-r="${r.id}" data-rsk="ca-${r.id}" value="${p.manuell ? p.d : ''}" placeholder="${fmtNum(p.d)}" title="${p.manuell ? 'von Hand (leeren = aus der Bestellung)' : 'aus der Bestellung, überschreibbar'}"> <span class="nr">Einh.</span>` : fmtNum(p.d)}</td>
         <td class="n">${p.pd != null ? chf(p.pd) : '–'}</td><td class="n">${p.betrag != null ? chf(p.betrag) : ''}</td><td></td></tr>`).join('')}
       ${k.G.ohne ? `<tr><td colspan="7" class="nr">Zusätzlich ${fmtNum(k.G.ohne)} ha gesät ohne Sorte – Saattermin (Kundennamen unter «Flächen & Saat» antippen) oder Auftrag einer Sorte zuordnen.</td></tr>` : ''}</tbody>`; };
@@ -5233,6 +5233,8 @@ function rsSortenView(rec) {
       <div class="three"><label class="fld"><span>Dosen pro ha (Kunden ohne eigene Werte)</span><input class="input" inputmode="decimal" data-rsin="dpha" data-rsk="dpha" value="${rec.dpha ?? ''}"></label>
         <label class="fld"><span>MwSt %</span><input class="input" inputmode="decimal" data-rsin="mwst" data-rsk="mwst" value="${rec.mwst != null ? r2(rec.mwst * 1000) / 10 : ''}"></label>
         <label class="fld"><span>Vertriebs- und Verwaltungskosten pro Dose CHF</span><input class="input" inputmode="decimal" data-rsin="versand" data-rsk="vers" value="${rec.versand ?? ''}"></label></div>
+      <div class="three"><label class="fld"><span>Zuschlag Überlappungen % (alle Kunden ${rec.jahr})</span><input class="input" inputmode="decimal" data-rsin="ueber" data-rsk="ueber" value="${rec.ueber ? r2(rec.ueber * 100) : ''}" placeholder="0"></label></div>
+      <p class="nr" style="margin-top:-6px">Wird beim Saatgutverbrauch jedes Kunden dazugerechnet (Dosen/ha × (1 + Zuschlag)) und gilt für Bestellung und Abrechnung.</p>
       <h4 style="margin:12px 0 6px">Dosen pro ha aus Legeabstand und Fahrgassen <small class="nr">Standardwerte; pro Kunde unter «Flächen & Saat»</small></h4>
       <div class="three"><label class="fld"><span>Legeabstand cm (50 cm Reihen)</span><input class="input" inputmode="decimal" data-rsin="lege" data-rsk="lege" value="${rec.lege ?? ''}"></label>
         <label class="fld"><span>Fahrgassenabstand m</span><input class="input" inputmode="decimal" data-rsin="fga" data-rsk="fga" value="${rec.fga ?? ''}"></label>
@@ -5251,7 +5253,9 @@ const rsRowEigen = r => !!(r && (r.lege || r.fga || r.fga === 0));
 const rsFgIn = v => { const t = String(v ?? '').trim(); return /^[-–—]$/.test(t) ? 0 : (rsNum(t) || null); };
 const rsFgTxt = v => v === 0 ? '–' : (v ?? '');
 const rsFgLbl = (rec, r) => r.fga === 0 ? 'ohne Fahrgassen' : `Fahrgasse ${fmtNum(r.fga || rec.fga)} m`;
-const rsRowDpha = (rec, r) => rsRowEigen(r) ? rsCalcDpha(r.lege || rec.lege || 17, r.fga === 0 ? 0 : (r.fga || rec.fga || 21), rec.fgp) : (rec.dpha || 0);
+const rsRowDphaBasis = (rec, r) => rsRowEigen(r) ? rsCalcDpha(r.lege || rec.lege || 17, r.fga === 0 ? 0 : (r.fga || rec.fga || 21), rec.fgp) : (rec.dpha || 0);
+// Saatgutverbrauch inkl. Zuschlag für Überlappungen (gilt im Jahr für alle Kunden; in Bestellung und Abrechnung)
+const rsRowDpha = (rec, r) => r2(rsRowDphaBasis(rec, r) * (1 + (rec.ueber || 0)));
 
 /* ---------- Dialoge ---------- */
 function rsRowDialog(id) {
@@ -5266,7 +5270,7 @@ function rsRowDialog(id) {
     ${!r.kunde ? `<label class="fld"><span>Bezeichnung (ohne Kunde)${r.name ? ' – aus der Excel-Tabelle' : ''}</span><input class="input" name="name" value="${esc(r.name || '')}"></label>` : ''}
     <div class="three"><label class="fld"><span>Legeabstand cm</span><input class="input" name="lege" inputmode="decimal" value="${r.lege ?? ''}" placeholder="${fmtNum(rec.lege)} (Standard)"></label>
       <label class="fld"><span>Fahrgassenabstand m</span><input class="input" name="fga" value="${rsFgTxt(r.fga)}" placeholder="${fmtNum(rec.fga)} (Standard) · – = keine"></label>
-      <label class="fld"><span>Saatgutverbrauch</span><input class="input" readonly value="${fmtNum(rsRowDpha(rec, r))} Dosen/ha" tabindex="-1"></label></div>
+      <label class="fld"><span>Saatgutverbrauch${rec.ueber ? ` <small class="nr">inkl. ${fmtNum(r2(rec.ueber * 100))} % Überlappung</small>` : ''}</span><input class="input" readonly value="${fmtNum(rsRowDpha(rec, r))} Dosen/ha" tabindex="-1"></label></div>
     <label class="fld"><span>Bemerkung</span><input class="input" name="notiz" value="${esc(r.notiz || '')}"></label>
     ${O.length ? `<h4 style="margin:10px 0 4px">Saataufträge</h4><div class="rssaatc">${rsSaatHtml(rec, { ...r, saat: [] })}</div>` : ''}
     <h4 style="margin:10px 0 4px">Saattermine von Hand</h4><div class="rssll">${(r.saat || []).map(sl).join('')}</div>
@@ -5511,6 +5515,7 @@ document.addEventListener('change', e => {
     case 'versand': r.versand = n ?? 0; break;
     case 'lege': case 'fga': { if (t.dataset.r) { const row = r.rows.find(x => x.id === t.dataset.r); if (!row) return; row[k] = k === 'fga' ? rsFgIn(v) : (n || null); } else if (n) r[k] = n; break; }
     case 'fgp': r.fgp = n != null ? n / 100 : 0; break;
+    case 'ueber': r.ueber = n != null ? n / 100 : 0; break;
     default: return;
   }
   rsSave(r);
@@ -5609,17 +5614,17 @@ function rsFahrerPrint() {
   const fg = r => r.fga === 0 ? '–' : fmtNum(r.fga || rec.fga);
   const lege = r => fmtNum(r.lege || rec.lege);
   const tot = s => r2(R.reduce((t, r) => t + ((r.ha || {})[s.id] || 0), 0)), totD = s => r2(R.reduce((t, r) => t + ((r.ha || {})[s.id] || 0) * rsRowDpha(rec, r), 0));
-  const rows = R.map(r => { const dp = rsRowDpha(rec, r), ha = rsRowHa(rec, r);
+  const rows = R.map(r => { const dp = rsRowDpha(rec, r);
     return `<tr><td class="rfk"><b>${esc(rsRowName(r))}</b>${kontakt(r) ? `<div class="rfs">${esc(kontakt(r))}</div>` : ''}</td>
       <td class="n">${rsRowEigen(r) ? lege(r) : `<span class="rfs">${lege(r)}</span>`}</td><td class="n">${rsRowEigen(r) ? fg(r) : `<span class="rfs">${fg(r)}</span>`}</td><td class="n"><b>${fmtNum(dp)}</b></td>
-      ${S.map(s => { const v = (r.ha || {})[s.id]; return `<td class="n">${v ? `<b>${fmtNum(v)}</b><div class="rfs">${fmtNum(r2(v * dp))} D</div>` : ''}</td>`; }).join('')}
-      <td class="n"><b>${fmtNum(ha)}</b><div class="rfs">${fmtNum(r2(ha * dp))} D</div></td><td class="rfb">${esc(r.notiz || '')}</td><td class="rfc">☐</td></tr>`; }).join('');
+      ${S.map(s => { const v = (r.ha || {})[s.id]; return `<td class="n srt ${s.gruppe === 'conv' ? 'conv' : ''}">${v ? `<b>${fmtNum(v)}</b><div class="rfs">${fmtNum(r2(v * dp))} D</div>` : ''}</td>`; }).join('')}
+      <td class="rfb srt">${esc(r.notiz || '')}</td><td class="rfc">☐</td></tr>`; }).join('');
   const html = `<div class="rsfahrer" style="font-size:${fs}pt">
     <div class="rfh"><h1>Rübensaat ${rec.jahr} – Übersicht Fahrer</h1><span>${R.length} Kunden · ${fmtNum(r2(R.reduce((t, r) => t + rsRowHa(rec, r), 0)))} ha · Stand ${new Date().toLocaleDateString('de-CH')}</span></div>
-    <table class="btab rft"><thead><tr><th>Kunde</th><th class="n">Lege&shy;abstand cm</th><th class="n">Fahr&shy;gasse m</th><th class="n">Dosen/ha</th>${S.map(s => `<th class="n">${esc(s.name)}</th>`).join('')}<th class="n">Total</th><th>Bemerkung</th><th class="rfc">✓</th></tr></thead>
+    <table class="btab rft"><thead><tr><th>Kunde</th><th class="n">Lege&shy;abstand cm</th><th class="n">Fahr&shy;gasse m</th><th class="n">Dosen/ha</th>${S.map(s => `<th class="n srt ${s.gruppe === 'conv' ? 'conv' : ''}">${esc(s.name)}</th>`).join('')}<th class="srt">Bemerkung</th><th class="rfc">✓</th></tr></thead>
       <tbody>${rows}</tbody>
-      <tfoot><tr><td><b>Total</b></td><td></td><td></td><td></td>${S.map(s => `<td class="n"><b>${fmtNum(tot(s))}</b><div class="rfs">${fmtNum(totD(s))} D</div></td>`).join('')}<td class="n"><b>${fmtNum(r2(R.reduce((t, r) => t + rsRowHa(rec, r), 0)))}</b><div class="rfs">${fmtNum(r2(S.reduce((t, s) => t + totD(s), 0)))} D</div></td><td></td><td></td></tr></tfoot></table>
-    <p class="rfs" style="margin-top:2mm">Fläche in ha, darunter Dosen (D) = ha × Dosen/ha des Kunden. Grau = Standardwert. Fahrgasse «–» = keine Fahrgassen.</p></div>`;
+      <tfoot><tr><td><b>Total</b></td><td></td><td></td><td></td>${S.map(s => `<td class="n srt ${s.gruppe === 'conv' ? 'conv' : ''}"><b>${fmtNum(tot(s))}</b><div class="rfs">${fmtNum(totD(s))} D</div></td>`).join('')}<td class="srt"></td><td></td></tr></tfoot></table>
+    <p class="rfs" style="margin-top:2mm">Fläche in ha, darunter Dosen (D) = ha × Dosen/ha des Kunden${rec.ueber ? ` (inkl. ${fmtNum(r2(rec.ueber * 100))} % Zuschlag für Überlappungen)` : ''}. Gelb = Conviso-Sorten. Grau = Standardwert. Fahrgasse «–» = keine Fahrgassen.</p></div>`;
   printHtml(`Rübensaat ${rec.jahr} – Übersicht Fahrer`, html, { noTitle: true });
 }
 function pickFile(accept) {

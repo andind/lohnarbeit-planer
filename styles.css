@@ -989,7 +989,9 @@ body.cresizing, body.cresizing * { cursor: col-resize !important; user-select: n
 
 /* v77: Modul Rübensamen */
 .tabs button[hidden] { display: none; }
-.rstab th.conv, .rstab td.conv { background: color-mix(in srgb, var(--accent-soft) 55%, transparent); }
+.rstab th.conv, .rstab td.conv { background: var(--rs-conv); }
+.rstab th.srt, .rstab td.srt { border-left: 1px solid var(--line); }
+.rstab .rsgrp th.conv { background: var(--rs-conv); }
 .rstab .rsgrp th { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; text-align: center; border-bottom: 0; }
 .rstab .rsdosen td, .rstab .rsdosen th { color: var(--muted); font-weight: 500; }
 .rssaatc { min-width: 120px; }
@@ -1051,3 +1053,13 @@ table.need.rskost .vbin.auto::placeholder { color: var(--muted); }
   #printArea .rsfahrer .rfk { white-space: nowrap; }
   @page quer { size: A4 landscape; margin: 10mm 10mm 12mm; }
 }
+
+/* v81: Conviso-Sorten leicht gelb, Sorten mit Strich getrennt */
+:root { --rs-conv: #fdf6d3; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --rs-conv: rgba(240, 210, 90, 0.14); } }
+:root[data-theme="dark"] { --rs-conv: rgba(240, 210, 90, 0.14); }
+@media print {
+  #printArea .rsfahrer .rft th.srt, #printArea .rsfahrer .rft td.srt { border-left: 0.5pt solid #999; }
+  #printArea .rsfahrer .rft th.conv, #printArea .rsfahrer .rft td.conv { background: #fdf3c4; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+table.need tr.rsconv td, table.need tr.rsconv td:first-child { background: var(--rs-conv); }
