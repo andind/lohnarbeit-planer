@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '91', APP_STAND = '31.10.2026';
+const APP_VERSION = '83', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -98,7 +98,7 @@ const Store = {
     });
   },
   v: 0, // Änderungszähler (Zwischenspeicher der Tagesplanung)
-  save() { this.v++; ls('lp_data', JSON.stringify(this.data)); Undo.record(); },
+  save() { this.v++; ls('lp_data', JSON.stringify(this.data)); },
   all(c) { return this.data[c].filter(x => !x.del); },
   get(c, id) { return this.data[c].find(x => x.id === id && !x.del); },
   put(c, obj, { silent } = {}) {
@@ -130,65 +130,6 @@ const Store = {
     return `${y}-${String(max + 1).padStart(3, '0')}`;
   }
 };
-
-/* ================= Rückgängig / Wiederholen =================
-   Nach jedem Speichern werden die geänderten Einträge (Aufträge, Kunden, Einstellungen …) mit ihrem vorherigen Stand
-   gemerkt. Rückgängig stellt diesen Stand wieder her – mit neuer Änderungszeit, damit die Synchronisation ihn übernimmt.
-   Änderungen aus Dropbox, aus einem anderen Fenster oder automatische Ableitungen (Undo.skip) werden nicht gemerkt.
-   Kurz aufeinanderfolgende Speicherungen (unter 1.5 s) gelten als ein Schritt. Gilt für die laufende Sitzung. */
-const Undo = {
-  cache: null, stack: [], redo: [], skip: 0, MAX: 60, SEP: '\u0001',
-  snapshot() { const m = new Map(); COLL.forEach(c => (Store.data[c] || []).forEach(x => m.set(c + this.SEP + x.id, JSON.stringify(x)))); return m; },
-  base() { this.cache = this.snapshot(); },
-  record() {
-    if (!this.cache) return; // erst nach dem Laden
-    const now = this.snapshot();
-    if (this.skip > 0) { this.cache = now; return; }
-    const ch = [];
-    now.forEach((v, k) => { const o = this.cache.get(k); if (o !== v) ch.push({ k, before: o ?? null }); });
-    this.cache.forEach((v, k) => { if (!now.has(k)) ch.push({ k, before: v }); });
-    this.cache = now; if (!ch.length) return;
-    const t = Date.now(), top = this.stack[this.stack.length - 1];
-    if (top && !top.closed && t - top.t < 1500) { ch.forEach(c => { if (!top.ch.some(x => x.k === c.k)) top.ch.push(c); }); top.t = t; }
-    else { this.stack.push({ t, ch }); if (this.stack.length > this.MAX) this.stack.shift(); }
-    this.redo = []; undoBtns();
-  },
-  // Stand vor «e» herstellen; der Gegenschritt kommt auf «to»
-  apply(e, to) {
-    const t = Date.now(), back = [];
-    e.ch.forEach(({ k, before }) => {
-      const [c, id] = k.split(this.SEP), arr = Store.data[c]; if (!arr) return;
-      const i = arr.findIndex(x => x.id === id); back.push({ k, before: i >= 0 ? JSON.stringify(arr[i]) : null });
-      const obj = before ? JSON.parse(before) : { id, del: true }; obj.upd = t;
-      if (i >= 0) arr[i] = obj; else arr.push(obj);
-    });
-    to.push({ t: 0, ch: back, closed: true, label: e.label || undoLabel(e) });
-    this.skip++; try { Store.save(); } finally { this.skip--; }
-    Sync.schedule(); App.render(); undoBtns();
-  },
-  undo() { if (Dlg.el && Dlg.el.open) return; const e = this.stack.pop(); if (!e) { toast('Nichts zum Rückgängigmachen.'); return; } const l = e.label || undoLabel(e); this.apply(e, this.redo); toast('↶ Rückgängig: ' + l); },
-  again() { if (Dlg.el && Dlg.el.open) return; const e = this.redo.pop(); if (!e) return; const l = e.label; this.apply(e, this.stack); toast('↷ Wiederholt: ' + l); }
-};
-function undoLabel(e) {
-  const SEP = Undo.SEP, [c, id] = e.ch[0].k.split(SEP), doc = Store.data[c] && (Store.data[c].find(x => x.id === id) || (e.ch[0].before ? JSON.parse(e.ch[0].before) : null)) || {};
-  const n = e.ch.length > 1 ? ` (+${e.ch.length - 1})` : '';
-  if (c === 'auftraege') return `Auftrag ${doc.nr || ''} ${doc.arbeit ? '· ' + doc.arbeit : ''}`.trim() + n;
-  if (c === 'einstellungen') return (/^eb-/.test(id) ? 'Eigener Betrieb' : /^rs-/.test(id) ? 'Rübensamen' : /^vb/.test(id) ? 'Vorbestellung Spritzen' : 'Einstellungen') + n;
-  const L = { kunden: 'Kunde', maschinen: 'Maschine', parzellen: 'Parzelle', produkte: 'Produkt', felder: 'Feld', personal: 'Personal', pausen: 'Pause' };
-  return `${L[c] || c}${doc.name ? ' ' + doc.name : ''}` + n;
-}
-function undoBtns() {
-  const u = document.getElementById('hdrUndo'), r = document.getElementById('hdrRedo'); if (!u || !r) return;
-  const e = Undo.stack[Undo.stack.length - 1], f = Undo.redo[Undo.redo.length - 1];
-  u.disabled = !e; u.title = e ? `Rückgängig: ${e.label || undoLabel(e)} (Ctrl+Z)` : 'Nichts zum Rückgängigmachen';
-  r.disabled = !f; r.title = f ? `Wiederholen: ${f.label} (Ctrl+Y)` : 'Nichts zum Wiederholen';
-}
-document.addEventListener('keydown', e => {
-  if (!(e.ctrlKey || e.metaKey) || e.altKey) return; const k = e.key.toLowerCase(); if (k !== 'z' && k !== 'y') return;
-  const a = document.activeElement; if (a && (a.matches('input, textarea, select, [contenteditable]'))) return; // dort gilt das Rückgängig des Eingabefelds
-  if (Dlg.el && Dlg.el.open) return;
-  e.preventDefault(); if (k === 'y' || e.shiftKey) Undo.again(); else Undo.undo();
-});
 
 function mergeData(a, b) {
   const out = { v: 2 };
@@ -347,7 +288,7 @@ const Sync = {
         if (remote.data) {
           const merged = mergeData(Store.data, remote.data);
           const changed = !sameData(merged, Store.data);
-          Store.data = merged; Store.migrate(); Undo.skip++; try { Store.save(); } finally { Undo.skip--; }
+          Store.data = merged; Store.migrate(); Store.save();
           if (changed) App.render();
           if (sameData(merged, remote.data)) break;
         }
@@ -639,9 +580,7 @@ const App = {
   go(v) { if (v === 'verwaltung') v = VERW.includes(ls('lp_verw')) ? ls('lp_verw') : 'jdbericht'; this.view = v; ls('lp_view', v); this.lastView = null; this.tlScroll = null; window.scrollTo(0, 0); this.render(); },
   render() {
     if (this.view === 'rueben' && !rsOn()) this.view = 'auftraege';
-    if (this.view === 'betrieb' && typeof ebOn === 'function' && !ebOn()) this.view = 'auftraege'; // Modul «Eigener Betrieb» (betrieb.js)
     rsNav();
-    if (typeof ebNav === 'function') ebNav();
     const navV = this.view === 'maschinen' ? 'mehr' : VERW.includes(this.view) ? 'verwaltung' : this.view;
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === navV));
     const fresh = this.lastView !== this.view; this.lastView = this.view;
@@ -655,7 +594,6 @@ const App = {
     $('#content').innerHTML = v.content();
     if (v.after) v.after();
     renderSelbar();
-    hdrUpdate();
     Sync.setState();
   }
 };
@@ -664,54 +602,6 @@ const App = {
 // Modul Verwaltung = Bericht, Abrechnung und Kunden (Unterreiter); merkt sich den zuletzt benutzten Reiter
 const VERW = ['jdbericht', 'abrechnung', 'kunden'];
 const verwNav = cur => { ls('lp_verw', cur); return `<div class="seg mehrnav">${[['jdbericht', 'Bericht'], ['abrechnung', 'Abrechnung'], ['kunden', 'Kunden']].map(([v, l]) => `<button type="button" data-view="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`; };
-
-/* ---------- Zweites Fenster: gleiche App, anderer Bereich, Daten bleiben zwischen den Fenstern abgeglichen ---------- */
-// Knöpfe in der Titelleiste: «Zweites Fenster» nur am PC (Maus, breiter Bildschirm), «Vollbild» je nach Bereich
-const isPC = () => matchMedia('(pointer: fine) and (hover: hover) and (min-width: 1000px)').matches;
-const FS_VIEWS = { plan: () => App.fs, jdbericht: () => !!(App.jdb && App.jdb.fs), abrechnung: () => !!(App.abr && App.abr.fs) };
-const fsOn = () => FS_VIEWS[App.view] ? FS_VIEWS[App.view]() : !!document.fullscreenElement;
-function fsToggle() {
-  if (App.view === 'plan') App.fs = !App.fs;
-  else if (App.view === 'jdbericht') App.jdb.fs = !App.jdb.fs;
-  else if (App.view === 'abrechnung') App.abr.fs = !App.abr.fs;
-  else { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => toast('Vollbild ist hier nicht möglich.')); return; }
-  App.render();
-}
-function hdrUpdate() {
-  const w = $('#hdrWin'), f = $('#hdrFs'); if (!w || !f) return;
-  w.hidden = !isPC();
-  f.hidden = !FS_VIEWS[App.view] && !document.fullscreenEnabled;
-  const on = fsOn(); f.classList.toggle('on', on); f.title = on ? 'Vollbild beenden (Esc)' : 'Vollbild';
-  f.innerHTML = on ? '✕ <span class="hide-sm">Vollbild beenden</span>' : '⛶ <span class="hide-sm">Vollbild</span>';
-}
-document.addEventListener('fullscreenchange', () => hdrUpdate());
-addEventListener('resize', () => hdrUpdate());
-function openWin(view) {
-  const u = new URL(location.href); u.search = ''; u.hash = ''; u.searchParams.set('view', view);
-  const sub = view === 'spritzen' ? App.spray.tab : view === 'betrieb' && App.eb ? App.eb.sub : '';
-  if (sub) u.searchParams.set('sub', sub);
-  const w = window.open(u.href, 'imv' + Date.now(), `popup,width=${Math.min(1400, screen.availWidth)},height=${Math.min(950, screen.availHeight)}`);
-  if (!w) toast('Das zweite Fenster wurde blockiert – bitte Pop-ups für den IM-Verwalter erlauben.', 5000);
-}
-// Bereich aus der Adresse (zweites Fenster): ?view=spritzen&sub=…
-(() => {
-  try {
-    const q = new URLSearchParams(location.search), v = q.get('view'), sub = q.get('sub'); if (!v) return;
-    App.view = v; App.winSub = sub || '';
-    if (v === 'spritzen' && sub) App.spray.tab = sub;
-    history.replaceState(null, '', location.pathname); // Adresse wieder neutral (Neuladen öffnet den gleichen Bereich über lp_view)
-  } catch { }
-})();
-// Änderungen aus einem anderen Fenster übernehmen, damit sie hier nicht überschrieben werden
-window.addEventListener('storage', e => {
-  if (e.key !== 'lp_data' || !e.newValue) return;
-  try {
-    const d = JSON.parse(e.newValue); if (!d || typeof d !== 'object') return;
-    COLL.forEach(c => { if (!Array.isArray(d[c])) d[c] = []; });
-    Store.data = d; Store.v++; Undo.base();
-    if (Dlg.el && Dlg.el.open) App.pendingRender = true; else App.render();
-  } catch { }
-});
 const mehrNav = cur => `<div class="seg mehrnav">${[['mehr', 'Einstellungen'], ['maschinen', 'Maschinen']].map(([v, l]) => `<button type="button" data-view="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 const Views = {
   /* ---------- Aufträge ---------- */
@@ -766,6 +656,7 @@ const Views = {
         <div class="weekhead">
           <button class="btn small" id="selModeBtn" data-act="selMode">☐ Mehrere auswählen</button>
           <span class="zoomctl"><button class="btn small" data-act="zoom" data-d="-1" aria-label="Verkleinern">−</button><span class="zv" id="zv"></span><button class="btn small" data-act="zoom" data-d="1" aria-label="Vergrössern">＋</button></span>
+          <button class="btn small" data-act="fs" title="Kalender im Vollbild">⛶ Vollbild</button>
           <button class="btn small" data-act="planExport" title="Aktuelle Ansicht als PDF oder Bild">⤓ Export</button>
           <button class="btn small sidebtn" data-act="pSide" title="Nicht eingeplante Aufträge ein-/ausblenden">◧ Offene</button>
         </div>`;
@@ -1076,7 +967,6 @@ const Views = {
         ${typeof icsPanel === 'function' ? icsPanel() : ''}
         ${jdOcPanel()}
         ${rsPanel()}
-        ${typeof ebPanel === 'function' ? ebPanel() : ''}
         <div class="panel"><h2>Planung: Achsen</h2>
           <div class="two">
             <label class="fld"><span>Wochenansicht</span><select class="input" data-plain data-in="axW"><option value="tage">Tage untereinander, Maschinen nebeneinander</option><option value="maschinen" ${App.plan.axW === 'maschinen' ? 'selected' : ''}>Maschinen untereinander, Tage nebeneinander</option></select></label>
@@ -1099,7 +989,7 @@ const Views = {
           <div class="btns"><button class="btn primary" data-act="export">CSV herunterladen</button></div></div>
         <div class="panel"><h2>Datensicherung</h2>
           <p>Zusätzliche Sicherung aller Daten als Datei. Dropbox führt zudem selbst einen Versionsverlauf der Datendatei.</p>
-          <p><b>Alles als Excel:</b> sämtliche Daten in einer Excel-Datei mit je einem Blatt für Aufträge, Spritzprodukte, Kunden, Felder, Parzellen, Produkte, Preisverlauf, Maschinen und Listen – zum Auswerten, Archivieren oder Weitergeben.</p>
+          <p><b>Alles als Excel:</b> sämtliche Daten in einer Excel-Datei mit je einem Blatt für Aufträge, Spritzprodukte, Kunden, Felder, Parzellen, Produkte, Preisverlauf, Maschinen, Listen, Vermessungen, Spritzprogramme, Vorbestellung, Rübensamen, Rübensamen Sorten, JD-Abrechnung und Einstellungen – zum Auswerten, Archivieren oder Weitergeben. <b>Sicherung herunterladen</b> enthält alle Daten aller Module zum Wiedereinlesen.</p>
           <div class="btns"><button class="btn primary" data-act="exportAllXlsx">Alles als Excel (.xlsx)</button><button class="btn" data-act="backup">Sicherung herunterladen (zum Einlesen)</button><button class="btn" data-act="restore">Sicherung einlesen</button></div>
           <p class="nr">Zum Zurückspielen dient die Sicherungsdatei (.json); die Excel-Datei ist zum Lesen und Auswerten gedacht.</p></div>
         <div class="panel"><h2>Version</h2>${versionInfo()}</div>
@@ -2125,7 +2015,6 @@ function sprayBox(a) {
         <button type="button" class="btn" data-act="parzNew" title="Neue Parzelle" aria-label="Neue Parzelle">＋</button></div></label>
       <label class="fld"><span>Feld (Bezeichnung)</span><input class="input" name="feld" value="${esc(a.feld || '')}" placeholder="z.B. Grossacker"></label>
     </div>
-    ${typeof ebSprayHtml === 'function' ? ebSprayHtml(a) : ''}
     <div class="two">
       <label class="fld"><span>Wassermenge (l/ha)</span><input class="input" name="wasser" inputmode="decimal" value="${a.wasser ?? ''}" placeholder="z.B. 200"></label>
       <label class="fld"><span>Stadium</span><input class="input" name="stadium" value="${esc(a.stadium || '')}" placeholder="z.B. BBCH 31"></label>
@@ -2152,8 +2041,7 @@ function readSpray(f) {
   return {
     parzelle: f.parzelle.value, feld: f.feld.value.trim(), wasser: num(f.wasser.value), stadium: f.stadium.value.trim(),
     duese: f.duese.value, traktor: f.traktor.value, nichtOeln: f.nichtOeln.checked,
-    erntejahr: ej || ernteDefault(f.datum.value || f.wunsch.value || todayIso(), f.kultur.value), produkte,
-    ...(typeof ebReadSpray === 'function' ? ebReadSpray(f) : {})
+    erntejahr: ej || ernteDefault(f.datum.value || f.wunsch.value || todayIso(), f.kultur.value), produkte
   };
 }
 function wireSpray(f) {
@@ -2181,7 +2069,6 @@ function wireSpray(f) {
   f.addEventListener('input', e => { if (e.target.closest('#sprayBox') || e.target.name === 'flaeche') upd(); });
   f.addEventListener('change', e => { if (['pname', 'kultur', 'datum', 'wunsch', 'erledigtAm'].includes(e.target.name)) upd(); });
   f._sprayUpd = upd; f._refreshParz = refreshParz; upd();
-  if (typeof ebWireSpray === 'function') ebWireSpray(f);
 }
 
 /* ---------- Produkte ---------- */
@@ -3215,8 +3102,8 @@ function exportAllSheets() {
 }
 function exportAllXlsx() {
   try {
-    const sh = exportAllSheets();
-    download(`Lohnarbeit-Daten_${todayIso()}.xlsx`, xlsxBlob(sh));
+    const sh = bakErweitern(exportAllSheets(), Store.data);
+    download(`IM-Verwalter-Daten_${todayIso()}.xlsx`, xlsxBlob(sh));
     toast(`Excel-Datei erstellt: ${sh.map(s => `${s.name} ${s.rows.length - 1}`).join(' · ')}`, 6000);
   } catch (e) { toast('Excel-Export fehlgeschlagen: ' + e.message, 6000); }
 }
@@ -3856,6 +3743,7 @@ function jdBerichtView() {
   return {
     toolbar() {
       return `<h1>Bericht</h1>${verwNav('jdbericht')}
+        <button class="btn" data-act="jbFs" title="Bericht im Vollbild (Esc schliesst)">⛶ Vollbild</button>
         <button class="btn" data-act="jbReq" title="NAS-Dienst holt die neuesten Daten aus MyJohnDeere">⟳ In MyJohnDeere abholen</button>`;
     },
     content() {
@@ -4196,6 +4084,7 @@ function abView() {
   return {
     toolbar() {
       return `<h1>Abrechnung</h1>${verwNav('abrechnung')}
+        <button class="btn" data-ab="fs" title="Vollbild (Esc schliesst)">⛶ Vollbild</button>
         <button class="btn" data-ab="load" title="Arbeitsgänge aus MyJohnDeere neu laden">⟳ JD-Daten neu laden</button>`;
     },
     content() {
@@ -5741,6 +5630,95 @@ function rsFahrerPrint() {
     <p class="rfs" style="margin-top:2mm">Fläche in ha, darunter Dosen (D) = ha × Dosen/ha des Kunden${rec.ueber ? ` (inkl. ${fmtNum(r2(rec.ueber * 100))} % Zuschlag für Überlappungen)` : ''}. Gelb = Conviso-Sorten. Grau = Standardwert. Fahrgasse «–» = keine Fahrgassen.</p></div>`;
   printHtml(`Rübensaat ${rec.jahr} – Übersicht Fahrer`, html, { noTitle: true });
 }
+/* ================= Datensicherung Excel: zusätzliche Blätter (gleicher Code im IM-Verwalter und im NAS-Dienst) ================= */
+// Arbeitet nur mit den Rohdaten D (Inhalt von planung.json), damit beide Seiten dieselbe Datei erzeugen.
+const BAK_VER = 2;
+function bakHelpers(D) {
+  const all = k => (D[k] || []).filter(x => x && !x.del), byId = k => new Map(all(k).map(x => [x.id, x]));
+  const Kd = byId('kunden'), Fd = byId('felder'), Pd = byId('produkte'), Zd = byId('parzellen');
+  const r2 = x => x == null || x === '' || isNaN(+x) ? '' : Math.round(+x * 100) / 100;
+  const kn = id => (Kd.get(id) || {}).name || '';
+  const einst = all('einstellungen'), cfg = einst.find(x => x.id === 'cfg') || {};
+  const yearRecs = pre => einst.filter(x => new RegExp(`^${pre}-\\d{4}$`).test(x.id)).sort((a, b) => b.jahr - a.jahr);
+  const pName = (pid, name) => (pid && Pd.get(pid) || {}).name || name || '';
+  const dt = s => s ? String(s).slice(0, 10) : '';
+  return { all, Kd, Fd, Pd, Zd, r2, kn, einst, cfg, yearRecs, pName, dt };
+}
+// Zusätzliche Spalten im Blatt «Aufträge» (vor der ID)
+const BAK_AUFTRAG_KOPF = ['Mehrtägig', 'Rübensaat Sorten (geplant)', 'Rübensaat gesät pro Sorte', 'Spritzprogramm', 'Verknüpfter JD-Arbeitsgang'];
+function bakAuftragCols(a) {
+  const r2 = x => x == null || x === '' ? '' : Math.round(+x * 100) / 100;
+  const S = a.rsSorten || [], ist = a.rsIst || {};
+  const vb = a.vbInfo ? [a.vbInfo.prog, a.vbInfo.beh].filter(Boolean).join(' › ') : '';
+  return [a.mehrtag === 'arbeitszeit' ? 'in der Arbeitszeit' : a.mehrtag ? 'durchgehend' : '',
+    S.map(x => `${x.name} ${r2(x.ha)} ha`).join(', '),
+    S.filter(x => ist[x.sid] != null).map(x => `${x.name} ${r2(ist[x.sid])} ha`).join(', '),
+    vb, a.jdLink || ''];
+}
+function bakSheets(D) {
+  const H = bakHelpers(D), { all, Fd, r2, kn, cfg, yearRecs, pName, dt } = H, out = [];
+  // Vermessungen (Feldgrenzen aus MyJohnDeere)
+  const ve = [['Kunde', 'Feld', 'Vermessung', 'Fläche ha', 'bearbeitbar ha', 'Aktiv', 'Archiviert', 'Quelle', 'Signal', 'Erstellt', 'Geändert', 'Feld-ID']];
+  all('felder').sort((a, b) => kn(a.kunde).localeCompare(kn(b.kunde), 'de') || String(a.name).localeCompare(String(b.name), 'de'))
+    .forEach(f => (f.grenzen || []).forEach(g => ve.push([kn(f.kunde), f.name, g.name || '', r2(g.ha), r2(g.bha), g.aktiv ? 'ja' : 'nein', g.archiviert ? 'ja' : '', g.quelle || '', String(g.signal || '').replace(/^dtiSignalType/i, ''), dt(g.erstellt), dt(g.geaendert), f.id])));
+  out.push({ name: 'Vermessungen', rows: ve });
+  // Spritzprogramme und Vorbestellung
+  const VB = yearRecs('vb'), sp = [['Erntejahr', 'Programm', 'Kultur', 'Variante', 'Behandlung', 'Stadium BBCH', 'Hinweis', 'Mittel', 'Menge/ha', 'Einheit', 'Optional', 'Zusatzfläche ha']];
+  VB.forEach(r => (r.progs || []).forEach(p => { const B = p.beh || [{ name: '', mittel: p.mittel || [] }];
+    B.forEach(b => { const M = b.mittel && b.mittel.length ? b.mittel : [{}]; M.forEach(m => sp.push([r.jahr, p.name, p.kultur || '', p.variante || '', b.name || '', b.stadium || '', b.hinweis || '', m.name || m.pid ? pName(m.pid, m.name) : '', r2(m.menge), m.einheit || '', m.optional ? 'ja' : '', r2(p.extraHa)])); }); }));
+  out.push({ name: 'Spritzprogramme', rows: sp });
+  const vo = [['Erntejahr', 'Art', 'Kunde', 'Programm', 'Parzelle', 'Artikel', 'Menge', 'Einheit']];
+  VB.forEach(r => { const P = new Map((r.progs || []).map(p => [p.id, p])), R = new Map((r.rows || []).map(x => [x.id, x])), rn = x => x ? (x.kunde ? kn(x.kunde) : x.name || '') : '';
+    (r.rows || []).forEach(x => (r.progs || []).forEach(p => { const L = (r.parz || {})[x.id + '|' + p.id];
+      if (L && L.length) L.forEach(z => vo.push([r.jahr, 'Fläche (Parzelle)', rn(x), p.name, (H.Zd.get(z.pz) || {}).name || '', '', r2(z.ha), 'ha']));
+      else { const v = ((r.fl || {})[x.id] || {})[p.id]; if (v) vo.push([r.jahr, 'Fläche', rn(x), p.name, '', '', r2(v), 'ha']); } }));
+    Object.entries(r.vorrat || {}).forEach(([k, v]) => { if (v) vo.push([r.jahr, 'Vorrat', '', '', '', k.startsWith('n:') ? k.slice(2) : pName(k, (r.vnames || {})[k] || k), r2(v), (r.vunits || {})[k] || '']); });
+    (r.zusatz || []).forEach(z => vo.push([r.jahr, 'Zusatzprodukt', '', '', '', pName(z.pid, z.name), r2(z.menge), z.einheit || '']));
+  });
+  out.push({ name: 'Vorbestellung', rows: vo });
+  // Rübensamen
+  const RS = yearRecs('rs'), korr = (fg, p) => (((fg / 3 - 1) * 6) + (4 * p + 4)) / (fg * 2);
+  const dpha = (r, x) => { const eigen = x.lege || x.fga || x.fga === 0; let d = r.dpha || 0;
+    if (eigen) { const lege = x.lege || r.lege || 17, fga = x.fga === 0 ? 0 : (x.fga || r.fga || 21); d = Math.round(2e6 / lege / 1e5 * (fga ? korr(fga, r.fgp ?? 0.2) : 1) * 100) / 100; }
+    return Math.round(d * (1 + (r.ueber || 0)) * 100) / 100; };
+  const rf = [['Jahr', 'Kunde', 'Legeabstand cm', 'Fahrgasse m', 'Dosen/ha', 'Sorte', 'Gruppe', 'bestellt ha', 'Dosen', 'Conviso One', 'Conviso One Abrechnung', 'Abgerechnet am', 'Saattermine', 'Bemerkung']];
+  const rso = [['Jahr', 'Sorte', 'Gruppe', 'Grundpreis CHF', 'Vertriebskosten CHF', 'Preis/Dose CHF', 'Restmenge', 'Zusätzlich', 'Bestellung']];
+  RS.forEach(r => { const S = r.sorten || [], sn = id => (S.find(s => s.id === id) || {}).name || '';
+    (r.rows || []).forEach(x => { const d = dpha(r, x), conv = S.filter(s => s.gruppe === 'conv').reduce((t, s) => t + ((x.ha || {})[s.id] || 0), 0), cone = x.cone != null ? x.cone : conv;
+      const saat = (x.saat || []).map(z => [z.d, z.ha != null ? z.ha + ' ha' : '', sn(z.sid), z.txt].filter(Boolean).join(' ')).join('; ');
+      const L = S.filter(s => (x.ha || {})[s.id]);
+      (L.length ? L : [null]).forEach((s, i) => rf.push([r.jahr, x.kunde ? kn(x.kunde) : x.name || '', x.lege ?? '', x.fga === 0 ? '–' : (x.fga ?? ''), d, s ? s.name : '', s ? (s.gruppe === 'conv' ? 'Conviso Smart' : 'Standard') : '',
+        s ? r2(x.ha[s.id]) : '', s ? r2(x.ha[s.id] * d) : '', i ? '' : r2(cone) || '', i ? '' : (x.coneAbr ?? ''), i ? '' : dt(x.abr), i ? '' : saat, i ? '' : x.notiz || ''])); });
+    const vers = s => s.versand != null ? s.versand : (r.versand || 0);
+    S.forEach(s => rso.push([r.jahr, s.name, s.gruppe === 'conv' ? 'Conviso Smart' : 'Standard', r2(s.preis), r2(vers(s)), s.preis != null ? r2(s.preis * (1 + (r.mwst || 0)) + vers(s)) : '', r2((r.rest || {})[s.id]),
+      (r.extra || []).filter(e => (e.d || {})[s.id]).map(e => `${e.name} ${e.d[s.id]}`).join(', '), (r.best || {})[s.id] ?? 'Vorschlag']));
+    const c = r.cone || {}; rso.push([r.jahr, c.name || 'Conviso One', 'Herbizid', r2(c.preis), r2(c.versand), c.preis != null ? r2(c.preis * (1 + (r.mwst || 0)) + (c.versand || 0)) : '', r2((r.rest || {}).cone), '', (r.best || {}).cone ?? 'Vorschlag']); });
+  out.push({ name: 'Rübensamen', rows: rf }, { name: 'Rübensamen Sorten', rows: rso });
+  // MyJohnDeere: als abgerechnet markierte Arbeitsgänge und von Hand verknüpfte Aufträge
+  const jd = [['Art', 'Arbeitsgang-ID', 'Auftrag-Nr', 'Datum', 'Auftrag-ID']];
+  H.einst.filter(x => /^jdabr-/.test(x.id)).forEach(x => jd.push(['abgerechnet', x.id.slice(6), '', dt(x.am), '']));
+  all('auftraege').forEach(a => { if (a.jdLink) jd.push(['verknüpft', a.jdLink, a.nr || '', '', a.id]); (a.jdUnlink || []).forEach(j => jd.push(['Verknüpfung gelöst', j, a.nr || '', '', a.id])); });
+  out.push({ name: 'JD-Abrechnung', rows: jd });
+  // Einstellungen (alle Geräte) und Jahreswerte der Module
+  const es = [['Bereich', 'Einstellung', 'Wert']], yn = b => b ? 'ja' : 'nein';
+  es.push(['Planung', 'Arbeitsbeginn', cfg.beginn || ''], ['Planung', 'Arbeitsende', cfg.ende || ''],
+    ['Kalenderabo', 'eingeschaltet', yn(cfg.ics && cfg.ics.on)], ['Kalenderabo', 'Freigabelink', (cfg.ics && cfg.ics.link) || ''],
+    ['Kunden', 'Parzellen-Zuweisung (Spritzen)', yn(cfg.parzZuweisung !== false)], ['Module', 'Rübensamen eingeschaltet', yn(cfg.rsOn)],
+    ['MyJohnDeere', 'Organisation', cfg.jdOrg || ''], ['MyJohnDeere', 'Organisations-ID', cfg.jdOrgId || ''], ['MyJohnDeere', 'letzter Abgleich', cfg.jdStand || ''], ['MyJohnDeere', 'NAS-Dienst Version', cfg.jdDienst || ''],
+    ['MyJohnDeere', 'Adresse Kunden', cfg.jdOcKunde || ''], ['MyJohnDeere', 'Adresse Felder', cfg.jdOcFeld || '']);
+  RS.forEach(r => es.push([`Rübensamen ${r.jahr}`, 'Dosen/ha (Standard)', r.dpha ?? ''], [`Rübensamen ${r.jahr}`, 'MwSt %', r2((r.mwst || 0) * 100)], [`Rübensamen ${r.jahr}`, 'Vertriebskosten pro Dose CHF', r.versand ?? ''],
+    [`Rübensamen ${r.jahr}`, 'Zuschlag Überlappungen %', r2((r.ueber || 0) * 100)], [`Rübensamen ${r.jahr}`, 'Legeabstand cm (Standard)', r.lege ?? ''], [`Rübensamen ${r.jahr}`, 'Fahrgassenabstand m (Standard)', r.fga ?? ''],
+    [`Rübensamen ${r.jahr}`, 'Zuschlag Fahrgasse %', r2((r.fgp ?? 0.2) * 100)], [`Rübensamen ${r.jahr}`, 'Conviso One Einheiten/ha', (r.cone || {}).faktor ?? 1]));
+  es.push(['Sicherung', 'Format', `Excel-Sicherung Version ${BAK_VER}`]);
+  out.push({ name: 'Einstellungen', rows: es });
+  return out;
+}
+// Blatt «Aufträge» um die neuen Felder ergänzen (vor der Spalte ID) und die neuen Blätter anhängen
+function bakErweitern(sheets, D) {
+  const A = new Map((D.auftraege || []).map(a => [a.id, a])), sh = sheets.find(x => x.name === 'Aufträge');
+  if (sh && sh.rows.length) { const i = sh.rows[0].lastIndexOf('ID'); if (i >= 0) { sh.rows[0].splice(i, 0, ...BAK_AUFTRAG_KOPF); for (let k = 1; k < sh.rows.length; k++) { const a = A.get(sh.rows[k][i]); sh.rows[k].splice(i, 0, ...(a ? bakAuftragCols(a) : BAK_AUFTRAG_KOPF.map(() => ''))); } } }
+  return [...sheets, ...bakSheets(D)];
+}
 function pickFile(accept) {
   return new Promise(res => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.onchange = () => res(i.files[0]); i.click(); });
 }
@@ -5826,10 +5804,6 @@ document.addEventListener('click', async e => {
   }
   switch (act) {
     case 'close': Dlg.close(); break;
-    case 'newWin': openWin(t.dataset.v || App.view); break;
-    case 'hdrFs': fsToggle(); break;
-    case 'undo': Undo.undo(); break;
-    case 'redo': Undo.again(); break;
     case 'sync': if (!Auth.configured()) { App.go('mehr'); toast('Dropbox ist noch nicht eingerichtet.'); } else if (!Auth.hasSession()) Auth.login(); else Sync.run(); break;
     case 'login': Auth.login(); break;
     case 'logout': if (confirm('Abmelden? Die Daten bleiben auf diesem Gerät erhalten.')) Auth.logout(); break;
@@ -5987,7 +5961,7 @@ document.addEventListener('click', async e => {
     case 'lrowSort': { const w = $('#lrows', f); [...w.children].sort((x, y) => x.querySelector('input').value.localeCompare(y.querySelector('input').value, 'de')).forEach(r => w.appendChild(r)); break; }
     case 'export': exportCsv(); break;
     case 'exportAllXlsx': exportAllXlsx(); break;
-    case 'backup': download(`Lohnarbeit-Sicherung_${todayIso()}.json`, JSON.stringify(Store.data, null, 1), 'application/json'); break;
+    case 'backup': download(`IM-Verwalter-Sicherung_${todayIso()}.json`, JSON.stringify({ ...Store.data, _sicherung: { app: 'IM-Verwalter', version: APP_VERSION, erstellt: new Date().toISOString() } }, null, 1), 'application/json'); toast('Sicherung enthält alle Daten aller Module (Aufträge, Spritzen, Vorbestellung, Rübensamen, Kunden, Felder mit Vermessungen, Abrechnungs-Markierungen, Einstellungen).', 6000); break;
     case 'restore': restoreBackup(); break;
   }
 });
@@ -6075,9 +6049,7 @@ document.addEventListener('touchmove', e => { if (App.tdrag) e.preventDefault();
     if (Dlg.onSubmit && Dlg.onSubmit(new FormData(Dlg.form)) !== false) { Dlg.close(); if (after) setTimeout(after, 0); }
   });
   Dlg.el.addEventListener('cancel', () => { Dlg.onSubmit = null; });
-  Dlg.el.addEventListener('close', () => { if (App.pendingRender) { App.pendingRender = false; setTimeout(() => App.render(), 0); } });
   Store.load();
-  Undo.base(); undoBtns();
   App.render();
   try { await Auth.handleRedirect(); } catch (e) { toast('Anmeldung fehlgeschlagen: ' + e.message, 6000); }
   App.render();
