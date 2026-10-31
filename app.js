@@ -1,9 +1,9 @@
-/* Lohnarbeit-Planer – App-Logik (ohne Fremdbibliotheken)
+/* IM-Verwalter (früher Lohnarbeit-Planer) – App-Logik (ohne Fremdbibliotheken)
    Daten: lokal im Browser (offline) + Synchronisation mit Dropbox. */
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '81', APP_STAND = '29.10.2026';
+const APP_VERSION = '82', APP_STAND = '29.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -577,11 +577,11 @@ const App = {
   spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jsort: 'desc', jf: null, jfOpen: false, jlimit: 200,
     ak: '', av: `${new Date().getFullYear()}-01-01`, ab: todayIso(), ag: false, ny: 0, nk: '', nc: '', ngep: false, pk: '', pall: false, prq: '', prall: false },
   alimit: 150,
-  go(v) { this.view = v; ls('lp_view', v); this.lastView = null; this.tlScroll = null; window.scrollTo(0, 0); this.render(); },
+  go(v) { if (v === 'verwaltung') v = VERW.includes(ls('lp_verw')) ? ls('lp_verw') : 'jdbericht'; this.view = v; ls('lp_view', v); this.lastView = null; this.tlScroll = null; window.scrollTo(0, 0); this.render(); },
   render() {
     if (this.view === 'rueben' && !rsOn()) this.view = 'auftraege';
     rsNav();
-    const navV = this.view === 'maschinen' ? 'mehr' : this.view;
+    const navV = this.view === 'maschinen' ? 'mehr' : VERW.includes(this.view) ? 'verwaltung' : this.view;
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === navV));
     const fresh = this.lastView !== this.view; this.lastView = this.view;
     const v = Views[this.view] || Views.auftraege;
@@ -599,6 +599,9 @@ const App = {
 };
 
 // Unternavigation im Modul «Mehr»: Einstellungen, Kunden, Maschinen
+// Modul Verwaltung = Bericht, Abrechnung und Kunden (Unterreiter); merkt sich den zuletzt benutzten Reiter
+const VERW = ['jdbericht', 'abrechnung', 'kunden'];
+const verwNav = cur => { ls('lp_verw', cur); return `<div class="seg mehrnav">${[['jdbericht', 'Bericht'], ['abrechnung', 'Abrechnung'], ['kunden', 'Kunden']].map(([v, l]) => `<button type="button" data-view="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`; };
 const mehrNav = cur => `<div class="seg mehrnav">${[['mehr', 'Einstellungen'], ['maschinen', 'Maschinen']].map(([v, l]) => `<button type="button" data-view="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 const Views = {
   /* ---------- Aufträge ---------- */
@@ -887,7 +890,7 @@ const Views = {
   /* ---------- Kunden ---------- */
   kunden: {
     toolbar() {
-      return `<h1>Kunden</h1>
+      return `<h1>Kunden</h1>${verwNav('kunden')}
         <input class="input search" type="search" placeholder="Kunde suchen…" value="${esc(App.filter.kq)}" data-in="kSearch">
         <label class="tog"><input type="checkbox" data-in="kAll" ${App.filter.kall ? 'checked' : ''}> auch inaktive</label>
         <label class="tog" title="Zuweisung der Pflanzenschutz-Parzellen (Modul Spritzen) zu den Feldern in der Kundenkarte anzeigen"><input type="checkbox" data-in="parzOn" ${parzOn() ? 'checked' : ''}> Parzellen-Zuweisung (Spritzen)</label>
@@ -1684,7 +1687,7 @@ function drawDayPlan(mid, d) {
       y += hBlock + 24;
     });
     y += 30;
-    text(`Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · Lohnarbeit-Planer`, P, F('400', 22), muted, y);
+    text(`Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · IM-Verwalter`, P, F('400', 22), muted, y);
     return y + 36;
   };
   cv.width = W; cv.height = run(false); run(true);
@@ -1927,7 +1930,7 @@ function sprayImage() {
     ctx.font = F('500', 32); ctx.textAlign = 'left'; ctx.fillStyle = '#5c625d'; ctx.fillText(u, W - P - 90, y);
     y += 64;
   });
-  ctx.font = F('400', 22); ctx.fillStyle = '#5c625d'; ctx.fillText(`Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · Lohnarbeit-Planer`, P, y + 30);
+  ctx.font = F('400', 22); ctx.fillStyle = '#5c625d'; ctx.fillText(`Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · IM-Verwalter`, P, y + 30);
   showImage('Produktbedarf', cv, `Produktbedarf_${sel[0]}_bis_${sel[sel.length - 1]}.png`, `Produktbedarf ${range}`);
 }
 function showImage(title, cv, fname, shareTitle, topHtml = '') {
@@ -2169,7 +2172,7 @@ const yearsOf = () => [...new Set(sprayOrders().map(ernteOf).filter(Boolean))].s
 const LETTERHEAD = '<img class="lhead" src="logo.jpg" alt="Indermühle Lohnarbeiten · Maschinenvermietung">';
 function printHtml(title, html, { noTitle } = {}) {
   let pa = $('#printArea'); if (!pa) { pa = document.createElement('div'); pa.id = 'printArea'; document.body.appendChild(pa); }
-  pa.innerHTML = `${noTitle ? '' : `<h1 class="ptitle">${esc(title)}</h1>`}${html}<p class="pfoot">Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · Lohnarbeit-Planer v${APP_VERSION}</p>`;
+  pa.innerHTML = `${noTitle ? '' : `<h1 class="ptitle">${esc(title)}</h1>`}${html}<p class="pfoot">Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · IM-Verwalter v${APP_VERSION}</p>`;
   document.body.classList.add('printing');
   const done = () => { document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); };
   window.addEventListener('afterprint', done);
@@ -2963,7 +2966,7 @@ function drawPlanOverview(x) {
       y += 14;
       x.unpl.forEach(a => { y += 34; if (draw) { ctx.font = F('600', 21); ctx.fillStyle = ink; ctx.fillText(`${a.wunsch ? fmtDate(a.wunsch, { day: '2-digit', month: '2-digit' }) + '  ' : ''}${kfText(a)}`, P, y); ctx.font = F('400', 20); ctx.fillStyle = muted; ctx.fillText([a.arbeit, a.kultur, a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''].filter(Boolean).join(' · '), P + Math.min(420, W / 2), y); } });
     }
-    y += 50; if (draw) { ctx.font = F('400', 18); ctx.fillStyle = muted; ctx.fillText('Lohnarbeit-Planer', P, y); }
+    y += 50; if (draw) { ctx.font = F('400', 18); ctx.fillStyle = muted; ctx.fillText('IM-Verwalter', P, y); }
     return y + 24;
   };
   cv.width = W; cv.height = 10; const H = run(false); cv.height = H; run(true);
@@ -3739,7 +3742,7 @@ function jdbDetail(id) {
 function jdBerichtView() {
   return {
     toolbar() {
-      return `<h1>Daten Operations Center John Deere</h1>
+      return `<h1>Bericht</h1>${verwNav('jdbericht')}
         <button class="btn" data-act="jbFs" title="Bericht im Vollbild (Esc schliesst)">⛶ Vollbild</button>
         <button class="btn" data-act="jbReq" title="NAS-Dienst holt die neuesten Daten aus MyJohnDeere">⟳ In MyJohnDeere abholen</button>`;
     },
@@ -4080,7 +4083,7 @@ function abUnlink(id) {
 function abView() {
   return {
     toolbar() {
-      return `<h1>Abrechnung</h1>
+      return `<h1>Abrechnung</h1>${verwNav('abrechnung')}
         <button class="btn" data-ab="fs" title="Vollbild (Esc schliesst)">⛶ Vollbild</button>
         <button class="btn" data-ab="load" title="Arbeitsgänge aus MyJohnDeere neu laden">⟳ JD-Daten neu laden</button>`;
     },
@@ -4233,7 +4236,7 @@ function versionInfo() {
   const c = Store.cfg(), nas = c.jdDienst, ver = v => +String(v || '').replace(/[^\d.]/g, '') || 0;
   const nasTxt = nas ? `Version ${esc(nas)}${ver(nas) < ver(NAS_MIN) ? ` <span class="badge offen">zu alt – NAS-Dienst auf Version ${NAS_MIN} oder neuer aktualisieren</span>` : ' <span class="nr">(aktuell)</span>'}`
     : c.jdStand ? 'ältere Version ohne Versionsangabe – <b>NAS-Dienst aktualisieren</b>' : 'noch keine Verbindung';
-  return `<table class="btab kv"><tr><td class="nr">Lohnarbeit-Planer</td><td><b>Version ${APP_VERSION}</b> · Stand ${APP_STAND}</td></tr>
+  return `<table class="btab kv"><tr><td class="nr">IM-Verwalter</td><td><b>Version ${APP_VERSION}</b> · Stand ${APP_STAND}</td></tr>
     <tr><td class="nr">NAS-Dienst jd-sync</td><td>${nasTxt}${c.jdStand ? ` <span class="nr">(letzte Daten ${esc(new Date(c.jdStand).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }))})</span>` : ''}</td></tr></table>
     <p class="nr" style="margin-bottom:0">Updates lädt der Planer beim nächsten Öffnen automatisch (bei Bedarf Seite neu laden). Die Version steht auch oben neben dem Programmnamen.</p>`;
 }
@@ -4907,7 +4910,7 @@ function vbZProdDialog() {
 /* ---------- Spritzprogramme aus einer Datei (.json, aus dem Pflanzenschutzplan erzeugt) ---------- */
 async function vbImportJson(file) {
   let doc; try { doc = JSON.parse(await file.text()); } catch { toast('Datei ist kein gültiges JSON.', 4000); return; }
-  if (!doc || doc.format !== 'lohnarbeit-planer/spritzprogramme' || !Array.isArray(doc.programme)) { toast('Unbekanntes Format – erwartet wird eine Spritzprogramm-Datei für den Lohnarbeit-Planer.', 5000); return; }
+  if (!doc || doc.format !== 'lohnarbeit-planer/spritzprogramme' || !Array.isArray(doc.programme)) { toast('Unbekanntes Format – erwartet wird eine Spritzprogramm-Datei für den IM-Verwalter.', 5000); return; }
   const y = vbYear(), cur = vbRec(), years = [...new Set([...vbYears(), y, y + 1, doc.jahr].filter(Boolean))].sort((a, b) => a - b);
   const body = `<p style="margin-top:0">${esc(doc.quelle || file.name)}${doc.jahr ? ` · Plan ${doc.jahr}` : ''} · Mengen pro ${esc(doc.proFlaeche || '1 ha')}</p>
     <label class="fld"><span>In Erntejahr</span><select class="input" name="jahr">${years.map(j => `<option value="${j}" ${j === y ? 'selected' : ''}>${j}${vbGet(j) ? '' : ' (neu)'}</option>`).join('')}</select></label>
@@ -4980,8 +4983,8 @@ function icsBuild() {
     });
   });
   ev.sort((x, y) => x[4].localeCompare(y[4]));
-  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Indermuehle Lohnarbeiten//Lohnarbeit-Planer//DE', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
-    'X-WR-CALNAME:Lohnarbeit-Planung', 'X-WR-TIMEZONE:Europe/Zurich', 'REFRESH-INTERVAL;VALUE=DURATION:PT1H', 'X-PUBLISHED-TTL:PT1H', ...ev.flat(), 'END:VCALENDAR'];
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Indermuehle Lohnarbeiten//IM-Verwalter//DE', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    'X-WR-CALNAME:IM-Verwalter Planung', 'X-WR-TIMEZONE:Europe/Zurich', 'REFRESH-INTERVAL;VALUE=DURATION:PT1H', 'X-PUBLISHED-TTL:PT1H', ...ev.flat(), 'END:VCALENDAR'];
   return { text: lines.map(icsFold).join('\r\n') + '\r\n', n: ev.length };
 }
 const icsHash = s => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return String(h); };
@@ -5019,7 +5022,7 @@ function icsPanel() {
       <div class="btns" style="margin-bottom:8px"><button type="button" class="btn" data-act="icsLink">Freigabe-Link erstellen</button></div>
       <label class="fld"><span>Dropbox-Freigabelink der Datei planung.ics</span><input class="input" data-in="icsLink" value="${esc(c.link || '')}" placeholder="https://www.dropbox.com/scl/fi/…/planung.ics?…"></label>
       ${sub ? `<label class="fld"><span>Adresse für das Kalenderabo</span><div class="withbtn"><input class="input" readonly value="${esc(sub)}" id="icsSub"><button type="button" class="btn" data-act="icsCopy">Kopieren</button></div></label>
-      <div class="nr icshow"><b>Outlook (Windows, neues Outlook / Outlook im Web):</b> Kalender › Kalender hinzufügen › <i>Aus dem Internet abonnieren</i> › Adresse einfügen › Name «Lohnarbeit-Planung» › Importieren.<br>
+      <div class="nr icshow"><b>Outlook (Windows, neues Outlook / Outlook im Web):</b> Kalender › Kalender hinzufügen › <i>Aus dem Internet abonnieren</i> › Adresse einfügen › Name «IM-Verwalter Planung» › Importieren.<br>
         <b>Klassisches Outlook:</b> Kalender › Kalender hinzufügen › <i>Aus dem Internet…</i> › Adresse einfügen › OK › Ja.<br>
         Outlook holt Änderungen selbst ab, je nach Version alle paar Stunden. Der Kalender ist nur zum Lesen.</div>` : '<p class="nr">Freigabe-Link erstellen (oder in Dropbox bei der Datei «planung.ics» › Teilen › Link kopieren) und hier einfügen.</p>'}` : ''}
   </div>`;

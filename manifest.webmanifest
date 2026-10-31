@@ -1,6 +1,6 @@
 {
-  "name": "Lohnarbeit-Planer",
-  "short_name": "Lohnarbeit",
+  "name": "IM-Verwalter",
+  "short_name": "IM-Verwalter",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
