@@ -57,6 +57,9 @@ function ebStamm() {
 let _ebSyncV = -1;
 function ebSync() {
   if (_ebSyncV === Store.v || !ebOn()) return; const ys = ebYears().sort((a, b) => a - b); if (!ys.length) { _ebSyncV = Store.v; return; }
+  Undo.skip++; try { ebSyncRun(ys); } finally { if (Undo.skip > 0) Undo.skip--; }
+}
+function ebSyncRun(ys) {
   const ch = new Map(), get = y => ch.get(y) || (ebGet(y) ? structuredClone(ebRecY(y)) : null), put = r => ch.set(r.jahr, r);
   const link = r => { let mod = false; r.schlaege.forEach(z => { if (z.art !== 'zwischen' || z.nach !== undefined) return; const H = r.schlaege.filter(h => h.art !== 'zwischen' && z.parz && h.parz === z.parz);
     const h = H.find(x => z.ha != null && x.ha != null && Math.abs(x.ha - z.ha) < 0.001) || H[0]; z.nach = h ? h.id : '';
@@ -80,7 +83,7 @@ function ebSync() {
     if (cur && link(cur)) mod = true;
     if (mod) put(cur);
   }
-  ch.forEach(r => Store.put('einstellungen', structuredClone(r), { silent: true }));
+  ch.forEach(r => Store.put('einstellungen', structuredClone(r), { silent: true })); // ohne Rückgängig-Schritt (Undo.skip in ebSync)
   _ebSyncV = Store.v;
 }
 // Hauptkultur auf einer Parzelle gelöscht: eine Dauerkultur aus dem Vorjahr gilt als umgebrochen (sonst käme sie zurück)

@@ -1155,3 +1155,6 @@ td.ebbu, .ebleg.ebbu { background: color-mix(in srgb, #3b6fd1 16%, var(--surface
 .winbtn { white-space: nowrap; }
 .top .btn.hbtn { min-height: 38px; padding: 7px 12px; white-space: nowrap; }
 .top .btn.hbtn.on { border-color: var(--accent); color: var(--accent); }
+.undogrp { display: inline-flex; gap: 4px; }
+.top .undogrp .btn.hbtn { padding: 7px 10px; font-size: 17px; line-height: 1; min-width: 38px; }
+.top .undogrp .btn.hbtn:disabled { opacity: .35; cursor: default; }

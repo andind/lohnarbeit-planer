@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '89', APP_STAND = '31.10.2026';
+const APP_VERSION = '90', APP_STAND = '31.10.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -98,7 +98,7 @@ const Store = {
     });
   },
   v: 0, // Änderungszähler (Zwischenspeicher der Tagesplanung)
-  save() { this.v++; ls('lp_data', JSON.stringify(this.data)); },
+  save() { this.v++; ls('lp_data', JSON.stringify(this.data)); Undo.record(); },
   all(c) { return this.data[c].filter(x => !x.del); },
   get(c, id) { return this.data[c].find(x => x.id === id && !x.del); },
   put(c, obj, { silent } = {}) {
@@ -130,6 +130,65 @@ const Store = {
     return `${y}-${String(max + 1).padStart(3, '0')}`;
   }
 };
+
+/* ================= Rückgängig / Wiederholen =================
+   Nach jedem Speichern werden die geänderten Einträge (Aufträge, Kunden, Einstellungen …) mit ihrem vorherigen Stand
+   gemerkt. Rückgängig stellt diesen Stand wieder her – mit neuer Änderungszeit, damit die Synchronisation ihn übernimmt.
+   Änderungen aus Dropbox, aus einem anderen Fenster oder automatische Ableitungen (Undo.skip) werden nicht gemerkt.
+   Kurz aufeinanderfolgende Speicherungen (unter 1.5 s) gelten als ein Schritt. Gilt für die laufende Sitzung. */
+const Undo = {
+  cache: null, stack: [], redo: [], skip: 0, MAX: 60, SEP: '\u0001',
+  snapshot() { const m = new Map(); COLL.forEach(c => (Store.data[c] || []).forEach(x => m.set(c + this.SEP + x.id, JSON.stringify(x)))); return m; },
+  base() { this.cache = this.snapshot(); },
+  record() {
+    if (!this.cache) return; // erst nach dem Laden
+    const now = this.snapshot();
+    if (this.skip > 0) { this.cache = now; return; }
+    const ch = [];
+    now.forEach((v, k) => { const o = this.cache.get(k); if (o !== v) ch.push({ k, before: o ?? null }); });
+    this.cache.forEach((v, k) => { if (!now.has(k)) ch.push({ k, before: v }); });
+    this.cache = now; if (!ch.length) return;
+    const t = Date.now(), top = this.stack[this.stack.length - 1];
+    if (top && !top.closed && t - top.t < 1500) { ch.forEach(c => { if (!top.ch.some(x => x.k === c.k)) top.ch.push(c); }); top.t = t; }
+    else { this.stack.push({ t, ch }); if (this.stack.length > this.MAX) this.stack.shift(); }
+    this.redo = []; undoBtns();
+  },
+  // Stand vor «e» herstellen; der Gegenschritt kommt auf «to»
+  apply(e, to) {
+    const t = Date.now(), back = [];
+    e.ch.forEach(({ k, before }) => {
+      const [c, id] = k.split(this.SEP), arr = Store.data[c]; if (!arr) return;
+      const i = arr.findIndex(x => x.id === id); back.push({ k, before: i >= 0 ? JSON.stringify(arr[i]) : null });
+      const obj = before ? JSON.parse(before) : { id, del: true }; obj.upd = t;
+      if (i >= 0) arr[i] = obj; else arr.push(obj);
+    });
+    to.push({ t: 0, ch: back, closed: true, label: e.label || undoLabel(e) });
+    this.skip++; try { Store.save(); } finally { this.skip--; }
+    Sync.schedule(); App.render(); undoBtns();
+  },
+  undo() { if (Dlg.el && Dlg.el.open) return; const e = this.stack.pop(); if (!e) { toast('Nichts zum Rückgängigmachen.'); return; } const l = e.label || undoLabel(e); this.apply(e, this.redo); toast('↶ Rückgängig: ' + l); },
+  again() { if (Dlg.el && Dlg.el.open) return; const e = this.redo.pop(); if (!e) return; const l = e.label; this.apply(e, this.stack); toast('↷ Wiederholt: ' + l); }
+};
+function undoLabel(e) {
+  const SEP = Undo.SEP, [c, id] = e.ch[0].k.split(SEP), doc = Store.data[c] && (Store.data[c].find(x => x.id === id) || (e.ch[0].before ? JSON.parse(e.ch[0].before) : null)) || {};
+  const n = e.ch.length > 1 ? ` (+${e.ch.length - 1})` : '';
+  if (c === 'auftraege') return `Auftrag ${doc.nr || ''} ${doc.arbeit ? '· ' + doc.arbeit : ''}`.trim() + n;
+  if (c === 'einstellungen') return (/^eb-/.test(id) ? 'Eigener Betrieb' : /^rs-/.test(id) ? 'Rübensamen' : /^vb/.test(id) ? 'Vorbestellung Spritzen' : 'Einstellungen') + n;
+  const L = { kunden: 'Kunde', maschinen: 'Maschine', parzellen: 'Parzelle', produkte: 'Produkt', felder: 'Feld', personal: 'Personal', pausen: 'Pause' };
+  return `${L[c] || c}${doc.name ? ' ' + doc.name : ''}` + n;
+}
+function undoBtns() {
+  const u = document.getElementById('hdrUndo'), r = document.getElementById('hdrRedo'); if (!u || !r) return;
+  const e = Undo.stack[Undo.stack.length - 1], f = Undo.redo[Undo.redo.length - 1];
+  u.disabled = !e; u.title = e ? `Rückgängig: ${e.label || undoLabel(e)} (Ctrl+Z)` : 'Nichts zum Rückgängigmachen';
+  r.disabled = !f; r.title = f ? `Wiederholen: ${f.label} (Ctrl+Y)` : 'Nichts zum Wiederholen';
+}
+document.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return; const k = e.key.toLowerCase(); if (k !== 'z' && k !== 'y') return;
+  const a = document.activeElement; if (a && (a.matches('input, textarea, select, [contenteditable]'))) return; // dort gilt das Rückgängig des Eingabefelds
+  if (Dlg.el && Dlg.el.open) return;
+  e.preventDefault(); if (k === 'y' || e.shiftKey) Undo.again(); else Undo.undo();
+});
 
 function mergeData(a, b) {
   const out = { v: 2 };
@@ -288,7 +347,7 @@ const Sync = {
         if (remote.data) {
           const merged = mergeData(Store.data, remote.data);
           const changed = !sameData(merged, Store.data);
-          Store.data = merged; Store.migrate(); Store.save();
+          Store.data = merged; Store.migrate(); Undo.skip++; try { Store.save(); } finally { Undo.skip--; }
           if (changed) App.render();
           if (sameData(merged, remote.data)) break;
         }
@@ -649,7 +708,7 @@ window.addEventListener('storage', e => {
   try {
     const d = JSON.parse(e.newValue); if (!d || typeof d !== 'object') return;
     COLL.forEach(c => { if (!Array.isArray(d[c])) d[c] = []; });
-    Store.data = d; Store.v++;
+    Store.data = d; Store.v++; Undo.base();
     if (Dlg.el && Dlg.el.open) App.pendingRender = true; else App.render();
   } catch { }
 });
@@ -5769,6 +5828,8 @@ document.addEventListener('click', async e => {
     case 'close': Dlg.close(); break;
     case 'newWin': openWin(t.dataset.v || App.view); break;
     case 'hdrFs': fsToggle(); break;
+    case 'undo': Undo.undo(); break;
+    case 'redo': Undo.again(); break;
     case 'sync': if (!Auth.configured()) { App.go('mehr'); toast('Dropbox ist noch nicht eingerichtet.'); } else if (!Auth.hasSession()) Auth.login(); else Sync.run(); break;
     case 'login': Auth.login(); break;
     case 'logout': if (confirm('Abmelden? Die Daten bleiben auf diesem Gerät erhalten.')) Auth.logout(); break;
@@ -6016,6 +6077,7 @@ document.addEventListener('touchmove', e => { if (App.tdrag) e.preventDefault();
   Dlg.el.addEventListener('cancel', () => { Dlg.onSubmit = null; });
   Dlg.el.addEventListener('close', () => { if (App.pendingRender) { App.pendingRender = false; setTimeout(() => App.render(), 0); } });
   Store.load();
+  Undo.base(); undoBtns();
   App.render();
   try { await Auth.handleRedirect(); } catch (e) { toast('Anmeldung fehlgeschlagen: ' + e.message, 6000); }
   App.render();
