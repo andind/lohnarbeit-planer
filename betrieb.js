@@ -66,6 +66,7 @@ function ebSyncRun(ys) {
     if (h && z.ha == null && h.ha != null) z.ha = ebParzHa(ebParz(z.parz)); // bisherige Fläche (Parzelle) beibehalten
     if (h && z.ha != null && h.ha != null && Math.abs(h.ha - z.ha) < 0.001) z.ha = null; mod = true; }); return mod; };
   // einmalig: Flächen ohne Parzelle entfernen (frühere Sammelzeilen «Weitere Flächen»)
+  if (Store.get('einstellungen', 'eb-stamm')) { const sk = structuredClone(ebStamm()); if (ebKultSyncCentral(sk)) Store.put('einstellungen', sk, { silent: true }); }
   const st0 = ebStamm();
   if (!st0.ohneFreiV1 && Store.get('einstellungen', 'eb-stamm')) {
     ys.forEach(y => { const r = get(y); if (r && r.schlaege.some(x => !x.parz)) { r.schlaege = r.schlaege.filter(x => x.parz); put(r); } });
@@ -144,15 +145,48 @@ function ebColor(k) {
   return ku && ku.farbe ? ku.farbe : ebAutoColor(ku ? ku.name : k);
 }
 
-/* ---------- Kulturen ---------- */
-// «Winterweizen» und «Weizen» gelten als gleiche Kultur; «Sommerhafer» gehört zu «Hafer»
+/* ---------- Kulturen ----------
+   Name, Oberbegriff und Synonyme kommen aus der zentralen Kulturliste (kulturen.js, Mehr › Kulturen).
+   Hier werden nur die Werte für den eigenen Betrieb geführt: st.kulturen = [{ id, kid (zentrale Kultur), name, n, pause, farbe, saat, … }]. */
 const ebKultKey = k => ebKey(k).replace(/^(winter|sommer|fruh|spat)/, '');
 function ebKultur(name) {
   const K = ebStamm().kulturen, k = ebKey(name); if (!k) return null;
-  return K.find(x => ebKey(x.name) === k) || K.find(x => ebKultKey(x.name) === ebKultKey(name)) ||
-    K.filter(x => ebKey(x.name).length > 3 && (k.includes(ebKey(x.name)) || ebKey(x.name).includes(k))).sort((a, b) => b.name.length - a.name.length)[0] || null;
+  const i = kuInfo(name);
+  if (i) { // genaue Kultur → ihr Eintrag; Oberbegriff → Eintrag der ersten (üblichsten) Kultur mit Werten
+    const F = i.exact ? [i.k] : kuForms(i.ober, true);
+    for (const c of F) { const e = K.find(x => x.kid === c.id) || K.find(x => ebKey(x.name) === ebKey(c.name)); if (e) return e; }
+    const e = K.find(x => ebKey(x.name) === ebKey(i.ober)); if (e) return e;
+    return null;
+  }
+  return K.find(x => ebKey(x.name) === k) || null;
 }
-const ebSameKultur = (a, b) => !!a && !!b && (ebKultKey(a) === ebKultKey(b) || (ebKultur(a) && ebKultur(a) === ebKultur(b)));
+// gleiche genaue Kultur (Oberbegriff passt zu jeder seiner Kulturen)
+function ebSameKultur(a, b) {
+  if (!a || !b) return false; const x = kuInfo(a), y = kuInfo(b);
+  if (x && y) return x.exact && y.exact ? x.k === y.k : kuNorm(x.ober) === kuNorm(y.ober);
+  return ebKey(a) === ebKey(b);
+}
+// gleicher Oberbegriff (Anbaupause: Winterweizen nach Sommerweizen zählt als Weizen nach Weizen)
+const ebSameOber = (a, b) => !!a && !!b && kuNorm(kuOber(a)) === kuNorm(kuOber(b));
+// Betrieb-Einträge mit der zentralen Liste verbinden: kid setzen, Namen nachführen, verwendete Kulturen ergänzen,
+// Einträge eines Oberbegriffs mit mehreren Kulturen (z.B. «Gerste») auf die genauen Kulturen verteilen
+function ebKultSyncCentral(st) {
+  let mod = false; const K = st.kulturen, used = new Set();
+  ebYears().forEach(y => { const r = ebGet(y); [...(r.schlaege || []), ...Object.values(r.varianten || {}).flat()].forEach(s => { if (s.art !== 'zwischen' && s.kultur) used.add(s.kultur); }); });
+  const attrs = e => { const o = {}; ['n', 'pause', 'farbe', 'dauer', 'jahre'].forEach(f => { if (e[f] != null) o[f] = e[f]; }); return o; };
+  K.slice().forEach(e => {
+    const i = kuInfo(e.name); if (!i) return;
+    if (i.exact) { if (e.kid !== i.k.id || e.name !== i.k.name) { e.kid = i.k.id; e.name = i.k.name; mod = true; } return; }
+    const F = kuForms(i.ober, true);
+    if (F.length === 1) { e.kid = F[0].id; e.name = F[0].name; mod = true; return; }
+    F.forEach((c, j) => { if (!K.some(x => x.kid === c.id || ebKey(x.name) === ebKey(c.name))) { K.push({ id: 'k-' + ebSlug(c.name), kid: c.id, name: c.name, pos: (e.pos ?? 1e5) + j / 10, ...attrs(e) }); mod = true; } });
+    K.splice(K.indexOf(e), 1); mod = true;
+  });
+  used.forEach(n => { const i = kuInfo(n); if (!i || !i.exact || i.k.zw) return; if (!K.some(x => x.kid === i.k.id)) {
+    const sib = K.find(x => { const j = kuInfo(x.name); return j && kuNorm(j.ober) === kuNorm(i.ober); });
+    K.push({ id: 'k-' + ebSlug(i.k.name), kid: i.k.id, name: i.k.name, ...(sib ? attrs(sib) : {}) }); mod = true; } });
+  return mod;
+}
 // N-Bedarf eines Schlags: eigener Wert, sonst Kultur, Zwischenfrüchte ohne passende Kultur wie «Gründüngung»
 function ebNBedarf(s) {
   if (s.nBed != null) return s.nBed;
@@ -222,7 +256,9 @@ function ebArr(rec, vid) {
 const ebKultSorted = () => ebStamm().kulturen.slice().sort((a, b) => ((a.pos ?? 1e6) - (b.pos ?? 1e6)) || a.name.localeCompare(b.name, 'de'));
 // übliche Saat- und Erntemonate (Vorschlag, in den Stammdaten anpassbar): [Saatmonat, Saat im Vorjahr, Erntemonat, Standjahre]
 const EB_ZEIT = { winterweizen: [10, true, 7, 1], gerste: [9, true, 7, 1], triticale: [10, true, 7, 1], raps: [8, true, 7, 1], zuckerruben: [3, false, 10, 1],
-  silomais: [4, false, 9, 1], hafer: [3, false, 7, 1], soja: [5, false, 9, 1], eiweisserbsen: [3, false, 7, 1] };
+  silomais: [4, false, 9, 1], hafer: [3, false, 7, 1], soja: [5, false, 9, 1], eiweisserbsen: [3, false, 7, 1],
+  wintergerste: [9, true, 7, 1], sommergerste: [3, false, 7, 1], winterraps: [8, true, 7, 1], sommerhafer: [3, false, 7, 1], winterhafer: [10, true, 7, 1], sommerweizen: [3, false, 8, 1],
+  kornermais: [4, false, 10, 1], wintereiweisserbsen: [10, true, 7, 1], dinkel: [10, true, 8, 1], roggen: [10, true, 7, 1] };
 const ebHatZeit = k => !!(k && k.saat && k.ernte);
 const ebMon = v => `${MONATE[(v - 1) % 12]} ${Math.floor((v - 1) / 12)}`;
 // Überschneidungen: Kultur belegt die Parzelle von der Saat (ggf. im Vorjahr) bis zur Ernte im letzten Standjahr.
@@ -409,7 +445,7 @@ const EB_FF_N = 9; // angezeigte Jahre
 function ebFfCell(y, L, p, SP, vid = '', OV = null) {
   const H = L.filter(s => s.art !== 'zwischen'), Z = L.filter(s => s.art === 'zwischen');
   const pause = s => { const k = ebKultur(s.kultur), n = k && k.pause; if (!p || !n) return '';
-    for (let i = 1; i <= n; i++) { const r = ebGet(y - i); if (r && ebArr(r, vid).some(x => x.parz === p.id && x.art !== 'zwischen' && ebSameKultur(x.kultur, s.kultur))) return ` <span class="warnchip" title="Anbaupause ${n} Jahre: ${esc(s.kultur)} stand schon ${y - i} hier">⚠ Pause</span>`; }
+    for (let i = 1; i <= n; i++) { const r = ebGet(y - i); if (r && ebArr(r, vid).some(x => x.parz === p.id && x.art !== 'zwischen' && ebSameOber(x.kultur, s.kultur))) return ` <span class="warnchip" title="Anbaupause ${n} Jahre: ${esc(s.kultur)} stand schon ${y - i} hier">⚠ Pause</span>`; }
     return ''; };
   const ha = s => { const v = ebSchlagHa(s); return v != null ? ` <small>${fmtNum(v)} ha</small>` : ''; };
   const sp = s => SP && SP.get(s.id) ? ` <span class="ebsp1" title="${SP.get(s.id)} Spritzaufträge">🧪${SP.get(s.id) > 1 ? SP.get(s.id) : ''}</span>` : '';
@@ -478,22 +514,19 @@ function ebCellDialog(y, parzId, freeName, vid = '') {
 
 /* ---------- Schlag bearbeiten: Kultur, Fläche, Programme und Düngung ---------- */
 // Auswahl Hauptkultur: Kulturen der Stammdaten und zuletzt verwendete Hauptkulturen
-function ebKulturNames() {
-  const set = new Set(ebStamm().kulturen.map(k => k.name));
-  ebYears().slice(0, 4).forEach(y => ebGet(y).schlaege.forEach(s => s.kultur && s.art !== 'zwischen' && set.add(s.kultur)));
-  return [...set].sort((a, b) => a.localeCompare(b, 'de'));
-}
+// Auswahl Hauptkultur: genaue Kulturen der zentralen Liste (ohne Zwischenfrüchte)
+function ebKulturNames() { return kuExactNames({ zw: false }); }
 // Auswahl Zwischenfrucht: Mischungen des Jahres (Bestellung), Liste aus den Stammdaten, oder individuell
 function ebZfSelOpts(rec, s) {
-  const L = ebStamm().zfListe || [], cur = ebZfSelOf(rec, s);
+  const cur = ebZfSelOf(rec, s), L = kuExactNames({ zw: true }).concat(cur.startsWith('k:') && !kuExactNames({ zw: true }).includes(cur.slice(2)) ? [cur.slice(2)] : []);
   const o = (v, l) => `<option value="${esc(v)}" ${v === cur ? 'selected' : ''}>${esc(l)}</option>`;
   return `<option value="">— wählen —</option>${rec.zf.mix.length ? `<optgroup label="Mischungen ${rec.jahr} (Bestellung)">${rec.zf.mix.map(m => o('mix:' + m.id, ebMixLabel(m))).join('')}</optgroup>` : ''}
-    ${L.length ? `<optgroup label="Zwischenfrüchte (Stammdaten)">${L.map(n => o('k:' + n, n)).join('')}</optgroup>` : ''}<option value="indiv" ${cur === 'indiv' ? 'selected' : ''}>✎ Individuelle Zwischenfrucht …</option>`;
+    ${L.length ? `<optgroup label="Zwischenfrüchte (Kulturliste)">${L.map(n => o('k:' + n, n)).join('')}</optgroup>` : ''}<option value="indiv" ${cur === 'indiv' ? 'selected' : ''}>✎ Individuelle Zwischenfrucht …</option>`;
 }
 function ebZfSelOf(rec, s) {
   if (!s.kultur) return '';
   const m = s.mix && rec.zf.mix.find(x => x.id === s.mix && ebKey(x.name) === ebKey(s.kultur)); if (m) return 'mix:' + m.id;
-  const k = !s.indiv && (ebStamm().zfListe || []).find(n => ebKey(n) === ebKey(s.kultur)); if (k) return 'k:' + k;
+  const i = !s.indiv && kuInfo(s.kultur); if (i && i.exact && i.k.zw) return 'k:' + i.k.name;
   return 'indiv';
 }
 const ebHauptOpts = (arr, parz, cur, self) => arr.filter(h => h.art !== 'zwischen' && h.parz === parz && parz && h.id !== self)
@@ -570,6 +603,9 @@ function ebSchlagDialog(y, id, pre = {}, vid = '') {
     o.nBed = nb != null && nb !== kb ? nb : null; o.korr = ebNum(fd.get('korr'));
     if (rec.duenger.length && !vid) o.gaben = $$('.ebgabe', Dlg.form).map((row, i) => ({ id: ((s.gaben || [])[i] || {}).id || uid(), d: row.querySelector('[name=gd]').value, datum: row.querySelector('[name=gdat]').value || '', menge: ebNum(row.querySelector('[name=gm]').value) })).filter(g => g.d && g.menge != null);
     if (!o.kultur) { toast(o.art === 'zwischen' ? 'Zwischenfrucht wählen oder eingeben.' : 'Kultur eingeben.'); return false; }
+    if (o.art === 'haupt' && kuNeedsExact(o.kultur)) { toast(`Genaue Kultur wählen: ${kuForms(kuOber(o.kultur)).map(k => k.name).join(' oder ')}.`, 5000); return false; }
+    if (o.art === 'haupt' && !kuInfo(o.kultur) && !confirm(`«${o.kultur}» steht nicht in der Kulturliste. Als neue Kultur aufnehmen (Oberbegriff: ${kuGuessOber(o.kultur, kuIdx().obers)})?`)) return false;
+    if (o.art === 'haupt' && !kuInfo(o.kultur)) kuEnsure([o.kultur]);
     if (!o.parz) { toast('Parzelle wählen.'); return false; }
     const neu = !RA.includes(o); if (neu) RA.push(o);
     // Kulturdauer: Überschneidung mit Vor- oder Nachkultur melden
@@ -855,8 +891,8 @@ function ebStammView(st) {
   const used = new Set(ebYears().flatMap(y => ebGet(y).schlaege.map(s => s.kultur)));
   const nUse = k => [...used].filter(x => ebKultur(x) === k).length;
   const kult = `<div class="panel" style="margin-top:12px"><h2>Kulturen <small class="nr">Reihenfolge, Farbe, N-Bedarf, Anbaupause, Kulturdauer, Dauerkultur</small></h2>
-      <div class="tscroll"><table class="need vbneed ebkt"><thead><tr><th></th><th>Kultur</th><th title="Farbe in Fruchtfolge und Auswertungen">Farbe</th><th class="n">N-Bedarf kg/ha (GRUDAF)</th><th class="n">Anbaupause Jahre</th><th title="Saatmonat; ☑ = Saat im Vorjahr (Winterkulturen)">Saat</th><th title="Ernte bzw. Räumung im letzten Standjahr">Ernte</th><th class="n" title="Anzahl Erntejahre (mehrjährige Kulturen, z.B. Kunstwiese)">Standjahre</th><th title="Dauerkultur: wird jedes Jahr automatisch weitergeführt">Dauerkultur</th><th></th></tr></thead><tbody>
-      ${K.map((k, i) => `<tr><td class="nowrap"><button type="button" class="x ebmv" data-eb="kMove" data-id="${k.id}" data-d="-1" ${i ? '' : 'disabled'} aria-label="nach oben">▲</button><button type="button" class="x ebmv" data-eb="kMove" data-id="${k.id}" data-d="1" ${i < K.length - 1 ? '' : 'disabled'} aria-label="nach unten">▼</button></td><td><input class="vbin wide" data-ebin="kName" data-id="${k.id}" data-ebk="kn-${k.id}" value="${esc(k.name)}"></td>
+      <div class="tscroll"><table class="need vbneed ebkt"><thead><tr><th></th><th>Kultur <span class="nr">(Oberbegriff)</span></th><th title="Farbe in Fruchtfolge und Auswertungen">Farbe</th><th class="n">N-Bedarf kg/ha (GRUDAF)</th><th class="n">Anbaupause Jahre</th><th title="Saatmonat; ☑ = Saat im Vorjahr (Winterkulturen)">Saat</th><th title="Ernte bzw. Räumung im letzten Standjahr">Ernte</th><th class="n" title="Anzahl Erntejahre (mehrjährige Kulturen, z.B. Kunstwiese)">Standjahre</th><th title="Dauerkultur: wird jedes Jahr automatisch weitergeführt">Dauerkultur</th><th></th></tr></thead><tbody>
+      ${K.map((k, i) => `<tr><td class="nowrap"><button type="button" class="x ebmv" data-eb="kMove" data-id="${k.id}" data-d="-1" ${i ? '' : 'disabled'} aria-label="nach oben">▲</button><button type="button" class="x ebmv" data-eb="kMove" data-id="${k.id}" data-d="1" ${i < K.length - 1 ? '' : 'disabled'} aria-label="nach unten">▼</button></td><td><b>${esc(k.name)}</b> <span class="nr">${esc(kuOber(k.name) !== k.name ? kuOber(k.name) : '')}</span></td>
         <td class="nowrap"><input type="color" class="ebcol" data-ebin="kFarbe" data-id="${k.id}" value="${esc(k.farbe || ebAutoColor(k.name))}" title="Farbe wählen">${k.farbe ? ` <button type="button" class="x ebcolx" data-eb="kFarbeReset" data-id="${k.id}" title="Standardfarbe" aria-label="Standardfarbe">↺</button>` : ''}</td>
         <td class="n"><input class="vbin" inputmode="decimal" data-ebin="kN" data-id="${k.id}" data-ebk="kv-${k.id}" value="${k.n ?? ''}"></td>
         <td class="n"><input class="vbin" inputmode="numeric" data-ebin="kPause" data-id="${k.id}" data-ebk="kp-${k.id}" value="${k.pause ?? ''}" placeholder="–"></td>
@@ -865,8 +901,8 @@ function ebStammView(st) {
         <td class="n"><input class="vbin sm" inputmode="numeric" data-ebin="kJahre" data-id="${k.id}" data-ebk="kj-${k.id}" value="${k.jahre ?? ''}" placeholder="1"></td>
         <td class="c"><input type="checkbox" data-ebin="kDauer" data-id="${k.id}" ${k.dauer ? 'checked' : ''} title="Dauerkultur (z.B. Naturwiese, Weide)"></td>
         <td>${nUse(k) ? '' : `<button type="button" class="x" data-eb="kDel" data-id="${k.id}" aria-label="Entfernen">×</button>`}</td></tr>`).join('')}</tbody></table></div>
-      <div class="btns"><button class="btn" data-eb="kNew">＋ Kultur</button>${K.some(k => !ebHatZeit(k) && EB_ZEIT[ebKey(k.name)]) ? '<button class="btn" data-eb="kZeit" title="Leere Saat- und Erntemonate mit üblichen Werten füllen">Übliche Saat- und Erntemonate einsetzen</button>' : ''}</div>
-      <p class="nr">«Weizen» und «Winterweizen» gelten als gleiche Kultur, «Sommerhafer» rechnet mit «Hafer». Anbaupause: Die Fruchtfolge warnt (⚠), wenn die Kultur innerhalb dieser Anzahl Jahre schon auf derselben Parzelle stand. Dauerkultur: wird in der Fruchtfolge jedes Jahr automatisch weitergeführt (↻), bis du beim Eintrag «weiterführen» ausschaltest oder eine andere Kultur erfasst. Farbe: antippen zum Ändern, ↺ = Standardfarbe. Reihenfolge (▲▼) gilt für die Düngungsplanung. Kulturdauer: Saatmonat (VJ = im Vorjahr) bis Erntemonat im letzten Standjahr – überschneidet sich eine Kultur mit ihrer Vorkultur, markiert die Fruchtfolge sie rot (✖) und meldet es beim Speichern.</p></div>`;
+      <div class="btns"><button class="btn" data-eb="kNew">＋ Kultur</button><button class="btn" data-ku="edit" title="Namen, Oberbegriffe und Synonyme für alle Bereiche">Kulturliste bearbeiten (Mehr)</button>${K.some(k => !ebHatZeit(k) && EB_ZEIT[ebKey(k.name)]) ? '<button class="btn" data-eb="kZeit" title="Leere Saat- und Erntemonate mit üblichen Werten füllen">Übliche Saat- und Erntemonate einsetzen</button>' : ''}</div>
+      <p class="nr">Namen, Oberbegriffe und Synonyme stammen aus der Kulturliste unter Mehr › Einstellungen (gilt für Aufträge, Pflanzenschutz und Betrieb); hier stehen die Werte für den eigenen Betrieb. In der Fruchtfolge ist die genaue Kultur nötig (z.B. Winterweizen). Anbaupause gilt für den Oberbegriff (Winterweizen nach Sommerweizen = Weizen nach Weizen). Anbaupause: Die Fruchtfolge warnt (⚠), wenn die Kultur innerhalb dieser Anzahl Jahre schon auf derselben Parzelle stand. Dauerkultur: wird in der Fruchtfolge jedes Jahr automatisch weitergeführt (↻), bis du beim Eintrag «weiterführen» ausschaltest oder eine andere Kultur erfasst. Farbe: antippen zum Ändern, ↺ = Standardfarbe. Reihenfolge (▲▼) gilt für die Düngungsplanung. Kulturdauer: Saatmonat (VJ = im Vorjahr) bis Erntemonat im letzten Standjahr – überschneidet sich eine Kultur mit ihrer Vorkultur, markiert die Fruchtfolge sie rot (✖) und meldet es beim Speichern.</p></div>`;
   if (sub === 'kulturen') return nav + kult;
   if (sub === 'richt') return nav + `<div class="panel" style="margin-top:12px"><h2>Richtwerte Bodenproben</h2>
       <div class="tscroll"><table class="need vbneed"><thead><tr><th>Wert</th><th class="n">min</th><th class="n">optimal</th><th class="n">max</th><th>Zielwert</th></tr></thead><tbody>
@@ -875,18 +911,22 @@ function ebStammView(st) {
   return nav + `<div class="cols" style="margin-top:12px"><div>
     <div class="panel"><h2>Betriebsadresse</h2><p>Erscheint oben rechts auf allen Ausdrucken und PDF im Bereich Betrieb (ohne Logo). Leer = Adresse des Kunden ${esc(ebKunde() ? ebKunde().name : 'des eigenen Betriebs')}.</p>
       <textarea class="input" rows="4" data-ebin="adresse" placeholder="${esc(ebAdresse())}">${esc(st.adresse || '')}</textarea></div>
-    <div class="panel"><h2>Zwischenfrüchte</h2><p>Auswahl für Zwischenfrüchte in der Fruchtfolge, zusätzlich zu den Mischungen der Bestellung. Eine pro Zeile. Individuelle Zwischenfrüchte, die du direkt in der Fruchtfolge eingibst, kommen nicht in diese Liste.</p>
-      <textarea class="input" rows="10" data-ebin="zfListe">${esc((st.zfListe || []).join('\n'))}</textarea></div></div>
+    <div class="panel"><h2>Zwischenfrüchte</h2><p>Die Zwischenfrüchte stehen in der Kulturliste (Mehr › Einstellungen › Kulturen, Oberbegriff «Zwischenfrucht»). Individuelle Zwischenfrüchte, die du direkt in der Fruchtfolge eingibst, kommen nicht in die Liste.</p>
+      <div class="chips static">${kuExactNames({ zw: true }).map(n => `<span class="chip">${esc(n)}</span>`).join('') || '<span class="nr">keine</span>'}</div>
+      <div class="btns"><button class="btn" data-ku="edit">Kulturliste bearbeiten</button></div></div></div>
     <div><div class="panel"><h2>Programme</h2><p>Auswahl in der Düngungsplanung (Extenso, IP-Suisse, Ressourcenprogramme …). Ein Programm pro Zeile.</p>
       <textarea class="input" rows="10" data-ebin="prog">${esc(st.programme.join('\n'))}</textarea></div></div></div>`;
 }
 function ebKulturDialog() {
-  const body = `<label class="fld"><span>Kultur</span><input class="input" name="name" required></label>
-    <div class="two"><label class="fld"><span>N-Bedarf kg/ha (GRUDAF)</span><input class="input" name="n" inputmode="decimal"></label><label class="fld"><span>Anbaupause Jahre</span><input class="input" name="pause" inputmode="numeric"></label></div>`;
+  const st = ebStamm(), have = new Set(st.kulturen.map(k => k.kid).filter(Boolean));
+  const free = kuIdx().L.filter(k => !k.zw && k.aktiv !== false && !have.has(k.id));
+  const body = `<label class="fld"><span>Kultur aus der Kulturliste</span><select class="input" name="kid" data-plain>${kuIdx().obers.map(o => { const F = free.filter(k => k.ober === o); return F.length ? `<optgroup label="${esc(o)}">${F.map(k => `<option value="${esc(k.id)}">${esc(k.name)}</option>`).join('')}</optgroup>` : ''; }).join('')}</select></label>
+    <div class="two"><label class="fld"><span>N-Bedarf kg/ha (GRUDAF)</span><input class="input" name="n" inputmode="decimal"></label><label class="fld"><span>Anbaupause Jahre</span><input class="input" name="pause" inputmode="numeric"></label></div>
+    <p class="nr">Fehlt eine Kultur, unter «Kulturliste bearbeiten» ergänzen.</p>`;
+  if (!free.length) { toast('Alle Kulturen der Kulturliste sind schon aufgeführt.'); return; }
   smallDialog('Kultur hinzufügen', body, 'Hinzufügen', fd => {
-    const st = ebStamm(), name = (fd.get('name') || '').trim(); if (!name) return false;
-    if (st.kulturen.some(k => ebKey(k.name) === ebKey(name))) { toast('Diese Kultur gibt es schon.'); return false; }
-    st.kulturen.push({ id: 'k-' + ebSlug(name), name, n: ebNum(fd.get('n')), pause: ebNum(fd.get('pause')) }); ebSaveS(st);
+    const s2 = ebStamm(), c = kuIdx().L.find(k => k.id === fd.get('kid')); if (!c) return false;
+    s2.kulturen.push({ id: 'k-' + ebSlug(c.name), kid: c.id, name: c.name, n: ebNum(fd.get('n')), pause: ebNum(fd.get('pause')) }); ebSaveS(s2);
   });
 }
 

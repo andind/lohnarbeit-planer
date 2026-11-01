@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '93', APP_STAND = '31.10.2026';
+const APP_VERSION = '94', APP_STAND = '01.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1084,7 +1084,7 @@ const Views = {
           </div>
           <p class="nr">Gilt für dieses Gerät. Ziehen, Mehrfachauswahl und Zoom funktionieren in beiden Anordnungen.</p></div>
         ${listPanel('arbeitsarten', 'Arbeitsarten', 'Auswahl bei Aufträgen und Maschinen. Umbenennen ändert auch bestehende Aufträge und Maschinen.')}
-        ${listPanel('kulturen', 'Kulturen', 'Auswahl bei Aufträgen. Umbenennen ändert auch bestehende Aufträge.')}
+        ${typeof kuPanel === 'function' ? kuPanel() : ''}
       </div><div>
         <div class="panel"><h2>Dropbox</h2>${conn}
           <p style="margin-top:12px">Redirect-URI für die Dropbox-App:</p><code class="mono">${esc(Auth.redirectUri())}</code></div>
@@ -1208,7 +1208,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
       <label class="fld"><span>Arbeit *</span><select class="input" name="arbeit" required>
         <option value="">— bitte wählen —</option>${listOptions(Lists.arbeitsarten(), a.arbeit)}</select></label>
       <label class="fld"><span>Kultur</span><select class="input" name="kultur">
-        <option value="">—</option>${listOptions(Lists.kulturen(), a.kultur)}</select></label>
+        <option value="">—</option>${kuOrderOptions(a.kultur, isSpray(a))}</select></label>
     </div>
     <div class="two">
       <label class="fld"><span>Fläche (ha)</span><input class="input" name="flaeche" inputmode="decimal" value="${a.flaeche ?? ''}" placeholder="z.B. 4.5"></label>
@@ -1255,6 +1255,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
       kunde: kunde.id, arbeit: fd.get('arbeit'), kultur: fd.get('kultur'),
       flaeche: num(fd.get('flaeche')), wunsch: fd.get('wunsch'), notiz: fd.get('notiz').trim(), kfeld: fd.get('kfeld') || ''
     });
+    if (isSpray(o) && kuNeedsExact(o.kultur)) { toast(`Für Pflanzenschutz die genaue Kultur wählen (${kuForms(kuOber(o.kultur)).map(k => k.name).join(', ')}).`, 5000); return false; }
     if (planOpen && fd.get('datum')) {
       const m = maschine(fd.get('maschine')); const manual = num(fd.get('dauer'));
       Object.assign(o, { datum: fd.get('datum'), zeit: fd.get('zeit'), maschine: m?.id || '', dauerManuell: manual != null, dauer: manual ?? defaultDauer(m, o.flaeche), mehrtag: fd.get('mehrtag') ? 'arbeitszeit' : '' });
@@ -1341,7 +1342,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
       if (!f.stundenEff.value) { const d = num(f.dauer.value) ?? defaultDauer(maschine(f.maschine.value), num(f.flaeche.value)); if (d != null) f.stundenEff.value = d; }
     }
   });
-  fillVm(); fillMachines(); autoVm(); checkKunde(); wireSpray(f); wireRsSeed(f, a); wireFeld(f, a);
+  fillVm(); fillMachines(); autoVm(); checkKunde(); wireSpray(f); wireRsSeed(f, a); wireFeld(f, a); kuWireOrder(f);
   if (!a.datum && $('#planBox', f).open) $('#vmBox', f).hidden = true;
   if (plan) setTimeout(() => $('#planBox', f)?.scrollIntoView({ block: 'nearest' }), 60);
 }
@@ -2248,7 +2249,7 @@ function parzelleDialog(id, { kunde, fromOrder } = {}) {
   const body = `<label class="fld"><span>Kunde *</span><select class="input" name="kunde" required><option value="">—</option>${ks.map(k => `<option value="${k.id}" ${k.id === p.kunde ? 'selected' : ''}>${esc(kundeLabel(k))}</option>`).join('')}</select></label>
     <label class="fld"><span>Parzellenname *</span><input class="input" name="name" value="${esc(p.name || '')}" required></label>
     <div class="two">
-      <label class="fld"><span>Kultur</span><select class="input" name="kultur"><option value="">—</option>${optList(Lists.kulturen(), p.kultur)}</select></label>
+      <label class="fld"><span>Kultur</span><select class="input" name="kultur"><option value="">—</option>${kuOptions(p.kultur, { exact: true, zw: false })}</select></label>
       <label class="fld"><span>Fläche (ha)</span><input class="input" name="flaeche" inputmode="decimal" value="${p.flaeche ?? ''}"></label>
     </div>
     <label class="fld" id="pfFeld"><span>Feld aus der Kundenkartei</span><select class="input" name="feldId">${feldOptions(p.kunde, p.feldId)}</select></label>
@@ -2668,12 +2669,14 @@ const aStatusOk = (a, f) => f === 'alle' || (f === 'offen' ? isOpen(a) : statusO
 function alFilter(L, skip = '') {
   const q = norm(App.filter.q), sf = App.filter.auftraege;
   return a => aStatusOk(a, sf) && (!L.von || aDate(a) >= L.von) && (!L.bis || (aDate(a) && aDate(a) <= L.bis))
-    && (skip === 'k' || !L.k || a.kunde === L.k) && (skip === 'a' || !L.a || a.arbeit === L.a) && (skip === 'c' || !L.c || (a.kultur || '') === L.c)
+    && (skip === 'k' || !L.k || a.kunde === L.k) && (skip === 'a' || !L.a || a.arbeit === L.a) && (skip === 'c' || !L.c || kOber(a.kultur) === L.c)
     && (skip === 'm' || !L.m || (a.maschine || '') === L.m) && (skip === 'f' || !L.f || aFeld(a) === L.f)
     && (!q || [a.nr, kundeName(a.kunde), a.arbeit, a.kultur, a.notiz, aFeld(a), maschine(a.maschine)?.name, ...prodNames(a)].join(' ').toLowerCase().includes(q));
 }
+// Oberbegriff einer Kultur (kulturen.js; beim allerersten Zeichnen noch nicht geladen)
+const kOber = n => typeof kuOber === 'function' ? kuOber(n) : String(n || '');
 const AL_GRP = [['', 'keine'], ['kunde', 'Kunde'], ['arbeit', 'Arbeit'], ['maschine', 'Maschine'], ['kultur', 'Kultur'], ['status', 'Status'], ['monat', 'Monat']];
-const alKey = (a, g) => g === 'kunde' ? kundeName(a.kunde) : g === 'arbeit' ? a.arbeit || '' : g === 'maschine' ? (maschine(a.maschine)?.name || '') : g === 'kultur' ? a.kultur || '' : g === 'status' ? STATUS[statusOf(a)] : g === 'monat' ? aDate(a).slice(0, 7) : '';
+const alKey = (a, g) => g === 'kunde' ? kundeName(a.kunde) : g === 'arbeit' ? a.arbeit || '' : g === 'maschine' ? (maschine(a.maschine)?.name || '') : g === 'kultur' ? kOber(a.kultur) : g === 'status' ? STATUS[statusOf(a)] : g === 'monat' ? aDate(a).slice(0, 7) : '';
 const alLabel = (k, g) => g === 'monat' && k ? `${MONATE_LANG[+k.slice(5, 7) - 1]} ${k.slice(0, 4)}` : (k || '–');
 const alFl = a => a.flaecheEff ?? a.flaeche ?? null;
 const alHa = l => r2(l.reduce((s, a) => s + (alFl(a) || 0), 0));
@@ -2783,7 +2786,7 @@ function alContent() {
       <label class="fld"><span>Von</span><input class="input" type="date" data-in="al" data-k="von" value="${esc(L.von)}"></label>
       <label class="fld"><span>Bis</span><input class="input" type="date" data-in="al" data-k="bis" value="${esc(L.bis)}"></label>
       ${sel('k', 'Kunde', opt(kIds, L.k, kundeName), 'Alle Kunden')}${sel('f', 'Feld / Parzelle', opt(uniq(aFeld, 'f'), L.f), 'Alle Felder')}
-      ${sel('a', 'Arbeit', opt(uniq(a => a.arbeit, 'a'), L.a), 'Alle Arbeiten')}${sel('c', 'Kultur', opt(uniq(a => a.kultur, 'c'), L.c), 'Alle Kulturen')}
+      ${sel('a', 'Arbeit', opt(uniq(a => a.arbeit, 'a'), L.a), 'Alle Arbeiten')}${sel('c', 'Kultur', opt(uniq(a => a.kultur ? kOber(a.kultur) : '', 'c'), L.c), 'Alle Kulturen')}
       ${sel('m', 'Maschine', opt(mIds, L.m, id => maschine(id)?.name || id), 'Alle Maschinen')}
       <label class="fld"><span>Gruppieren nach</span><select class="input" data-plain data-in="al" data-k="grp">${AL_GRP.map(([v, l]) => `<option value="${v}" ${L.grp === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="fld"><span>Sortierung</span><select class="input" data-plain data-in="al" data-k="sort" title="Wunschdatum: bei gleichem Wunschdatum nach Erfassung; ohne Wunschdatum am Schluss">${AL_SORT.map(([v, t]) => `<option value="${v}" ${L.sort === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
@@ -4357,7 +4360,7 @@ function vbProgDialog(id) {
     <div class="vbml">${(b.mittel && b.mittel.length ? b.mittel : [{}]).map(mrow).join('')}</div>
     <div class="btns"><button type="button" class="btn small" data-vb="mAdd">＋ Mittel</button><span class="spacer"></span><button type="button" class="btn small" data-vb="bUp" title="Nach oben">↑</button><button type="button" class="btn small" data-vb="bDel">Behandlung entfernen</button></div></div>`;
   const body = `<div class="two"><label class="fld"><span>Name *</span><input class="input" name="name" value="${esc(p.name)}" required placeholder="z.B. Gerste 1x Fungi"></label>
-      <label class="fld"><span>Kultur</span><select class="input" name="kultur"><option value="">—</option>${listOptions(Lists.kulturen(), p.kultur)}</select></label></div>
+      <label class="fld"><span>Kultur</span><select class="input" name="kultur"><option value="">—</option>${kuOptions(p.kultur)}</select></label></div>
     <label class="fld"><span>Variante / Beschreibung</span><input class="input" name="variante" value="${esc(p.variante || '')}"></label>
     <h4 style="margin:8px 0 4px">Behandlungen (Mittel pro ha)</h4><div id="vbB">${B.map(brow).join('')}</div>
     <button type="button" class="btn small" data-vb="bAdd">＋ Behandlung</button>
@@ -5776,9 +5779,9 @@ function chkRun() {
   const pof = all('parzellen').filter(z => z.aktiv !== false && !z.feldId && nk(z.name) !== 'unbekannt');
   C.push({ id: 'pof', sev: 'hinweis', titel: 'Spritz-Parzellen ohne MyJohnDeere-Feld', text: 'Ohne Feld fehlen Vermessungen und die Verbindung zu MyJohnDeere (zuweisen unter Verwaltung › Kunden › Feld › Parzellen zuweisen).', items: pof.map(z => ({ label: `${kundeName(z.kunde)} · ${z.name}`, act: 'parzEdit', id: z.id })) });
   // 6) Kulturen
-  const kl = new Set(Lists.kulturen().map(nk)), kMiss = {};
-  O.forEach(a => { if (a.kultur && !kl.has(nk(a.kultur))) kMiss[a.kultur] = (kMiss[a.kultur] || 0) + 1; });
-  C.push({ id: 'kult', sev: 'hinweis', titel: 'Kulturen in Aufträgen, die nicht in der Kulturliste stehen', text: 'Diese Kulturen erscheinen nicht in der Auswahl. «In Liste aufnehmen» ergänzt die Kulturliste (Mehr › Einstellungen).', items: Object.entries(kMiss).sort((a, b) => b[1] - a[1]).map(([n, v]) => ({ label: `${n} – ${v} Aufträge` })), fix: Object.keys(kMiss).length ? { label: 'In Liste aufnehmen', run: 'kult' } : null });
+  const KO = typeof kuOpen === 'function' ? kuOpen() : { unk: [], spray: [], eb: [] }, WW = { auftrag: 'Aufträge', spray: 'Spritzaufträge', parzelle: 'Spritz-Parzellen', eb: 'Fruchtfolge', ebz: 'Zwischenfrüchte', vb: 'Spritzprogramme' };
+  C.push({ id: 'kult', sev: 'hinweis', titel: 'Kulturen ohne Zuordnung zur Kulturliste', text: 'Diese Bezeichnungen stehen weder als genaue Kultur noch als Oberbegriff in der Kulturliste (Mehr › Einstellungen › Kulturen). «Kulturen ordnen» nimmt sie auf oder ordnet sie einer bestehenden Kultur zu.', items: KO.unk.map(e => ({ label: `${e.n} – ${Object.entries(e.c).map(([w, n]) => `${n}× ${WW[w]}`).join(', ')}` })), fix: KO.unk.length ? { label: 'Kulturen ordnen …', run: 'kult' } : null });
+  C.push({ id: 'kultS', sev: 'hinweis', titel: 'Spritzaufträge und Fruchtfolge ohne genaue Kultur', text: 'Für Pflanzenschutz und Eigener Betrieb braucht es die genaue Kultur (z.B. Winterweizen statt Weizen). «Kulturen ordnen» schlägt sie aus Fruchtfolge, Parzelle oder Datum vor.', items: [...KO.eb.map(e => ({ label: `Fruchtfolge: ${e.n} – ${e.c}×`, go: 'betrieb' })), ...KO.spray.map(a => ({ ...oL(a), extra: a.kultur }))], fix: KO.spray.length + KO.eb.length ? { label: 'Kulturen ordnen …', run: 'kult' } : null });
   // 7) Rübensamen / Vorbestellung ohne Kunde
   const oK = [];
   [...E.values()].filter(r => /^(rs|vb)-\d{4}$/.test(r.id)).sort((a, b) => b.jahr - a.jahr).forEach(r => (r.rows || []).forEach(x => {
@@ -5788,19 +5791,18 @@ function chkRun() {
   // 8) Eigener Betrieb
   const st = E.get('eb-stamm');
   if (st) {
-    const EP = new Map((st.parz || []).map(p => [p.id, p])), ekn = new Set((st.kulturen || []).map(k => nk(k.name))), ekid = new Set((st.kulturen || []).map(k => k.id));
+    const EP = new Map((st.parz || []).map(p => [p.id, p]));
     const pha = p => p.ha != null ? p.ha : (F.get(p.feld) || {}).flaeche, pnm = p => [p.name, p.teil].filter(Boolean).join(' ');
-    const miss = {}, over = [], diff = [];
+    const over = [], diff = [];
     [...E.values()].filter(r => /^eb-\d{4}$/.test(r.id)).sort((a, b) => a.jahr - b.jahr).forEach(r => {
       const sum = {};
-      (r.schlaege || []).forEach(s => { if (s.kultur && !ekid.has(s.kultur) && !ekn.has(nk(s.kultur))) miss[s.kultur] = (miss[s.kultur] || 0) + 1;
+      (r.schlaege || []).forEach(s => {
         if (s.art !== 'zwischen' && s.parz && s.ha != null) sum[s.parz] = (sum[s.parz] || 0) + s.ha; });
       Object.entries(sum).forEach(([pz, t]) => { const p = EP.get(pz), h = p && pha(p); if (h && t > h + 0.05) over.push({ label: `${r.jahr} · ${pnm(p)}: Hauptkulturen ${fmtNum(r2(t))} ha auf ${fmtNum(h)} ha`, go: 'betrieb' }); });
     });
     (st.parz || []).forEach(p => { const f = F.get(p.feld); if (p.ha != null && f && f.flaeche && Math.abs(p.ha - f.flaeche) > 0.05) diff.push({ label: `${pnm(p)}: eingetragen ${fmtNum(p.ha)} ha · Vermessung ${fmtNum(f.flaeche)} ha`, go: 'betrieb' }); });
     const own = all('parzellen').filter(z => z.kunde === st.kunde && z.aktiv !== false), bf = new Set((st.parz || []).map(p => p.feld).filter(Boolean)), bn = new Set((st.parz || []).map(p => nk(p.name)));
     const dop = own.filter(z => (z.feldId && bf.has(z.feldId)) || bn.has(nk(z.name)));
-    C.push({ id: 'ebKult', sev: 'hinweis', titel: 'Eigener Betrieb: Kulturen der Fruchtfolge fehlen in den Betrieb-Kulturen', text: 'Ohne Eintrag in Eigener Betrieb › Stammdaten › Kulturen fehlen N-Bedarf, Anbaupause und Farbe.', items: Object.entries(miss).sort((a, b) => b[1] - a[1]).map(([n, v]) => ({ label: `${n} – ${v}×`, go: 'betrieb' })) });
     C.push({ id: 'ebOver', sev: 'hinweis', titel: 'Eigener Betrieb: Hauptkulturen grösser als die Parzelle', text: 'Die Flächen der Hauptkulturen ergeben zusammen mehr als die Parzelle – Parzellenfläche oder Aufteilung prüfen.', items: over });
     C.push({ id: 'ebHa', sev: 'hinweis', titel: 'Eigener Betrieb: Parzellenfläche weicht von der Vermessung ab', text: 'Kann gewollt sein (z.B. Fläche gemäss Flächenbeiträgen). Ohne eingetragene Fläche gilt automatisch die Vermessung.', items: diff });
     C.push({ id: 'ebDop', sev: 'hinweis', titel: 'Eigene Parzellen doppelt geführt (Spritzen und Eigener Betrieb)', text: 'Für dieselbe Fläche besteht eine Spritz-Parzelle und eine Betrieb-Parzelle (gleiches Feld oder gleicher Name). Die beiden sind nicht miteinander verbunden.', items: dop.map(z => ({ label: `${z.name}${z.feldId && F.get(z.feldId) ? ' · Feld ' + F.get(z.feldId).name : ''}`, act: 'parzEdit', id: z.id })) });
@@ -5858,9 +5860,11 @@ function chkMergeParz(ids) {
 }
 function chkFix(run) {
   const C = chkRun(), c = C.find(x => x.fix && x.fix.run === run); if (!c) return;
+  if (run === 'kult') { kuAssistant(); return; }
   const n = chkCount(c); if (!confirm(`${c.fix.label}: ${n} ${n === 1 ? 'Eintrag' : 'Einträge'} – fortfahren?`)) return;
   const O = new Map(Store.all('auftraege').map(a => [a.id, a])), P = new Map(Store.all('parzellen').map(z => [z.id, z])), F = new Map(Store.all('felder').map(f => [f.id, f]));
   let done = 0;
+  if (run === 'kult') { kuAssistant(); return; }
   if (run === 'refs') {
     const K = new Set(Store.all('kunden').map(x => x.id)), M = new Set(Store.all('maschinen').map(x => x.id)), PR = new Set(Store.all('produkte').map(x => x.id)), E = new Map(Store.all('einstellungen').map(x => [x.id, x]));
     const ch = c.items.map(i => { const a = structuredClone(O.get(i.id)); if (!a) return null;
@@ -5874,8 +5878,6 @@ function chkFix(run) {
   } else if (run === 'fremd') {
     const ch = c.items.map(i => { const a = structuredClone(O.get(i.id)); if (!a) return null; const z = P.get(a.parzelle); if (z && /^unbekannt$/i.test(String(a.feld || '').trim()) && /^unbekannt$/i.test(String(z.name || '').trim())) a.feld = ''; a.parzelle = ''; return a; }).filter(Boolean);
     Store.putMany('auftraege', ch); done = ch.length;
-  } else if (run === 'kult') {
-    const names = c.items.map(i => i.label.replace(/ – \d+ Aufträge$/, '')); Lists.ensure('kulturen', names); done = names.length;
   } else if (run === 'prodD') { c.groups.forEach(g => { done += chkMergeProd(g.ids); }); }
   else if (run === 'parzD') { c.groups.forEach(g => { done += chkMergeParz(g.ids); }); }
   App.render(); toast(`Bereinigt: ${done}`);
