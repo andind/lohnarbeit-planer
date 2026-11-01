@@ -1221,3 +1221,12 @@ td.ebbu, .ebleg.ebbu { background: color-mix(in srgb, #3b6fd1 16%, var(--surface
 .ebfft .ebpmv .ebmv { font-size: 12px; padding: 0 4px; opacity: .55; }
 .ebfft .ebpmv .ebmv:hover:not([disabled]) { opacity: 1; }
 .ebfft .ebpmv .ebmv[disabled] { opacity: .15; }
+/* Ansichtszoom in der Titelleiste */
+.top .hdrzoom { gap: 0; }
+.top .hdrzoom .btn.hbtn { padding: 7px 10px; min-width: 34px; border-radius: 0; margin-left: -1px; font-size: 16px; }
+.top .hdrzoom .btn.hbtn:first-child { border-radius: 8px 0 0 8px; }
+.top .hdrzoom .btn.hbtn:last-child { border-radius: 0 8px 8px 0; }
+.top .hdrzoom .zvb { font-size: 12px !important; min-width: 54px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.top .hdrzoom[hidden] { display: none; }
+@media (max-width: 700px) { .top .hdrzoom { display: none; } }
+@media print { #content { zoom: 1 !important; } }

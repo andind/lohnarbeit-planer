@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '101', APP_STAND = '01.11.2026';
+const APP_VERSION = '102', APP_STAND = '01.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -664,6 +664,7 @@ const App = {
     if (fresh) $('#toolbar').innerHTML = v.toolbar();
     if (v.refreshToolbar) v.refreshToolbar();
     $('#content').innerHTML = v.content();
+    vzApply();
     if (v.after) v.after();
     renderSelbar();
     hdrUpdate();
@@ -690,6 +691,7 @@ function fsToggle() {
 }
 function hdrUpdate() {
   const w = $('#hdrWin'), f = $('#hdrFs'); if (!w || !f) return;
+  const hz = $('#hdrZoom'); if (hz) hz.hidden = App.view === 'plan'; // Planung: eigener Zoom in der Werkzeugleiste
   w.hidden = !isPC();
   f.hidden = !FS_VIEWS[App.view] && !document.fullscreenEnabled;
   const on = fsOn(); f.classList.toggle('on', on); f.title = on ? 'Vollbild beenden (Esc)' : 'Vollbild';
@@ -1689,6 +1691,57 @@ function attachPinch(cal) {
   ['gesturestart', 'gesturechange'].forEach(n => cal.addEventListener(n, e => e.preventDefault()));
   cal.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); setZoom(App.zoom * Math.exp(-e.deltaY / 300)); } }, { passive: false });
 }
+
+/* ================= Ansichtszoom: nur der Inhalt (Listen, Tabellen, Kalender), nicht das ganze Fenster =================
+   Planung: eigener Zoom (App.zoom, oben). Alle anderen Ansichten: CSS-Zoom auf #content, pro Ansicht gemerkt (lp_vz).
+   Bedienung: −/%/+ in der Titelleiste, Ctrl+Mausrad bzw. Trackpad, Ctrl +/−/0, zwei Finger auf Tablet/Handy. */
+const VZ_MIN = 0.5, VZ_MAX = 2.5;
+const vzKey = () => App.view === 'spritzen' ? 'spritzen:' + ((App.spray && App.spray.tab) || '') : App.view === 'betrieb' && App.eb ? 'betrieb:' + App.eb.sub : App.view;
+let _vzMap = null;
+const vzMap = () => { if (!_vzMap) { try { _vzMap = JSON.parse(ls('lp_vz') || '{}') || {}; } catch { _vzMap = {}; } } return _vzMap; };
+const vzGet = () => vzMap()[vzKey()] || 1;
+function vzApply(z) {
+  const c = $('#content'); if (!c) return;
+  const v = App.view === 'plan' ? 1 : (z ?? vzGet());
+  if (v === 1) c.style.removeProperty('zoom'); else c.style.zoom = v;
+  const l = $('#hdrZoomV'); if (l) l.textContent = Math.round((App.view === 'plan' ? App.zoom : v) * 100) + ' %';
+}
+function vzSet(z) {
+  z = Math.round(Math.max(VZ_MIN, Math.min(VZ_MAX, z)) * 100) / 100;
+  const old = vzGet(); if (z === old) { vzApply(); return; }
+  const m = vzMap(), k = vzKey(); if (z === 1) delete m[k]; else m[k] = z; ls('lp_vz', JSON.stringify(m));
+  const r = z / old, sx = scrollX, sy = scrollY; vzApply(z); scrollTo(sx * r, sy * r); // Lage im Inhalt ungefähr halten
+}
+function zoomBy(f) { if (App.view === 'plan') setZoom(App.zoom * f); else vzSet(vzGet() * f); }
+function zoomReset() { if (App.view === 'plan') setZoom(1); else vzSet(1); }
+// Ctrl+Mausrad / Trackpad-Pinch: nie das ganze Fenster zoomen (in der Planung zoomt der Kalender selbst)
+document.addEventListener('wheel', e => {
+  if (!e.ctrlKey) return; e.preventDefault();
+  if (e.target.closest && (e.target.closest('.cal') || e.target.closest('#dlg'))) return;
+  zoomBy(Math.exp(-e.deltaY / 500));
+}, { passive: false });
+document.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || Dlg.el.open) return;
+  if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomBy(1.15); }
+  else if (e.key === '-') { e.preventDefault(); zoomBy(1 / 1.15); }
+  else if (e.key === '0') { e.preventDefault(); zoomReset(); }
+});
+// Zwei Finger (iPhone/iPad/Android): nur der Inhalt; das Fenster selbst wird nicht gezoomt
+(() => {
+  let d0 = 0, z0 = 1, zl = 1;
+  const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const inContent = e => App.view !== 'plan' && e.target.closest && e.target.closest('#content') && !e.target.closest('.cal');
+  document.addEventListener('touchstart', e => { if (e.touches.length === 2 && inContent(e)) { d0 = dist(e.touches); z0 = zl = vzGet(); } }, { passive: true });
+  document.addEventListener('touchmove', e => {
+    if (e.touches.length < 2) return;
+    if (!e.target.closest || !e.target.closest('.cal')) e.preventDefault(); // Seitenzoom des Browsers verhindern (Kalender: eigener Zoom)
+    if (!d0) return;
+    zl = Math.max(VZ_MIN, Math.min(VZ_MAX, z0 * dist(e.touches) / d0)); vzApply(zl);
+  }, { passive: false });
+  const end = e => { if (d0 && e.touches.length < 2) { d0 = 0; vzApply(z0); vzSet(zl); } };
+  document.addEventListener('touchend', end); document.addEventListener('touchcancel', end);
+  ['gesturestart', 'gesturechange'].forEach(n => document.addEventListener(n, e => e.preventDefault()));
+})();
 
 /* ================= Mehrfachauswahl ================= */
 function toggleSel(id) { if (App.sel.has(id)) App.sel.delete(id); else App.sel.add(id); App.render(); }
@@ -5674,6 +5727,7 @@ document.addEventListener('click', async e => {
     case 'aFilter': App.filter.auftraege = t.dataset.v; App.alimit = 150; App.render(); break;
     case 'pMode': App.plan.mode = t.dataset.v; ls('lp_pmode', t.dataset.v); App.resetScroll = true; App.render(); break;
     case 'zoom': setZoom(App.zoom * (+t.dataset.d > 0 ? 1.25 : 0.8)); break;
+    case 'vz': { const d = +t.dataset.d; if (!d) zoomReset(); else zoomBy(d > 0 ? 1.15 : 1 / 1.15); break; }
     case 'fs': App.fs = !App.fs; App.render(); break;
     case 'pSide': App.plan.side = App.plan.side === false; ls('lp_pside', App.plan.side ? '1' : '0'); App.render(); break;
     case 'pNav': {
