@@ -1229,4 +1229,8 @@ td.ebbu, .ebleg.ebbu { background: color-mix(in srgb, #3b6fd1 16%, var(--surface
 .top .hdrzoom .zvb { font-size: 12px !important; min-width: 54px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .top .hdrzoom[hidden] { display: none; }
 @media (max-width: 700px) { .top .hdrzoom { display: none; } }
-@media print { #content { zoom: 1 !important; } }
+/* Ansichtszoom nur für die Daten: oberste Tabellen und Listen im Inhalt (keine Filterleisten, Knöpfe, Überschriften) */
+#content table:not(table table):not(.rows table):not(.list table),
+#content .rows:not(table .rows):not(.list .rows),
+#content .list:not(table .list):not(.rows .list) { zoom: var(--vz, 1); }
+@media print { #content { zoom: 1 !important; --vz: 1 !important; } }

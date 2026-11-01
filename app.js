@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '102', APP_STAND = '01.11.2026';
+const APP_VERSION = '103', APP_STAND = '01.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1692,8 +1692,8 @@ function attachPinch(cal) {
   cal.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); setZoom(App.zoom * Math.exp(-e.deltaY / 300)); } }, { passive: false });
 }
 
-/* ================= Ansichtszoom: nur der Inhalt (Listen, Tabellen, Kalender), nicht das ganze Fenster =================
-   Planung: eigener Zoom (App.zoom, oben). Alle anderen Ansichten: CSS-Zoom auf #content, pro Ansicht gemerkt (lp_vz).
+/* ================= Ansichtszoom: nur die Daten (Tabellen, Listen, Kalender), nicht Fenster, Filter oder Knöpfe =================
+   Planung: eigener Zoom (App.zoom, oben). Alle anderen Ansichten: --vz auf #content, gilt nur für Tabellen und Listen (styles.css), pro Ansicht gemerkt (lp_vz).
    Bedienung: −/%/+ in der Titelleiste, Ctrl+Mausrad bzw. Trackpad, Ctrl +/−/0, zwei Finger auf Tablet/Handy. */
 const VZ_MIN = 0.5, VZ_MAX = 2.5;
 const vzKey = () => App.view === 'spritzen' ? 'spritzen:' + ((App.spray && App.spray.tab) || '') : App.view === 'betrieb' && App.eb ? 'betrieb:' + App.eb.sub : App.view;
@@ -1703,7 +1703,8 @@ const vzGet = () => vzMap()[vzKey()] || 1;
 function vzApply(z) {
   const c = $('#content'); if (!c) return;
   const v = App.view === 'plan' ? 1 : (z ?? vzGet());
-  if (v === 1) c.style.removeProperty('zoom'); else c.style.zoom = v;
+  c.style.removeProperty('zoom'); // früher (v102): ganzer Inhaltsbereich
+  if (v === 1) c.style.removeProperty('--vz'); else c.style.setProperty('--vz', v); // nur Daten: Tabellen und Listen (styles.css)
   const l = $('#hdrZoomV'); if (l) l.textContent = Math.round((App.view === 'plan' ? App.zoom : v) * 100) + ' %';
 }
 function vzSet(z) {
