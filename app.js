@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '94', APP_STAND = '01.11.2026';
+const APP_VERSION = '95', APP_STAND = '01.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1207,8 +1207,8 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
     <div class="two">
       <label class="fld"><span>Arbeit *</span><select class="input" name="arbeit" required>
         <option value="">— bitte wählen —</option>${listOptions(Lists.arbeitsarten(), a.arbeit)}</select></label>
-      <label class="fld"><span>Kultur</span><select class="input" name="kultur">
-        <option value="">—</option>${kuOrderOptions(a.kultur, isSpray(a))}</select></label>
+      <label class="fld"><span>Kultur</span><select class="input" name="kultur" data-cur="${esc(a.kultur || '')}">
+        <option value="">—</option>${kuOrderOptions(a.kultur)}</select></label>
     </div>
     <div class="two">
       <label class="fld"><span>Fläche (ha)</span><input class="input" name="flaeche" inputmode="decimal" value="${a.flaeche ?? ''}" placeholder="z.B. 4.5"></label>
@@ -1252,7 +1252,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
     if (!kunde) { toast('Kunde nicht gefunden – bitte aus den Vorschlägen wählen.', 4000); Dlg.form.kunde.focus(); return false; }
     const planOpen = $('#planBox', Dlg.form).open;
     const o = Object.assign(a, {
-      kunde: kunde.id, arbeit: fd.get('arbeit'), kultur: fd.get('kultur'),
+      kunde: kunde.id, arbeit: fd.get('arbeit'), kultur: typeof kuOrderValue === 'function' ? kuOrderValue(fd) : fd.get('kultur'),
       flaeche: num(fd.get('flaeche')), wunsch: fd.get('wunsch'), notiz: fd.get('notiz').trim(), kfeld: fd.get('kfeld') || ''
     });
     if (isSpray(o) && kuNeedsExact(o.kultur)) { toast(`Für Pflanzenschutz die genaue Kultur wählen (${kuForms(kuOber(o.kultur)).map(k => k.name).join(', ')}).`, 5000); return false; }
@@ -1342,7 +1342,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
       if (!f.stundenEff.value) { const d = num(f.dauer.value) ?? defaultDauer(maschine(f.maschine.value), num(f.flaeche.value)); if (d != null) f.stundenEff.value = d; }
     }
   });
-  fillVm(); fillMachines(); autoVm(); checkKunde(); wireSpray(f); wireRsSeed(f, a); wireFeld(f, a); kuWireOrder(f);
+  fillVm(); fillMachines(); autoVm(); checkKunde(); kuWireOrder(f); wireSpray(f); wireRsSeed(f, a); wireFeld(f, a);
   if (!a.datum && $('#planBox', f).open) $('#vmBox', f).hidden = true;
   if (plan) setTimeout(() => $('#planBox', f)?.scrollIntoView({ block: 'nearest' }), 60);
 }
@@ -2104,7 +2104,7 @@ const prodRow = (p = {}) => `<div class="prow"><select class="input" name="pname
 const optList = (list, cur) => (cur && !list.includes(cur) ? [cur, ...list] : list).map(x => `<option ${x === cur ? 'selected' : ''}>${esc(x)}</option>`).join('');
 function parzOptions(kid, cur) {
   const list = Store.all('parzellen').filter(p => p.kunde === kid && (p.aktiv !== false || p.id === cur)).sort(byName);
-  return `<option value="">— keine —</option>` + list.map(p => `<option value="${p.id}" ${p.id === cur ? 'selected' : ''}>${esc(p.name)}${p.flaeche ? ` · ${fmtNum(p.flaeche)} ha` : ''}${p.kultur ? ` · ${esc(p.kultur)}` : ''}</option>`).join('');
+  return `<option value="">— keine —</option>` + list.map(p => `<option value="${p.id}" ${p.id === cur ? 'selected' : ''}>${esc(p.name)}${p.teil ? ' ' + esc(p.teil) : ''}${p.flaeche ? ` · ${fmtNum(p.flaeche)} ha` : ''}${p.kultur ? ` · ${esc(p.kultur)}` : ''}</option>`).join('');
 }
 // Vorgaben für neue Spritzaufträge: Düse IDK 03, Traktor JD 5125r, Wasser 200 l/ha
 const SPRAY_DEF = { duese: 'idk03', traktor: 'jd5125r', wasser: 200 };
@@ -2173,7 +2173,7 @@ function wireSpray(f) {
   f.parzelle.addEventListener('change', () => {
     const p = Store.get('parzellen', f.parzelle.value); if (!p) return;
     f.feld.value = p.name;
-    if (p.kultur && !f.kultur.value) { if (![...f.kultur.options].some(o => o.value === p.kultur)) f.kultur.insertAdjacentHTML('beforeend', `<option>${esc(p.kultur)}</option>`); f.kultur.value = p.kultur; }
+    if (p.kultur && !f.kultur.value) { if (typeof kuSetOrderKultur === 'function') kuSetOrderKultur(f, p.kultur); else { if (![...f.kultur.options].some(o => o.value === p.kultur)) f.kultur.insertAdjacentHTML('beforeend', `<option>${esc(p.kultur)}</option>`); f.kultur.value = p.kultur; } }
     if (p.flaeche && !f.flaeche.value) { f.flaeche.value = p.flaeche; f.flaeche.dispatchEvent(new Event('input', { bubbles: true })); }
     upd();
   });
@@ -5697,7 +5697,7 @@ function bakSheets(D) {
 function bakBetrieb(D, H) {
   const { r2, yearRecs, dt } = H, st = H.einst.find(x => x.id === 'eb-stamm'), EB = yearRecs('eb');
   if (!st && !EB.length) return [];
-  const S = st || {}, P = new Map((S.parz || []).map(p => [p.id, p])), pn = id => { const p = P.get(id); return p ? [p.name, p.teil].filter(Boolean).join(' ') : ''; };
+  const S = st && st.parzV2 && typeof ebStamm === 'function' ? ebStamm() : (st || {}), P = new Map((S.parz || []).map(p => [p.id, p])), pn = id => { const p = P.get(id); return p ? [p.name, p.teil].filter(Boolean).join(' ') : ''; };
   const K = new Map((S.kulturen || []).map(k => [k.id, k])), kul = v => (K.get(v) || {}).name || v || '';
   const txt = v => v == null ? '' : Array.isArray(v) ? v.map(txt).filter(Boolean).join(', ') : typeof v === 'object' ? (v.name || v.label || JSON.stringify(v)) : v;
   const out = [];
@@ -5774,8 +5774,8 @@ function chkRun() {
   const prodD = grp(all('produkte'), p => nk(p.name));
   C.push({ id: 'prodD', sev: 'fehler', titel: 'Produkte doppelt erfasst', text: 'Gleicher Name mehrfach in den Produkt-Stammdaten. Zusammenführen behält das meistverwendete Produkt und hängt Aufträge, Spritzprogramme und Vorbestellung um.', groups: prodD.map(g => ({ label: g.map(p => `${p.name}${p.zulassung ? ' (' + p.zulassung + ')' : ''} – ${pUse(p.id)}× verwendet`).join(' · '), ids: g.map(p => p.id), act: 'prodEdit' })), fix: prodD.length ? { label: 'Alle zusammenführen', run: 'prodD' } : null });
   const zUse = id => O.reduce((t, a) => t + (a.parzelle === id ? 1 : 0), 0);
-  const parzD = grp(all('parzellen'), z => z.kunde + '|' + nk(z.name));
-  C.push({ id: 'parzD', sev: 'fehler', titel: 'Parzellen doppelt erfasst', text: 'Gleicher Kunde und gleicher Parzellenname mehrfach. Zusammenführen behält die meistverwendete Parzelle und hängt Aufträge und Vorbestellung um.', groups: parzD.map(g => ({ label: `${kundeName(g[0].kunde)}: ` + g.map(z => `${z.name} – ${zUse(z.id)}× verwendet${z.feldId ? '' : ', ohne Feld'}`).join(' · '), ids: g.map(z => z.id), act: 'parzEdit' })), fix: parzD.length ? { label: 'Alle zusammenführen', run: 'parzD' } : null });
+  const parzD = grp(all('parzellen'), z => z.kunde + '|' + nk(z.name) + '|' + nk(z.teil)); // Teile (Nord/Süd) sind keine Doppel
+  C.push({ id: 'parzD', sev: 'fehler', titel: 'Parzellen doppelt erfasst', text: 'Gleicher Kunde und gleicher Parzellenname mehrfach. Zusammenführen behält die meistverwendete Parzelle und hängt Aufträge und Vorbestellung um.', groups: parzD.map(g => ({ label: `${kundeName(g[0].kunde)}: ` + g.map(z => `${z.name}${z.teil ? ' ' + z.teil : ''} – ${zUse(z.id)}× verwendet${z.feldId ? '' : ', ohne Feld'}`).join(' · '), ids: g.map(z => z.id), act: 'parzEdit' })), fix: parzD.length ? { label: 'Alle zusammenführen', run: 'parzD' } : null });
   const pof = all('parzellen').filter(z => z.aktiv !== false && !z.feldId && nk(z.name) !== 'unbekannt');
   C.push({ id: 'pof', sev: 'hinweis', titel: 'Spritz-Parzellen ohne MyJohnDeere-Feld', text: 'Ohne Feld fehlen Vermessungen und die Verbindung zu MyJohnDeere (zuweisen unter Verwaltung › Kunden › Feld › Parzellen zuweisen).', items: pof.map(z => ({ label: `${kundeName(z.kunde)} · ${z.name}`, act: 'parzEdit', id: z.id })) });
   // 6) Kulturen
@@ -5791,7 +5791,8 @@ function chkRun() {
   // 8) Eigener Betrieb
   const st = E.get('eb-stamm');
   if (st) {
-    const EP = new Map((st.parz || []).map(p => [p.id, p]));
+    const SP = st.parzV2 && typeof ebParzList === 'function' ? ebParzList() : (st.parz || []); // ab v95 gemeinsame Liste mit Spritzen
+    const EP = new Map(SP.map(p => [p.id, p]));
     const pha = p => p.ha != null ? p.ha : (F.get(p.feld) || {}).flaeche, pnm = p => [p.name, p.teil].filter(Boolean).join(' ');
     const over = [], diff = [];
     [...E.values()].filter(r => /^eb-\d{4}$/.test(r.id)).sort((a, b) => a.jahr - b.jahr).forEach(r => {
@@ -5800,8 +5801,8 @@ function chkRun() {
         if (s.art !== 'zwischen' && s.parz && s.ha != null) sum[s.parz] = (sum[s.parz] || 0) + s.ha; });
       Object.entries(sum).forEach(([pz, t]) => { const p = EP.get(pz), h = p && pha(p); if (h && t > h + 0.05) over.push({ label: `${r.jahr} · ${pnm(p)}: Hauptkulturen ${fmtNum(r2(t))} ha auf ${fmtNum(h)} ha`, go: 'betrieb' }); });
     });
-    (st.parz || []).forEach(p => { const f = F.get(p.feld); if (p.ha != null && f && f.flaeche && Math.abs(p.ha - f.flaeche) > 0.05) diff.push({ label: `${pnm(p)}: eingetragen ${fmtNum(p.ha)} ha · Vermessung ${fmtNum(f.flaeche)} ha`, go: 'betrieb' }); });
-    const own = all('parzellen').filter(z => z.kunde === st.kunde && z.aktiv !== false), bf = new Set((st.parz || []).map(p => p.feld).filter(Boolean)), bn = new Set((st.parz || []).map(p => nk(p.name)));
+    SP.forEach(p => { const f = F.get(p.feld); if (p.ha != null && f && f.flaeche && Math.abs(p.ha - f.flaeche) > 0.05) diff.push({ label: `${pnm(p)}: eingetragen ${fmtNum(p.ha)} ha · Vermessung ${fmtNum(f.flaeche)} ha`, go: 'betrieb' }); });
+    const own = all('parzellen').filter(z => z.kunde === st.kunde && z.aktiv !== false), bf = new Set(st.parzV2 ? [] : SP.map(p => p.feld).filter(Boolean)), bn = new Set(st.parzV2 ? [] : SP.map(p => nk(p.name)));
     const dop = own.filter(z => (z.feldId && bf.has(z.feldId)) || bn.has(nk(z.name)));
     C.push({ id: 'ebOver', sev: 'hinweis', titel: 'Eigener Betrieb: Hauptkulturen grösser als die Parzelle', text: 'Die Flächen der Hauptkulturen ergeben zusammen mehr als die Parzelle – Parzellenfläche oder Aufteilung prüfen.', items: over });
     C.push({ id: 'ebHa', sev: 'hinweis', titel: 'Eigener Betrieb: Parzellenfläche weicht von der Vermessung ab', text: 'Kann gewollt sein (z.B. Fläche gemäss Flächenbeiträgen). Ohne eingetragene Fläche gilt automatisch die Vermessung.', items: diff });
@@ -5850,11 +5851,14 @@ function chkMergeParz(ids) {
   const L = ids.map(id => Store.get('parzellen', id)).filter(Boolean); if (L.length < 2) return 0;
   const use = id => Store.all('auftraege').reduce((t, a) => t + (a.parzelle === id ? 1 : 0), 0);
   L.sort((a, b) => use(b.id) - use(a.id) || (!!b.feldId) - (!!a.feldId)); const T = structuredClone(L[0]), src = L.slice(1), S = new Set(src.map(z => z.id));
-  src.forEach(z => ['feldId', 'flaeche', 'kultur'].forEach(k => { if (T[k] == null || T[k] === '') T[k] = z[k]; }));
+  src.forEach(z => ['feldId', 'flaeche', 'kultur', 'teil', 'gruppe', 'pos', 'notiz'].forEach(k => { if (T[k] == null || T[k] === '') T[k] = z[k]; }));
   const ch = Store.all('auftraege').filter(a => S.has(a.parzelle)).map(a => ({ ...a, parzelle: T.id }));
   if (ch.length) Store.putMany('auftraege', ch);
   Store.all('einstellungen').filter(r => /^vb-\d{4}$/.test(r.id)).forEach(r => { let mod = false; const x = structuredClone(r);
     Object.values(x.parz || {}).forEach(l => l.forEach(e => { if (S.has(e.pz)) { e.pz = T.id; mod = true; } })); if (mod) Store.put('einstellungen', x, { silent: true }); });
+  // Eigener Betrieb (gemeinsame Parzellenliste): Fruchtfolge, Varianten und Bodenproben umhängen
+  Store.all('einstellungen').filter(r => /^eb-(\d{4}|stamm)$/.test(r.id)).forEach(r => { let mod = false; const x = structuredClone(r), sl = z => { if (S.has(z.parz)) { z.parz = T.id; mod = true; } };
+    (x.schlaege || []).forEach(sl); Object.values(x.varianten || {}).forEach(v => v.forEach(sl)); (x.boden || []).forEach(sl); if (mod) Store.put('einstellungen', x, { silent: true }); });
   Store.put('parzellen', T, { silent: true }); src.forEach(z => Store.remove('parzellen', z.id));
   return src.length;
 }

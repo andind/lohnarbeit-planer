@@ -1195,3 +1195,5 @@ td.ebbu, .ebleg.ebbu { background: color-mix(in srgb, #3b6fd1 16%, var(--surface
 .kusg { border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; margin: 8px 0; }
 .kusgh { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; }
 .kusgh .input.small { min-height: 30px; padding: 2px 8px; width: auto; }
+.kuform { margin-top: -4px; }
+.kuform select { width: 100%; }

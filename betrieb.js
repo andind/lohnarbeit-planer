@@ -42,12 +42,82 @@ const ebCurYear = () => new Date().getFullYear();
 const EB_DAUER = ['Naturwiese', 'Weide'];
 function ebStammBlank() {
   return { id: 'eb-stamm', kunde: '', parz: [], kulturen: EB_KULTUREN.map(([name, n]) => ({ id: 'k-' + ebSlug(name), name, n, pause: null, dauer: EB_DAUER.includes(name) })), programme: EB_PROG.slice(),
-    richt: Object.fromEntries(Object.entries(EB_RICHT).map(([k, [min, opt, max, ziel]]) => [k, { min, opt, max, ziel }])), boden: [], zfListe: [] };
+    richt: Object.fromEntries(Object.entries(EB_RICHT).map(([k, [min, opt, max, ziel]]) => [k, { min, opt, max, ziel }])), boden: [], zfListe: [], parzV2: true };
+}
+/* ---------- Parzellen: gemeinsame Liste mit dem Modul Spritzen ----------
+   Ab «parzV2» sind die Parzellen des eigenen Betriebs die Spritz-Parzellen des eigenen Kunden (Sammlung «parzellen»).
+   Für den Bereich Betrieb erscheinen sie als { id, name, teil, feld, ha, gruppe, pos, aktiv, notiz }
+   (feld = feldId, ha = flaeche); ebSaveS schreibt Änderungen an st.parz in die Sammlung zurück. */
+function ebOwnId(raw) {
+  if (raw && raw.kunde && Store.get('kunden', raw.kunde)) return raw.kunde;
+  const k = Store.all('kunden').find(k => /indermühle|indermuehle/i.test(k.name) && /andreas/i.test(k.name)); return k ? k.id : '';
+}
+const ebPzView = z => ({ id: z.id, name: z.name || '', teil: z.teil || '', feld: z.feldId || '', ha: z.flaeche ?? null, gruppe: z.gruppe ?? null, pos: z.pos ?? null, aktiv: z.aktiv !== false, notiz: z.notiz || '' });
+let _ebPzV = -1, _ebPz = [];
+// nur lesen (Anzeige, Berechnungen)
+function ebParzList() {
+  if (_ebPzV === Store.v) return _ebPz;
+  const raw = Store.get('einstellungen', 'eb-stamm');
+  if (raw && !raw.parzV2) _ebPz = Array.isArray(raw.parz) ? raw.parz : [];
+  else { const own = ebOwnId(raw); _ebPz = own ? Store.all('parzellen').filter(z => z.kunde === own).map(ebPzView) : []; }
+  _ebPzV = Store.v; return _ebPz;
 }
 function ebStamm() {
-  const s = Store.get('einstellungen', 'eb-stamm'); if (!s) return ebStammBlank();
-  ['parz', 'kulturen', 'programme', 'boden', 'zfListe', 'varianten'].forEach(k => { if (!Array.isArray(s[k])) s[k] = []; }); if (!s.richt) s.richt = {};
-  return s;
+  const s = Store.get('einstellungen', 'eb-stamm'); if (!s) { const b = ebStammBlank(); b.parz = ebParzList().map(p => ({ ...p })); return b; }
+  ['kulturen', 'programme', 'boden', 'zfListe', 'varianten', ...(s.parzV2 ? [] : ['parz'])].forEach(k => { if (!Array.isArray(s[k])) s[k] = []; }); if (!s.richt) s.richt = {};
+  if (!s.parzV2) return s;
+  // Kopie: st.parz zeigt die gemeinsame Liste – nicht aufzählbar, damit sie beim Speichern (structuredClone/JSON) nicht in eb-stamm landet
+  const L = ebParzList().map(p => ({ ...p })), c = Object.assign({}, s);
+  Object.defineProperty(c, 'parz', { value: L, writable: true, configurable: true, enumerable: false });
+  Object.defineProperty(c, '_parzIds', { value: L.map(p => p.id), writable: true, configurable: true, enumerable: false });
+  return c;
+}
+// Änderungen an st.parz in die Spritz-Parzellen schreiben (neu, geändert, entfernt)
+function ebParzCommit(st) {
+  const own = ebOwnId(st); if (!own) return;
+  const cur = new Map(Store.all('parzellen').filter(z => z.kunde === own).map(z => [z.id, z])), K = ['name', 'teil', 'feldId', 'flaeche', 'gruppe', 'pos', 'aktiv', 'notiz'];
+  const nv = o => K.map(k => k === 'aktiv' ? o.aktiv !== false : (o[k] ?? (k === 'name' || k === 'teil' || k === 'feldId' || k === 'notiz' ? '' : null)));
+  const ch = [];
+  (st.parz || []).forEach(v => {
+    const o = cur.get(v.id) || Store.get('parzellen', v.id);
+    const n = Object.assign(o ? structuredClone(o) : { id: v.id, kultur: '' }, { kunde: own, name: v.name, teil: v.teil || '', feldId: v.feld || '', flaeche: v.ha ?? null, gruppe: v.gruppe ?? null, pos: v.pos ?? null, aktiv: v.aktiv !== false, notiz: v.notiz || '' });
+    if (!o || o.kunde !== own || JSON.stringify(nv(o)) !== JSON.stringify(nv(n))) ch.push(n);
+  });
+  if (ch.length) Store.putMany('parzellen', ch);
+  const keep = new Set((st.parz || []).map(p => p.id));
+  (st._parzIds || []).forEach(id => { if (!keep.has(id) && cur.has(id)) Store.remove('parzellen', id); });
+}
+// Einmalig: Betrieb-Parzellen mit den Spritz-Parzellen des eigenen Kunden zusammenführen
+function ebParzMigrate() {
+  const raw = Store.get('einstellungen', 'eb-stamm'); if (!raw || raw.parzV2) return null;
+  const own = ebOwnId(raw); if (!own) return null;
+  const nk = x => ebKey(x);
+  // doppelte Spritz-Parzellen des eigenen Kunden (gleicher Name) zuerst zusammenführen
+  if (typeof chkMergeParz === 'function') { const g = {}; Store.all('parzellen').filter(z => z.kunde === own).forEach(z => { const k = nk(z.name) + '|' + nk(z.teil || ''); (g[k] = g[k] || []).push(z.id); }); Object.values(g).filter(l => l.length > 1).forEach(l => chkMergeParz(l)); }
+  const O = Store.all('parzellen').filter(z => z.kunde === own), B = (raw.parz || []).slice(), used = new Set(), map = new Map(), rep = { verbunden: [], neu: [] };
+  const pick = (b, f) => { const c = O.filter(o => !used.has(o.id) && f(o)); return c.length === 1 ? c[0] : null; };
+  const label = b => `${b.name}${b.teil ? ' ' + b.teil : ''}`;
+  B.forEach(b => { const o = pick(b, o => nk(o.name) === nk(label(b)) || (nk(o.name + (o.teil || '')) === nk(label(b)))); if (o) { used.add(o.id); map.set(b.id, o); } });
+  B.filter(b => !map.has(b.id) && !b.teil && B.filter(x => nk(x.name) === nk(b.name)).length === 1).forEach(b => { const o = pick(b, o => nk(o.name) === nk(b.name)); if (o) { used.add(o.id); map.set(b.id, o); } });
+  B.filter(b => !map.has(b.id) && b.feld && B.filter(x => x.feld === b.feld).length === 1).forEach(b => { const o = pick(b, o => o.feldId === b.feld); if (o) { used.add(o.id); map.set(b.id, o); } });
+  B.filter(b => !map.has(b.id)).forEach(b => { const o = pick(b, o => (ebNameDist(o.name, label(b)) ?? 99) <= 1 || (ebNameDist(o.name, b.name) ?? 99) <= 1); if (o) { used.add(o.id); map.set(b.id, o); } });
+  const ch = [];
+  B.forEach(b => {
+    const o = map.get(b.id);
+    if (o) { ch.push(Object.assign(structuredClone(o), { teil: b.teil || '', gruppe: b.gruppe ?? null, pos: b.pos ?? null, notiz: [o.notiz, b.notiz].filter(Boolean).join(' · '), aktiv: o.aktiv !== false || b.aktiv !== false, feldId: o.feldId || b.feld || '', flaeche: b.ha ?? o.flaeche ?? null }));
+      rep.verbunden.push(o.name === label(b) ? o.name : `${label(b)} ↔ ${o.name}`); }
+    else { ch.push({ id: b.id, kunde: own, name: b.name, teil: b.teil || '', feldId: b.feld || '', flaeche: b.ha ?? null, kultur: '', gruppe: b.gruppe ?? null, pos: b.pos ?? null, aktiv: b.aktiv !== false, notiz: b.notiz || '' }); rep.neu.push(label(b)); }
+  });
+  if (ch.length) Store.putMany('parzellen', ch);
+  // Verweise in Fruchtfolge, Varianten und Bodenproben auf die gemeinsame Parzelle umhängen
+  const idm = new Map([...map].filter(([b, o]) => b !== o.id).map(([b, o]) => [b, o.id]));
+  if (idm.size) Store.all('einstellungen').filter(r => /^eb-\d{4}$/.test(r.id)).forEach(r => { const x = structuredClone(r); let mod = false;
+    const sl = z => { if (idm.has(z.parz)) { z.parz = idm.get(z.parz); mod = true; } }; (x.schlaege || []).forEach(sl); Object.values(x.varianten || {}).forEach(v => v.forEach(sl));
+    if (mod) Store.put('einstellungen', x, { silent: true }); });
+  const st = structuredClone(Store.get('einstellungen', 'eb-stamm')); (st.boden || []).forEach(b => { if (idm.has(b.parz)) b.parz = idm.get(b.parz); });
+  delete st.parz; st.parzV2 = true; st.kunde = own; Store.put('einstellungen', st, { silent: true });
+  rep.nurSpritzen = O.filter(o => !used.has(o.id)).map(o => o.name);
+  return rep;
 }
 
 /* ---------- Dauerkulturen weiterführen, Zwischenfrüchte ihrer Hauptkultur zuordnen ----------
@@ -57,9 +127,12 @@ function ebStamm() {
 let _ebSyncV = -1;
 function ebSync() {
   if (_ebSyncV === Store.v || !ebOn()) return; const ys = ebYears().sort((a, b) => a - b); if (!ys.length) { _ebSyncV = Store.v; return; }
-  Undo.skip++; try { ebSyncRun(ys); } finally { if (Undo.skip > 0) Undo.skip--; }
+  if (ebSync.busy) return; ebSync.busy = true; // Store.remove zeichnet neu → kein erneuter Abgleich währenddessen
+  Undo.skip++; try { ebSyncRun(ys); } finally { if (Undo.skip > 0) Undo.skip--; ebSync.busy = false; }
 }
 function ebSyncRun(ys) {
+  const pm = ebParzMigrate();
+  if (pm) setTimeout(() => toast(`Parzellen zusammengeführt: ${pm.verbunden.length} mit Spritz-Parzellen verbunden, ${pm.neu.length} neu in der gemeinsamen Liste${pm.nurSpritzen.length ? `, ${pm.nurSpritzen.length} nur aus Spritzen` : ''}.`, 7000), 300);
   const ch = new Map(), get = y => ch.get(y) || (ebGet(y) ? structuredClone(ebRecY(y)) : null), put = r => ch.set(r.jahr, r);
   const link = r => { let mod = false; r.schlaege.forEach(z => { if (z.art !== 'zwischen' || z.nach !== undefined) return; const H = r.schlaege.filter(h => h.art !== 'zwischen' && z.parz && h.parz === z.parz);
     const h = H.find(x => z.ha != null && x.ha != null && Math.abs(x.ha - z.ha) < 0.001) || H[0]; z.nach = h ? h.id : '';
@@ -103,7 +176,11 @@ function ebState() {
 }
 // Speichern: Kopie in «einstellungen», danach neu zeichnen (Fokus und Bildlauf bleiben erhalten)
 function ebSaveY(rec, render = true) { Store.put('einstellungen', structuredClone(rec), { silent: true }); if (render) ebRender(); }
-function ebSaveS(st, render = true) { Store.put('einstellungen', structuredClone(st), { silent: true }); if (render) ebRender(); }
+function ebSaveS(st, render = true) {
+  const c = structuredClone(st);
+  if (c.parzV2) { ebParzCommit(st); delete c.parz; } delete c._parzIds;
+  Store.put('einstellungen', c, { silent: true }); if (render) ebRender();
+}
 function ebRender() {
   setTimeout(() => {
     const a = document.activeElement, key = a && a.dataset ? a.dataset.ebk : null, sx = window.scrollX, sy = window.scrollY;
@@ -196,11 +273,11 @@ function ebNBedarf(s) {
 }
 
 /* ---------- Parzellen ---------- */
-const ebParz = id => id ? ebStamm().parz.find(p => p.id === id) : null;
+const ebParz = id => id ? ebParzList().find(p => p.id === id) : null;
 const ebParzLabel = p => p ? `${p.name}${p.teil ? ' ' + p.teil : ''}` : '';
 const ebParzHa = p => p ? (p.ha != null ? p.ha : (feldById(p.feld) || {}).flaeche ?? null) : null;
 // Reihenfolge: von Hand festgelegt (pos, Parzellen ▲▼), sonst Gruppe und Name
-const ebParzSorted = (alle) => ebStamm().parz.filter(p => alle || p.aktiv !== false).slice().sort((a, b) => ((a.pos ?? 1e6) - (b.pos ?? 1e6)) || ((a.gruppe ?? 999) - (b.gruppe ?? 999)) || a.name.localeCompare(b.name, 'de') || String(a.teil || '').localeCompare(String(b.teil || ''), 'de'));
+const ebParzSorted = (alle) => ebParzList().filter(p => alle || p.aktiv !== false).slice().sort((a, b) => ((a.pos ?? 1e6) - (b.pos ?? 1e6)) || ((a.gruppe ?? 999) - (b.gruppe ?? 999)) || a.name.localeCompare(b.name, 'de') || String(a.teil || '').localeCompare(String(b.teil || ''), 'de'));
 // Parzelle in der (sichtbaren) Liste um eine Stelle verschieben
 function ebParzMove(id, d) {
   const st = ebStamm(), S = ebState(), L = ebParzSorted(true);
@@ -220,10 +297,7 @@ function ebIdx() {
 const ebSchlagHa = (s, d = 0) => { if (s.ha != null) return s.ha; const h = s.nach && d < 3 ? ebIdx().get(s.nach) : null; return h && h.id !== s.id ? ebSchlagHa(h, d + 1) : ebParzHa(ebParz(s.parz)); };
 const ebIsDauer = name => { const k = ebKultur(name); return !!(k && k.dauer); };
 // Eigener Betrieb in den Kunden (Felder aus MyJohnDeere)
-function ebKunde() {
-  const st = ebStamm(); if (st.kunde && Store.get('kunden', st.kunde)) return Store.get('kunden', st.kunde);
-  const K = Store.all('kunden'); return K.find(k => /indermühle|indermuehle/i.test(k.name) && /andreas/i.test(k.name)) || null;
-}
+function ebKunde() { const id = ebOwnId(Store.get('einstellungen', 'eb-stamm')); return id ? Store.get('kunden', id) : null; }
 const ebFelder = () => { const k = ebKunde(); return k ? felderOf(k.id, true) : []; };
 // Vorschläge Parzelle → Feld: zuerst gleiche Namen, dann die ähnlichsten (nur aktive Parzellen, jedes Feld höchstens einmal)
 function ebFeldGuessAll(st = ebStamm()) {
@@ -420,8 +494,13 @@ function ebParzDialog(id) {
 function ebParzMerge(fromId, toId) {
   const st = ebStamm(), from = st.parz.find(p => p.id === fromId), to = st.parz.find(p => p.id === toId); if (!from || !to) return;
   if (!confirm(`«${ebParzLabel(from)}» mit «${ebParzLabel(to)}» zusammenführen? «${ebParzLabel(from)}» wird danach gelöscht.`)) return;
-  const recs = ebYears().map(y => ebRecY(y)).filter(r => r.schlaege.some(s => s.parz === fromId));
-  recs.forEach(r => r.schlaege.forEach(s => { if (s.parz === fromId) s.parz = toId; }));
+  const has = r => [...r.schlaege, ...Object.values(r.varianten || {}).flat()].some(s => s.parz === fromId);
+  const recs = ebYears().map(y => structuredClone(ebRecY(y))).filter(has);
+  recs.forEach(r => [...r.schlaege, ...Object.values(r.varianten || {}).flat()].forEach(s => { if (s.parz === fromId) s.parz = toId; }));
+  // Spritzaufträge und Vorbestellung zeigen ebenfalls auf die Parzelle
+  const oa = Store.all('auftraege').filter(a => a.parzelle === fromId).map(a => ({ ...a, parzelle: toId })); if (oa.length) Store.putMany('auftraege', oa);
+  Store.all('einstellungen').filter(r => /^vb-\d{4}$/.test(r.id)).forEach(r => { let mod = false; const x = structuredClone(r);
+    Object.values(x.parz || {}).forEach(l => l.forEach(e => { if (e.pz === fromId) { e.pz = toId; mod = true; } })); if (mod) Store.put('einstellungen', x, { silent: true }); });
   st.boden.forEach(b => { if (b.parz === fromId) b.parz = toId; });
   if (!to.feld && from.feld) to.feld = from.feld;
   st.parz = st.parz.filter(p => p.id !== fromId);
@@ -969,7 +1048,7 @@ function ebWireSpray(f) {
     $('#ebSprayY', box).textContent = `(Erntejahr ${y})`;
     hint.textContent = ebGet(y) ? '' : `In der Fruchtfolge ${y} ist noch nichts erfasst.`;
   };
-  const setKultur = k => { if (!k || !f.kultur) return; if (![...f.kultur.options].some(o => o.value === k)) f.kultur.insertAdjacentHTML('beforeend', `<option>${esc(k)}</option>`); f.kultur.value = k; f.kultur.dispatchEvent(new Event('change', { bubbles: true })); };
+  const setKultur = k => kuSetOrderKultur(f, k);
   const apply = () => {
     const s = ebSchlagById(year(), sel.value); sel.dataset.cur = sel.value; if (!s) return;
     const p = ebParz(s.parz);
@@ -979,6 +1058,11 @@ function ebWireSpray(f) {
     hint.textContent = `Kultur, Fläche und Feld aus der Fruchtfolge übernommen${s.sorte ? ` · Sorte ${s.sorte}` : ''}.`;
   };
   sel.addEventListener('change', apply);
+  // Spritz-Parzelle gewählt (gemeinsame Liste): passende Kultur der Fruchtfolge übernehmen, wenn eindeutig
+  if (f.parzelle) f.parzelle.addEventListener('change', () => {
+    if (box.hidden || !f.parzelle.value) return; refresh(); const rec = ebGet(year()); if (!rec) return;
+    const L = rec.schlaege.filter(s => s.parz === f.parzelle.value && s.art !== 'zwischen'); if (L.length === 1) { sel.value = L[0].id; apply(); }
+  });
   // Feld (MyJohnDeere) gewählt: passenden Schlag vorschlagen, wenn eindeutig
   if (f.kfeld) f.kfeld.addEventListener('change', () => {
     if (box.hidden || sel.value) return; const rec = ebGet(year()); if (!rec) return;
@@ -1113,7 +1197,7 @@ document.addEventListener('click', e => {
     case 'parzNew': ebParzDialog(null); break;
     case 'parzEdit': ebParzDialog(id); break;
     case 'parzDel': { const st = ebStamm(), p = st.parz.find(x => x.id === id); if (!p) break;
-      const n = ebYears().reduce((t2, y) => t2 + ebGet(y).schlaege.filter(s => s.parz === id).length, 0) + st.boden.filter(b => b.parz === id).length;
+      const n = ebYears().reduce((t2, y) => t2 + ebGet(y).schlaege.filter(s => s.parz === id).length, 0) + st.boden.filter(b => b.parz === id).length + Store.all('auftraege').filter(a => a.parzelle === id).length;
       if (n) { toast(`«${ebParzLabel(p)}» wird in ${n} Einträgen verwendet – stattdessen inaktiv setzen oder zusammenführen.`, 5000); break; }
       if (confirm(`Parzelle «${ebParzLabel(p)}» löschen?`)) { st.parz = st.parz.filter(x => x.id !== id); ebSaveS(st); Dlg.close(); } break; }
     case 'parzMerge': { const to = Dlg.form.merge && Dlg.form.merge.value; if (!to) { toast('Zuerst die Ziel-Parzelle wählen.'); break; } ebParzMerge(id, to); break; }

@@ -89,15 +89,45 @@ function kuOptions(cur, { exact = false, zw = true } = {}) {
   const extra = !found ? (kuNeedsExact(cur) && exact ? `<option value="${esc(cur)}" selected>${esc(cur)} – genaue Kultur wählen</option>` : `<option value="${esc(cur)}" selected>${esc(cur)}</option>`) : '';
   return extra + grp;
 }
-const kuOrderOptions = (cur, spray) => kuOptions(cur, { exact: !!spray });
-// Auftrag: Arbeit «Spritzen» → nur genaue Kulturen
-function kuWireOrder(f) {
-  if (!f.kultur || !f.arbeit) return; let sp = isSprayName(f.arbeit.value);
-  const hint = document.createElement('div'); hint.className = 'hint'; f.kultur.closest('.fld').appendChild(hint);
-  const upd = () => { hint.textContent = isSprayName(f.arbeit.value) && kuNeedsExact(f.kultur.value) ? `Für Pflanzenschutz die genaue Kultur wählen (z.B. ${kuForms(kuOber(f.kultur.value)).map(k => k.name).join(' oder ')}).` : ''; };
-  f.arbeit.addEventListener('change', () => { const s = isSprayName(f.arbeit.value); if (s !== sp) { sp = s; const v = f.kultur.value; f.kultur.innerHTML = `<option value="">—</option>${kuOrderOptions(v, s)}`; } upd(); });
-  f.kultur.addEventListener('change', upd); upd();
+// Aufträge: zuerst der Oberbegriff (Weizen, Gerste …); die genaue Kultur folgt in einem zweiten Feld (kuWireOrder)
+function kuOberOptions(cur) {
+  const I = kuIdx(), o = kuNorm(kuOber(cur)); let found = !o;
+  const h = I.obers.filter(x => kuForms(x).length || kuNorm(x) === o).map(x => { const F = kuForms(x), single = F.length === 1 && kuNorm(F[0].name) === kuNorm(x), v = single ? F[0].name : x, sel = kuNorm(x) === o; if (sel) found = true;
+    return `<option value="${esc(v)}" ${sel ? 'selected' : ''}>${esc(x)}</option>`; }).join('');
+  return (found ? '' : `<option value="${esc(cur)}" selected>${esc(cur)}</option>`) + h;
 }
+const kuOrderOptions = cur => kuOberOptions(cur);
+// zweites Feld «Genaue Kultur»: nur bei Oberbegriffen mit mehreren Kulturen; bei «Spritzen» nötig
+function kuWireOrder(f) {
+  if (!f.kultur || !f.arbeit) return;
+  const cell = f.kultur.closest('.fld'), cur = (f.kultur.dataset.cur || f.kultur.value || '');
+  const box = document.createElement('label'); box.className = 'fld kuform'; box.hidden = true;
+  box.innerHTML = `<span>Genaue Kultur <small class="nr" id="kuFormReq"></small></span><select class="input" name="kform" data-plain></select><div class="hint" id="kuFormHint"></div>`;
+  cell.after(box);
+  const sel = box.querySelector('select'), req = box.querySelector('#kuFormReq'), hint = box.querySelector('#kuFormHint');
+  const fill = keep => {
+    const ob = kuOber(f.kultur.value), F = kuForms(ob), sp = isSprayName(f.arbeit.value), multi = F.length > 1 || (F.length === 1 && kuNorm(F[0].name) !== kuNorm(ob));
+    box.hidden = !f.kultur.value || !multi;
+    const v = keep != null ? keep : sel.value, inF = F.some(k => kuNorm(k.name) === kuNorm(v));
+    sel.innerHTML = `<option value="">${sp ? '— bitte wählen —' : '— nicht nötig (nur ' + esc(ob) + ') —'}</option>${F.map(k => `<option ${inF && kuNorm(k.name) === kuNorm(v) ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}`;
+    req.textContent = sp ? 'für Pflanzenschutz nötig' : 'bei Bedarf';
+    hint.textContent = sp && !box.hidden && !sel.value ? `Für Pflanzenschutz die genaue Kultur wählen (${F.map(k => k.name).join(' oder ')}).` : '';
+  };
+  f.kultur.addEventListener('change', () => fill(''));
+  f.arbeit.addEventListener('change', () => fill());
+  sel.addEventListener('change', () => fill());
+  // bestehender Auftrag mit genauer Kultur (z.B. Winterweizen): Oberbegriff oben, Kultur im zweiten Feld
+  const i = kuInfo(cur); fill(i && i.exact ? i.k.name : '');
+}
+// Kultur im Auftragsfenster setzen (z.B. aus Parzelle oder Fruchtfolge): Oberbegriff oben, genaue Kultur im zweiten Feld
+function kuSetOrderKultur(f, name) {
+  if (!f || !f.kultur || !name) return; const i = kuInfo(name), ob = i ? i.ober : name, F = kuForms(ob), v = F.length === 1 && kuNorm(F[0].name) === kuNorm(ob) ? F[0].name : ob;
+  if (![...f.kultur.options].some(o => o.value === v)) f.kultur.insertAdjacentHTML('beforeend', `<option>${esc(v)}</option>`);
+  f.kultur.value = v; f.kultur.dispatchEvent(new Event('change', { bubbles: true }));
+  if (f.kform && i && i.exact) { f.kform.value = i.k.name; f.kform.dispatchEvent(new Event('change', { bubbles: true })); }
+}
+// gespeicherte Kultur eines Auftrags: genaue Kultur, sonst der Oberbegriff
+const kuOrderValue = fd => (fd.get('kform') || '').trim() || fd.get('kultur') || '';
 
 /* ---------- Verwendung und Umbenennen in allen Modulen ---------- */
 // Jede Stelle mit einer Kulturbezeichnung: [Bezeichnung, Bereich, Jahr, Objekt-Info]
