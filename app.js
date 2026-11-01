@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '103', APP_STAND = '01.11.2026';
+const APP_VERSION = '104', APP_STAND = '01.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -692,6 +692,7 @@ function fsToggle() {
 function hdrUpdate() {
   const w = $('#hdrWin'), f = $('#hdrFs'); if (!w || !f) return;
   const hz = $('#hdrZoom'); if (hz) hz.hidden = App.view === 'plan'; // Planung: eigener Zoom in der Werkzeugleiste
+  document.body.classList.toggle('fsmode', fsOn()); // Vollbild: Modulleiste ausblenden (alle Ansichten)
   w.hidden = !isPC();
   f.hidden = !FS_VIEWS[App.view] && !document.fullscreenEnabled;
   const on = fsOn(); f.classList.toggle('on', on); f.title = on ? 'Vollbild beenden (Esc)' : 'Vollbild';

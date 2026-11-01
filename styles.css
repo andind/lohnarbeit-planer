@@ -1234,3 +1234,7 @@ td.ebbu, .ebleg.ebbu { background: color-mix(in srgb, #3b6fd1 16%, var(--surface
 #content .rows:not(table .rows):not(.list .rows),
 #content .list:not(table .list):not(.rows .list) { zoom: var(--vz, 1); }
 @media print { #content { zoom: 1 !important; --vz: 1 !important; } }
+/* Vollbild (alle Ansichten): Modulleiste ausblenden, Inhalt über die ganze Breite */
+body.fsmode .tabs { display: none !important; }
+body.fsmode main { margin-left: 0 !important; max-width: none; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+body.fsmode #selbar { left: 12px; }
