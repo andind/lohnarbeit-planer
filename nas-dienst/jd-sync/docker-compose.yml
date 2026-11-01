@@ -1,0 +1,17 @@
+# jd-sync – MyJohnDeere → Lohnarbeit-Planer (Mandanten, Felder und Arbeitsdaten)
+# Synology: Container Manager › Projekt › Erstellen › Pfad = dieser Ordner (z.B. /volume1/docker/jd-sync)
+services:
+  jd-sync:
+    image: node:20-alpine
+    container_name: jd-sync
+    restart: unless-stopped
+    command: ["node", "/app/server.js"]
+    environment:
+      - TZ=Europe/Zurich
+      - UI_PASSWORD=HIER-EIN-PASSWORT-WAEHLEN   # Schutz der Weboberfläche (Benutzername beliebig)
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./app:/app:ro
+      - ./data:/data
+      - ./sicherungen:/backup   # tägliche Sicherungen und Excel-Dateien (in der File Station sichtbar)

@@ -9,9 +9,13 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
 - Hosting: GitHub Pages aus `andind/lohnarbeit-planer` (Branch `main`).
 - Daten: lokal im Browser (`localStorage` `lp_data`) + Abgleich mit Dropbox (`/planung.json` im App-Ordner, OAuth PKCE ohne Server).
 - `config.js` enthält den Dropbox App key – bei Updates **nicht überschreiben**.
-- NAS-Dienst **jd-sync** (Synology, nicht in diesem Repo): gleicht MyJohnDeere ab und schreibt `jd-sync.json`
-  (Kunden, Felder, Vermessungen) und `jd-arbeiten.json` (Arbeitsgänge) in den Dropbox-Ordner;
-  Anfrage über `jd-sync-request.json`. Mindestversion im Code: `NAS_MIN = '49'`.
+- NAS-Dienst **jd-sync** (Synology, Docker, Node 20) liegt in `nas-dienst/jd-sync/` (seit 01.11.2026, Version 52):
+  gleicht MyJohnDeere ab und schreibt `jd-sync.json` (Kunden, Felder, Vermessungen) und `jd-arbeiten.json`
+  (Arbeitsgänge) in den Dropbox-Ordner; Anfrage über `jd-sync-request.json`. Mindestversion im IM-Verwalter: `NAS_MIN = '49'`.
+  Version in `app/server.js` (`VERSION`, `STAND`). Zugangsdaten (Client-ID/Secret, Tokens) liegen nur auf dem NAS in `data/` –
+  **nie Zugangsdaten ins Repository** (öffentlich). Andreas kopiert den Ordner `jd-sync` selbst aufs NAS.
+- Wöchentliche Aufgabe «IM-Verwalter Wochenabschluss» (So 19:33): führt die Docs «Entstehungsgeschichte» und
+  «Programmbeschrieb» nach und sendet das Gesamtpaket (1_IM-Verwalter, 2_NAS-Dienst, 3_Dokumentation) als ZIP.
 
 ## Dateien
 | Datei | Inhalt |
