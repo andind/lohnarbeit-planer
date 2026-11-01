@@ -595,6 +595,16 @@ function ebCellDialog(y, parzId, freeName, vid = '') {
 // Auswahl Hauptkultur: Kulturen der Stammdaten und zuletzt verwendete Hauptkulturen
 // Auswahl Hauptkultur: genaue Kulturen der zentralen Liste (ohne Zwischenfrüchte)
 function ebKulturNames() { return kuExactNames({ zw: false }); }
+// Auswahlfeld Hauptkultur: nur Kulturen aus Betrieb › Stammdaten › Kulturen (Reihenfolge wie dort), gruppiert nach Oberbegriff.
+// Eine bisherige Kultur, die dort fehlt, bleibt als markierter Eintrag sichtbar, bis sie geändert wird.
+function ebKulturSelect(cur) {
+  const K = ebKultSorted().filter(k => { const i = kuInfo(k.name); return !(i && i.exact && (i.k.zw || i.k.aktiv === false)) || ebKey(k.name) === ebKey(cur); });
+  const grp = new Map(); K.forEach(k => { const o = kuOber(k.name); if (!grp.has(o)) grp.set(o, []); grp.get(o).push(k); });
+  let found = false;
+  const opt = k => { const sel = !!cur && ebKey(k.name) === ebKey(cur); if (sel) found = true; return `<option value="${esc(k.name)}" ${sel ? 'selected' : ''}>${esc(k.name)}</option>`; };
+  const html = [...grp].map(([o, L]) => L.length === 1 && ebKey(L[0].name) === ebKey(o) ? opt(L[0]) : `<optgroup label="${esc(o)}">${L.map(opt).join('')}</optgroup>`).join('');
+  return `<option value="">— Kultur wählen —</option>${!found && cur ? `<option value="${esc(cur)}" selected>${esc(cur)} (nicht in den Stammdaten)</option>` : ''}${html}`;
+}
 // Auswahl Zwischenfrucht: Mischungen des Jahres (Bestellung), Liste aus den Stammdaten, oder individuell
 function ebZfSelOpts(rec, s) {
   const cur = ebZfSelOf(rec, s), L = kuExactNames({ zw: true }).concat(cur.startsWith('k:') && !kuExactNames({ zw: true }).includes(cur.slice(2)) ? [cur.slice(2)] : []);
@@ -635,11 +645,11 @@ function ebSchlagDialog(y, id, pre = {}, vid = '') {
   const progs = [...new Set([...st.programme, ...(s.prog || [])])];
   const vk = ebVorkultur(rec, s, vid);
   if (isNew && s.art === 'zwischen' && s.parz && s.nach === undefined) { const H = A.filter(h => h.art !== 'zwischen' && h.parz === s.parz); if (H.length === 1) s.nach = H[0].id; }
-  const body = `<datalist id="ebKulList">${ebKulturNames().map(k => `<option value="${esc(k)}">`).join('')}</datalist>
+  const body = `
     <div class="seg" style="margin-bottom:10px"><label class="ebseg"><input type="radio" name="art" value="haupt" ${s.art !== 'zwischen' ? 'checked' : ''}><span>Hauptkultur</span></label><label class="ebseg"><input type="radio" name="art" value="zwischen" ${s.art === 'zwischen' ? 'checked' : ''}><span>Zwischenfrucht / Gründüngung</span></label></div>
     <div class="two"><label class="fld"><span>Parzelle</span><select class="input" name="parz" data-plain><option value="">— Parzelle wählen —</option>${P.map(p => `<option value="${p.id}" ${p.id === s.parz ? 'selected' : ''}>${esc(ebParzLabel(p))}${ebParzHa(p) != null ? ' · ' + fmtNum(ebParzHa(p)) + ' ha' : ''}</option>`).join('')}</select></label>
       <label class="fld" id="ebNameF" hidden><span>Bezeichnung (ohne Parzelle)</span><input class="input" name="name" value="${esc(s.name || '')}" placeholder="z.B. Weide, Gründüngung ZR"></label></div>
-    <div id="ebHauptF" ${s.art === 'zwischen' ? 'hidden' : ''}><label class="fld"><span>Kultur</span><input class="input" name="kultur" list="ebKulList" value="${esc(s.art === 'zwischen' ? '' : s.kultur || '')}" autocomplete="off"></label>
+    <div id="ebHauptF" ${s.art === 'zwischen' ? 'hidden' : ''}><label class="fld"><span>Kultur <small class="nr">aus Stammdaten › Kulturen</small></span><select class="input" name="kultur">${ebKulturSelect(s.art === 'zwischen' ? '' : s.kultur || '')}</select></label>
       <label class="tog" id="ebDauerF" hidden><input type="checkbox" name="weiter" ${s.ende ? '' : 'checked'}> Dauerkultur – ${y + 1} automatisch weiterführen <span class="nr">(ausschalten bei Umbruch)</span></label></div>
     <div id="ebZwF" ${s.art === 'zwischen' ? '' : 'hidden'}>
       <div class="two"><label class="fld"><span>Nach Hauptkultur ${y}</span><select class="input" name="nach" data-plain><option value="">— keine —</option>${ebHauptOpts(A, s.parz, s.nach, s.id)}</select></label>
@@ -681,10 +691,9 @@ function ebSchlagDialog(y, id, pre = {}, vid = '') {
     const nb = ebNum(fd.get('nBed')), kb = (ebKultur(o.kultur) || (o.art === 'zwischen' ? ebKultur('Gründüngung') : null) || {}).n;
     o.nBed = nb != null && nb !== kb ? nb : null; o.korr = ebNum(fd.get('korr'));
     if (rec.duenger.length && !vid) o.gaben = $$('.ebgabe', Dlg.form).map((row, i) => ({ id: ((s.gaben || [])[i] || {}).id || uid(), d: row.querySelector('[name=gd]').value, datum: row.querySelector('[name=gdat]').value || '', menge: ebNum(row.querySelector('[name=gm]').value) })).filter(g => g.d && g.menge != null);
-    if (!o.kultur) { toast(o.art === 'zwischen' ? 'Zwischenfrucht wählen oder eingeben.' : 'Kultur eingeben.'); return false; }
+    if (!o.kultur) { toast(o.art === 'zwischen' ? 'Zwischenfrucht wählen oder eingeben.' : 'Kultur wählen.'); return false; }
+    if (o.art === 'haupt' && !ebKultSorted().some(k => ebKey(k.name) === ebKey(o.kultur))) { toast('Kultur aus der Liste wählen. Fehlt sie, unter Betrieb › Stammdaten › Kulturen ergänzen.', 5000); return false; }
     if (o.art === 'haupt' && kuNeedsExact(o.kultur)) { toast(`Genaue Kultur wählen: ${kuForms(kuOber(o.kultur)).map(k => k.name).join(' oder ')}.`, 5000); return false; }
-    if (o.art === 'haupt' && !kuInfo(o.kultur) && !confirm(`«${o.kultur}» steht nicht in der Kulturliste. Als neue Kultur aufnehmen (Oberbegriff: ${kuGuessOber(o.kultur, kuIdx().obers)})?`)) return false;
-    if (o.art === 'haupt' && !kuInfo(o.kultur)) kuEnsure([o.kultur]);
     if (!o.parz) { toast('Parzelle wählen.'); return false; }
     const neu = !RA.includes(o); if (neu) RA.push(o);
     // Kulturdauer: Überschneidung mit Vor- oder Nachkultur melden
