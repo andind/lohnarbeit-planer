@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '100', APP_STAND = '01.11.2026';
+const APP_VERSION = '101', APP_STAND = '01.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -922,7 +922,7 @@ const Views = {
       const big = w > 90;
       const tm = it.cont ? `${fromMin(s)}–${endLbl(it)}` : rangeLbl(it);
       return `<div class="blk ${st} ${it.cont ? 'cont' : ''} ${it.noDur && op ? 'warn' : ''} ${it.over && op ? 'night2' : ''} ${App.sel.has(a.id) ? 'sel' : ''}" style="${pos}" data-act="editOrder" data-id="${a.id}" ${op ? 'draggable="true"' : ''} title="${esc(kfText(a))} ${tm}${it.cont ? ' · ' + contLbl(it) : ''}${horiz ? ' · ' + esc(artKultur(a).replace(/<[^>]+>/g, '')) : ''}">
-        <b>${tm}${horiz ? '</b><b>' : ' '}${kfHtml(a)}${it.fixed && !it.cont ? ' 📌' : ''}</b>
+        <b>${tm}${horiz ? '</b><b>' : ' '}${kfHtml(a)}</b>
         ${it.cont && !(h > 54 && big) ? '<span class="w">↪ Fortsetzung</span>' : ''}
         ${h > 34 && big ? `<span>${artKultur(a)}${a.flaeche ? ` · ${fmtNum(a.flaeche)} ha` : ''}${dauerOf(a) ? ` · ${hrs(dauerOf(a))}` : ''}${st === 'erledigt' || st === 'verrechnet' ? ' · ✓' : ''}</span>` : ''}
         ${h > 54 && big && info ? `<span class="w">${info}</span>` : ''}
@@ -1032,8 +1032,7 @@ const Views = {
       return info + `<div class="rows kgrid">${list.map(k => `
         <div class="rowi ${k.aktiv === false ? 'off' : ''}" data-act="editKunde" data-id="${k.id}">
           <span class="num">${esc(k.nr || '')}</span>
-          <div class="grow"><div class="t">${esc(k.name)}</div><div class="s">${esc([k.adresse, [k.plz, k.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))}</div>
-            <div class="links">${k.tel ? `<a href="tel:${esc(k.tel.replace(/\s/g, ''))}" data-stop>📞 ${esc(k.tel)}</a>` : ''}${(k.adresse || k.ort) ? `<a href="${mapsUrl([k.adresse, k.plz, k.ort].filter(Boolean).join(', '))}" target="_blank" rel="noopener" data-stop>📍 Karte</a>` : ''}</div></div>
+          <div class="grow"><div class="t">${esc(k.name)}</div></div>
           ${fl[k.id] ? `<span class="chip">🌾 ${fl[k.id].n} · ${fmtNum(r2(fl[k.id].ha))} ha</span>` : ''}${k.jdId || k.jdName ? '<span class="chip jd">JD</span>' : ''}
           ${open[k.id] ? `<span class="chip">${open[k.id]} offen</span>` : ''}
         </div>`).join('')}</div>`;
@@ -1139,8 +1138,7 @@ function orderCard(a) {
     <div class="meta">${when}<span class="nr" style="margin-left:auto">${esc(a.nr || '')}</span></div>
     ${isOpen(a) ? `<div class="actions">
       ${!a.datum ? `<button class="btn small primary" data-act="planOrder" data-id="${a.id}">Einplanen</button>` : `<button class="btn small" data-act="done" data-id="${a.id}">✓ Erledigt</button>`}
-      ${k && (k.adresse || k.ort) ? `<a class="btn small" href="${mapsUrl([k.adresse, k.plz, k.ort].filter(Boolean).join(', '))}" target="_blank" rel="noopener" data-stop>📍 Karte</a>` : ''}
-      ${k?.tel ? `<a class="btn small" href="tel:${esc(k.tel.replace(/\s/g, ''))}" data-stop>📞</a>` : ''}</div>` : ''}
+</div>` : ''}
   </article>`;
 }
 // Planung: Feldname hinter dem Kunden
@@ -1153,7 +1151,7 @@ function planCard(it) {
     <div class="tm">${fromMin(it.start)}–${endLbl(it)}</div>
     <b>${kfHtml(a)}</b><div class="sub contlbl">${contLbl(it)}</div></div>`;
   return `<div class="pcard ${s} ${App.sel.has(a.id) ? 'sel' : ''}" data-act="editOrder" data-id="${a.id}" ${isOpen(a) ? 'draggable="true"' : ''}>
-    <div class="tmrow"><div class="tm">${rangeLbl(it)}${it.fixed ? ' 📌' : ''}${it.pushed ? ' ⤵' : ''}${it.over ? `<span title="${esc(weiterLbl(it))}">${it.az ? ' ⏩' : ' 🌙'}</span>` : ''}</div>${isOpen(a) ? `<button type="button" class="btn mini donebtn donetop" data-act="done" data-id="${a.id}" title="Als erledigt melden: Datum, Fläche, Stunden, Bemerkungen">✓ Erledigt</button>` : ''}</div>
+    <div class="tmrow"><div class="tm">${rangeLbl(it)}${it.pushed ? ' ⤵' : ''}${it.over ? `<span title="${esc(weiterLbl(it))}">${it.az ? ' ⏩' : ' 🌙'}</span>` : ''}</div>${isOpen(a) ? `<button type="button" class="btn mini donebtn donetop" data-act="done" data-id="${a.id}" title="Als erledigt melden: Datum, Fläche, Stunden, Bemerkungen">✓ Erledigt</button>` : ''}</div>
     <b>${kfHtml(a)}</b>
     <div class="sub">${artKultur(a)}</div>
     <div class="sub">${a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''}${a.flaeche && (d || isOpen(a)) ? ' · ' : ''}${d ? '⏱ ' + hrs(d) : isOpen(a) ? '⏱ Dauer fehlt' : ''}${s === 'erledigt' || s === 'verrechnet' ? ' · ✓' : ''}</div>

@@ -61,4 +61,5 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
 - Fruchtfolge 2005–2015 als Archiv aus Excel «Fruchtefolgerapport 2005-2018» (Monats-Zeitachse; Herbstsaat → nächstes Erntejahr):
   Jahres-Datensätze `archiv: true`, Schläge `txt: true` = Kultur nur als Text, ohne Verknüpfung zur Kulturliste
   (nicht in Kulturliste übernehmen, keine Überschneidungs-/Dauerkultur-Logik, Datenprüfung übergeht sie). Eingelesen per Mehr › Datensicherung › Wiederherstellen.
+- Keine Stecknadeln (📌/📍), Karten-Links, Adressen oder Telefonnummern in Planung, Auftragskarten und Kundenliste (v101).
 - Ausdrucke Kunden: Logo mit Adresse; Ausdrucke Eigener Betrieb: Betriebsadresse statt Logo.
