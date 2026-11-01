@@ -288,6 +288,16 @@ const ebParzHa = p => p ? (p.ha != null ? p.ha : (feldById(p.feld) || {}).flaech
 // Reihenfolge: von Hand festgelegt (pos, Parzellen ▲▼), sonst Gruppe und Name
 const ebParzSorted = (alle) => ebParzList().filter(p => alle || p.aktiv !== false).slice().sort((a, b) => ((a.pos ?? 1e6) - (b.pos ?? 1e6)) || ((a.gruppe ?? 999) - (b.gruppe ?? 999)) || a.name.localeCompare(b.name, 'de') || String(a.teil || '').localeCompare(String(b.teil || ''), 'de'));
 // Parzelle in der (sichtbaren) Liste um eine Stelle verschieben
+// Fruchtfolge: Parzelle innerhalb ihrer Gruppe verschieben (nur sichtbare Parzellen derselben Gruppe)
+function ebParzMoveGrp(id, d, visIds) {
+  const st = ebStamm(), L = ebParzSorted(true);
+  L.forEach((p, i) => { st.parz.find(x => x.id === p.id).pos = i; });
+  const me = st.parz.find(x => x.id === id); if (!me) return;
+  const G = L.filter(p => (p.gruppe ?? null) === (me.gruppe ?? null) && (!visIds || visIds.has(p.id))), i = G.findIndex(p => p.id === id), j = i + d;
+  if (i < 0 || j < 0 || j >= G.length) return;
+  const b = st.parz.find(x => x.id === G[j].id); [me.pos, b.pos] = [b.pos, me.pos];
+  ebSaveS(st);
+}
 function ebParzMove(id, d) {
   const st = ebStamm(), S = ebState(), L = ebParzSorted(true);
   L.forEach((p, i) => { st.parz.find(x => x.id === p.id).pos = i; });
@@ -355,7 +365,8 @@ function ebOverlaps(P, y1, y2, vid) {
       ebArr(ebGet(y), vid).filter(s => s.parz === p.id && s.art !== 'zwischen' && s.kultur && !s.txt).forEach(s => {
         const k = ebKultur(s.kultur); if (!ebHatZeit(k)) return;
         const jahre = Math.max(1, k.jahre || 1), multi = jahre > 1 || !!k.dauer;
-        const r = runs.find(x => x.lastY === y - 1 && ebSameKultur(x.kultur, s.kultur)); // gleiche Kultur im Folgejahr = Fortsetzung
+        // gleiche mehrjährige Kultur im Folgejahr = Fortsetzung; einjährige Kulturen (z.B. Silomais nach Silomais) sind ein neuer Anbau
+        const r = multi ? runs.find(x => x.multi && x.lastY === y - 1 && ebSameKultur(x.kultur, s.kultur)) : null;
         if (r) { r.lastY = y; return; }
         runs.push({ s, kultur: s.kultur, k, firstY: y, lastY: y, jahre, multi });
       });
@@ -363,7 +374,9 @@ function ebOverlaps(P, y1, y2, vid) {
     runs.forEach(r => { r.start = (r.firstY - (r.k.saatVj ? 1 : 0)) * 12 + r.k.saat; r.endY = Math.max(r.firstY + r.jahre - 1, r.lastY); r.end = r.endY * 12 + r.k.ernte; });
     runs.filter(r => r.firstY >= y1).forEach(r => {
       const IP = runs.filter(x => x !== r && x.lastY === r.firstY - 1), ML = runs.filter(x => x !== r && x.firstY < r.firstY && x.endY >= r.firstY);
-      const hit = ML.find(x => x.end > r.start) || (IP.length && IP.every(x => x.end > r.start) ? IP.sort((a, b) => b.end - a.end)[0] : null);
+      // eine noch laufende mehrjährige Kultur auf einem Teil der Parzelle lässt Platz für weitere Kulturen
+      const ph = ebParzHa(p), daneben = x => { const a = ebSchlagHa(x.s), b = ebSchlagHa(r.s); return ph != null && a != null && b != null && a + b <= ph + 0.05; };
+      const hit = ML.find(x => x.end > r.start && !daneben(x)) || (IP.length && IP.every(x => x.end > r.start) ? IP.sort((a, b) => b.end - a.end)[0] : null);
       if (hit) out.set(r.s.id, `${r.kultur} ${r.firstY} (Saat ${ebMon(r.start)}) überschneidet sich mit ${hit.kultur} ${hit.firstY}${hit.endY > hit.firstY ? '–' + hit.endY : ''} (bis ${ebMon(hit.end)}) auf ${ebParzLabel(p)}`);
     });
   });
@@ -555,11 +568,12 @@ function ebFfView(st) {
   const Pin = ebParzSorted(true).filter(p => p.aktiv !== false || years.some(y => L(y, s => s.parz === p.id).length));
   const P = Pin.filter(p => S.showOff || p.aktiv !== false), nOff = Pin.length - P.length;
   // Parzellen mit Fruchtfolge-Gruppe zuerst (Reihenfolge wie unter Stammdaten), Parzellen ohne Gruppe unter «Weitere Flächen»
-  const Pg = P.filter(p => p.gruppe != null), Pn = P.filter(p => p.gruppe == null);
+  const Pg = P.filter(p => p.gruppe != null), Pn = P.filter(p => p.gruppe == null); S._ffVis = new Set(P.map(p => p.id));
   const OV = ebOverlaps(P, years[0], end, vid), fut = y => !!vid && y > cy;
   let lastG = Symbol();
   const rowP = p => { const g = p.gruppe ?? null, gh = g !== lastG && g != null ? `<tr class="ebgrp"><th class="ebrh">Gruppe ${g} <span class="nr">${fmtNum(r2(P.filter(x => x.gruppe === g && x.aktiv !== false).reduce((t, x) => t + (ebParzHa(x) || 0), 0)))} ha</span></th>${years.map(() => '<td></td>').join('')}</tr>` : ''; lastG = g;
-    return gh + `<tr><th class="ebrh ${p.ro || p.ru ? 'ebri' : ''}" data-eb="parzEdit" data-id="${p.id}" title="Parzelle bearbeiten">${p.ro ? `<span class="ebrio" title="Richtung oben">${esc(p.ro)}</span>` : ''}${p.ru ? `<span class="ebriu" title="Richtung unten">${esc(p.ru)}</span>` : ''}${esc(p.name)}${p.teil ? ` <span class="nr">${esc(p.teil)}</span>` : ''}<div class="nr">${ebParzHa(p) != null ? ebFmt(ebParzHa(p)) + ' ha' : ''}${p.feld ? ' · 🌾' : ''}</div></th>
+    return gh + `<tr><th class="ebrh ${p.ro || p.ru ? 'ebri' : ''}" data-eb="parzEdit" data-id="${p.id}" title="Parzelle bearbeiten">${p.ro ? `<span class="ebrio" title="Richtung oben">${esc(p.ro)}</span>` : ''}${p.ru ? `<span class="ebriu" title="Richtung unten">${esc(p.ru)}</span>` : ''}${esc(p.name)}${p.teil ? ` <span class="nr">${esc(p.teil)}</span>` : ''}<div class="nr">${ebParzHa(p) != null ? ebFmt(ebParzHa(p)) + ' ha' : ''}${p.feld ? ' · 🌾' : ''}</div>${(() => { const G = p.gruppe == null ? Pn : Pg.filter(x => x.gruppe === p.gruppe), i = G.indexOf(p);
+      return G.length > 1 ? `<div class="ebpmv"><button type="button" class="x ebmv" data-eb="ffPMove" data-id="${p.id}" data-d="-1" ${i ? '' : 'disabled'} aria-label="nach oben" title="in der Gruppe nach oben">▲</button><button type="button" class="x ebmv" data-eb="ffPMove" data-id="${p.id}" data-d="1" ${i < G.length - 1 ? '' : 'disabled'} aria-label="nach unten" title="in der Gruppe nach unten">▼</button></div>` : ''; })()}</th>
       ${years.map(y => `<td class="ebc ${y === cy ? 'cur' : ''} ${fut(y) ? 'ebvar' : ''} ${ebLocked(y) ? 'eblock' : ''}" data-eb="ffCell" data-y="${y}" data-p="${p.id}" data-var="${fut(y) ? vid : ''}">${ebFfCell(y, L(y, s => s.parz === p.id), p, fut(y) ? null : SP, fut(y) ? vid : '', OV)}</td>`).join('')}</tr>`; };
   const totY = y => r2(L(y, s => s.art !== 'zwischen' && s.parz).reduce((t, s) => t + (ebSchlagHa(s) || 0), 0));
   const head = `<div class="filters vbhead" style="margin-top:12px">
@@ -1246,6 +1260,7 @@ document.addEventListener('click', e => {
     // Fruchtfolge
     case 'ffShift': S.ffEnd += +t.dataset.d; App.render(); break;
     case 'ffUnlock': S.ffUnlock = !S.ffUnlock; if (t.dataset.close) Dlg.close(); App.render(); toast(S.ffUnlock ? 'Vergangene Jahre zum Bearbeiten freigegeben (bis zum Neustart oder erneuten Sperren).' : 'Vergangene Jahre gesperrt.'); break;
+    case 'ffPMove': ebParzMoveGrp(id, +t.dataset.d, S._ffVis); break;
     case 'sMove': ebSMove(+t.dataset.y, t.dataset.p || '', id, +t.dataset.d, t.dataset.var || ''); break;
     case 'ffCell': ebCellDialog(+t.dataset.y, t.dataset.p || '', t.dataset.n || '', t.dataset.var || ''); break;
     case 'varNew': ebVarNew(); break;

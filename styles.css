@@ -1217,3 +1217,7 @@ td.ebbu, .ebleg.ebbu { background: color-mix(in srgb, #3b6fd1 16%, var(--surface
 .rowi.eblockrow { cursor: default; }
 .ebpri { font-size: .85em; color: #555; }
 .ebk.ebtxt { font-style: italic; }
+.ebfft .ebpmv { margin-top: 2px; display: flex; gap: 2px; }
+.ebfft .ebpmv .ebmv { font-size: 12px; padding: 0 4px; opacity: .55; }
+.ebfft .ebpmv .ebmv:hover:not([disabled]) { opacity: 1; }
+.ebfft .ebpmv .ebmv[disabled] { opacity: .15; }

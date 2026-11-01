@@ -53,6 +53,9 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
 - Eigener Betrieb: **keine** Zuordnung von Teilflächen (v97 versucht, in v98 wieder entfernt – zu komplex). Pro Parzelle nur
   Richtung oben/unten (`ro`, `ru` in «parzellen»), angezeigt hinter dem Parzellennamen; Zuordnung rein visuell über die
   Reihenfolge der Hauptkulturen (`pos` am Schlag, ▲▼ im Feld der Fruchtfolge). Feld `teil` = Namenszusatz einer eigenen Parzelle.
+- Überschneidungen (`ebOverlaps`): nur mehrjährige Kulturen/Dauerkulturen laufen über mehrere Jahre weiter; einjährige gleiche Kultur
+  im Folgejahr = neuer Anbau. Eine laufende mehrjährige Kultur auf einem Teil der Parzelle ist keine Überschneidung, wenn beide Flächen zusammen Platz haben.
+- Fruchtfolge: Reihenfolge der Parzellen innerhalb der Gruppe mit ▲▼ direkt in der Fruchtfolge (`ebParzMoveGrp`).
 - Fruchtfolge: vergangene Jahre standardmässig gesperrt (`ebLocked`), Freigabe per Knopf gilt bis zum Neustart.
 - Auftragserfassung: Auswahl «Arbeit» nur mit Arbeitsarten aktiver Maschinen (`Lists.aktiveArbeiten`).
 - Fruchtfolge 2005–2015 als Archiv aus Excel «Fruchtefolgerapport 2005-2018» (Monats-Zeitachse; Herbstsaat → nächstes Erntejahr):
