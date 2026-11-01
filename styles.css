@@ -1078,20 +1078,6 @@ table.need tr.rsconv td, table.need tr.rsconv td:first-child { background: var(-
 .ebfft td.cur { background: color-mix(in srgb, var(--accent) 9%, var(--surface)); box-shadow: inset 3px 0 0 var(--accent), inset -3px 0 0 var(--accent); }
 .ebfft td.cur:hover { background: color-mix(in srgb, var(--accent) 15%, var(--surface)); }
 .ebfft tfoot td.cur { box-shadow: inset 3px 0 0 var(--accent), inset -3px 0 0 var(--accent), inset 0 -3px 0 var(--accent); }
-/* Teilflächen (Himmelsrichtung) */
-.ebfft tr.eblsub th, .ebfft tr.eblsub td:not(.eblall) { border-top: 1px dashed var(--line); }
-.ebfft tr.eblfirst th, .ebfft tr.eblfirst td { border-top-width: 2px; }
-.ebfft .ebltag { float: right; margin: 1px 0 0 8px; padding: 0 6px; border-radius: 8px; background: var(--accent-soft); font-size: 11px; font-weight: 600; color: var(--accent); white-space: nowrap; }
-.ebfft .ebltag small { font-weight: 400; }
-.ebfft td.eblall { vertical-align: middle; }
-.eblg { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 0 6px; margin-left: 4px; white-space: nowrap; }
-.eblagen { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.eblag { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; cursor: pointer; }
-.eblag.on { border-color: var(--accent); background: var(--accent-soft); }
-.eblag span { flex: 1; font-size: 13px; }
-.eblag .input { width: 58px; padding: 3px 5px; font-size: 13px; }
-.eblag:not(.on) .input { opacity: .55; }
-.ebplg { font-size: .85em; font-weight: 600; color: #555; }
 .ebfft .ebrh { cursor: pointer; min-width: 130px; vertical-align: top; }
 .ebfft .ebrh .nr { font-weight: 400; }
 .ebfft tr.ebgrp th, .ebfft tr.ebgrp td { background: var(--accent-soft); color: var(--accent); font-size: 12px; padding: 3px 6px; }
@@ -1217,3 +1203,16 @@ td.ebbu, .ebleg.ebbu { background: color-mix(in srgb, #3b6fd1 16%, var(--surface
 
 .ebpt th.ebpcur { background: #2f6b3a; color: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .ebpt td.ebpcur { background: #eef5ef; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+/* Fruchtfolge: Richtung oben/unten beim Parzellennamen, gesperrte Jahre, Reihenfolge */
+.ebfft th.ebri { position: relative; padding-right: 64px; height: 50px; }
+.ebfft .ebrio, .ebfft .ebriu { position: absolute; right: 6px; padding: 0 6px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.ebfft .ebrio { top: 4px; }
+.ebfft .ebriu { bottom: 4px; }
+.ebfft td.eblock { background: color-mix(in srgb, var(--muted) 6%, var(--surface)); }
+.ebfft td.eblock:hover { background: color-mix(in srgb, var(--muted) 11%, var(--surface)); }
+.btn.ebunl { border-color: var(--warn, #c77700); color: var(--warn, #c77700); }
+.eblg { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 8px; padding: 0 6px; margin-left: 4px; white-space: nowrap; }
+.ebcblk { position: relative; }
+.ebmvs { float: right; margin: 2px 0 0 6px; }
+.rowi.eblockrow { cursor: default; }
+.ebpri { font-size: .85em; color: #555; }

@@ -50,6 +50,9 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
   (Spritzen › Stammdaten › Produkte; Produkt, Zulassungsnr., Preis netto ohne LSV-Rabatt, Einheit; gültig ab Datum; einzelne Produkte abwählbar, Abwahl wird gemerkt). Wird jährlich gebraucht – nicht wieder entfernen.
 - Pflanzenschutz älter als 3 Jahre (`psAlt`, `PS_ALT_JAHRE`): Datenprüfung übergeht diese Aufträge; Bereinigung «Als Text speichern» löst Verknüpfungen (Parzelle → Feldtext, Produkte nur noch mit Namen).
 - Arbeiten Rüben roden / Rüben säen (`RUEBEN_ARBEIT`): Kultur im Auftrag automatisch Zuckerrüben.
-- Eigener Betrieb: Teilflächen pro Parzelle nach Himmelsrichtung (`lagen: [{n, ha}]` in «parzellen»), Schlag mit `lage`;
-  Fruchtfolge zeigt eine Zeile pro Teilfläche, ein Jahr ohne Aufteilung belegt alle Zeilen. Das ältere Feld `teil` = Namenszusatz einer eigenen Parzelle.
+- Eigener Betrieb: **keine** Zuordnung von Teilflächen (v97 versucht, in v98 wieder entfernt – zu komplex). Pro Parzelle nur
+  Richtung oben/unten (`ro`, `ru` in «parzellen»), angezeigt hinter dem Parzellennamen; Zuordnung rein visuell über die
+  Reihenfolge der Hauptkulturen (`pos` am Schlag, ▲▼ im Feld der Fruchtfolge). Feld `teil` = Namenszusatz einer eigenen Parzelle.
+- Fruchtfolge: vergangene Jahre standardmässig gesperrt (`ebLocked`), Freigabe per Knopf gilt bis zum Neustart.
+- Auftragserfassung: Auswahl «Arbeit» nur mit Arbeitsarten aktiver Maschinen (`Lists.aktiveArbeiten`).
 - Ausdrucke Kunden: Logo mit Adresse; Ausdrucke Eigener Betrieb: Betriebsadresse statt Logo.

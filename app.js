@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '97', APP_STAND = '01.11.2026';
+const APP_VERSION = '98', APP_STAND = '01.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -406,6 +406,14 @@ const Lists = {
     const l = Array.isArray(c.arbeitsarten) ? c.arbeitsarten.slice()
       : uniqSort([...ARBEITEN, ...Store.all('maschinen').flatMap(m => m.arbeitsarten || []), ...Store.all('auftraege').map(a => a.arbeit)]);
     if (!l.some(x => /spritz|pflanzenschutz/i.test(x))) l.push('Spritzen'); // für das Modul Spritzen
+    return l;
+  },
+  // Auftragserfassung: nur Arbeiten, für die zurzeit eine Maschine aktiv ist (ohne solche Maschinen: alle)
+  aktiveArbeiten() {
+    const M = Store.all('maschinen').filter(m => m.aktiv !== false), set = new Set(M.flatMap(m => (m.arbeitsarten || []).map(norm)));
+    if (!set.size) return this.arbeitsarten();
+    const l = this.arbeitsarten().filter(x => set.has(norm(x)));
+    M.flatMap(m => m.arbeitsarten || []).forEach(x => { if (!l.some(y => norm(y) === norm(x))) l.push(x); });
     return l;
   },
   produkte() { return Store.all('produkte').filter(p => p.aktuell !== false).sort((a, b) => a.name.localeCompare(b.name, 'de')); },
@@ -1209,7 +1217,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
     <label class="fld" hidden><span>Feld</span><select class="input" name="kfeld"></select></label>
     <div class="two">
       <label class="fld"><span>Arbeit *</span><select class="input" name="arbeit" required>
-        <option value="">— bitte wählen —</option>${listOptions(Lists.arbeitsarten(), a.arbeit)}</select></label>
+        <option value="">— bitte wählen —</option>${listOptions(Lists.aktiveArbeiten(), a.arbeit)}</select><div class="sub2">Nur Arbeiten mit einer aktiven Maschine (Mehr › Maschinen).</div></label>
       <label class="fld"><span>Kultur</span><select class="input" name="kultur" data-cur="${esc(a.kultur || '')}">
         <option value="">—</option>${kuOrderOptions(a.kultur)}</select></label>
     </div>
