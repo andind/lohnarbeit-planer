@@ -136,7 +136,7 @@ function kuUses() {
   Store.all('auftraege').forEach(a => { if (a.kultur) U.push({ n: a.kultur, w: isSpray(a) ? 'spray' : 'auftrag', y: +(String(a.erledigtAm || a.datum || a.wunsch || '').slice(0, 4)) || null, a }); });
   Store.all('parzellen').forEach(p => { if (p.kultur) U.push({ n: p.kultur, w: 'parzelle', y: null, p }); });
   Store.all('einstellungen').forEach(r => {
-    if (/^eb-\d{4}$/.test(r.id)) { const sl = s => { if (s.kultur && !s.indiv) U.push({ n: s.kultur, w: s.art === 'zwischen' ? 'ebz' : 'eb', y: r.jahr, s }); };
+    if (/^eb-\d{4}$/.test(r.id)) { const sl = s => { if (s.kultur && !s.indiv && !s.txt) U.push({ n: s.kultur, w: s.art === 'zwischen' ? 'ebz' : 'eb', y: r.jahr, s }); };
       (r.schlaege || []).forEach(sl); Object.values(r.varianten || {}).forEach(v => v.forEach(sl)); }
     if (/^vb-\d{4}$/.test(r.id)) (r.progs || []).forEach(p => { if (p.kultur) U.push({ n: p.kultur, w: 'vb', y: r.jahr, prog: p }); });
   });

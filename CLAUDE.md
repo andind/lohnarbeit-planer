@@ -55,4 +55,7 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
   Reihenfolge der Hauptkulturen (`pos` am Schlag, ▲▼ im Feld der Fruchtfolge). Feld `teil` = Namenszusatz einer eigenen Parzelle.
 - Fruchtfolge: vergangene Jahre standardmässig gesperrt (`ebLocked`), Freigabe per Knopf gilt bis zum Neustart.
 - Auftragserfassung: Auswahl «Arbeit» nur mit Arbeitsarten aktiver Maschinen (`Lists.aktiveArbeiten`).
+- Fruchtfolge 2005–2015 als Archiv aus Excel «Fruchtefolgerapport 2005-2018» (Monats-Zeitachse; Herbstsaat → nächstes Erntejahr):
+  Jahres-Datensätze `archiv: true`, Schläge `txt: true` = Kultur nur als Text, ohne Verknüpfung zur Kulturliste
+  (nicht in Kulturliste übernehmen, keine Überschneidungs-/Dauerkultur-Logik, Datenprüfung übergeht sie). Eingelesen per Mehr › Datensicherung › Wiederherstellen.
 - Ausdrucke Kunden: Logo mit Adresse; Ausdrucke Eigener Betrieb: Betriebsadresse statt Logo.

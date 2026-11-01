@@ -1216,3 +1216,4 @@ td.ebbu, .ebleg.ebbu { background: color-mix(in srgb, #3b6fd1 16%, var(--surface
 .ebmvs { float: right; margin: 2px 0 0 6px; }
 .rowi.eblockrow { cursor: default; }
 .ebpri { font-size: .85em; color: #555; }
+.ebk.ebtxt { font-style: italic; }

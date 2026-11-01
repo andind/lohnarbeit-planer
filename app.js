@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '98', APP_STAND = '01.11.2026';
+const APP_VERSION = '99', APP_STAND = '01.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -6008,7 +6008,7 @@ function chkRun() {
     const EP = new Map(SP.map(p => [p.id, p]));
     const pha = p => p.ha != null ? p.ha : (F.get(p.feld) || {}).flaeche, pnm = p => [p.name, p.teil].filter(Boolean).join(' ');
     const over = [], diff = [];
-    [...E.values()].filter(r => /^eb-\d{4}$/.test(r.id)).sort((a, b) => a.jahr - b.jahr).forEach(r => {
+    [...E.values()].filter(r => /^eb-\d{4}$/.test(r.id) && !r.archiv).sort((a, b) => a.jahr - b.jahr).forEach(r => {
       const sum = {};
       (r.schlaege || []).forEach(s => {
         if (s.art !== 'zwischen' && s.parz && s.ha != null) sum[s.parz] = (sum[s.parz] || 0) + s.ha; });
