@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '96', APP_STAND = '01.11.2026';
+const APP_VERSION = '97', APP_STAND = '01.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -14,7 +14,10 @@ const ARBEITEN = ['Mulchen', 'Wegränder mulchen', 'Grubbern', 'Flachgrubbern', 
 const KULTUREN = ['Weizen', 'Gerste', 'Triticale', 'Dinkel', 'Roggen', 'Hafer', 'Raps', 'Silomais', 'Körnermais',
   'Zuckerrüben', 'Kartoffeln', 'Soja', 'Sonnenblumen', 'Eiweisserbsen', 'Ackerbohnen', 'Kunstwiese', 'Naturwiese',
   'Zwischenfrucht', 'Gründüngung', 'Stoppeln'];
-const PAUSEN_TEXTE = ['Mittag', 'Znüni', 'Zvieri', 'Tanken', 'Service', 'Umsetzen', 'Reparatur'];
+// Arbeiten, bei denen die Kultur immer Zuckerrüben ist (Rübenroden, Rüben säen …)
+const RUEBEN_ARBEIT = /r[üu]e?ben\s*-?\s*(roden|s[äa]e?n|saat|ernte)/i;
+const kuNormSafe = s => String(s || '').trim().toLowerCase();
+const PAUSEN_TEXTE =['Mittag', 'Znüni', 'Zvieri', 'Tanken', 'Service', 'Umsetzen', 'Reparatur'];
 const FARBEN = ['#1f77b4', '#d9480f', '#2b8a3e', '#9c36b5', '#c2255c', '#0b7285', '#e67700', '#5f3dc4'];
 // [Name, Verrechnungseinheit, Arbeitsarten]
 const SEED_MASCHINEN = [
@@ -1320,6 +1323,15 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
   f.vmasch.addEventListener('change', () => { vmTouched = true; });
   f.arbeit.addEventListener('change', () => { fillVm(); autoVm(); }); f.wunsch.addEventListener('change', fillVm);
   f.arbeit.addEventListener('change', fillMachines);
+  // Rüben roden / Rüben säen: Kultur ist immer Zuckerrüben
+  const autoKultur = () => {
+    if (!RUEBEN_ARBEIT.test(f.arbeit.value) || !f.kultur) return;
+    const zr = Lists.kulturen().find(k => /^zuckerr/i.test(k)) || 'Zuckerrüben';
+    if (kuNormSafe(f.kultur.value) === kuNormSafe(zr)) return;
+    if (typeof kuSetOrderKultur === 'function') kuSetOrderKultur(f, zr);
+    else { if (![...f.kultur.options].some(o => o.value === zr)) f.kultur.insertAdjacentHTML('beforeend', `<option>${esc(zr)}</option>`); f.kultur.value = zr; }
+  };
+  f.arbeit.addEventListener('change', autoKultur); f.arbeit.addEventListener('input', autoKultur);
   f.datum.addEventListener('change', fillMachines);
   f.maschine.addEventListener('change', () => { f.maschine.dataset.touched = '1'; showDauer(); });
   f.flaeche.addEventListener('input', showDauer);
@@ -1343,6 +1355,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
     }
   });
   fillVm(); fillMachines(); autoVm(); checkKunde(); kuWireOrder(f); wireSpray(f); wireRsSeed(f, a); wireFeld(f, a);
+  if (isNew) autoKultur();
   if (!a.datum && $('#planBox', f).open) $('#vmBox', f).hidden = true;
   if (plan) setTimeout(() => $('#planBox', f)?.scrollIntoView({ block: 'nearest' }), 60);
 }
@@ -1850,6 +1863,10 @@ function exportCsv() {
 const PROD_EINHEITEN = ['l', 'kg', 'g', 'ml', 'Stk'];
 const isSprayName = s => /spritz|pflanzenschutz/i.test(s || '');
 const isSpray = a => !!a && isSprayName(a.arbeit);
+// Pflanzenschutz älter als 3 Jahre: abgeschlossen – die Datenprüfung übergeht diese Aufträge, Verknüpfungen genügen als Text
+const PS_ALT_JAHRE = 3;
+const psCutoff = () => { const d = new Date(); d.setFullYear(d.getFullYear() - PS_ALT_JAHRE); return isoDate(d); };
+const psAlt = a => isSpray(a) && !!(a.erledigtAm || a.datum || a.wunsch) && (a.erledigtAm || a.datum || a.wunsch) < psCutoff();
 const sprayArbeit = () => Lists.arbeitsarten().find(isSprayName) || 'Spritzen';
 const prodList = a => (a.produkte || []).filter(p => p.name);
 const prodNames = a => prodList(a).map(p => p.name);
@@ -2324,7 +2341,7 @@ function stammContent() {
     ${srt !== 'name' ? `<div class="panel deact"><label class="fld inl"><span>Nicht mehr verwendet seit</span><input class="input" type="date" data-in="spPrSeit" value="${seit}"></label>
       <button class="btn ${alte.length ? 'primary' : ''}" data-act="prodDeactOld" ${alte.length ? '' : 'disabled'}>${alte.length} Produkte auf «nicht aktuell» setzen</button>
       <span class="nr">Produkte mit Inventar-Bestand bleiben aktuell. Einzelne Produkte mit dem Schalter «aktuell» in der Zeile.</span></div>` : ''}
-    <div class="btns" style="margin:0 0 10px"><button class="btn" data-act="invPrint" title="Liste aller aktuellen Produkte mit Spalte zum Abhaken beim Zählen">Zählliste drucken / PDF</button><button class="btn" data-act="invCsv">Inventar CSV</button></div>
+    <div class="btns" style="margin:0 0 10px"><button class="btn" data-act="invPrint" title="Liste aller aktuellen Produkte mit Spalte zum Abhaken beim Zählen">Zählliste drucken / PDF</button><button class="btn" data-act="invCsv">Inventar CSV</button><button class="btn" data-act="prodImport" title="Produkte und Preise aus einer Excel- oder CSV-Liste aktualisieren (z.B. jährliche Preisliste)">Preisliste importieren…</button></div>
     <p class="nr">${list.length} Produkte · Lagerwert Inventar CHF <span id="invTot">${chf(invTotal())}</span> · Bestand direkt eintragen, übrige Angaben durch Antippen der Zeile.</p>
     <div class="rows">${list.map(p => { const nx = prodNext(p); return `<div class="rowi prow2 ${p.aktuell === false ? 'off' : ''}" data-act="prodEdit" data-id="${p.id}"><div class="grow"><div class="t">${esc(p.name) || '<i class="nr">(ohne Name)</i>'}</div>
         <div class="s">${esc(p.zulassung || '')}${p.zulassung ? ' · ' : ''}CHF ${chf(p.preis)} / ${esc(p.einheit)} · <span class="${U(p.id).last && U(p.id).last >= seit ? '' : 'old'}">${U(p.id).last ? `zuletzt ${fmtDate(U(p.id).last, { day: '2-digit', month: '2-digit', year: 'numeric' })} (${U(p.id).n}×)` : 'nie verwendet'}</span>${nx ? ` · <span class="nxt">ab ${fmtDate(nx.ab, { day: '2-digit', month: '2-digit', year: '2-digit' })}: CHF ${chf(nx.preis)}${nx.name !== p.name ? ' · ' + esc(nx.name) : ''}</span>` : ''}</div></div>
@@ -2652,7 +2669,189 @@ function inventoryCsv() {
   download(`Inventar_${todayIso()}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }
 
+/* ---------- Dateien lesen: Excel (.xlsx) und CSV ---------- */
+async function inflateRaw(bytes) {
+  const ds = new DecompressionStream('deflate-raw');
+  const buf = await new Response(new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer();
+  return new Uint8Array(buf);
+}
+async function unzip(buf) { // minimaler ZIP-Leser (Zentralverzeichnis)
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  let eocd = -1; for (let i = u8.length - 22; i >= Math.max(0, u8.length - 66000); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('Keine gültige Excel-Datei');
+  const n = dv.getUint16(eocd + 10, true); let off = dv.getUint32(eocd + 16, true); const out = {};
+  for (let k = 0; k < n; k++) {
+    const method = dv.getUint16(off + 10, true), csize = dv.getUint32(off + 20, true), nlen = dv.getUint16(off + 28, true), xlen = dv.getUint16(off + 30, true), clen = dv.getUint16(off + 32, true), loc = dv.getUint32(off + 42, true);
+    const name = new TextDecoder().decode(u8.subarray(off + 46, off + 46 + nlen));
+    out[name] = { method, csize, loc };
+    off += 46 + nlen + xlen + clen;
+  }
+  return async name => {
+    const e = out[name]; if (!e) return null;
+    const start = e.loc + 30 + dv.getUint16(e.loc + 26, true) + dv.getUint16(e.loc + 28, true);
+    const data = u8.subarray(start, start + e.csize);
+    return new TextDecoder().decode(e.method === 0 ? data : await inflateRaw(data));
+  };
+}
+async function readXlsx(buf) {
+  const get = await unzip(buf), xml = s => new DOMParser().parseFromString(s, 'application/xml');
+  const ss = await get('xl/sharedStrings.xml');
+  const strings = ss ? [...xml(ss).getElementsByTagName('si')].map(si => [...si.getElementsByTagName('t')].map(t => t.textContent).join('')) : [];
+  // erstes Tabellenblatt laut Arbeitsmappe
+  let sheet = 'xl/worksheets/sheet1.xml';
+  try {
+    const wb = xml(await get('xl/workbook.xml')), rels = xml(await get('xl/_rels/workbook.xml.rels'));
+    const rid = wb.getElementsByTagName('sheet')[0].getAttribute('r:id') || wb.getElementsByTagName('sheet')[0].getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+    const t = [...rels.getElementsByTagName('Relationship')].find(r => r.getAttribute('Id') === rid)?.getAttribute('Target');
+    if (t) sheet = 'xl/' + t.replace(/^\/?xl\//, '').replace(/^\//, '');
+  } catch { }
+  const sx = await get(sheet); if (!sx) throw new Error('Tabellenblatt nicht gefunden');
+  const col = r => { let c = 0; for (const ch of r.replace(/\d+$/, '')) c = c * 26 + ch.charCodeAt(0) - 64; return c - 1; };
+  return [...xml(sx).getElementsByTagName('row')].map(row => {
+    const out = [];
+    [...row.getElementsByTagName('c')].forEach(c => {
+      const t = c.getAttribute('t'), v = c.getElementsByTagName('v')[0]?.textContent ?? '';
+      const val = t === 's' ? strings[+v] ?? '' : t === 'inlineStr' ? [...c.getElementsByTagName('t')].map(x => x.textContent).join('') : v;
+      out[col(c.getAttribute('r') || 'A1')] = val;
+    });
+    return Array.from(out, x => x ?? '');
+  });
+}
+function readCsv(text) {
+  const first = text.split(/\r?\n/).find(l => l.trim()) || '';
+  const sep = [';', '\t', ','].sort((a, b) => first.split(b).length - first.split(a).length)[0];
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === sep) { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+async function readTable(file) {
+  const buf = await file.arrayBuffer();
+  const sig = new Uint8Array(buf.slice(0, 4)); // ZIP-Kennung «PK\3\4» = Excel
+  if (sig[0] === 0x50 && sig[1] === 0x4b && sig[2] === 3 && sig[3] === 4) return readXlsx(buf);
+  if (/\.xlsx?$/i.test(file.name)) throw new Error(/\.xls$/i.test(file.name) ? 'Bitte in Excel als .xlsx oder .csv speichern' : 'Keine gültige Excel-Datei');
+  let text = new TextDecoder('utf-8').decode(buf);
+  if (text.includes('�')) text = new TextDecoder('windows-1252').decode(buf);
+  return readCsv(text.replace(/^﻿/, ''));
+}
+
 /* ---------- Import Preisliste: Produktname, Zulassung, Preis ab Datum ---------- */
+const parsePrice = v => { if (v == null || v === '') return null; if (typeof v === 'number') return v; const s = String(v).replace(/CHF|Fr\.?|\s|'|’/gi, ''); const m = s.match(/-?\d+(?:[.,]\d+)?/); return m ? +m[0].replace(',', '.') : null; };
+const zulKey = z => { const m = String(z || '').toUpperCase().replace(/\s/g, '').match(/[A-Z]{0,2}-?\d{3,6}(?:-\d+)?/); return m ? m[0].replace(/^([A-Z]+)(\d)/, '$1-$2') : ''; };
+const IMP_FIELDS = [['name', 'Produktname *', /produkt|bezeichnung|handelsname|artikel(?!.*n(r|um))|^name/i], ['zulassung', 'Zulassungs-Nr.', /zulass|bewillig|w-?nr|kenn|reg/i],
+  ['preis', 'Preis CHF', /preis|chf|netto|betrag|fr\./i], ['einheit', 'Einheit', /einheit|^me$|unit|^eh$/i]];
+function impGuess(rows) {
+  let hi = 0, best = -1;
+  rows.slice(0, 15).forEach((r, i) => { const sc = IMP_FIELDS.filter(([, , re]) => r.some(c => re.test(String(c || '').trim()))).length; if (sc > best) { best = sc; hi = i; } });
+  const head = rows[hi] || [], map = {};
+  IMP_FIELDS.forEach(([k, , re]) => { const i = head.findIndex((c, j) => re.test(String(c || '').trim()) && !Object.values(map).includes(j)); map[k] = i; });
+  if (best < 1) { map.name = 0; return { hi: -1, map }; }
+  return { hi, map };
+}
+function impMatch(rows, hi, map, { neu }) {
+  const ps = Store.all('produkte'), byZ = new Map(), dupZ = new Set();
+  ps.forEach(p => { const z = zulKey(p.zulassung); if (!z) return; if (byZ.has(z)) dupZ.add(z); byZ.set(z, p); });
+  const used = new Set();
+  return rows.slice(hi + 1).map((r, i) => {
+    const cell = k => map[k] >= 0 ? String(r[map[k]] ?? '').trim() : '';
+    const name = cell('name'); if (!name) return null;
+    const zul = cell('zulassung'), preis = map.preis >= 0 ? parsePrice(r[map.preis]) : null, einheit = cell('einheit');
+    const zk = zulKey(zul);
+    let p = ps.find(x => !used.has(x.id) && fold(x.name) === fold(name));
+    if (!p && zk && byZ.has(zk) && !dupZ.has(zk) && !used.has(byZ.get(zk).id)) p = byZ.get(zk);
+    if (p) used.add(p.id);
+    const zulCh = p && zul && (zulKey(zul) || zulKey(p.zulassung) ? zulKey(zul) !== zulKey(p.zulassung) : fold(zul) !== fold(p.zulassung));
+    const ch = p ? [name !== p.name && 'Name', zulCh && 'Zulassung', preis != null && Math.abs(preis - (p.preis || 0)) > 0.0001 && 'Preis'].filter(Boolean) : [];
+    return { ri: hi + 1 + i, name, zul, preis, einheit, p, ch, art: p ? (ch.length ? 'aendern' : 'gleich') : (neu ? 'neu' : 'ohne') };
+  }).filter(Boolean);
+}
+async function prodImportStart() {
+  const file = await pickFile('.xlsx,.csv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); if (!file) return;
+  let rows; try { rows = await readTable(file); while (rows.length && !rows[rows.length - 1].some(c => String(c ?? '').trim())) rows.pop(); } catch (e) { toast('Datei konnte nicht gelesen werden: ' + e.message, 5000); return; }
+  if (!rows.length) { toast('Die Datei enthält keine Daten'); return; }
+  const g = impGuess(rows), cols = Math.max(...rows.slice(0, 50).map(r => r.length));
+  const head = g.hi >= 0 ? rows[g.hi] : [];
+  const colOpt = (k, cur) => `<option value="-1">— keine —</option>` + Array.from({ length: cols }, (_, i) => `<option value="${i}" ${i === cur ? 'selected' : ''}>${esc(String(head[i] || '').trim() || 'Spalte ' + String.fromCharCode(65 + i))}</option>`).join('');
+  const body = `<p class="nr" style="margin-top:0">${esc(file.name)} · ${rows.slice(g.hi + 1).filter(r => r.some(c => String(c ?? '').trim())).length} Zeilen</p>
+    <div class="two"><label class="fld"><span>Gültig ab *</span><input class="input" type="date" name="ab" value="${todayIso()}" required></label>
+      <label class="fld"><span>Überschriften in Zeile</span><input class="input" name="hi" inputmode="numeric" value="${g.hi + 1}"></label></div>
+    <div class="two">${IMP_FIELDS.map(([k, l]) => `<label class="fld"><span>${l}</span><select class="input" data-plain name="col_${k}">${colOpt(k, g.map[k])}</select></label>`).join('')}</div>
+    <div class="checks"><label><input type="checkbox" name="neu" checked> Produkte, die es noch nicht gibt, neu anlegen</label>
+      <label><input type="checkbox" name="alt"> Produkte, die nicht in der Liste stehen, auf «nicht aktuell» setzen</label></div>
+    <div id="impPrev"></div>`;
+  Dlg.open('Produkte aktualisieren', body, `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">Übernehmen</button>`, fd => {
+    const st = read(); if (!st.ab) { toast('Gültig-ab-Datum angeben'); return false; }
+    const all = impMatch(rows, st.hi, st.map, { neu: st.neu });
+    // Abwahl merken: beim nächsten Import sind dieselben Produkte wieder abgewählt
+    const mem = Store.cfg().impSkip || { ids: [], names: [] }, ids = new Set(mem.ids), names = new Set(mem.names);
+    all.filter(r => r.art === 'aendern' || r.art === 'neu').forEach(r => {
+      const off = skip.has(r.ri);
+      if (r.p) off ? ids.add(r.p.id) : ids.delete(r.p.id); else off ? names.add(fold(r.name)) : names.delete(fold(r.name));
+    });
+    Store.setCfg({ impSkip: { ids: [...ids], names: [...names] } });
+    const res = all.filter(r => !skip.has(r.ri));
+    const upd = [], ren = [];
+    res.filter(r => r.art === 'aendern').forEach(r => {
+      const vals = { name: r.name }; if (r.ch.includes('Zulassung')) vals.zulassung = r.zul; if (r.ch.includes('Preis')) vals.preis = r.preis;
+      const np = prodSetFrom(r.p, st.ab, vals); if (r.einheit && !r.p.einheit) np.einheit = r.einheit;
+      np.aktuell = true; upd.push(np); if (r.name !== r.p.name) ren.push({ p: np, ab: st.ab, oldName: r.p.name });
+    });
+    const neu = res.filter(r => r.art === 'neu').map(r => {
+      const base = { id: uid(), name: r.name, zulassung: r.zul, preis: r.preis || 0, einheit: r.einheit || 'l', aktuell: true };
+      return st.ab > todayIso() ? { ...base, verlauf: [{ ab: VERLAUF_START, name: r.name, zulassung: r.zul, preis: 0 }, { ab: st.ab, name: r.name, zulassung: r.zul, preis: r.preis || 0 }], preis: 0 } : base;
+    });
+    const inList = new Set(res.filter(r => r.p).map(r => r.p.id));
+    const alt = st.alt ? Store.all('produkte').filter(p => !inList.has(p.id) && p.aktuell !== false).map(p => ({ ...p, aktuell: false })) : [];
+    if (!upd.length && !neu.length && !alt.length) { toast('Keine Änderungen'); return true; }
+    Store.putMany('produkte', [...upd, ...neu, ...alt]);
+    const nr = ren.length ? prodRenameOrders(ren) : 0;
+    toast(`Produkte aktualisiert ab ${fmtDate(st.ab, { day: '2-digit', month: '2-digit', year: 'numeric' })}: ${upd.length} geändert, ${neu.length} neu${alt.length ? `, ${alt.length} nicht mehr aktuell` : ''}${nr ? ` · ${nr} Aufträge umbenannt` : ''}`, 6000);
+    return true;
+  });
+  const f = Dlg.form;
+  // abgewählte Zeilen (Zeilennummer der Datei); Vorbelegung aus dem letzten Import
+  const mem = Store.cfg().impSkip || { ids: [], names: [] }, memIds = new Set(mem.ids), memNames = new Set(mem.names);
+  const skip = new Set(impMatch(rows, g.hi, g.map, { neu: true }).filter(r => r.p ? memIds.has(r.p.id) : memNames.has(fold(r.name))).map(r => r.ri));
+  const read = () => ({ ab: f.ab.value, hi: Math.max(0, (num(f.hi.value) || 1)) - 1, neu: f.neu.checked, alt: f.alt.checked,
+    map: Object.fromEntries(IMP_FIELDS.map(([k]) => [k, +f['col_' + k].value])) });
+  const prev = () => {
+    const st = read();
+    if (st.map.name < 0) { $('#impPrev', f).innerHTML = '<p class="hintp panel">Bitte die Spalte mit dem Produktnamen wählen.</p>'; return; }
+    const res = impMatch(rows, st.hi, st.map, { neu: st.neu }).map(r => (r.art === 'aendern' || r.art === 'neu') && skip.has(r.ri) ? { ...r, aus: r.art, art: 'aus' } : r);
+    const cnt = k => res.filter(r => r.art === k).length, wahl = res.filter(r => r.art === 'aendern' || r.art === 'neu' || r.art === 'aus');
+    const future = st.ab > todayIso();
+    const cb = r => r.art === 'aendern' || r.art === 'neu' || r.art === 'aus' ? `<input type="checkbox" data-ri="${r.ri}" ${r.art === 'aus' ? '' : 'checked'} aria-label="übernehmen">` : '';
+    const line = r => `<tr class="${r.art}"><td class="cbx">${cb(r)}</td><td>${r.p && r.name !== r.p.name ? `${esc(r.p.name)} → <b>${esc(r.name)}</b>` : esc(r.name)}</td>
+      <td class="nr">${r.ch.includes('Zulassung') ? `${esc(r.p.zulassung || '–')} → <b>${esc(r.zul)}</b>` : esc(r.zul || r.p?.zulassung || '')}</td>
+      <td class="n">${r.preis == null ? '' : r.p && Math.abs(r.preis - (r.p.preis || 0)) > 0.0001 ? `${chf(r.p.preis)} → <b>${chf(r.preis)}</b>` : chf(r.preis)}</td>
+      <td>${r.art === 'aus' ? `ausgeschlossen <span class="nr">(${r.aus === 'neu' ? 'neu' : 'ändern'})</span>` : { aendern: 'ändern', gleich: 'unverändert', neu: 'neu', ohne: 'übersprungen' }[r.art]}</td></tr>`;
+    const order = { aendern: 0, neu: 1, aus: 2, ohne: 3, gleich: 4 };
+    const shown = res.slice().sort((a, b) => order[a.art] - order[b.art] || a.ri - b.ri);
+    const act = shown.filter(r => r.art !== 'gleich' && r.art !== 'ohne'), rest = shown.filter(r => r.art === 'gleich' || r.art === 'ohne').slice(0, 150);
+    const allOn = wahl.length && wahl.every(r => r.art !== 'aus');
+    $('#impPrev', f).innerHTML = `<p><b>${cnt('aendern')} ändern</b> · ${cnt('neu')} neu${cnt('aus') ? ` · <b>${cnt('aus')} ausgeschlossen</b>` : ''} · ${cnt('gleich')} unverändert${cnt('ohne') ? ` · ${cnt('ohne')} übersprungen` : ''}${future ? ` · gilt erst ab ${fmtDate(st.ab, { day: '2-digit', month: '2-digit', year: 'numeric' })}, bis dahin bleiben die bisherigen Angaben` : ''}</p>
+      <p class="nr">Häkchen entfernen, um ein Produkt von der Aktualisierung bzw. Neuerfassung auszuschliessen – die Abwahl bleibt für den nächsten Import gespeichert.
+        Abrechnungen verwenden den Preis, der am Tag des Auftrags gültig war; Aufträge ab dem Gültigkeitsdatum erhalten den neuen Produktnamen.</p>
+      <div class="tscroll"><table class="btab imptab"><thead><tr><th class="cbx">${wahl.length ? `<input type="checkbox" data-riall ${allOn ? 'checked' : ''} aria-label="alle übernehmen" title="alle an/aus">` : ''}</th><th>Produkt</th><th>Zulassung</th><th class="n">Preis CHF</th><th></th></tr></thead><tbody>
+      ${[...act, ...rest].map(line).join('')}</tbody></table></div>`;
+    const ha = $('input[data-riall]', f); if (ha) ha.indeterminate = !allOn && wahl.some(r => r.art !== 'aus');
+  };
+  f.addEventListener('input', e => { if (e.target.dataset.ri == null && e.target.dataset.riall == null) prev(); });
+  f.addEventListener('change', e => {
+    if (e.target.dataset.ri != null) { const ri = +e.target.dataset.ri; e.target.checked ? skip.delete(ri) : skip.add(ri); }
+    else if (e.target.dataset.riall != null) { const st = read(); impMatch(rows, st.hi, st.map, { neu: st.neu }).filter(r => r.art === 'aendern' || r.art === 'neu').forEach(r => e.target.checked ? skip.delete(r.ri) : skip.add(r.ri)); }
+    const db = f.querySelector('.db'), y = db && db.scrollTop; prev(); if (db) db.scrollTop = y;
+  });
+  prev();
+}
+
 /* ---------- Preisverlauf im Produktfenster ---------- */
 function verlaufHtml(p) {
   const v = (p.verlauf || []).slice().sort((a, b) => b.ab.localeCompare(a.ab));
@@ -5379,6 +5578,7 @@ document.addEventListener('click', async e => {
     case 'spJfReset': App.spray.jf = { ...JF_DEFAULT }; App.spray.jy = ''; App.spray.jlimit = 200; App.render(); break;
     case 'invPrint': printHtml('Inventarliste', inventoryHtml(), { noTitle: true }); break;
     case 'invCsv': inventoryCsv(); break;
+    case 'prodImport': prodImportStart(); break;
     case 'prodDeactOld': prodDeactOld(); break;
     case 'jbLoad': jdbLoad(); break;
     case 'jbFile': jdbFile(); break;
@@ -5737,7 +5937,7 @@ function bakErweitern(sheets, D) {
 // Prüft die gespeicherten Daten aller Module; klare Fälle lassen sich per Knopf bereinigen (Rückgängig mit Ctrl+Z möglich).
 function chkRun() {
   const all = c => Store.all(c), K = new Map(all('kunden').map(x => [x.id, x])), F = new Map(all('felder').map(x => [x.id, x])), P = new Map(all('parzellen').map(x => [x.id, x]));
-  const PR = new Map(all('produkte').map(x => [x.id, x])), M = new Map(all('maschinen').map(x => [x.id, x])), O = all('auftraege');
+  const PR = new Map(all('produkte').map(x => [x.id, x])), M = new Map(all('maschinen').map(x => [x.id, x])), OA = all('auftraege'), O = OA.filter(a => !psAlt(a)), OALT = OA.filter(psAlt);
   const E = new Map(all('einstellungen').map(x => [x.id, x])), nk = s => String(s || '').trim().toLowerCase();
   const oL = a => ({ label: `${a.nr || 'Auftrag'} · ${kundeName(a.kunde) || '–'} · ${a.arbeit || ''}${a.erledigtAm || a.datum ? ' · ' + fmtDate(a.erledigtAm || a.datum, { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}`, act: 'editOrder', id: a.id });
   const C = [];
@@ -5753,6 +5953,10 @@ function chkRun() {
     if (w.length) refs.push({ ...oL(a), extra: 'fehlt: ' + w.join(', ') });
   });
   C.push({ id: 'refs', sev: 'fehler', titel: 'Verweise ins Leere', text: 'Aufträge, die auf gelöschte Kunden, Felder, Parzellen, Maschinen, Produkte, Rübensamen-Kunden, Spritzprogramme oder Fruchtfolge-Schläge zeigen.', items: refs, fix: refs.length ? { label: 'Fehlende Verweise entfernen', run: 'refs' } : null });
+  // 1b) Pflanzenschutz älter als 3 Jahre: noch verknüpft → als Text speichern
+  const altL = OALT.filter(a => a.parzelle || a.kfeld || a.vbRef || a.ebSchlag || (a.produkte || []).some(p => p.pid));
+  C.push({ id: 'psAlt', sev: 'hinweis', titel: `Pflanzenschutz älter als ${PS_ALT_JAHRE} Jahre noch verknüpft`, text: `Spritzaufträge vor dem ${fmtDate(psCutoff(), { day: '2-digit', month: '2-digit', year: 'numeric' })} werden nicht mehr geprüft. «Als Text speichern» löst ihre Verknüpfungen zu Parzelle, Feld, Produkten, Spritzprogramm und Fruchtfolge; Parzelle und Produkte bleiben als Text erhalten (Journal, Nachweis und Abrechnung zeigen sie weiter an).`,
+    items: altL.map(oL), fix: altL.length ? { label: 'Als Text speichern', run: 'psAlt' } : null });
   // 2) Parzelle eines anderen Kunden (z.B. Sammelparzelle «Unbekannt» aus dem ErfassungPS-Import)
   const fremdAll = O.filter(a => a.parzelle && P.has(a.parzelle) && P.get(a.parzelle).kunde !== a.kunde), isU = a => nk(P.get(a.parzelle).name) === 'unbekannt';
   const fremd = fremdAll.filter(isU), fremd2 = fremdAll.filter(a => !isU(a));
@@ -5776,7 +5980,8 @@ function chkRun() {
   const zUse = id => O.reduce((t, a) => t + (a.parzelle === id ? 1 : 0), 0);
   const parzD = grp(all('parzellen'), z => z.kunde + '|' + nk(z.name) + '|' + nk(z.teil)); // Teile (Nord/Süd) sind keine Doppel
   C.push({ id: 'parzD', sev: 'fehler', titel: 'Parzellen doppelt erfasst', text: 'Gleicher Kunde und gleicher Parzellenname mehrfach. Zusammenführen behält die meistverwendete Parzelle und hängt Aufträge und Vorbestellung um.', groups: parzD.map(g => ({ label: `${kundeName(g[0].kunde)}: ` + g.map(z => `${z.name}${z.teil ? ' ' + z.teil : ''} – ${zUse(z.id)}× verwendet${z.feldId ? '' : ', ohne Feld'}`).join(' · '), ids: g.map(z => z.id), act: 'parzEdit' })), fix: parzD.length ? { label: 'Alle zusammenführen', run: 'parzD' } : null });
-  const pof = all('parzellen').filter(z => z.aktiv !== false && !z.feldId && nk(z.name) !== 'unbekannt');
+  const zNeu = new Set(O.map(a => a.parzelle).filter(Boolean)), zAlt = new Set(OALT.map(a => a.parzelle).filter(Boolean));
+  const pof = all('parzellen').filter(z => z.aktiv !== false && !z.feldId && nk(z.name) !== 'unbekannt' && !(zAlt.has(z.id) && !zNeu.has(z.id)));
   C.push({ id: 'pof', sev: 'hinweis', titel: 'Spritz-Parzellen ohne MyJohnDeere-Feld', text: 'Ohne Feld fehlen Vermessungen und die Verbindung zu MyJohnDeere (zuweisen unter Verwaltung › Kunden › Feld › Parzellen zuweisen).', items: pof.map(z => ({ label: `${kundeName(z.kunde)} · ${z.name}`, act: 'parzEdit', id: z.id })) });
   // 6) Kulturen
   const KO = typeof kuOpen === 'function' ? kuOpen() : { unk: [], spray: [], eb: [] }, WW = { auftrag: 'Aufträge', spray: 'Spritzaufträge', parzelle: 'Spritz-Parzellen', eb: 'Fruchtfolge', ebz: 'Zwischenfrüchte', vb: 'Spritzprogramme' };
@@ -5881,6 +6086,14 @@ function chkFix(run) {
     Store.putMany('auftraege', ch); done = ch.length;
   } else if (run === 'fremd') {
     const ch = c.items.map(i => { const a = structuredClone(O.get(i.id)); if (!a) return null; const z = P.get(a.parzelle); if (z && /^unbekannt$/i.test(String(a.feld || '').trim()) && /^unbekannt$/i.test(String(z.name || '').trim())) a.feld = ''; a.parzelle = ''; return a; }).filter(Boolean);
+    Store.putMany('auftraege', ch); done = ch.length;
+  } else if (run === 'psAlt') {
+    const ch = c.items.map(i => { const a = structuredClone(O.get(i.id)); if (!a) return null;
+      const z = a.parzelle && P.get(a.parzelle), fe = a.kfeld && F.get(a.kfeld);
+      if (!String(a.feld || '').trim()) a.feld = z ? [z.name, z.teil].filter(Boolean).join(' ') : fe ? fe.name : '';
+      a.parzelle = ''; a.kfeld = ''; delete a.vbRef; delete a.ebSchlag; delete a.ebJahr;
+      a.produkte = (a.produkte || []).map(p => { const pr = p.pid && Store.get('produkte', p.pid); return { ...p, name: p.name || (pr ? pr.name : ''), pid: '' }; });
+      a.alsText = true; return a; }).filter(Boolean);
     Store.putMany('auftraege', ch); done = ch.length;
   } else if (run === 'prodD') { c.groups.forEach(g => { done += chkMergeProd(g.ids); }); }
   else if (run === 'parzD') { c.groups.forEach(g => { done += chkMergeParz(g.ids); }); }

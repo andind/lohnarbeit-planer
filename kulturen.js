@@ -213,6 +213,7 @@ function kuEditDialog() {
 function kuOpen() {
   const U = kuUses(), unk = new Map(), spray = [], eb = new Map();
   U.forEach(u => {
+    if (u.a && typeof psAlt === 'function' && psAlt(u.a)) return; // Pflanzenschutz älter als 3 Jahre: nicht mehr prüfen
     const i = kuInfo(u.n);
     if (!i) { const k = kuNorm(u.n), e = unk.get(k) || { n: u.n.trim(), c: {}, last: 0, zw: 0 }; e.c[u.w] = (e.c[u.w] || 0) + 1; e.last = Math.max(e.last, u.y || 0); if (u.w === 'ebz') e.zw++; unk.set(k, e); return; }
     if (!i.exact && kuForms(i.ober).length > 1) {

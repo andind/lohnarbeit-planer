@@ -46,5 +46,10 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
 - Eigene Parzellen = Felder des Kunden «Andreas Indermühle» in MyJohnDeere.
 - Kulturen: Aufträge Oberbegriff (Silomais/Körnermais → Mais); Pflanzenschutz und Betrieb genaue Kultur. Fruchtfolge: nur Kulturen aus Betrieb › Stammdaten › Kulturen.
 - Kein Modul Fahrer/Personal, keine Pausen-Funktion, keine Spracherfassung.
-- Excel-Importe entfernt (v93), ausser Import Spritzprogramme (.json). Damit ist auch der frühere Preislisten-Import der Pflanzenschutzmittel (Produkt, Zulassungsnr., Preis netto ohne LSV-Rabatt, Mass, Produkte einzeln ausschliessbar) seit v93 nicht mehr im Programm.
+- Excel-Importe entfernt (v93), ausser Import Spritzprogramme (.json) und – seit v97 wieder – **Preisliste Pflanzenschutzmittel**
+  (Spritzen › Stammdaten › Produkte; Produkt, Zulassungsnr., Preis netto ohne LSV-Rabatt, Einheit; gültig ab Datum; einzelne Produkte abwählbar, Abwahl wird gemerkt). Wird jährlich gebraucht – nicht wieder entfernen.
+- Pflanzenschutz älter als 3 Jahre (`psAlt`, `PS_ALT_JAHRE`): Datenprüfung übergeht diese Aufträge; Bereinigung «Als Text speichern» löst Verknüpfungen (Parzelle → Feldtext, Produkte nur noch mit Namen).
+- Arbeiten Rüben roden / Rüben säen (`RUEBEN_ARBEIT`): Kultur im Auftrag automatisch Zuckerrüben.
+- Eigener Betrieb: Teilflächen pro Parzelle nach Himmelsrichtung (`lagen: [{n, ha}]` in «parzellen»), Schlag mit `lage`;
+  Fruchtfolge zeigt eine Zeile pro Teilfläche, ein Jahr ohne Aufteilung belegt alle Zeilen. Das ältere Feld `teil` = Namenszusatz einer eigenen Parzelle.
 - Ausdrucke Kunden: Logo mit Adresse; Ausdrucke Eigener Betrieb: Betriebsadresse statt Logo.
