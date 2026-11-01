@@ -1171,3 +1171,17 @@ td.ebbu, .ebleg.ebbu { background: color-mix(in srgb, #3b6fd1 16%, var(--surface
 .ebvj { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .ebgbtns { margin-top: 4px; }
 .ebkt .ebmv:disabled { opacity: .25; }
+/* v93: Datenprüfung */
+.panel.chk { padding: 12px 16px; margin-bottom: 10px; }
+.chk .chkh { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.chk .chkic { width: 22px; text-align: center; font-size: 16px; }
+.chk.chk-f { border-left: 4px solid var(--danger); }
+.chk.chk-f .chkic { color: var(--danger); }
+.chk.chk-h { border-left: 4px solid var(--warn); }
+.chk.chk-h .chkic { color: var(--warn); }
+.chk.chk-ok { border-left: 4px solid var(--accent); opacity: .8; }
+.chk.chk-ok .chkic { color: var(--accent); }
+.chk details summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+.chk .chkl { margin: 6px 0 0; padding-left: 20px; font-size: 13.5px; max-height: 360px; overflow: auto; }
+.chk .chkl li { margin: 2px 0; }
+.chk-ft { color: var(--danger); }

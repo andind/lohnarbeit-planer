@@ -306,7 +306,6 @@ function ebView() {
   return {
     toolbar() {
       return `<h1>Eigener Betrieb</h1><span class="spacer ebsp"></span>
-        <label class="btn" title="Bisherige Excel-Mappe «Düngungs- und Anbauplanung» (.xlsx)">Excel importieren …<input type="file" accept=".xlsx" data-ebin="import" hidden></label>
         <button class="btn" data-eb="off" title="Modul aus der Navigation entfernen (Daten bleiben gespeichert; einschalten unter Mehr › Einstellungen)">Modul ausblenden</button>`;
     },
     content: ebContent
@@ -323,9 +322,7 @@ function ebContent() {
   const st = ebStamm();
   if (!Store.get('einstellungen', 'eb-stamm') && !ebYears().length) return nav + `<div class="panel" style="margin-top:12px"><h2>Eigener Betrieb</h2>
       <p>Hier planst du deine eigenen Flächen: Parzellen, Fruchtfolge, Düngung, Zwischenfrüchte und Bodenproben – alles über die Parzelle verknüpft.</p>
-      <p>Am schnellsten geht der Start mit der bisherigen Excel-Mappe «Düngungs- und Anbauplanung»: Fruchtfolge ab 2016, Düngungspläne, Zwischenfruchtbestellungen, Bodenproben und Kulturen werden übernommen.</p>
-      <div class="btns"><label class="btn primary">Excel-Mappe importieren …<input type="file" accept=".xlsx" data-ebin="import" hidden></label>
-        <button class="btn" data-eb="start">Ohne Excel beginnen</button></div>
+      <div class="btns"><button class="btn primary" data-eb="start">Eigenen Betrieb beginnen</button></div>
       <p class="nr">Die Parzellen lassen sich danach mit den Feldern von ${esc(ebKunde() ? ebKunde().name : 'deinem Betrieb')} aus MyJohnDeere verknüpfen.</p></div>`;
   const body = sub === 'duengung' ? ebDuengView() : sub === 'zf' ? ebZfView() : sub === 'boden' ? ebBodenView(st) : sub === 'stamm' ? ebStammView(st) : ebFfView(st);
   return nav + body;
@@ -447,7 +444,7 @@ function ebFfView(st) {
       ${V ? `<button class="btn small" data-eb="varRen">Umbenennen</button><button class="btn small" data-eb="varAdopt">Als Hauptplan übernehmen</button><button class="btn small danger" data-eb="varDel">Löschen</button>
       <span class="nr">Variante «${esc(V.name)}»: ab ${cy + 1} schraffiert, Düngung und Bestellungen rechnen weiter mit dem Hauptplan.</span>` : `<span class="nr">Varianten: alternative Fruchtfolgen für die Zukunft durchspielen, ohne den Hauptplan zu ändern.</span>`}</div>
     ${OV.size ? `<p class="warnline">✖ ${OV.size} ${OV.size === 1 ? 'Überschneidung' : 'Überschneidungen'} in der Fruchtfolge${vid ? ` (Variante «${esc(V.name)}»)` : ''}: ${[...OV.values()].slice(0, 4).map(esc).join(' · ')}${OV.size > 4 ? ' …' : ''}</p>` : ''}`;
-  if (!P.length) return head + `<div class="panel"><p>Noch keine Parzellen. Lege sie unter «Stammdaten › Parzellen» an oder importiere die Excel-Mappe.</p></div>`;
+  if (!P.length) return head + `<div class="panel"><p>Noch keine Parzellen. Lege sie unter «Stammdaten › Parzellen» an oder übernimm die Felder aus MyJohnDeere.</p></div>`;
   const tab = `<div class="vbmatrix ebscroll ebff"><table class="vbtab ebfft"><thead><tr><th class="vbc">Parzelle</th>${years.map(y => `<th class="${y === cy ? 'cur' : ''} ${fut(y) ? 'ebvar' : ''}">${y}${fut(y) ? `<small class="ebvl">${esc(V.name)}</small>` : ''}</th>`).join('')}</tr></thead>
     <tbody>${Pg.map(rowP).join('')}${Pn.length ? `<tr class="ebgrp"><th class="ebrh">${Pg.length ? 'Weitere Flächen' : 'Parzellen'} <span class="nr">${fmtNum(r2(Pn.filter(x => x.aktiv !== false).reduce((t, x) => t + (ebParzHa(x) || 0), 0)))} ha · ohne Gruppe</span></th>${years.map(() => '<td></td>').join('')}</tr>` + Pn.map(rowP).join('') : ''}</tbody>
     <tfoot><tr><th>Total Hauptkulturen</th>${years.map(y => `<td class="n"><b>${ebFmt(totY(y)) || ''}</b></td>`).join('')}</tr></tfoot></table></div>`;
@@ -1135,7 +1132,6 @@ document.addEventListener('change', e => {
   const t = e.target.closest('[data-ebin]'); if (!t) return;
   const k = t.dataset.ebin, v = t.value, n = ebNum(v), S = ebState(), id = t.dataset.id;
   if (k === 'on') { Store.setCfg({ ebOn: t.checked }); ebNav(); toast(t.checked ? 'Modul «Eigener Betrieb» eingeschaltet' : 'Modul «Eigener Betrieb» ausgeblendet'); return; }
-  if (k === 'import') { const f = t.files && t.files[0]; t.value = ''; if (f) ebImportFile(f); return; }
   if (k === 'year') { S.y = +v; App.render(); return; }
   if (k === 'ffSum') { S.ffSum = t.checked; App.render(); return; }
   if (k === 'bAll') { S.bAll = t.checked; App.render(); return; }
@@ -1262,270 +1258,8 @@ function ebXlsx() {
   download(`Eigener_Betrieb_${y}.xlsx`, xlsxBlob([{ name: 'Fruchtfolge', rows: ff }, { name: `Düngung ${y}`, rows: du }, { name: `Lager ${y}`, rows: la }, { name: `Zwischenfrüchte ${y}`, rows: zf }, { name: 'Bodenproben', rows: bo }, { name: 'Parzellen', rows: pa }]));
 }
 
-/* ================= Import der Excel-Mappe «Düngungs- und Anbauplanung» ================= */
-const ebStr = v => typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : (v == null ? '' : String(v).trim());
-const ebNv = v => typeof v === 'number' && isFinite(v) ? v : null;
-// «Weizen» → «Winterweizen» (Name aus den Kulturen, wenn eindeutig); «Sommerhafer» bleibt
-function ebCanonKultur(name, K) {
-  const n = ebStr(name); if (!n) return ''; const k = ebKey(n);
-  const ex = K.find(x => ebKey(x.name) === k); if (ex) return ex.name;
-  const sup = K.filter(x => ebKey(x.name).length > k.length && ebKey(x.name).endsWith(k));
-  return sup.length === 1 ? sup[0].name : n;
-}
-// Datum einer Gabe: Excel-Datum, «15.12», «25.03.» oder 14.02 (Zahl). Herbstgaben gehören zum Vorjahr.
-function ebImpDate(v, y, zw) {
-  if (v == null || v === '') return '';
-  if (typeof v === 'number' && v > 30000) return new Date(Date.UTC(1899, 11, 30) + v * 864e5).toISOString().slice(0, 10);
-  const s = typeof v === 'number' ? v.toFixed(2) : String(v).trim(), m = /^(\d{1,2})\.(\d{1,2})\.?(\d{2,4})?$/.exec(s); if (!m) return '';
-  const d = +m[1], mo = +m[2]; if (d < 1 || d > 31 || mo < 1 || mo > 12) return '';
-  const yy = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : (mo >= 8 && !zw ? y - 1 : y);
-  return `${yy}-${pad(mo)}-${pad(d)}`;
-}
-function ebParseKulturen(R) {
-  const L = []; (R || []).forEach(r => { if (!r) return; const n = ebStr(r[0]), v = ebNv(r[1]); if (n && v != null && !/bedarf/i.test(n)) L.push({ id: 'k-' + ebSlug(n), name: n, n: v, pause: null }); });
-  return L;
-}
-// Fruchtfolgerapport: Jahre im Abstand von 4 Spalten (Hauptkultur, ha, Vor-/Zwischenkultur, ha)
-function ebParseFF(R, K) {
-  let hr = -1, yc = [];
-  for (let i = 0; i < Math.min(R.length, 10); i++) {
-    const r = R[i] || [], ys = []; r.forEach((v, c) => { if (c >= 3 && typeof v === 'number' && v >= 2000 && v <= 2100) ys.push([c, v]); });
-    if (ys.length >= 3 && ys.every((x, j) => !j || x[0] - ys[j - 1][0] === 4)) { hr = i; yc = ys; break; }
-  }
-  if (hr < 0) return null;
-  const H = R[hr] || [], cName = Math.max(0, H.findIndex(x => /^parzelle/i.test(ebStr(x)))), cHa = H.findIndex(x => /^fläche/i.test(ebStr(x)));
-  const cTeil = cHa > cName + 1 ? cName + 1 : -1;
-  const E = new Map(); let cur = null, grp = null;
-  for (let i = hr + 2; i < R.length; i++) {
-    const r = R[i] || [], nm = ebStr(r[cName]), te = cTeil >= 0 ? ebStr(r[cTeil]) : '', ha = cHa >= 0 ? ebNv(r[cHa]) : null;
-    const hasTxt = yc.some(([c]) => typeof r[c] === 'string' || typeof r[c + 2] === 'string');
-    if (!nm && !te && !hasTxt) { if (ha != null || yc.some(([c]) => ebNv(r[c + 1]) != null)) break; continue; }
-    if (typeof r[0] === 'number') grp = r[0]; else if (nm && cName > 1 && typeof r[1] === 'number') grp = null;
-    if (nm) cur = { name: nm, teil: te, gruppe: grp }; else if (te && cur) cur = { name: cur.name, teil: te, gruppe: cur.gruppe };
-    if (!cur) continue;
-    const key = ebKey(cur.name) + '|' + ebKey(cur.teil), e = E.get(key) || { name: cur.name, teil: cur.teil, gruppe: cur.gruppe, ha: null, years: {} };
-    if (ha != null && (nm || te)) e.ha = ha;
-    yc.forEach(([c, y], j) => {
-      const Y = e.years[y] || (e.years[y] = { haupt: [], zw: [] }), hk = ebStr(r[c]), zk = j < yc.length - 1 || c + 2 < (R[hr + 1] || []).length ? ebStr(r[c + 2]) : '';
-      if (hk && !/^\d/.test(hk)) Y.haupt.push({ k: ebCanonKultur(hk, K), ha: ebNv(r[c + 1]), row: i });
-      if (zk && !/^\d/.test(zk)) Y.zw.push({ k: zk, ha: ebNv(r[c + 3]), row: i });
-    });
-    E.set(key, e);
-  }
-  const list = [...E.values()].filter(e => Object.values(e.years).some(Y => Y.haupt.length || Y.zw.length));
-  return { years: yc.map(x => x[1]), list };
-}
-function ebParseDueng(R, K) {
-  const hi = R.findIndex(r => r && ebStr(r[0]) === 'Kultur'); if (hi < 0) return null;
-  const H = R[hi], H2 = R[hi + 1] || [], col = re => H.findIndex(x => re.test(ebStr(x)));
-  const c = { p: col(/^parzelle/i), f: col(/^fläche/i), b: col(/^bedarf/i), k: col(/^\+\/-$/), s: col(/^sorte/i), v: col(/^vorkultur/i), a: col(/^anbauprog/i), r: col(/^ressourcen/i), w: col(/^weitere prog/i), bem: col(/^bemerkung/i) };
-  const gc = []; H2.forEach((x, i) => { if (ebStr(x) === 'Dünger') gc.push(i); });
-  const rows = [];
-  for (let i = hi + 2; i < R.length; i++) {
-    const r = R[i]; if (!r || !ebStr(r[0])) break;
-    const prog = [c.a, c.r, c.w].map(x => x >= 0 ? ebStr(r[x]) : '').filter(x => x && !/^keine/i.test(x));
-    rows.push({ kultur: ebCanonKultur(r[0], K), parz: c.p >= 0 ? ebStr(r[c.p]) : '', ha: c.f >= 0 ? ebNv(r[c.f]) : null, bed: c.b >= 0 ? ebNv(r[c.b]) : null, korr: c.k >= 0 ? ebNv(r[c.k]) : null,
-      sorte: c.s >= 0 ? ebStr(r[c.s]) : '', vk: c.v >= 0 ? ebStr(r[c.v]) : '', prog, bem: c.bem >= 0 ? ebStr(r[c.bem]) : '',
-      gaben: gc.map(g => ({ name: ebStr(r[g]), datum: r[g + 1], menge: ebNv(r[g + 2]), einheit: ebStr(r[g + 3]), nha: ebNv(r[g + 4]) })).filter(g => g.name && g.menge) });
-  }
-  const di = R.findIndex((r, i) => i > hi && r && r.some(x => ebStr(x) === 'Gehalt N')), duenger = [];
-  let abzug = null, maxN = null;
-  if (di >= 0) {
-    const D = R[di], ci = re => D.findIndex(x => re.test(ebStr(x))), cG = ci(/^gehalt n/i), cE = ci(/^einheit/i), cV = ci(/^vorrat/i), cZ = ci(/^n zufuhr/i);
-    for (let i = di + 1; i < R.length; i++) { const r = R[i]; if (!r || !ebStr(r[0])) break; const name = ebStr(r[0]);
-      duenger.push({ id: 'd-' + ebSlug(name), name, einheit: cE >= 0 ? ebStr(r[cE]) : '', n: cG >= 0 ? ebNv(r[cG]) : null, vorrat: cV >= 0 ? ebNv(r[cV]) : null, zufuhr: cZ >= 0 && ebNv(r[cZ]) != null }); }
-    R.forEach((r, i) => { if (i <= di || !r) return; const t = ebStr(r[0]), v = r.slice(1).find(x => typeof x === 'number');
-      if (/^abzug/i.test(t)) abzug = v ?? null; if (/^maximale zufuhr/i.test(t)) maxN = v ?? null; });
-  }
-  return { rows, duenger, abzug, maxN };
-}
-function ebParseZf(R) {
-  const hi = R.findIndex(r => r && /^art/i.test(ebStr(r[0]))); if (hi < 0) return null;
-  const H = R[hi], ci = re => H.findIndex(x => re.test(ebStr(x))), cP = ci(/^preis/i), cR = ci(/^saatmenge/i), cB = ci(/^bestell/i), cL = ci(/^rest$/i);
-  const U = R[hi - 2] || [], N = R[hi - 1] || [], mix = [];
-  U.forEach((x, c) => { if (typeof x === 'string' && x.trim() && ebNv(U[c + 2]) != null) mix.push({ c, use: ebStr(x), ha: U[c + 2], name: ebStr(N[c]) || ebStr(x) }); });
-  const arten = [], notes = [];
-  for (let i = hi + 1; i < R.length; i++) {
-    const r = R[i]; if (!r) continue; const name = ebStr(r[0]); if (!name) continue;
-    const preis = cP >= 0 ? ebNv(r[cP]) : null, rein = cR >= 0 ? ebNv(r[cR]) : null, an = mix.map(m => ebNv(r[m.c]));
-    if (preis == null && rein == null && an.every(v => v == null)) { const rest = r.slice(1).map(ebStr).filter(x => x && x !== '0'); if (rest.length) notes.push(`${name}: ${rest.join(', ')}`); continue; }
-    arten.push({ id: 'a-' + ebSlug(name), name, preis, rein, rest: cL >= 0 ? ebNv(r[cL]) : null, best: cB >= 0 ? ebNv(r[cB]) : null, an });
-  }
-  return { arten, mix, notiz: notes.join(' · ') };
-}
-const EB_BODEN_LBL = { humus: /^humus/, ph: /^ph$/, kak: /^kak/, ca: /^cal[cz]ium/, mg: /^magnesium/, k: /^kali/, na: /^natrium/, basen: /^andere basen/, h: /^h\+/, n: /^stickstoff/, s: /^schwefel/,
-  p: /^pho?sphor|^posphor/, b: /^bor$/, fe: /^eisen/, mn: /^mangan/, cu: /^kupfer/, zn: /^zink$/, mo: /^molybdän/, co: /^kobalt/, eZn: /^zinksulfat/, eB: /^borsäure/, eMo: /^molibtän|^molybdän.*dünger/, eSalz: /^salz/ };
-function ebParseBoden(R) {
-  const hi = R.findIndex(r => r && /^feld$/i.test(ebStr(r[0]))); if (hi < 0) return null;
-  const H = R[hi], cols = {}, used = new Set();
-  Object.entries(EB_BODEN_LBL).forEach(([k, re]) => { const c = H.findIndex((x, i) => !used.has(i) && re.test(ebStr(x).toLowerCase())); if (c >= 0) { cols[k] = c; used.add(c); } });
-  const cJ = H.findIndex(x => /probejahr|^jahr/i.test(ebStr(x))), cO = H.findIndex(x => /^öln/i.test(ebStr(x)));
-  const richt = {}, samples = [];
-  R.forEach((r, i) => {
-    if (!r || i === hi) return; const t = ebStr(r[0]); if (!t) return;
-    const f = /^g\.?\s*min/i.test(t) ? 'min' : /^g\.?\s*opt/i.test(t) ? 'opt' : /^g\.?\s*max/i.test(t) ? 'max' : /^zielwert/i.test(t) ? 'ziel' : null;
-    if (f) { Object.entries(cols).forEach(([k, c]) => { if (k[0] === 'e' && k !== k.toLowerCase()) return; const v = f === 'ziel' ? ebStr(r[c]) : ebNv(r[c]); if (v != null && v !== '') (richt[k] = richt[k] || {})[f] = v; }); return; }
-    if (i < hi) return;
-    const w = {}; Object.entries(cols).forEach(([k, c]) => { const v = ebNv(r[c]); if (v != null) w[k] = v; });
-    if (!Object.keys(w).length) return;
-    samples.push({ name: t, jahr: cJ >= 0 ? ebNv(r[cJ]) : null, oeln: cO >= 0 ? r[cO] === true : false, w });
-  });
-  return { richt, samples };
-}
-// strenge Zuordnung (Bodenproben): gleicher Name oder höchstens 2 Tippfehler
-function ebFindParzStrict(name, st) {
-  const k = ebKey(name), ex = st.parz.find(p => ebKey(ebParzLabel(p)) === k); if (ex) return ex;
-  const lim = k.length > 6 ? 2 : 1, t1 = p => { const n = ebKey(p.name), l = ebKey(ebParzLabel(p)); return n === k || ebLev(l, k) <= lim || ebLev(n, k) <= lim; };
-  const t2 = p => { const n = ebKey(p.name), l = ebKey(ebParzLabel(p)); return k.length >= 5 && (n.startsWith(k) || k.startsWith(l)); };
-  let C = st.parz.filter(t1); if (!C.length) C = st.parz.filter(t2); if (C.length > 1) C = C.filter(p => p.aktiv !== false);
-  return C.length === 1 ? C[0] : null;
-}
-const ebTokens = s => norm(s).split(/[^a-z0-9äöü]+/).filter(x => x.length >= 2 || /^\d$/.test(x));
-
-async function ebImportFile(file) {
-  let book; try { book = await xlsxRead(await file.arrayBuffer()); } catch (e) { toast('Datei konnte nicht gelesen werden: ' + e.message, 5000); return; }
-  const names = Object.keys(book);
-  const K = ebParseKulturen(book[names.find(n => /^kulturen$/i.test(n.trim()))]);
-  const Kx = K.length ? K : ebStammBlank().kulturen;
-  const ff = names.filter(n => /^frucht/i.test(n)).map(n => ({ n, r: ebParseFF(book[n], Kx) })).filter(x => x.r).sort((a, b) => b.r.years.length - a.r.years.length)[0] || null;
-  const dSheets = {}; names.forEach(n => { const m = /^düngungsplanung\s+(\d{4})\s*(.*)$/i.exec(n.trim()); if (!m) return; const y = +m[1], pr = /effektiv/i.test(m[2]) ? 3 : /geplant/i.test(m[2]) ? 1 : 2; if (!dSheets[y] || dSheets[y].pr < pr) dSheets[y] = { n, pr }; });
-  const zSheets = {}; names.forEach(n => { const m = /^zwischenfrucht\S*\s+(\d{4})/i.exec(n.trim()); if (m) zSheets[+m[1]] = n; });
-  const bName = names.find(n => /bodenprob/i.test(n));
-  const bo = bName ? ebParseBoden(book[bName]) : null;
-  const dy = Object.keys(dSheets).map(Number).sort(), zy = Object.keys(zSheets).map(Number).sort();
-  if (!ff && !dy.length && !zy.length && !bo) { toast('In dieser Datei wurde nichts Passendes gefunden (Fruchtfolgerapport, Düngungsplanung …).', 5000); return; }
-  const has = Store.get('einstellungen', 'eb-stamm') || ebYears().length;
-  const body = `<p style="margin-top:0">Gefunden in «${esc(file.name)}»:</p><ul class="ebimpl">
-      ${ff ? `<li><b>Fruchtfolge</b> ${ff.r.years[0]}–${ff.r.years[ff.r.years.length - 1]} mit ${ff.r.list.length} Parzellen <span class="nr">(Blatt «${esc(ff.n)}»)</span></li>` : ''}
-      ${dy.length ? `<li><b>Düngungsplanung</b> ${dy.join(', ')}${dSheets[2021] && /effektiv/i.test(dSheets[2021].n) ? ' <span class="nr">(2021: effektiv)</span>' : ''}</li>` : ''}
-      ${zy.length ? `<li><b>Zwischenfrüchte</b> ${zy.join(', ')}</li>` : ''}
-      ${bo ? `<li><b>Bodenproben</b> ${bo.samples.length} Proben mit Richtwerten</li>` : ''}
-      ${K.length ? `<li><b>Kulturen</b> ${K.length} mit N-Bedarf</li>` : ''}</ul>
-    ${has ? `<p class="warnline">Die bisherigen Daten des Moduls werden ersetzt. Verknüpfungen von Parzellen mit Feldern bleiben bei gleichem Parzellennamen erhalten.</p>` : ''}
-    <p class="nr">Parzellen werden aus dem Fruchtfolgerapport angelegt; die Zeilen der Düngungspläne werden dort über Parzelle und Kultur zugeordnet. Was nicht eindeutig war, steht danach im Import-Bericht.</p>`;
-  Dlg.open('Excel-Mappe importieren', body, `<span class="spacer ebsp"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">Importieren</button>`, () => {
-    const res = ebImportBuild({ book, K, ff, dSheets, zSheets, bo });
-    const old = ebYears().filter(y => !res.recs.some(r => r.jahr === y));
-    Store.putMany('einstellungen', [res.st, ...res.recs].map(x => structuredClone(x)));
-    old.forEach(y => Store.remove('einstellungen', ebId(y)));
-    const S = ebState(); S.sub = 'fruchtfolge'; S.ffEnd = Math.max(ebCurYear() + 1, ...res.recs.map(r => r.jahr).filter(y => y <= ebCurYear() + 2)); S.y = ebCurYear();
-    setTimeout(() => ebReportDialog(res.rep), 50);
-    return true;
-  });
-}
-function ebImportBuild({ book, K, ff, dSheets, zSheets, bo }) {
-  const old = ebStamm(), st = ebStammBlank(), rep = { info: [], zu: [], neu: [], frei: [], boden: [], mix: [] };
-  st.kunde = old.kunde || (ebKunde() || {}).id || '';
-  if (K.length) st.kulturen = K.map(k => { const o = old.kulturen.find(x => ebKey(x.name) === ebKey(k.name)); return { ...k, pause: o ? o.pause ?? null : null, dauer: o && o.dauer != null ? !!o.dauer : EB_DAUER.includes(k.name) }; });
-  const zfSet = new Set(old.zfListe || []);
-  st.programme = [...new Set([...old.programme, ...EB_PROG])];
-  const oldBy = new Map(old.parz.map(p => [ebKey(p.name) + '|' + ebKey(p.teil), p]));
-  const mkParz = (name, teil, ha, gruppe) => {
-    const key = ebKey(name) + '|' + ebKey(teil), ex = st.parz.find(p => ebKey(p.name) + '|' + ebKey(p.teil) === key); if (ex) return ex;
-    const o = oldBy.get(key), p = { id: o ? o.id : uid(), name, teil: teil || '', feld: o ? o.feld || '' : '', ha: ha ?? null, gruppe: gruppe ?? (o ? o.gruppe ?? null : null), aktiv: true, notiz: o ? o.notiz || '' : '', pos: o && o.pos != null ? o.pos : st.parz.length };
-    st.parz.push(p); return p;
-  };
-  const recs = {}, R = y => recs[y] || (recs[y] = ebBlank(y));
-  const sNew = o => Object.assign({ id: uid(), parz: '', name: '', art: 'haupt', kultur: '', mix: '', ha: null, sorte: '', prog: [], bem: '', nBed: null, korr: null, vk: '', gaben: [] }, o);
-  // 1. Fruchtfolge → Parzellen und Schläge
-  if (ff) {
-    ff.r.list.forEach(e => {
-      const p = mkParz(e.name, e.teil, e.ha, e.gruppe);
-      Object.entries(e.years).forEach(([y, Y]) => {
-        // Zwischenfrucht gehört zur Hauptkultur derselben Excel-Zeile (sonst zur letzten darüber)
-        const HS = Y.haupt.map(h => { const x = sNew({ parz: p.id, art: 'haupt', kultur: h.k, ha: h.ha != null && (p.ha == null || Math.abs(h.ha - p.ha) > 0.001) ? h.ha : null }); R(+y).schlaege.push(x); return { h, x }; });
-        Y.zw.forEach(z => { const m = HS.find(o => o.h.row === z.row) || HS.filter(o => o.h.row < z.row).pop() || HS[0], hh = m ? (m.x.ha ?? p.ha) : p.ha;
-          zfSet.add(z.k); R(+y).schlaege.push(sNew({ parz: p.id, art: 'zwischen', kultur: z.k, nach: m ? m.x.id : '', ha: z.ha != null && (hh == null || Math.abs(z.ha - hh) > 0.001) ? z.ha : null, _fh: z.ha ?? hh })); });
-      });
-    });
-    rep.info.push(`Fruchtfolge ${ff.r.years[0]}–${ff.r.years[ff.r.years.length - 1]}: ${st.parz.length} Parzellen, ${Object.values(recs).reduce((t, r) => t + r.schlaege.length, 0)} Einträge`);
-  }
-  // 2. Düngungspläne: Zeile → Schlag gleicher Kultur auf ähnlich benannter Parzelle
-  Object.entries(dSheets).sort((a, b) => a[0] - b[0]).forEach(([ys, { n }]) => {
-    const y = +ys, D = ebParseDueng(book[n], st.kulturen); if (!D) return;
-    const rec = R(y); rec.duenger = D.duenger; rec.abzug = D.abzug; rec.maxN = D.maxN;
-    const used = new Set(); let nz = 0;
-    D.rows.forEach(row => {
-      const zw = /gründüngung|zwischenfrucht/i.test(row.kultur);
-      let s = null, best = 99;
-      if (row.parz) rec.schlaege.forEach(x => { if (used.has(x.id) || !x.parz || (x.art === 'zwischen') !== zw || !ebSameKultur(x.kultur, row.kultur)) return;
-        const p = st.parz.find(q => q.id === x.parz), d = Math.min(ebNameDist(ebParzLabel(p), row.parz) ?? 99, ebNameDist(p.name, row.parz) ?? 99); if (d === 99) return;
-        const sc = d * 10 + Math.abs((x.ha ?? p.ha ?? 0) - (row.ha ?? 0)); if (sc < best) { best = sc; s = x; } });
-      if (s) { const p = st.parz.find(q => q.id === s.parz); nz++;
-        if (ebKey(p.name) !== ebKey(row.parz) && ebKey(ebParzLabel(p)) !== ebKey(row.parz)) rep.zu.push(`${y}: «${row.parz}» ${row.kultur} ${fmtNum(row.ha)} ha ↦ ${ebParzLabel(p)}${ebSchlagHaRaw(s, p) != null ? ` (Fruchtfolge ${fmtNum(ebSchlagHaRaw(s, p))} ha)` : ''}`);
-      } else if (zw || !row.parz) {
-        rep.frei.push(`${y}: ${row.kultur}${row.parz ? ' «' + row.parz + '»' : ''} ${fmtNum(row.ha)} ha`); return; // Flächen ohne Parzelle werden nicht übernommen
-      } else {
-        let p = st.parz.find(q => ebKey(q.name) === ebKey(row.parz) && !q.teil) || null;
-        if (!p) { const g = ebFindParz(row.parz, st); if (g && (ebNameDist(g.name, row.parz) ?? 99) <= 1) p = g; }
-        if (!p) { p = mkParz(row.parz, '', row.ha, null); rep.neu.push(`${y}: «${row.parz}» (${row.kultur} ${fmtNum(row.ha)} ha) – neue Parzelle`); }
-        s = sNew({ parz: p.id, art: 'haupt', kultur: row.kultur }); rec.schlaege.push(s);
-      }
-      used.add(s.id);
-      const p = st.parz.find(q => q.id === s.parz);
-      s.ha = row.ha != null && !(p && p.ha != null && Math.abs(p.ha - row.ha) < 0.001) ? row.ha : (p ? null : row.ha);
-      if (row.korr != null) s.korr = row.korr;
-      const kb = (ebKulturIn(st, s.kultur) || (zw ? ebKulturIn(st, 'Gründüngung') : null) || {}).n;
-      if (row.bed != null && row.bed !== kb) s.nBed = row.bed;
-      if (row.sorte) s.sorte = row.sorte; if (row.prog.length) { s.prog = row.prog; row.prog.forEach(x => { if (!st.programme.includes(x)) st.programme.push(x); }); }
-      if (row.bem) s.bem = row.bem; if (row.vk) s.vk = row.vk;
-      s.gaben = row.gaben.map(g => {
-        const id = 'd-' + ebSlug(g.name);
-        if (!rec.duenger.some(d => d.id === id)) rec.duenger.push({ id, name: g.name, einheit: g.einheit, n: g.nha != null && g.menge ? r2(g.nha / g.menge) : null, vorrat: null, zufuhr: false });
-        return { id: uid(), d: id, datum: ebImpDate(g.datum, y, zw), menge: g.menge };
-      });
-    });
-    rep.info.push(`Düngungsplanung ${y}: ${D.rows.length} Zeilen (${nz} der Fruchtfolge zugeordnet), ${rec.duenger.length} Dünger`);
-  });
-  // Fläche der Zwischenfrucht aus dem Fruchtfolgerapport behalten, wenn der Düngungsplan die Fläche der Hauptkultur geändert hat
-  Object.values(recs).forEach(rec => rec.schlaege.forEach(z => { if (z._fh === undefined) return; const fh = z._fh; delete z._fh; if (z.ha != null || fh == null) return;
-    const h = rec.schlaege.find(x => x.id === z.nach), hh = h ? h.ha ?? (st.parz.find(q => q.id === h.parz) || {}).ha : null; if (hh == null || Math.abs(hh - fh) > 0.001) z.ha = fh; }));
-  // Vorkultur nur behalten, wo sie nicht aus der Fruchtfolge folgt
-  Object.values(recs).forEach(rec => rec.schlaege.forEach(s => { if (s.vk && s.parz && recs[rec.jahr - 1] && recs[rec.jahr - 1].schlaege.some(x => x.parz === s.parz && x.art !== 'zwischen')) s.vk = ''; }));
-  // 3. Zwischenfrüchte: Arten, Mischungen, Zuordnung der Zwischenfrüchte aus der Fruchtfolge
-  Object.entries(zSheets).forEach(([ys, n]) => {
-    const y = +ys, Z = ebParseZf(book[n]); if (!Z) return;
-    const rec = R(y); const mix = Z.mix.map(m => ({ id: uid(), name: m.name, use: m.use, ha: m.ha, anteile: {} }));
-    rec.zf = { arten: Z.arten.map(a => { a.an.forEach((v, i) => { if (v) mix[i].anteile[a.id] = v; }); return { id: a.id, name: a.name, preis: a.preis, rein: a.rein, rest: a.rest, best: a.best }; }), mix, notiz: Z.notiz };
-    rec.schlaege.filter(s => s.art === 'zwischen' && s.parz && !s.mix).forEach(s => {
-      const kt = ebTokens(s.kultur), M = mix.filter(m => { const mt = ebTokens(m.name); return mt.length && mt.every(t => kt.some(u => u.startsWith(t) || t.startsWith(u))); });
-      if (!M.length) return; const p = st.parz.find(q => q.id === s.parz);
-      const pick = M.find(m => m.use.split(/[+,/&]| und /).some(u => (ebNameDist(u, p.name) ?? 99) <= 2)) || M.find(m => !M.some(o => o !== m && o.name === m.name) || !/[+]/.test(m.use)) || M[0];
-      s.mix = pick.id;
-    });
-    mix.forEach(m => { const haOf = s => { const h = s.nach && rec.schlaege.find(x => x.id === s.nach); return s.ha ?? (h ? h.ha : null) ?? (st.parz.find(q => q.id === s.parz) || {}).ha ?? 0; };
-      const auto = r2(rec.schlaege.filter(s => s.mix === m.id).reduce((t, s) => t + haOf(s), 0));
-      if (Math.abs(auto - m.ha) <= 0.05) m.ha = null; else rep.mix.push(`${y}: ${m.name} (${m.use}) ${fmtNum(m.ha)} ha aus der Excel-Tabelle${auto ? ` – Fruchtfolge ergibt ${fmtNum(auto)} ha` : ' – keine Zwischenfrucht in der Fruchtfolge zugeordnet'}`); });
-    rep.info.push(`Zwischenfrüchte ${y}: ${rec.zf.arten.length} Arten, ${mix.length} Mischungen`);
-  });
-  // Parzellen ohne Hauptkultur in den letzten zwei Jahren: inaktiv
-  const cy = ebCurYear(); st.parz.forEach(p => { p.aktiv = [cy - 1, cy, cy + 1].some(y => recs[y] && recs[y].schlaege.some(s => s.parz === p.id)); });
-  st.zfListe = [...zfSet].sort((a, b) => a.localeCompare(b, 'de'));
-  // 4. Bodenproben
-  if (bo) {
-    Object.entries(bo.richt).forEach(([k, r]) => { st.richt[k] = Object.assign({}, st.richt[k] || {}, r); });
-    bo.samples.forEach(b => { const p = ebFindParzStrict(b.name, st); st.boden.push({ id: uid(), parz: p ? p.id : '', name: b.name, jahr: b.jahr, labor: 'Kinsey', oeln: b.oeln, w: b.w, notiz: '' }); if (!p) rep.boden.push(`«${b.name}» ${b.jahr || ''}`); });
-    rep.info.push(`Bodenproben: ${bo.samples.length} (${bo.samples.length - rep.boden.length} einer Parzelle zugeordnet)`);
-  }
-  // Teil-Bezeichnung (Nord, West …) nur behalten, wenn es mehrere Teile gibt
-  st.parz.forEach(p => { if (p.teil && !st.parz.some(o => o !== p && ebKey(o.name) === ebKey(p.name)) && !st.parz.some(o => o !== p && ebKey(ebParzLabel(o)) === ebKey(p.name))) { const o = oldBy.get(ebKey(p.name) + '|'); if (!o || o.id === p.id) p.teil = ''; } });
-  return { st, recs: Object.values(recs).sort((a, b) => a.jahr - b.jahr), rep };
-}
 const ebKulturIn = (st, name) => { const k = ebKey(name); return st.kulturen.find(x => ebKey(x.name) === k) || st.kulturen.find(x => ebKultKey(x.name) === ebKultKey(name)) || st.kulturen.filter(x => ebKey(x.name).length > 3 && k.includes(ebKey(x.name))).sort((a, b) => b.name.length - a.name.length)[0] || null; };
 const ebSchlagHaRaw = (s, p) => s.ha != null ? s.ha : p ? p.ha : null;
-function ebReportDialog(rep) {
-  const sec = (t, L, hint) => L.length ? `<h4 style="margin:12px 0 4px">${t} <small class="nr">${L.length}</small></h4>${hint ? `<p class="nr" style="margin:0 0 4px">${hint}</p>` : ''}<ul class="ebimpl">${L.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
-  const body = `<ul class="ebimpl">${rep.info.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
-    ${sec('Ähnliche Namen zugeordnet', rep.zu, 'Bitte kurz prüfen. Falsch zugeordnet? Den Eintrag in der Fruchtfolge öffnen und die Parzelle ändern.')}
-    ${sec('Neue Parzellen aus den Düngungsplänen', rep.neu, 'Diese Namen kamen in der Fruchtfolge nicht vor. Ist es der gleiche Acker wie eine bestehende Parzelle (z.B. «Ried» = «Richtersmatt»?), unter Stammdaten › Parzellen › Parzelle öffnen › «Zusammenführen».')}
-    ${sec('Nicht übernommen: Zeilen ohne Parzelle', rep.frei, 'Sammelzeilen wie «Gründüngung Zuckerrüben» oder «Weide» ohne Parzellenname. Plane solche Gaben bei der Zwischenfrucht bzw. Kultur der jeweiligen Parzelle. Der Lagerbedarf der betroffenen Dünger ist darum kleiner als in der Excel-Mappe.')}
-    ${sec('Mischungen mit Fläche von Hand', rep.mix, 'Die Fläche aus der Excel-Tabelle wurde übernommen, weil die Zwischenfrüchte in der Fruchtfolge eine andere Fläche ergeben.')}
-    ${sec('Bodenproben ohne Parzelle', rep.boden, 'Unter Bodenproben antippen und die Parzelle wählen.')}
-    <p class="nr" style="margin-top:12px">Nächster Schritt: unter «Stammdaten › Parzellen» die Vorschläge zur Verknüpfung mit den Feldern aus MyJohnDeere übernehmen.</p>`;
-  Dlg.open('Import abgeschlossen', body, `<span class="spacer ebsp"></span><button type="button" class="btn primary" data-act="close">OK</button>`, () => true);
-  App.render();
-}
-
 /* ---------- Anbindung an die App ---------- */
 Views.betrieb = ebView();
 if (App.view === 'betrieb' && App.winSub) { ebState().sub = App.winSub; } // zweites Fenster: gleicher Unterreiter
