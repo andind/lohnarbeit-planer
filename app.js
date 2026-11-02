@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '113', APP_STAND = '02.11.2026';
+const APP_VERSION = '114', APP_STAND = '02.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -4101,29 +4101,24 @@ function abRows() {
   A._ver = ver; A._rows = rows;
   return rows;
 }
-// Fläche eines Auftrags, die aus einer Feldgrenze (Vermessung) übernommen wurde: gleich der Feldfläche oder einer Vermessung des Feldes.
-// Bericht und Abrechnung rechnen nicht mit Feldgrenzen – solche Flächen zählen nicht (es gilt die Fläche aus MyJohnDeere).
-function haAusGrenze(o, v) {
-  if (v == null || !o || !o.kfeld) return false;
-  const fe = feldById(o.kfeld); if (!fe) return false;
-  const eq = x => x != null && Math.abs(+x - v) < 0.006;
-  return eq(fe.flaeche) || (Array.isArray(fe.grenzen) && fe.grenzen.some(g => g && (eq(g.ha) || eq(g.bha))));
-}
+// Fläche in der Abrechnung (kein Vergleich mit Feldgrenzen):
+// 1. effektive Fläche im Auftrag mit Häkchen «genau», 2. Fläche aus dem Bericht (MyJohnDeere), 3. Fläche aus dem Auftrag (effektiv, sonst geplant).
 const GENAU_MARK = '<span class="genaum" title="genaue Fläche (bei der Fertigmeldung bestätigt)"> ✓</span>';
 function abRow(o, j, km) {
   const k = o ? Store.get('kunden', o.kunde) : km.get(abKeyK(j.kunde)) || null;
   const genau = !!(o && o.flaecheGenau && o.flaecheEff != null);
-  const m = o ? maschine(o.maschine) : null, haP0 = o ? (o.flaecheEff ?? o.flaeche ?? null) : null, haGrz = !genau && haAusGrenze(o, haP0), haP = haGrz ? null : haP0, haJ = j ? j.ha : null;
+  const m = o ? maschine(o.maschine) : null, haP = o ? (o.flaecheEff ?? o.flaeche ?? null) : null, haJ = j ? j.ha : null;
+  const ha = genau ? o.flaecheEff : (haJ ?? haP), haQ = ha == null ? '' : genau ? 'genau' : haJ != null ? 'jd' : 'auftrag';
   // Pflanzenschutzmittel (Stammdaten Spritzen): nur Name, keine Gesamtmenge
   const prodP = o ? prodList(o).map(p => `${p.name}${p.menge != null && !isPsm(p.name) ? ` ${fmtNum(p.menge)} ${p.einheit || prodUnit(p.name)}/ha` : ''}`).join(', ') : '';
-  const haC = haP ?? haJ, gesP = o && haC ? prodList(o).filter(p => p.menge != null && !isPsm(p.name)).map(p => `${p.name} ${fmtNum(r2(p.menge * haC))} ${p.einheit || prodUnit(p.name)}`).join(', ') : '';
+  const haC = ha, gesP = o && haC ? prodList(o).filter(p => p.menge != null && !isPsm(p.name)).map(p => `${p.name} ${fmtNum(r2(p.menge * haC))} ${p.einheit || prodUnit(p.name)}`).join(', ') : '';
   const d = o ? (o.erledigtAm || o.datum) : j.d;
   const abJ = j ? jdbAbr(j.id) : null, abO = o && statusOf(o) === 'verrechnet';
   const abr = o ? abO : !!abJ, am = o ? (o.verrechnetAm || (abJ && abJ.am) || '') : (abJ ? abJ.am : '');
   return { id: o ? 'o:' + o.id : 'j:' + j.id, oid: o ? o.id : '', jid: j ? j.id : '', src: o && j ? 'beide' : o ? 'planer' : 'jd', d, start: j ? j.start : '', end: j ? j.end : '',
     dauer: j ? j.dauer : null, std: o ? (o.stundenEff ?? dauerOf(o) ?? null) : null, nr: o ? o.nr || '' : '',
     kunde: k ? k.name : (j ? j.kunde : ''), feld: (o && aFeld(o)) || (j ? j.feld : ''), arbeit: o ? o.arbeit || '' : j.arbeit, kultur: (o && o.kultur) || (j ? j.kultur : ''),
-    haP, haP0: haGrz ? haP0 : null, genau, haJ, ha: haP ?? haJ, quelle: j ? j.quelle : '', maschine: (m && m.name) || (j ? j.maschine : ''), fahrer: j ? j.fahrer : '',
+    haP, genau, haJ, ha, haQ, quelle: j ? j.quelle : '', maschine: (m && m.name) || (j ? j.maschine : ''), fahrer: j ? j.fahrer : '',
     produkte: prodP || (j ? [jdbProdTxt(j), j.sorten].filter(Boolean).join(' · ') : ''), gesamt: o ? gesP : (j ? jdbGesTxt(j) : ''), notiz: o ? o.notiz || '' : '', abr, am, link: !!(o && o.jdLink) };
 }
 /* ---------- Filter (Mehrfachauswahl wie im Bericht) ---------- */
@@ -4180,9 +4175,9 @@ const AB_COLS = [
   { id: 'arbeit', l: 'Arbeit', w: 130, v: r => r.arbeit },
   { id: 'kunde', l: 'Kunde', w: 150, v: r => r.kunde },
   { id: 'feld', l: 'Feld', w: 130, v: r => r.feld, html: r => r.feld ? `<span class="fldlink" data-ab="grz" data-id="${esc(r.id)}" title="Vermessungen anzeigen">${esc(r.feld)}</span>` : '' },
-  { id: 'ha', l: 'ha', w: 60, n: 1, v: r => r.ha != null ? fmtNum(r.ha) : '', csv: r => r.ha ?? '', html: r => r.ha == null ? '' : `${fmtNum(r.ha)}${r.genau && r.haP != null ? GENAU_MARK : ''}` },
+  { id: 'ha', l: 'ha', w: 60, n: 1, v: r => r.ha != null ? fmtNum(r.ha) : '', csv: r => r.ha ?? '', html: r => r.ha == null ? '' : `<span title="${{ genau: 'Fläche aus dem Auftrag (genau)', jd: 'Fläche aus dem Bericht (MyJohnDeere)', auftrag: 'Fläche aus dem Auftrag' }[r.haQ]}">${fmtNum(r.ha)}</span>${r.genau ? GENAU_MARK : ''}` },
   { id: 'haP', l: 'ha Auftrag', w: 76, n: 1, v: r => r.haP != null ? fmtNum(r.haP) : '', csv: r => r.haP ?? '',
-    html: r => r.haP != null ? `${fmtNum(r.haP)}${r.genau ? GENAU_MARK : ''}` : r.haP0 != null ? `<span class="nr abgrz" title="Fläche aus der Feldgrenze übernommen – wird nicht verwendet. Effektive Fläche beim Auftrag eintragen (Erledigt melden).">(${fmtNum(r.haP0)})</span>` : '' },
+    html: r => r.haP != null ? `${fmtNum(r.haP)}${r.genau ? GENAU_MARK : ''}` : '' },
   { id: 'haJ', l: 'ha JD', w: 66, n: 1, v: r => r.haJ != null ? fmtNum(r.haJ) : '', csv: r => r.haJ ?? '',
     html: r => r.haJ == null ? '' : `<span class="${r.haP != null && Math.abs(r.haJ - r.haP) > Math.max(0.1, r.haP * 0.1) ? 'abdiff' : ''}" title="${r.haP != null ? `Abweichung zum Auftrag: ${fmtNum(r2(r.haJ - r.haP))} ha` : ''}${r.quelle ? ` · Quelle: ${r.quelle}` : ''}">${fmtNum(r.haJ)}</span>` },
   { id: 'std', l: 'Std. Auftrag', w: 82, n: 1, v: r => r.std != null ? fmtNum(r2(r.std)) : '', csv: r => r.std != null ? r2(r.std) : '' },
@@ -4275,8 +4270,8 @@ function abPrint() {
     ${abTable(list, { print: true })}</div>`, { noTitle: true });
 }
 function abCsv() {
-  const rows = [['Datum', 'Herkunft', 'Auftrag-Nr', 'Beginn (JD)', 'Ende (JD)', 'Arbeit', 'Kunde', 'Feld', 'Fläche ha', 'Fläche Auftrag ha', 'Fläche Auftrag genau', 'Fläche JD ha', 'Flächen-Quelle JD', 'Stunden Auftrag', 'Dauer JD h', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Gesamtmenge', 'Bemerkung', 'Abgerechnet', 'Abgerechnet am', 'Auftrag-ID', 'JD-ID']];
-  abList().forEach(r => rows.push([r.d, AB_SRC[r.src], r.nr, jdbDT(r.start), jdbDT(r.end), r.arbeit, r.kunde, r.feld, r.ha ?? '', r.haP ?? '', r.genau ? 'ja' : '', r.haJ ?? '', r.quelle || '', r.std != null ? r2(r.std) : '', r.dauer != null ? r2(r.dauer) : '', r.maschine, r.fahrer, r.kultur, r.produkte, r.gesamt, r.notiz, r.abr ? 'ja' : 'nein', r.am || '', r.oid, r.jid]));
+  const rows = [['Datum', 'Herkunft', 'Auftrag-Nr', 'Beginn (JD)', 'Ende (JD)', 'Arbeit', 'Kunde', 'Feld', 'Fläche ha', 'Fläche Herkunft', 'Fläche Auftrag ha', 'Fläche Auftrag genau', 'Fläche JD ha', 'Flächen-Quelle JD', 'Stunden Auftrag', 'Dauer JD h', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Gesamtmenge', 'Bemerkung', 'Abgerechnet', 'Abgerechnet am', 'Auftrag-ID', 'JD-ID']];
+  abList().forEach(r => rows.push([r.d, AB_SRC[r.src], r.nr, jdbDT(r.start), jdbDT(r.end), r.arbeit, r.kunde, r.feld, r.ha ?? '', { genau: 'Auftrag genau', jd: 'Bericht (JD)', auftrag: 'Auftrag' }[r.haQ] || '', r.haP ?? '', r.genau ? 'ja' : '', r.haJ ?? '', r.quelle || '', r.std != null ? r2(r.std) : '', r.dauer != null ? r2(r.dauer) : '', r.maschine, r.fahrer, r.kultur, r.produkte, r.gesamt, r.notiz, r.abr ? 'ja' : 'nein', r.am || '', r.oid, r.jid]));
   const A = App.abr;
   download(`Abrechnung_${A.von || 'alle'}_${A.bis || ''}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }
