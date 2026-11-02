@@ -1251,3 +1251,4 @@ body.fsmode #selbar { left: 12px; }
 @media print { .dscroll { max-height: none !important; overflow: visible !important; } }
 /* Kopfzeilen bleiben unter der Titelleiste, auch wenn die Seite scrollt (--sty aus stickyUpd) */
 .cal .g-head, .cal .g-corner, .cal .tl-corner, .cal .tl-head:not(.tlh-m), .cal .tlh-axis, .dscroll > table > thead th { top: var(--sty, 0px) !important; }
+.abgrz { text-decoration: line-through; }

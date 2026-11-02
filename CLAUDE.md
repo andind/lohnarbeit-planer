@@ -68,4 +68,6 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
 - Fixierte Spaltenüberschriften: Tabellen in Aufträge (Liste), Verwaltung (Bericht, Abrechnung, Summen) im Rahmen `.dscroll` (Bildschirmhöhe,
   `thead th` sticky); Planung-Kalender/Zeitachsen hatten das schon (`.cal`). Neue grosse Datentabellen ebenfalls in `.dscroll` legen.
   Scrollt die Seite statt des Rahmens, hält `stickyUpd` (setzt `--sty`) die Kopfzeilen direkt unter der Titelleiste (v106, v.a. Wochenansicht).
+- Flächen in Bericht und Abrechnung **nie aus Feldgrenzen**: JD-Fläche nur Maschine oder Bedeckungskarte (NAS `setFlaeche`, App `jdbRow`);
+  Auftragsfläche gleich Feldfläche/Vermessung (`haAusGrenze`) zählt in der Abrechnung nicht (Spalte «ha Auftrag» durchgestrichen in Klammern).
 - Ausdrucke Kunden: Logo mit Adresse; Ausdrucke Eigener Betrieb: Betriebsadresse statt Logo.
