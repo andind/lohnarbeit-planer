@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Applikationskarte · IM-Verwalter</title>
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.17.0/dist/leaflet-geoman.css">
+<style>
+/* Layout: Arbeitsspalte links (Auftrag → Feld → Zonen → Export), Karte rechts; auf dem Handy Karte oben, Spalte darunter */
+:root{
+  --bg:#f3f4f1; --panel:#ffffff; --fg:#1d2420; --muted:#66706a; --line:#d9ddd6;
+  --accent:#2f6b3f; --accent-fg:#ffffff; --accent-soft:#e3eee5; --warn:#a4421d; --chip:#eef0ec;
+  --display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --body:"Barlow","Segoe UI",Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#141816; --panel:#1c211e; --fg:#e7ebe6; --muted:#9aa49d; --line:#2f3732;
+  --accent:#6fbf83; --accent-fg:#0f1a12; --accent-soft:#233127; --warn:#e58a63; --chip:#262d29; color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.4 var(--body)}
+.app{display:grid;grid-template-columns:400px 1fr;height:100%}
+aside{background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;display:flex;flex-direction:column}
+#map{height:100%;min-height:300px}
+header.top{padding:14px 16px 12px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+header.top h1{font:700 24px/1 var(--display);letter-spacing:.02em;margin:0;text-transform:uppercase}
+header.top .back{font:600 14px var(--body);color:var(--accent);text-decoration:none;display:inline-block;margin-bottom:6px}
+header.top .back:hover{text-decoration:underline}
+.link{font-size:12.5px;color:var(--accent)}
+header.top .ver{font:500 12px var(--display);color:var(--muted);letter-spacing:.06em;margin-left:6px}
+section{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+section h2{font:600 13px var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0;display:flex;justify-content:space-between;align-items:center}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+label.f{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted);min-width:0}
+input,select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%;min-width:0}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+input[type=number]{font-variant-numeric:tabular-nums;text-align:right}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.seg button{border:0;border-radius:0;background:var(--bg);color:var(--fg);padding:7px 4px;font:600 14px var(--display);letter-spacing:.03em}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--accent);color:var(--accent-fg)}
+button{font:500 14px var(--body);cursor:pointer;border:1px solid var(--line);background:var(--chip);color:var(--fg);border-radius:4px;padding:6px 10px}
+button:hover{border-color:var(--muted)}
+button.pri{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+button.big{padding:10px 12px;font-size:15px;width:100%}
+button.ghost{background:transparent;border-color:transparent;padding:4px 6px;color:var(--muted)}
+button.ghost:hover{color:var(--fg)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.status{font-size:13px;color:var(--muted)}
+.status b{color:var(--fg);font-variant-numeric:tabular-nums}
+.zl{display:flex;flex-direction:column;gap:6px}
+.z{display:grid;grid-template-columns:14px 1fr 92px auto;gap:6px;align-items:center;padding:6px;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
+.z.sel{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.z .sw{width:14px;height:28px;border-radius:2px;border:1px solid rgba(0,0,0,.25)}
+.z .meta{grid-column:2 / -1;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.z.base input.nm{border-color:transparent;background:transparent;font-weight:600;padding-left:0}
+.pct.up{color:var(--accent)} .pct.dn{color:var(--warn)}
+.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.sum div{display:flex;flex-direction:column}
+.sum span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.sum b{font:600 20px var(--display);font-variant-numeric:tabular-nums}
+.hint{font-size:12.5px;color:var(--muted);line-height:1.45}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:13px}
+.check input{width:auto;margin-top:3px}
+.empty{font-size:13px;color:var(--muted);padding:10px;border:1px dashed var(--line);border-radius:4px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--fg);color:var(--panel);padding:9px 14px;border-radius:4px;font-size:14px;z-index:2000;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw}
+.toast.on{opacity:1}
+/* Kartenelemente */
+.mapbar{position:absolute;top:10px;left:56px;right:60px;z-index:800;display:flex;gap:6px;max-width:440px}
+.mapbar input{background:var(--panel);box-shadow:0 1px 4px rgba(0,0,0,.25);border:0;padding:8px 10px}
+.results{position:absolute;top:46px;left:56px;z-index:801;background:var(--panel);border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:440px;width:calc(100% - 116px);overflow:hidden}
+.results button{display:block;width:100%;text-align:left;border:0;border-radius:0;border-bottom:1px solid var(--line);background:var(--panel)}
+.drawbar{position:absolute;bottom:22px;left:50%;transform:translateX(-50%);z-index:800;background:var(--panel);border-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.35);padding:8px 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:calc(100% - 24px)}
+.drawbar span{font-size:13px}
+.legend{background:var(--panel);color:var(--fg);padding:8px 10px;border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.3);font-size:12px;font-variant-numeric:tabular-nums;min-width:120px}
+.legend .lg{display:flex;align-items:center;gap:6px;margin-top:3px}
+.legend i{width:14px;height:12px;display:inline-block;border:1px solid rgba(0,0,0,.3)}
+.mapwrap{position:relative;height:100%}
+.zlabel{background:rgba(255,255,255,.85);border:0;box-shadow:none;font:600 12px var(--display);padding:1px 5px;color:#1d2420}
+.zlabel::before{display:none}
+@media (max-width:760px){
+  .app{display:flex;flex-direction:column;height:auto}
+  .mapwrap{height:58vh}
+  aside{border-right:0;overflow:visible}
+  .mapbar{left:52px;right:52px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+<aside>
+  <header class="top">
+    <div><a class="back" href="index.html" title="Zurück zum IM-Verwalter">← IM-Verwalter</a><br><h1 style="display:inline">Applikationskarte</h1><span class="ver">v1.1</span></div>
+    <div class="row">
+      <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
+      <button id="bSave" title="Im IM-Verwalter speichern (über Dropbox auf allen Geräten)">Speichern</button>
+    </div>
+  </header>
+
+  <section>
+    <h2>Gespeicherte Karten</h2>
+    <div class="row">
+      <select id="projSel" style="flex:1"><option value="">– Karte öffnen –</option></select>
+      <button id="bDelProj" class="ghost" title="Gewählte gespeicherte Karte löschen">Löschen</button>
+    </div>
+    <div class="row">
+      <button id="bJsonOut">Als Datei sichern (.json)</button>
+      <button id="bJsonIn">Datei laden</button>
+      <input type="file" id="fJson" accept=".json,application/json" hidden>
+    </div>
+    <div id="delConfirm" class="row" hidden><span class="status">Wirklich löschen?</span><button id="bDelYes" class="pri">Ja, löschen</button><button id="bDelNo">Nein</button></div>
+  </section>
+
+  <section>
+    <h2>Auftrag</h2>
+    <div class="grid2">
+      <label class="f">Kunde<input id="iKunde" list="dlKunde" placeholder="z. B. Andreas Indermühle" autocomplete="off"></label>
+      <label class="f">Feld<input id="iFeld" list="dlFeld" placeholder="z. B. Hofmatt" autocomplete="off"></label>
+    </div>
+    <datalist id="dlKunde"></datalist><datalist id="dlFeld"></datalist><datalist id="dlProdukt"></datalist>
+    <div class="status" id="auftragInfo" hidden></div>
+    <div class="seg" id="segArbeit">
+      <button data-a="Saat">Saat</button><button data-a="Duengung">Düngung</button><button data-a="PS">Pflanzenschutz</button>
+    </div>
+    <div class="grid2">
+      <label class="f">Produkt<input id="iProdukt" list="dlProdukt" placeholder="z. B. Ammonsalpeter 27 %" autocomplete="off"></label>
+      <label class="f">Einheit<select id="iEinheit"></select></label>
+    </div>
+    <div class="grid2">
+      <label class="f">Grundrate (Rest des Feldes)<input id="iGrund" type="number" step="any" min="0"></label>
+      <div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Feldgrenze <span id="fieldHa" class="status"></span></h2>
+    <div class="row">
+      <button id="bFieldDraw">Zeichnen</button>
+      <button id="bFieldLoad">Laden (Shapefile/GeoJSON)</button>
+      <input type="file" id="fField" accept=".zip,.geojson,.json" hidden>
+      <button id="bFieldEdit" class="ghost">Bearbeiten</button>
+      <button id="bFieldDel" class="ghost">Entfernen</button>
+    </div>
+    <label class="f" id="featPick" hidden>Mehrere Felder in der Datei – welches?<select id="featSel"></select></label>
+    <div class="hint">Feldgrenze aus dem Operations Center: Feld exportieren als Shapefile (ZIP) und hier laden. Zonen werden automatisch auf die Feldgrenze zugeschnitten.</div>
+  </section>
+
+  <section>
+    <h2>Zonen</h2>
+    <div class="row">
+      <button id="bZonePoly" class="pri">+ Zone zeichnen</button>
+      <button id="bZoneRect">+ Rechteck</button>
+    </div>
+    <div class="zl" id="zoneList"></div>
+    <div class="hint">Zonen dürfen über den Feldrand hinaus gezeichnet werden. Überlappen sich Zonen, gilt die später gezeichnete (weiter unten in der Liste).</div>
+  </section>
+
+  <section>
+    <h2>Übersicht</h2>
+    <div class="sum">
+      <div><span>Fläche</span><b id="sHa">–</b></div>
+      <div><span>Ø Rate</span><b id="sAvg">–</b></div>
+      <div><span>Menge total</span><b id="sTot">–</b></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Export John Deere</h2>
+    <label class="check" id="koeRow" hidden><input type="checkbox" id="cKoe" checked><span>Saatmenge als Kö/ha exportieren (× 10 000) – das Operations Center kennt keine Kö/m².</span></label>
+    <button id="bExport" class="pri big">Shapefile exportieren (.zip)</button>
+    <div class="hint">ZIP im Operations Center unter <b>Dateien</b> hochladen, als Applikationskarte (Rx) importieren, Spalte <b>RATE</b> und die passende Einheit wählen, dann per Datensynchronisation oder USB aufs Terminal.</div>
+  </section>
+</aside>
+
+<div class="mapwrap">
+  <div id="map"></div>
+  <div class="mapbar"><input id="search" placeholder="Ort, Adresse oder Parzelle suchen …" autocomplete="off"></div>
+  <div class="results" id="results" hidden></div>
+  <div class="drawbar" id="drawbar" hidden>
+    <span id="drawTxt">Punkte setzen, Doppelklick schliesst</span>
+    <button id="bFinish" class="pri">Fertig</button>
+    <button id="bCancel">Abbrechen</button>
+  </div>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.17.0/dist/leaflet-geoman.min.js"></script>
+<script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+<script src="https://unpkg.com/shpjs@4.0.4/dist/shp.min.js"></script>
+<script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+<script>
+"use strict";
+const VERSION = "1.1";
+const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
+const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
+const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
+const $ = id => document.getElementById(id);
+
+/* ---------- Zustand ---------- */
+function blank(){ return { id:null, auftrag:"", kid:"", fid:"", kunde:"", feld:"", arbeit:"Duengung", produkt:"", einheit:"kg/ha", grundrate:DEF_RATE.Duengung, field:null, zones:[], nextNo:1 }; }
+let S = blank();
+let selId = null;
+let drawMode = null;   // 'field' | 'zone'
+let editing = null;    // 'field' | zone id
+
+/* ---------- Karte ---------- */
+const map = L.map("map", { zoomControl:true }).setView([47.0365, 7.3770], 15);
+map.pm.setLang("de");
+const wmts = l => `https://wmts.geo.admin.ch/1.0.0/${l}/default/current/3857/{z}/{x}/{y}.jpeg`;
+const att = '© <a href="https://www.swisstopo.admin.ch" target="_blank">swisstopo</a>';
+const luft = L.tileLayer(wmts("ch.swisstopo.swissimage"), { maxNativeZoom:19, maxZoom:21, attribution:att }).addTo(map);
+const lk = L.tileLayer(wmts("ch.swisstopo.pixelkarte-farbe"), { maxNativeZoom:18, maxZoom:21, attribution:att });
+const kat = L.tileLayer.wms("https://wms.geo.admin.ch/", { layers:"ch.kantone.cadastralwebmap-farbe", format:"image/png", transparent:true, version:"1.3.0", maxZoom:21, attribution:att });
+L.control.layers({ "Luftbild":luft, "Landeskarte":lk }, { "Parzellengrenzen":kat }, { position:"topright" }).addTo(map);
+L.control.scale({ imperial:false }).addTo(map);
+
+const previewLayer = L.layerGroup().addTo(map);
+let fieldLayer = null;
+const zoneLayers = new Map();
+
+const legend = L.control({ position:"bottomright" });
+legend.onAdd = () => { const d = L.DomUtil.create("div","legend"); d.id = "legend"; return d; };
+legend.addTo(map);
+
+/* ---------- Hilfen ---------- */
+function toast(t){ const el=$("toast"); el.textContent=t; el.classList.add("on"); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove("on"),2600); }
+const fmt = (n,d=2) => (n==null||isNaN(n)) ? "–" : n.toLocaleString("de-CH",{minimumFractionDigits:d,maximumFractionDigits:d});
+const num = v => { const n = parseFloat(String(v).replace(",",".")); return isNaN(n)?0:n; };
+function color(rate, lo, hi){
+  if (hi<=lo) return RAMP[2];
+  const t = Math.min(1,Math.max(0,(rate-lo)/(hi-lo)));
+  return RAMP[Math.round(t*(RAMP.length-1))];
+}
+function areaHa(f){ try { return f ? turf.area(f)/10000 : 0; } catch(e){ return 0; } }
+function feat(g){ return g ? (g.type==="Feature" ? g : turf.feature(g)) : null; }
+function clean(f){
+  if (!f || !f.geometry) return null;
+  const g = f.geometry;
+  if (g.type==="Polygon") return turf.area(f) > 1 ? f : null;
+  if (g.type==="MultiPolygon"){
+    const parts = g.coordinates.filter(p => turf.area(turf.polygon(p)) > 1);
+    if (!parts.length) return null;
+    return parts.length===1 ? turf.polygon(parts[0]) : turf.multiPolygon(parts);
+  }
+  if (g.type==="GeometryCollection"){
+    const polys=[]; g.geometries.forEach(x=>{ if(x.type==="Polygon") polys.push(x.coordinates); if(x.type==="MultiPolygon") polys.push(...x.coordinates); });
+    return polys.length ? clean(turf.multiPolygon(polys)) : null;
+  }
+  return null;
+}
+const safe = fn => { try { return clean(fn()); } catch(e){ console.warn(e); return null; } };
+function totalOf(rate, ha, unit){
+  if (unit==="Kö/m²") return { v: rate*ha*10000, u:"Kö" };
+  return { v: rate*ha, u: unit.split("/")[0] };
+}
+function fmtTotal(t){
+  if (t.u==="Kö") return t.v>=1e6 ? fmt(t.v/1e6,2)+" Mio. Kö" : fmt(t.v,0)+" Kö";
+  return fmt(t.v, t.v>=100?0:1)+" "+t.u;
+}
+
+/* ---------- Berechnung: Zonen zuschneiden ---------- */
+function compute(){
+  const field = S.field ? feat(S.field) : null;
+  const out = [];
+  let later = null;
+  for (let i=S.zones.length-1; i>=0; i--){
+    const z = S.zones[i];
+    const zf = feat(z.geom);
+    let g = zf;
+    if (field) g = safe(()=>turf.intersect(g, field));
+    if (g && later) g = safe(()=>turf.difference(g, later));
+    later = later ? (safe(()=>turf.union(later, zf)) || later) : zf;
+    out.unshift({ id:z.id, name:z.name, rate:z.rate, geom:g, ha:areaHa(g) });
+  }
+  let base = null;
+  if (field){
+    base = later ? safe(()=>turf.difference(field, later)) : clean(field);
+  }
+  return { base: base ? { id:"base", name:"Grundrate", rate:S.grundrate, geom:base, ha:areaHa(base) } : null, zones: out };
+}
+
+/* ---------- Darstellung ---------- */
+let lastCalc = null;
+function render(){
+  const c = compute(); lastCalc = c;
+  const rates = [S.grundrate, ...S.zones.map(z=>z.rate)];
+  const lo = Math.min(...rates), hi = Math.max(...rates);
+
+  previewLayer.clearLayers();
+  const parts = (c.base?[c.base]:[]).concat(c.zones);
+  parts.forEach(p => {
+    if (!p.geom) return;
+    L.geoJSON(p.geom, { pmIgnore:true, interactive:false, style:{ stroke:false, fillColor:color(p.rate,lo,hi), fillOpacity:.55 } }).addTo(previewLayer);
+  });
+  zoneLayers.forEach((lay,id) => {
+    const z = S.zones.find(x=>x.id===id); if(!z) return;
+    lay.setStyle({ color: id===selId ? "#ffffff" : color(z.rate,lo,hi), weight: id===selId ? 3 : 2, dashArray: id===selId ? null : "5 4", fillOpacity:0.01 });
+    lay.setTooltipContent(`${z.name} · ${fmt(z.rate, z.rate%1?1:0)} ${S.einheit}`);
+  });
+
+  /* Liste */
+  const list = $("zoneList"); list.innerHTML = "";
+  const unit = S.einheit;
+  const row = (p, isBase) => {
+    const z = isBase ? null : S.zones.find(x=>x.id===p.id);
+    const d = document.createElement("div");
+    d.className = "z" + (isBase?" base":"") + (p.id===selId?" sel":"");
+    const pct = S.grundrate ? Math.round((p.rate/S.grundrate-1)*100) : 0;
+    d.innerHTML = `<div class="sw" style="background:${color(p.rate,lo,hi)}"></div>
+      <input class="nm" id="nm_${p.id}" value="${(p.name||"").replace(/"/g,"&quot;")}" ${isBase?"readonly tabindex=-1":""} aria-label="Zonenname">
+      <input type="number" step="any" min="0" id="rt_${p.id}" value="${p.rate}" aria-label="Rate">
+      <div class="row" style="gap:0">${isBase?"":`<button class="ghost" data-act="edit" title="Form bearbeiten">✎</button><button class="ghost" data-act="del" title="Zone löschen">✕</button>`}</div>
+      <div class="meta"><span>${fmt(p.ha,2)} ha${isBase?"":` · <span class="pct ${pct>0?"up":pct<0?"dn":""}">${pct>0?"+":""}${pct} %</span>`}</span><span>${fmtTotal(totalOf(p.rate,p.ha,unit))}</span></div>`;
+    const rt = d.querySelector(`#rt_${p.id}`);
+    rt.addEventListener("change", () => {
+      const v = num(rt.value);
+      if (isBase){ S.grundrate = v; $("iGrund").value = v; } else z.rate = v;
+      render();
+    });
+    if (!isBase){
+      const nm = d.querySelector(`#nm_${p.id}`);
+      nm.addEventListener("change", () => { z.name = nm.value.trim() || z.name; render(); });
+      d.addEventListener("click", e => { if (e.target.tagName!=="INPUT" && !e.target.dataset.act) select(p.id, true); });
+      d.querySelector('[data-act=edit]').addEventListener("click", () => toggleEdit(p.id));
+      d.querySelector('[data-act=del]').addEventListener("click", () => delZone(p.id));
+    }
+    list.appendChild(d);
+  };
+  if (c.base) row(c.base, true);
+  else if (!S.zones.length) list.innerHTML = `<div class="empty">Noch keine Zonen. Feldgrenze laden oder zeichnen, dann Zonen mit abweichender Menge einzeichnen.</div>`;
+  c.zones.forEach(p => row(p, false));
+
+  /* Übersicht */
+  const all = parts.filter(p=>p.geom);
+  const ha = all.reduce((s,p)=>s+p.ha,0);
+  const rateHa = all.reduce((s,p)=>s+p.ha*p.rate,0);
+  $("sHa").textContent = ha ? fmt(ha,2)+" ha" : "–";
+  $("sAvg").textContent = ha ? fmt(rateHa/ha, 1)+" "+unit : "–";
+  $("sTot").textContent = ha ? fmtTotal(totalOf(rateHa/ha, ha, unit)) : "–";
+  $("fieldHa").innerHTML = S.field ? `<b>${fmt(areaHa(feat(S.field)),2)} ha</b>` : "keine";
+
+  /* Legende */
+  const lg = $("legend");
+  const uniq = [...new Set(rates)].sort((a,b)=>a-b);
+  lg.innerHTML = `<b>${S.produkt || "Rate"}</b> <span style="color:var(--muted)">${unit}</span>` +
+    uniq.map(r=>`<div class="lg"><i style="background:${color(r,lo,hi)}"></i>${fmt(r, r%1?1:0)}</div>`).join("");
+  lg.style.display = (S.field || S.zones.length) ? "" : "none";
+
+  $("koeRow").hidden = unit!=="Kö/m²";
+  saveDraft();
+}
+
+/* ---------- Auftrag ---------- */
+function fillUnits(){
+  const sel = $("iEinheit"); sel.innerHTML = "";
+  UNITS[S.arbeit].forEach(u => { const o=document.createElement("option"); o.textContent=u; sel.appendChild(o); });
+  if (!UNITS[S.arbeit].includes(S.einheit)) S.einheit = UNITS[S.arbeit][0];
+  sel.value = S.einheit;
+}
+function syncForm(){
+  $("iKunde").value = S.kunde; $("iFeld").value = S.feld; $("iProdukt").value = S.produkt; $("iGrund").value = S.grundrate;
+  document.querySelectorAll("#segArbeit button").forEach(b => b.classList.toggle("on", b.dataset.a===S.arbeit));
+  fillUnits();
+}
+document.querySelectorAll("#segArbeit button").forEach(b => b.addEventListener("click", () => {
+  if (S.arbeit===b.dataset.a) return;
+  S.arbeit = b.dataset.a; S.einheit = UNITS[S.arbeit][0];
+  if (!S.zones.length) S.grundrate = DEF_RATE[S.arbeit];
+  syncForm(); render();
+}));
+$("iKunde").addEventListener("input", e => { S.kunde = e.target.value; const k = IMV.kunden().find(k=>k.name===S.kunde.trim()); S.kid = k ? k.id : ""; fillLists(); saveDraft(); });
+$("iFeld").addEventListener("input", e => { S.feld = e.target.value; const f = S.kid ? IMV.felder(S.kid).find(f=>f.name===S.feld.trim()) : null; S.fid = f ? f.id : ""; saveDraft(); });
+$("iProdukt").addEventListener("input", e => { S.produkt = e.target.value; render(); });
+$("iEinheit").addEventListener("change", e => { S.einheit = e.target.value; render(); });
+$("iGrund").addEventListener("change", e => { S.grundrate = num(e.target.value); render(); });
+
+/* ---------- Zeichnen ---------- */
+const DRAW_OPTS = { snappable:true, snapDistance:18, allowSelfIntersection:false, finishOn:"dblclick",
+  templineStyle:{ color:"#ffffff" }, hintlineStyle:{ color:"#ffffff", dashArray:[5,5] }, pathOptions:{ color:"#ffffff", weight:2 } };
+function startDraw(mode, shape){
+  stopEdit();
+  drawMode = mode;
+  map.pm.enableDraw(shape, DRAW_OPTS);
+  $("drawTxt").textContent = shape==="Rectangle" ? "Ecke klicken, ziehen bzw. zweite Ecke klicken" :
+    (mode==="field" ? "Feldgrenze: Punkte setzen, Doppelklick oder «Fertig» schliesst" : "Zone: Punkte setzen, Doppelklick oder «Fertig» schliesst");
+  $("bFinish").hidden = shape==="Rectangle";
+  $("drawbar").hidden = false;
+}
+function endDraw(){ drawMode = null; map.pm.disableDraw(); $("drawbar").hidden = true; }
+$("bCancel").addEventListener("click", () => { endDraw(); stopEdit(); });
+$("bFinish").addEventListener("click", () => {
+  if (editing!==null){ stopEdit(); return; }
+  try { if (map.pm.Draw.Polygon._enabled) map.pm.Draw.Polygon._finishShape(); } catch(e){ toast("Mindestens drei Punkte setzen."); }
+});
+document.addEventListener("keydown", e => { if (e.key==="Escape"){ endDraw(); stopEdit(); } });
+
+map.on("pm:create", e => {
+  const gj = e.layer.toGeoJSON();
+  map.removeLayer(e.layer);
+  const mode = drawMode; endDraw();
+  if (mode==="field"){ setField(gj); toast("Feldgrenze gesetzt"); }
+  else if (mode==="zone"){
+    const z = { id:"z"+Date.now().toString(36), name:"Zone "+(S.nextNo++), rate:S.grundrate, geom:gj.geometry };
+    S.zones.push(z); addZoneLayer(z); select(z.id); render();
+    setTimeout(()=>{ const el=$("rt_"+z.id); if(el){ el.focus(); el.select(); } },30);
+  }
+});
+$("bFieldDraw").addEventListener("click", () => startDraw("field","Polygon"));
+$("bZonePoly").addEventListener("click", () => startDraw("zone","Polygon"));
+$("bZoneRect").addEventListener("click", () => startDraw("zone","Rectangle"));
+
+/* ---------- Feldgrenze ---------- */
+function setField(f, fit=true){
+  if (fieldLayer){ map.removeLayer(fieldLayer); fieldLayer=null; }
+  if (!f){ S.field=null; render(); return; }
+  S.field = { type:"Feature", properties:{}, geometry:f.geometry };
+  fieldLayer = L.geoJSON(S.field, { style:{ color:"#ffffff", weight:3, fill:false }, interactive:false }).addTo(map).getLayers()[0];
+  fieldLayer.on("pm:edit", () => { S.field.geometry = fieldLayer.toGeoJSON().geometry; render(); });
+  if (fit) map.fitBounds(fieldLayer.getBounds(), { padding:[30,30] });
+  render();
+}
+$("bFieldDel").addEventListener("click", () => { stopEdit(); setField(null); });
+$("bFieldEdit").addEventListener("click", () => {
+  if (!fieldLayer){ toast("Noch keine Feldgrenze vorhanden."); return; }
+  if (editing==="field"){ stopEdit(); return; }
+  stopEdit(); editing = "field"; fieldLayer.pm.enable({ allowSelfIntersection:false, snappable:true });
+  showEditBar("Feldgrenze bearbeiten: Punkte ziehen, Rechtsklick auf Punkt löscht ihn");
+});
+$("bFieldLoad").addEventListener("click", () => $("fField").click());
+let pickFeats = [];
+$("fField").addEventListener("change", async e => {
+  const file = e.target.files[0]; e.target.value = ""; if (!file) return;
+  try {
+    let gj;
+    if (/\.zip$/i.test(file.name)) gj = await shp(await file.arrayBuffer());
+    else gj = JSON.parse(await file.text());
+    const fcs = Array.isArray(gj) ? gj : [gj];
+    const feats = [];
+    fcs.forEach(fc => (fc.type==="FeatureCollection" ? fc.features : [fc]).forEach(f => {
+      if (f && f.geometry && /Polygon/.test(f.geometry.type)) feats.push(f);
+    }));
+    if (!feats.length){ toast("In der Datei wurde keine Fläche gefunden."); return; }
+    if (feats.length===1){ applyImported(feats[0]); $("featPick").hidden = true; return; }
+    pickFeats = feats;
+    const sel = $("featSel"); sel.innerHTML = `<option value="">– wählen (${feats.length}) –</option>`;
+    feats.map((f,i)=>({f,i,n:featName(f,i)})).sort((a,b)=>a.n.localeCompare(b.n,"de")).forEach(({f,i,n}) => {
+      const o=document.createElement("option"); o.value=i; o.textContent=`${n} (${fmt(areaHa(f),2)} ha)`; sel.appendChild(o);
+    });
+    $("featPick").hidden = false; sel.focus();
+  } catch(err){ console.error(err); toast("Datei konnte nicht gelesen werden. Shapefile als ZIP (mit .shp, .dbf, .prj) oder GeoJSON verwenden."); }
+});
+$("featSel").addEventListener("change", e => { if (e.target.value==="") return; applyImported(pickFeats[+e.target.value]); });
+function featName(f,i){
+  const p = f.properties||{};
+  const k = Object.keys(p).find(k => /^(field_?name|feld|name|fieldname|fld_name|bezeichnung)$/i.test(k)) || Object.keys(p).find(k=>/name/i.test(k));
+  return k && p[k] ? String(p[k]) : "Fläche "+(i+1);
+}
+function applyImported(f){
+  if (!S.feld){ const n = featName(f,0); if (!/^Fläche /.test(n)){ S.feld = n; $("iFeld").value = n; } }
+  setField(f); toast("Feldgrenze geladen");
+}
+
+/* ---------- Zonen ---------- */
+function addZoneLayer(z){
+  const lay = L.geoJSON(feat(z.geom)).getLayers()[0];
+  lay.setStyle({ fill:true, fillOpacity:0.01 });
+  lay.bindTooltip("", { sticky:true, className:"zlabel" });
+  lay.on("click", () => { if (!drawMode) select(z.id, false); });
+  lay.on("pm:edit", () => { z.geom = lay.toGeoJSON().geometry; render(); });
+  lay.addTo(map); zoneLayers.set(z.id, lay);
+}
+function select(id, pan){
+  selId = id; const lay = zoneLayers.get(id);
+  if (lay){ lay.bringToFront(); if (pan && !map.getBounds().contains(lay.getBounds())) map.fitBounds(lay.getBounds(),{padding:[40,40],maxZoom:18}); }
+  render();
+}
+function toggleEdit(id){
+  if (editing===id){ stopEdit(); return; }
+  stopEdit(); const lay = zoneLayers.get(id); if (!lay) return;
+  editing = id; selId = id; lay.pm.enable({ allowSelfIntersection:false, snappable:true });
+  showEditBar("Zone bearbeiten: Punkte ziehen, Rechtsklick auf Punkt löscht ihn"); render();
+}
+function showEditBar(t){ $("drawTxt").textContent = t; $("bFinish").hidden = false; $("drawbar").hidden = false; }
+function stopEdit(){
+  if (editing==="field" && fieldLayer) fieldLayer.pm.disable();
+  else if (editing && zoneLayers.get(editing)) zoneLayers.get(editing).pm.disable();
+  if (editing!==null){ editing = null; $("drawbar").hidden = true; }
+}
+function delZone(id){
+  if (editing===id) stopEdit();
+  const lay = zoneLayers.get(id); if (lay) map.removeLayer(lay); zoneLayers.delete(id);
+  S.zones = S.zones.filter(z=>z.id!==id); if (selId===id) selId=null;
+  render(); toast("Zone gelöscht");
+}
+
+/* ---------- Laden / Speichern ---------- */
+function loadState(st, fit=true){
+  stopEdit(); endDraw();
+  zoneLayers.forEach(l=>map.removeLayer(l)); zoneLayers.clear();
+  if (fieldLayer){ map.removeLayer(fieldLayer); fieldLayer=null; }
+  S = Object.assign(blank(), st); selId = null;
+  syncForm(); fillLists();
+  S.zones.forEach(addZoneLayer);
+  if (S.field) setField(S.field, fit); else render();
+  if (fit && !S.field && S.zones.length){ const g=L.featureGroup([...zoneLayers.values()]); map.fitBounds(g.getBounds(),{padding:[30,30]}); }
+}
+const LS_D = "appkarte.entwurf";
+const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch(e){ return null; } };
+const lsSet = (k,v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch(e){ return false; } };
+/* Daten des IM-Verwalters (gleiche Adresse → gleicher Browserspeicher «lp_data»). Gespeicherte Karten liegen dort in
+   «einstellungen» mit der id «rx-…» und werden beim nächsten Öffnen des IM-Verwalters über Dropbox abgeglichen. */
+const IMV = {
+  read(){ try { const d = JSON.parse(localStorage.getItem("lp_data")||"null"); return d && typeof d==="object" ? d : null; } catch(e){ return null; } },
+  all(c){ const d = this.read(); return d && Array.isArray(d[c]) ? d[c].filter(x=>x && !x.del) : []; },
+  put(rec){
+    const d = this.read() || { v:2 };
+    if (!Array.isArray(d.einstellungen)) d.einstellungen = [];
+    rec.upd = Date.now();
+    const i = d.einstellungen.findIndex(x=>x.id===rec.id); if (i>=0) d.einstellungen[i] = rec; else d.einstellungen.push(rec);
+    try { localStorage.setItem("lp_data", JSON.stringify(d)); localStorage.setItem("lp_dirty","1"); return true; } catch(e){ return false; }
+  },
+  maps(){ return this.all("einstellungen").filter(x => /^rx-/.test(x.id) && x.state); },
+  kunden(){ return this.all("kunden").filter(k=>k.aktiv!==false).sort((a,b)=>String(a.name).localeCompare(String(b.name),"de")); },
+  felder(kid){ return this.all("felder").filter(f=>f.kunde===kid && f.aktiv!==false).sort((a,b)=>String(a.name).localeCompare(String(b.name),"de")); },
+  produkte(){ return this.all("produkte").filter(p=>p.aktuell!==false).map(p=>p.name).sort((a,b)=>a.localeCompare(b,"de")); }
+};
+const esc = s => String(s??"").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"})[c]);
+function fillLists(){
+  $("dlKunde").innerHTML = IMV.kunden().map(k=>`<option value="${esc(k.name)}">`).join("");
+  $("dlFeld").innerHTML = (S.kid ? IMV.felder(S.kid) : []).map(f=>`<option value="${esc(f.name)}">${f.flaeche!=null?esc(f.flaeche+" ha"):""}</option>`).join("");
+  $("dlProdukt").innerHTML = IMV.produkte().map(n=>`<option value="${esc(n)}">`).join("");
+  const a = S.auftrag && IMV.all("auftraege").find(x=>x.id===S.auftrag);
+  $("auftragInfo").hidden = !a; if (a) $("auftragInfo").innerHTML = `Zum Auftrag <b>${esc(a.nr||"")}</b> · ${esc(a.arbeit||"")}${a.kultur?" · "+esc(a.kultur):""}`;
+}
+function saveDraft(){ lsSet(LS_D, S); }
+function projName(s){ return [s.feld||"Ohne Feldname", s.produkt||({Saat:"Saat",Duengung:"Düngung",PS:"Pflanzenschutz"})[s.arbeit], s.kunde].filter(Boolean).join(" · "); }
+function fillProj(){
+  const list = IMV.maps(); const sel = $("projSel");
+  sel.innerHTML = `<option value="">– Karte öffnen (${list.length}) –</option>`;
+  list.sort((a,b)=>b.saved.localeCompare(a.saved)).forEach(p => {
+    const o=document.createElement("option"); o.value=p.id;
+    o.textContent = `${projName(p.state)} – ${new Date(p.saved).toLocaleDateString("de-CH")}`; sel.appendChild(o);
+  });
+  if (S.id && list.some(p=>p.id==="rx-"+S.id)) sel.value = "rx-"+S.id;
+}
+$("bSave").addEventListener("click", () => {
+  if (!S.id) S.id = "p"+Date.now().toString(36);
+  if (IMV.put({ id:"rx-"+S.id, rx:1, saved:new Date().toISOString(), auftrag:S.auftrag||"", kunde:S.kid||"", feld:S.fid||"", state:JSON.parse(JSON.stringify(S)) })){ fillProj(); toast("Gespeichert im IM-Verwalter: "+projName(S)); }
+  else toast("Speichern nicht möglich (Speicher voll?). Bitte «Als Datei sichern» verwenden.");
+});
+$("projSel").addEventListener("change", e => {
+  const p = IMV.maps().find(p=>p.id===e.target.value); if (p){ loadState(p.state); toast("Geöffnet: "+projName(p.state)); }
+});
+$("bDelProj").addEventListener("click", () => { if (!$("projSel").value){ toast("Zuerst eine gespeicherte Karte wählen."); return; } $("delConfirm").hidden = false; });
+$("bDelNo").addEventListener("click", () => $("delConfirm").hidden = true);
+$("bDelYes").addEventListener("click", () => {
+  const id = $("projSel").value; IMV.put({ id, del:true });
+  if ("rx-"+S.id===id) S.id=null; $("delConfirm").hidden = true; fillProj(); toast("Gespeicherte Karte gelöscht");
+});
+$("bNeu").addEventListener("click", () => { const keep = { kunde:S.kunde, kid:S.kid, arbeit:S.arbeit, einheit:S.einheit, grundrate:S.grundrate, produkt:S.produkt }; loadState(Object.assign(blank(), keep), false); fillProj(); toast("Neue Karte – Auftragsdaten übernommen"); });
+
+function download(name, blob){
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+function fileBase(){
+  const raw = `RX_${S.feld||"Feld"}_${S.produkt||S.arbeit}`;
+  return ascii(raw).replace(/[^A-Za-z0-9_-]+/g,"_").replace(/_+/g,"_").replace(/_$/,"").slice(0,48);
+}
+$("bJsonOut").addEventListener("click", () => {
+  download(fileBase().replace(/^RX_/,"Karte_")+".json", new Blob([JSON.stringify({ app:"Applikationskarte", version:VERSION, state:S }, null, 1)], { type:"application/json" }));
+});
+$("bJsonIn").addEventListener("click", () => $("fJson").click());
+$("fJson").addEventListener("change", async e => {
+  const f = e.target.files[0]; e.target.value=""; if(!f) return;
+  try { const j = JSON.parse(await f.text()); const st = j.state || j; if (st.id && IMV.maps().some(p=>p.id==="rx-"+st.id)) st.id = null; loadState(st); toast("Karte geladen – «Speichern» übernimmt sie in den IM-Verwalter"); }
+  catch(err){ toast("Diese Datei ist keine gesicherte Applikationskarte."); }
+});
+
+/* ---------- Shapefile-Export ---------- */
+function ascii(s){
+  return String(s).replace(/ä/g,"ae").replace(/ö/g,"oe").replace(/ü/g,"ue").replace(/Ä/g,"Ae").replace(/Ö/g,"Oe").replace(/Ü/g,"Ue")
+    .replace(/ß/g,"ss").replace(/²/g,"2").replace(/³/g,"3").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^\x20-\x7E]/g,"");
+}
+function ringCW(r){ let s=0; for(let i=0;i<r.length-1;i++) s += (r[i+1][0]-r[i][0])*(r[i+1][1]+r[i][1]); return s>0; }
+function prepRings(geom){
+  const polys = geom.type==="Polygon" ? [geom.coordinates] : geom.coordinates;
+  const rings = [];
+  polys.forEach(p => p.forEach((r,i) => {
+    r = r.map(c=>[c[0],c[1]]);
+    const a=r[0], b=r[r.length-1]; if (a[0]!==b[0]||a[1]!==b[1]) r.push([a[0],a[1]]);
+    const wantCW = i===0;
+    if (ringCW(r)!==wantCW) r.reverse();
+    rings.push(r);
+  }));
+  return rings;
+}
+function bboxOf(rings){ let b=[Infinity,Infinity,-Infinity,-Infinity]; rings.forEach(r=>r.forEach(([x,y])=>{ if(x<b[0])b[0]=x; if(y<b[1])b[1]=y; if(x>b[2])b[2]=x; if(y>b[3])b[3]=y; })); return b; }
+function writeShp(records){
+  const recs = records.map(r => { const rings = prepRings(r.geom); const np = rings.reduce((s,x)=>s+x.length,0); return { rings, np, bb:bboxOf(rings), len: 44 + 4*rings.length + 16*np }; });
+  const total = 100 + recs.reduce((s,r)=>s+8+r.len,0);
+  const shp = new DataView(new ArrayBuffer(total)), shx = new DataView(new ArrayBuffer(100 + 8*recs.length));
+  const all = [Infinity,Infinity,-Infinity,-Infinity];
+  recs.forEach(r=>{ all[0]=Math.min(all[0],r.bb[0]); all[1]=Math.min(all[1],r.bb[1]); all[2]=Math.max(all[2],r.bb[2]); all[3]=Math.max(all[3],r.bb[3]); });
+  const header = (dv, lenBytes) => {
+    dv.setInt32(0,9994,false); dv.setInt32(24,lenBytes/2,false); dv.setInt32(28,1000,true); dv.setInt32(32,5,true);
+    all.forEach((v,i)=>dv.setFloat64(36+8*i,v,true));
+  };
+  header(shp,total); header(shx,100+8*recs.length);
+  let o = 100;
+  recs.forEach((r,i) => {
+    shx.setInt32(100+8*i, o/2, false); shx.setInt32(104+8*i, r.len/2, false);
+    shp.setInt32(o, i+1, false); shp.setInt32(o+4, r.len/2, false); o += 8;
+    shp.setInt32(o,5,true); r.bb.forEach((v,k)=>shp.setFloat64(o+4+8*k,v,true));
+    shp.setInt32(o+36, r.rings.length, true); shp.setInt32(o+40, r.np, true);
+    let p = o+44, idx = 0;
+    r.rings.forEach(ring => { shp.setInt32(p, idx, true); p+=4; idx+=ring.length; });
+    r.rings.forEach(ring => ring.forEach(([x,y]) => { shp.setFloat64(p,x,true); shp.setFloat64(p+8,y,true); p+=16; }));
+    o = p;
+  });
+  return { shp: shp.buffer, shx: shx.buffer };
+}
+function writeDbf(fields, rows){
+  const recLen = 1 + fields.reduce((s,f)=>s+f.len,0), hdrLen = 32 + 32*fields.length + 1;
+  const buf = new Uint8Array(hdrLen + recLen*rows.length + 1); const dv = new DataView(buf.buffer);
+  const d = new Date(); buf[0]=3; buf[1]=d.getFullYear()-1900; buf[2]=d.getMonth()+1; buf[3]=d.getDate();
+  dv.setUint32(4, rows.length, true); dv.setUint16(8, hdrLen, true); dv.setUint16(10, recLen, true);
+  fields.forEach((f,i) => { const b=32+32*i; for(let k=0;k<f.name.length;k++) buf[b+k]=f.name.charCodeAt(k); buf[b+11]=f.type.charCodeAt(0); buf[b+16]=f.len; buf[b+17]=f.dec||0; });
+  buf[hdrLen-1] = 0x0D;
+  rows.forEach((row,r) => {
+    let p = hdrLen + r*recLen; buf[p++] = 0x20;
+    fields.forEach(f => {
+      let s = f.type==="N" ? Number(row[f.name]).toFixed(f.dec||0).padStart(f.len," ") : ascii(row[f.name]??"").slice(0,f.len).padEnd(f.len," ");
+      s = s.slice(-f.len);
+      for (let k=0;k<f.len;k++) buf[p++] = s.charCodeAt(k);
+    });
+  });
+  buf[buf.length-1] = 0x1A;
+  return buf.buffer;
+}
+const PRJ = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
+$("bExport").addEventListener("click", async () => {
+  stopEdit();
+  const c = lastCalc || compute();
+  const parts = (c.base?[c.base]:[]).concat(c.zones).filter(p=>p.geom && p.ha>0);
+  if (!parts.length){ toast("Nichts zu exportieren – zuerst Feldgrenze oder Zonen zeichnen."); return; }
+  const koe = S.einheit==="Kö/m²" && $("cKoe").checked;
+  const factor = koe ? 10000 : 1, unit = koe ? "Koe/ha" : ascii(S.einheit);
+  const fields = [ {name:"RATE",type:"N",len:14,dec:2}, {name:"ZONE",type:"C",len:30}, {name:"PRODUKT",type:"C",len:40}, {name:"EINHEIT",type:"C",len:10}, {name:"FLAECHE_HA",type:"N",len:12,dec:4} ];
+  const rows = parts.map(p => ({ RATE:p.rate*factor, ZONE:p.name, PRODUKT:S.produkt||S.arbeit, EINHEIT:unit, FLAECHE_HA:p.ha }));
+  const { shp, shx } = writeShp(parts.map(p=>({ geom:p.geom.geometry || p.geom })));
+  const base = fileBase(), zip = new JSZip();
+  zip.file(base+".shp", shp); zip.file(base+".shx", shx); zip.file(base+".dbf", writeDbf(fields, rows)); zip.file(base+".prj", PRJ); zip.file(base+".cpg", "ASCII");
+  download(base+".zip", await zip.generateAsync({ type:"blob" }));
+  toast(`Exportiert: ${base}.zip (${parts.length} Zonen)`);
+});
+
+/* ---------- Ortssuche (geo.admin.ch) ---------- */
+let sT;
+$("search").addEventListener("input", e => {
+  clearTimeout(sT); const q = e.target.value.trim();
+  if (q.length<3){ $("results").hidden = true; return; }
+  sT = setTimeout(async () => {
+    try {
+      const r = await fetch(`https://api3.geo.admin.ch/rest/services/api/SearchServer?searchText=${encodeURIComponent(q)}&type=locations&sr=4326&limit=8`);
+      const j = await r.json(); const box = $("results"); box.innerHTML = "";
+      (j.results||[]).forEach(x => {
+        const b = document.createElement("button");
+        b.textContent = x.attrs.label.replace(/<[^>]+>/g,"");
+        b.addEventListener("click", () => { map.setView([x.attrs.lat, x.attrs.lon], x.attrs.origin==="parcel"?18:17); box.hidden = true; });
+        box.appendChild(b);
+      });
+      box.hidden = !box.children.length;
+    } catch(err){ $("results").hidden = true; }
+  }, 280);
+});
+$("search").addEventListener("keydown", e => { if (e.key==="Enter"){ const b=$("results").querySelector("button"); if(b) b.click(); } });
+
+/* ---------- Start ---------- */
+fillProj();
+(() => {
+  const q = new URLSearchParams(location.search), aid = q.get("auftrag"), kid = q.get("karte");
+  const open = p => { loadState(p.state); toast("Geöffnet: "+projName(p.state)); };
+  if (q.has("neu")){ localStorage.removeItem(LS_D); syncForm(); fillLists(); render(); return; }
+  if (kid){ const p = IMV.maps().find(p=>p.id===kid); if (p){ open(p); return; } toast("Diese Karte gibt es nicht mehr."); }
+  if (aid){
+    const ex = IMV.maps().filter(p=>p.auftrag===aid).sort((a,b)=>String(b.saved).localeCompare(String(a.saved)))[0];
+    if (ex){ open(ex); return; }
+    const a = IMV.all("auftraege").find(x=>x.id===aid);
+    if (a){
+      const k = IMV.all("kunden").find(x=>x.id===a.kunde), f = a.kfeld ? IMV.all("felder").find(x=>x.id===a.kfeld) : null;
+      const art = /spritz|pflanzenschutz/i.test(a.arbeit||"") ? "PS" : /s[äa]e|saat/i.test(a.arbeit||"") ? "Saat" : "Duengung";
+      const pr = (a.produkte||[]).find(p=>p && p.name);
+      // Pflanzenschutz: Grundrate = Brühmenge l/ha des Auftrags (Mittel in der Karte als Produktname); Düngung: Menge des ersten Produkts, falls kg oder l
+      const st = Object.assign(blank(), { auftrag:a.id, kid:a.kunde||"", fid:f?f.id:"", kunde:k?k.name:"", feld:(f&&f.name)||a.feld||"", arbeit:art, einheit:UNITS[art][0], grundrate:DEF_RATE[art], produkt:pr?pr.name:"" });
+      if (art==="PS"){ st.einheit = "l/ha"; if (a.wasser!=null) st.grundrate = a.wasser; st.produkt = (a.produkte||[]).filter(p=>p&&p.name).map(p=>p.name).join(" + ").slice(0,40) || "Spritzbrühe"; }
+      else if (art==="Duengung" && pr && pr.menge!=null){ const u = (pr.einheit||"").toLowerCase(); if (u==="kg"||u==="l"){ st.grundrate = pr.menge; st.einheit = u+"/ha"; } }
+      loadState(st, false); toast("Neue Karte zum Auftrag "+(a.nr||"")+" – Feldgrenze laden oder zeichnen"); return;
+    }
+  }
+  const draft = lsGet(LS_D);
+  if (draft && (draft.field || (draft.zones && draft.zones.length) || draft.feld)) loadState(draft);
+  else { syncForm(); fillLists(); render(); }
+})();
+addEventListener("storage", e => { if (e.key==="lp_data"){ fillProj(); fillLists(); } });
+</script>
+</body>
+</html>

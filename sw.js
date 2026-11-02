@@ -1,6 +1,6 @@
 // Service Worker: App offline verfügbar machen (Netz zuerst, sonst Zwischenspeicher)
-const CACHE = 'lohnarbeit-v108';
-const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'kulturen.js', 'betrieb.js', 'config.js', 'manifest.webmanifest',
+const CACHE = 'lohnarbeit-v109';
+const FILES = ['./', 'index.html', 'karte.html', 'styles.css', 'app.js', 'kulturen.js', 'betrieb.js', 'config.js', 'manifest.webmanifest',
   'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'logo.jpg'];
 // einzeln laden: fehlt eine Datei, wird der Rest trotzdem offline verfügbar
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => Promise.all(FILES.map(f => c.add(f).catch(() => null))))); self.skipWaiting(); });
