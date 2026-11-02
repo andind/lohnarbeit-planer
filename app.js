@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '105', APP_STAND = '02.11.2026';
+const APP_VERSION = '106', APP_STAND = '02.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -666,6 +666,7 @@ const App = {
     $('#content').innerHTML = v.content();
     vzApply();
     if (v.after) v.after();
+    stickyUpd();
     renderSelbar();
     hdrUpdate();
     Sync.setState();
@@ -1744,6 +1745,23 @@ document.addEventListener('keydown', e => {
   document.addEventListener('touchend', end); document.addEventListener('touchcancel', end);
   ['gesturestart', 'gesturechange'].forEach(n => document.addEventListener(n, e => e.preventDefault()));
 })();
+
+/* ================= Kopfzeilen auch beim Scrollen der Seite sichtbar =================
+   Kalender (.cal) und Datentabellen (.dscroll) scrollen in einem eigenen Rahmen; die Kopfzeile klebt darin oben (sticky).
+   Scrollt dagegen die Seite (z.B. Woche, wenn der Kalender fast ganz Platz hat), rutscht der Rahmen unter die Titelleiste:
+   --sty schiebt die Kopfzeile um den verdeckten Teil nach unten, damit sie direkt unter der Titelleiste bleibt. */
+function stickyUpd() {
+  const top = $('.top'), tb = top ? top.getBoundingClientRect().bottom : 0, uz = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+  $$('.cal, .dscroll').forEach(el => {
+    const r = el.getBoundingClientRect(), hid = Math.max(0, Math.min(tb - r.top, r.height - 80));
+    const z = el.classList.contains('cal') ? (el.querySelector(':scope > .pgrid') ? App.zoom : 1) : (App.view === 'plan' ? 1 : vzGet());
+    const v = hid > 0 ? hid / (z * uz) : 0;
+    if (v) el.style.setProperty('--sty', v + 'px'); else el.style.removeProperty('--sty');
+  });
+}
+let _stRaf = 0;
+addEventListener('scroll', () => { if (!_stRaf) _stRaf = requestAnimationFrame(() => { _stRaf = 0; stickyUpd(); }); }, { passive: true });
+addEventListener('resize', () => stickyUpd());
 
 /* ================= Mehrfachauswahl ================= */
 function toggleSel(id) { if (App.sel.has(id)) App.sel.delete(id); else App.sel.add(id); App.render(); }
