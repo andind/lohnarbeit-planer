@@ -70,4 +70,5 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
   Scrollt die Seite statt des Rahmens, hält `stickyUpd` (setzt `--sty`) die Kopfzeilen direkt unter der Titelleiste (v106, v.a. Wochenansicht).
 - Flächen in Bericht und Abrechnung **nie aus Feldgrenzen**: JD-Fläche nur Maschine oder Bedeckungskarte (NAS `setFlaeche`, App `jdbRow`);
   Auftragsfläche gleich Feldfläche/Vermessung (`haAusGrenze`) zählt in der Abrechnung nicht (Spalte «ha Auftrag» durchgestrichen in Klammern).
+  Gilt auch für Spritzen › Abrechnung (`billing`): dort Fläche aus MyJohnDeere (`spJdHa`, Zuordnung wie Verwaltung › Abrechnung), sonst 0 ha mit ⚠ (nicht im Ausdruck).
 - Ausdrucke Kunden: Logo mit Adresse; Ausdrucke Eigener Betrieb: Betriebsadresse statt Logo.
