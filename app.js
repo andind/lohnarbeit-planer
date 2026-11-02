@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '110', APP_STAND = '02.11.2026';
+const APP_VERSION = '112', APP_STAND = '02.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -2545,31 +2545,22 @@ function journalEdit(el) {
   el.classList.add('saved'); setTimeout(() => el.classList.remove('saved'), 900);
 }
 
-// Fläche aus MyJohnDeere (Maschine oder Bedeckungskarte) zum Auftrag – gleiche Zuordnung wie Verwaltung › Abrechnung
-function spJdHa() {
-  if (!App.jdb.rows) jdbFromCache();
-  const m = new Map(); if (!App.jdb.rows) return m;
-  try { abRows().forEach(r => { if (r.oid && r.haJ != null) m.set(r.oid, r.haJ); }); } catch (e) { console.warn(e); }
-  return m;
-}
 // Abrechnung: gegliedert nach Erntejahr, Kultur und Parzelle, ohne Preisherleitung.
-// Keine Flächen aus Feldgrenzen: stammt die Auftragsfläche aus einer Vermessung, gilt die Fläche aus MyJohnDeere, sonst 0 ha (markiert).
+// Fläche = Fläche aus dem Auftrag (effektiv gemeldet, sonst geplant) – keine Fläche aus Feldgrenzen oder MyJohnDeere (v112).
 function billing(kid, von, bis, mitGeplant) {
   const k = Store.get('kunden', kid) || {};
   const preisHa = (k.preisSpritze || 0) + (k.preisFahrer || 0) + (k.preisTraktor || 0), zu = k.zuschlag || 0;
   const f = billFilter({ av: von, ab: bis, ag: mitGeplant });
   const orders = sprayOrders().filter(a => a.kunde === kid && dOf(a) && f(a)).sort(byKulturParz);
-  let tA = 0, tM = 0, jha = null;
+  let tA = 0, tM = 0;
   const rows = orders.map(a => {
-    const fl0 = flOf(a), grz = haAusGrenze(a, fl0);
-    if (grz && !jha) jha = spJdHa();
-    const flJ = grz ? jha.get(a.id) ?? null : null, fl = grz ? (flJ ?? 0) : fl0, arbeit = round05(fl * preisHa);
+    const fl = flOf(a), arbeit = round05(fl * preisHa);
     const mittel = prodList(a).map(p => {
       const pr = prodAt(prodOf(p), dOf(a)) || {}, preis = pr.preis || 0, preisZ = round05(preis * zu + preis), menge = (p.menge || 0) * fl, betrag = round05(menge * preisZ);
       return { name: p.name, zulassung: pr.zulassung || '', mengeHa: p.menge, einheit: p.einheit || pr.einheit || '', menge, preis, preisZ, betrag };
     });
     const m = mittel.reduce((s, x) => s + x.betrag, 0); tA += arbeit; tM += m;
-    return { a, fl, flGrz: grz ? fl0 : null, flJ, arbeit, mittel, mittelTot: m };
+    return { a, fl, arbeit, mittel, mittelTot: m };
   });
   return { k, preisHa, zu, rows, tA, tM, total: tA + tM };
 }
@@ -2581,7 +2572,7 @@ function billingHtml(b, von, bis) {
   const sum = rs => rs.reduce((s, r) => s + r.arbeit + r.mittelTot, 0);
   const fl = rs => fmtNum(r2(rs.reduce((s, r) => s + r.fl, 0)));
   const jobRows = r => `<tr class="job click" data-act="editOrder" data-id="${r.a.id}"><td>${fmtDate(dOf(r.a), { day: '2-digit', month: '2-digit', year: '2-digit' })}</td><td>Arbeit Spritzen</td><td></td>
-      <td></td><td class="n">${fmtNum(r.fl)} ha${r.flGrz != null ? `<span class="noprint ${r.flJ != null ? 'nr' : 'abdiff'}" title="${r.flJ != null ? `Fläche aus MyJohnDeere – die Auftragsfläche ${fmtNum(r.flGrz)} ha stammt aus der Feldgrenze` : `Auftragsfläche ${fmtNum(r.flGrz)} ha stammt aus der Feldgrenze und wird nicht verwendet; keine Fläche aus MyJohnDeere – effektive Fläche im Auftrag eintragen`}"> ${r.flJ != null ? 'JD' : '⚠'}</span>` : ''}</td><td class="n">${chf(b.preisHa)}</td><td class="n"><b>${chf(r.arbeit)}</b></td></tr>
+      <td></td><td class="n">${fmtNum(r.fl)} ha</td><td class="n">${chf(b.preisHa)}</td><td class="n"><b>${chf(r.arbeit)}</b></td></tr>
     ${r.mittel.map(m => `<tr class="mit click" data-act="editOrder" data-id="${r.a.id}"><td></td><td>${esc(m.name)}</td><td class="nr">${esc(m.zulassung)}</td><td class="n">${m.mengeHa != null ? fmtNum(m.mengeHa) + ' ' + esc(m.einheit) : ''}</td><td class="n">${fmtNum(r2(m.menge))} ${esc(m.einheit)}</td><td class="n">${chf(m.preisZ)}</td><td class="n">${chf(m.betrag)}</td></tr>`).join('')}`;
   const head = `<thead><tr><th>Datum</th><th>Position</th><th>Zulassung</th><th class="n">Menge/ha</th><th class="n">Menge</th><th class="n">Ansatz</th><th class="n">Betrag CHF</th></tr></thead>`;
   const body = groupBy(b.rows, r => ernteOf(r.a) || '').map(([j, jr]) => `<section class="jblk">
@@ -2617,9 +2608,7 @@ function abrechnungContent() {
   }
   const b = billing(S.ak, S.av, S.ab, S.ag);
   const offen = b.rows.filter(r => statusOf(r.a) === 'erledigt').length;
-  const nG = b.rows.filter(r => r.flGrz != null), nGo = nG.filter(r => r.flJ == null).length;
   return head + `${!b.preisHa ? '<p class="hintp panel">Für diesen Kunden sind keine Spritzpreise erfasst – unter <b>Kunden</b> ergänzen.</p>' : ''}
-    ${nG.length ? `<p class="hintp panel">${nG.length} ${nG.length === 1 ? 'Auftrag hat' : 'Aufträge haben'} eine Fläche aus der Feldgrenze – sie wird nicht verwendet. ${nG.length - nGo ? `${nG.length - nGo} mit Fläche aus MyJohnDeere (JD)` : ''}${nG.length - nGo && nGo ? ', ' : ''}${nGo ? `<b>${nGo} ohne Fläche (⚠, 0 ha)</b> – effektive Fläche im Auftrag eintragen` : ''}.</p>` : ''}
     <p class="nr">Zeile antippen, um den Auftrag zu bearbeiten.</p>
     <div class="panel">${billingHtml(b, S.av, S.ab)}
     <div class="btns"><button class="btn primary" data-act="spBillPrint">Drucken / PDF</button><button class="btn" data-act="spBillCsv">CSV</button>
