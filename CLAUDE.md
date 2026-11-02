@@ -9,9 +9,9 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
 - Hosting: GitHub Pages aus `andind/lohnarbeit-planer` (Branch `main`).
 - Daten: lokal im Browser (`localStorage` `lp_data`) + Abgleich mit Dropbox (`/planung.json` im App-Ordner, OAuth PKCE ohne Server).
 - `config.js` enthält den Dropbox App key – bei Updates **nicht überschreiben**.
-- NAS-Dienst **jd-sync** (Synology, Docker, Node 20) liegt in `nas-dienst/jd-sync/` (seit 01.11.2026, Version 52):
+- NAS-Dienst **jd-sync** (Synology, Docker, Node 20) liegt in `nas-dienst/jd-sync/` (seit 01.11.2026, Version 53):
   gleicht MyJohnDeere ab und schreibt `jd-sync.json` (Kunden, Felder, Vermessungen) und `jd-arbeiten.json`
-  (Arbeitsgänge) in den Dropbox-Ordner; Anfrage über `jd-sync-request.json`. Mindestversion im IM-Verwalter: `NAS_MIN = '49'`.
+  (Arbeitsgänge) in den Dropbox-Ordner, ab v53 auch `jd-grenzen.json` (Umriss der aktiven Feldgrenze je Feld als GeoJSON, `felder[feldId].geo`, für die Applikationskarte); Anfrage über `jd-sync-request.json`. Mindestversion im IM-Verwalter: `NAS_MIN = '49'`.
   Version in `app/server.js` (`VERSION`, `STAND`). Zugangsdaten (Client-ID/Secret, Tokens) liegen nur auf dem NAS in `data/` –
   **nie Zugangsdaten ins Repository** (öffentlich). Andreas kopiert den Ordner `jd-sync` selbst aufs NAS.
 - Wöchentliche Aufgabe «IM-Verwalter Wochenabschluss» (So 19:33): führt die Docs «Entstehungsgeschichte» und
@@ -24,7 +24,7 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
 | `betrieb.js` | Modul «Eigener Betrieb» (Fruchtfolge, Zwischenfrüchte, Düngung, Bodenproben, Stammdaten) |
 | `kulturen.js` | zentrale Kulturliste mit zwei Ebenen (Oberbegriff / genaue Kultur), Assistent «Kulturen ordnen» |
 | `index.html`, `styles.css`, `sw.js`, `manifest.webmanifest`, Icons, `logo.jpg` (Briefkopf) | |
-| `karte.html` | Applikationskarte (eigene Seite, v1.2 mit Vorgewende (Breite m, eigene Rate, Vorrang vor Zonen), aus Andreas' Tool «Applikationskarte» v1.0): Zonen zeichnen, Shapefile-Export für JD. **Ausnahme**: nutzt Leaflet, Geoman, Turf, shpjs, JSZip von unpkg. Liest/schreibt `lp_data` (gleiche Adresse), Karten in «einstellungen» `rx-…` (`auftrag`, `state`), setzt `lp_dirty`; App gleicht über Dropbox ab. Aufruf: `karte.html?auftrag=ID`, `?karte=rx-…`, `?neu=1`. |
+| `karte.html` | Applikationskarte (eigene Seite, v1.3: Vorgewende (Breite m, eigene Rate, Vorrang vor Zonen), Feldgrenze «Aus MyJohnDeere» aus `jd-grenzen.json` über das Dropbox-Token `lp_tok` des IM-Verwalters (lädt `config.js`), aus Andreas' Tool «Applikationskarte» v1.0): Zonen zeichnen, Shapefile-Export für JD. **Ausnahme**: nutzt Leaflet, Geoman, Turf, shpjs, JSZip von unpkg. Liest/schreibt `lp_data` (gleiche Adresse), Karten in «einstellungen» `rx-…` (`auftrag`, `state`), setzt `lp_dirty`; App gleicht über Dropbox ab. Aufruf: `karte.html?auftrag=ID`, `?karte=rx-…`, `?neu=1`. |
 
 ## Bei jedem Update
 1. Version erhöhen: `APP_VERSION` + `APP_STAND` in `app.js` **und** `CACHE = 'lohnarbeit-vNN'` in `sw.js`.

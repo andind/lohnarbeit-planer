@@ -123,6 +123,7 @@ Abschnitt **Datensicherung** (Standard: täglich um 00:00):
 
 ## Wartung
 
+- **Feldgrenzen-Umrisse** (ab Version 53): der Umriss der aktiven Feldgrenze jedes Feldes wird als `jd-grenzen.json` in den Dropbox-Ordner gelegt. Die Applikationskarte im IM-Verwalter lädt daraus die Feldgrenze direkt. Beim ersten Abgleich nach dem Update werden alle Feldgrenzen einmal neu abgefragt (dauert länger).
 - **Version:** steht oben auf der Seite von jd-sync (z.B. «Version 52 · Datum») und beim Start im Protokoll; der IM-Verwalter zeigt sie unter *Mehr › Version*.
 - **Aktualisieren:** neue `server.js` in `docker/jd-sync/app` kopieren, im Container Manager das Projekt neu starten.
 - **Update auf die Version mit Flächen-Quelle (Bedeckungskarte):** der erste Abgleich danach holt einmal alle Arbeitsgänge neu und fragt die Bedeckungskarten ab – das kann einige Minuten dauern. Für die Maschinennamen einmal neu bei John Deere anmelden.

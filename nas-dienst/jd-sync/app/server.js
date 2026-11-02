@@ -6,7 +6,7 @@
    Dazu: tägliche Datensicherung der IM-Verwalter-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '52', STAND = '01.11.2026'; // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
+const VERSION = '53', STAND = '02.11.2026'; // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -190,25 +190,38 @@ async function readJohnDeere() {
   // 6) Feldgrenzen (Vermessungen): alle mit Name und Fläche; Fläche des Feldes = aktive Grenze.
   //    Die Liste wird pro Feld zwischengespeichert (data/grenzen.json) und höchstens alle 3 Tage neu geholt.
   const gCache = load('grenzen.json', {}), gAlt = 3 * 864e5, now = Date.now(); let gNeu = 0;
-  const gOf = b => ({ name: String(b.name || '').trim(), ha: areaHa(b.area), bha: areaHa(b.workableArea), aktiv: !!b.active, archiviert: !!b.archived,
+  // Umriss (GeoJSON MultiPolygon, WGS84, 6 Nachkommastellen ≈ 0.1 m) – nur für aktive Grenzen, für die Applikationskarte
+  const r6 = x => Math.round(x * 1e6) / 1e6;
+  const geoOf = b => {
+    const mp = b && (b.multipolygons || b.multiPolygons); if (!Array.isArray(mp)) return null;
+    const polys = [];
+    mp.forEach(m => (m && m.rings || []).forEach(r => {
+      const c = (r.points || []).map(p => [r6(+p.lon), r6(+p.lat)]).filter(x => isFinite(x[0]) && isFinite(x[1])); if (c.length < 3) return;
+      if (c[0][0] !== c[c.length - 1][0] || c[0][1] !== c[c.length - 1][1]) c.push(c[0].slice());
+      if (/interior/i.test(r.type || '')) { if (polys.length) polys[polys.length - 1].push(c); } else polys.push([c]);
+    }));
+    return polys.length ? { type: 'MultiPolygon', coordinates: polys } : null;
+  };
+  const gOf = b => ({ name: String(b.name || '').trim(), geo: b.active ? geoOf(b) || undefined : undefined, ha: areaHa(b.area), bha: areaHa(b.workableArea), aktiv: !!b.active, archiviert: !!b.archived,
     quelle: b.sourceType || b.source || '', signal: b.signalType || (b.signal && (b.signal.type || b.signal)) || '', erstellt: b.createdTime || b.creationTime || b.createdDate || b.dateCreated || '',
     geaendert: b.modifiedTime || b.lastModifiedTime || b.lastModified || b.createdTime || '' });
   await pool(fields, 4, async f => {
     let b = null, list = null;
     const c = gCache[f.id];
-    if (c && c.v >= 4 && now - Date.parse(c.at) < gAlt) list = c.list; // v4: alle Grenzen (recordFilter=all), mit Erstellungsdatum und Signaltyp
+    if (c && c.v >= 5 && now - Date.parse(c.at) < gAlt) list = c.list; // v4: alle Grenzen (recordFilter=all), mit Erstellungsdatum und Signaltyp; v5: Umriss der aktiven Grenze
     else {
       const bu = link(f.raw, 'boundaries') || `/organizations/${org}/fields/${encodeURIComponent(f.id)}/boundaries`;
       // recordFilter=all: auch nicht aktive / archivierte Grenzen (Standard bei John Deere wäre nur «active»)
       const buAll = bu + (bu.includes('?') ? '&' : '?') + 'recordFilter=all';
       try { let bs; try { bs = await jdAll(buAll, true); } catch (e) { if (e.status !== 400) throw e; bs = await jdAll(bu); }
-        list = bs.map(gOf); gCache[f.id] = { v: 4, at: new Date().toISOString(), list }; gNeu++; diag.boundary = diag.boundary || sample(bs[0]); }
+        list = bs.map(gOf); gCache[f.id] = { v: 5, at: new Date().toISOString(), list }; gNeu++; diag.boundary = diag.boundary || sample(bs[0]); }
       catch (e) { if (e.status !== 403 && e.status !== 404) throw e; list = c ? c.list : null; }
     }
     const emb = f.raw.activeBoundary || embedded(f.raw, 'boundaries').find(x => x.active);
     if (emb) b = gOf(emb); else if (list) b = list.find(x => x.aktiv) || (list.length === 1 ? list[0] : null);
     f.flaeche = b ? (b.ha ?? b.bha ?? null) : null;
     f.grenzen = list || (b ? [b] : []);
+    f.geo = (b && b.geo) || ((list || []).find(x => x.aktiv && x.geo) || {}).geo || null;
   });
   save('grenzen.json', gCache);
   if (gNeu) log(`Feldgrenzen: ${gNeu} Felder neu abgefragt`);
@@ -232,6 +245,7 @@ async function readJohnDeere() {
     format: 'jd-sync', v: 1, dienst: VERSION, stand: new Date().toISOString(), org: { id: org, name: cfg.orgName }, kundenEbene: ebene,
     ...out,
     fields: fields.filter(f => known.has(outF(f).client)).map(outF),
+    _grenzen: Object.fromEntries(fields.filter(f => f.geo && known.has(outF(f).client)).map(f => [f.id, { name: f.name, geo: f.geo }])),
     _requests: reqCount
   };
 }
@@ -671,8 +685,12 @@ async function runSync(reason) {
   try {
     const d = await readJohnDeere();
     const n = d._requests; delete d._requests;
+    const grz = d._grenzen || {}; delete d._grenzen; // Umrisse separat (jd-grenzen.json), damit jd-sync.json klein bleibt
     plausibel(d);
     await dbxUpload(cfg.syncPath, JSON.stringify(d));
+    try { await dbxUpload(cfg.grenzenPath || '/jd-grenzen.json', JSON.stringify({ format: 'jd-grenzen', v: 1, dienst: VERSION, stand: new Date().toISOString(), felder: grz }));
+      log(`Feldgrenzen-Umrisse: ${Object.keys(grz).length} Felder in jd-grenzen.json (für die Applikationskarte)`); }
+    catch (e) { log('Feldgrenzen-Umrisse nicht gespeichert: ' + e.message); }
     st.lastOk = { at: new Date().toISOString(), ebene: d.kundenEbene, clients: d.clients.length, fields: d.fields.length, withArea: d.fields.filter(f => f.flaeche != null).length };
     log(`Abgleich fertig: ${d.clients.length} Kunden (${d.kundenEbene === 'farms' ? 'Betriebe' : 'Mandanten'}), ${d.fields.length} Felder (${st.lastOk.withArea} mit Fläche) · ${n} Abfragen · ${Math.round((Date.now() - t0) / 1000)} s`);
     st.last = { at: new Date().toISOString(), ok: true };
