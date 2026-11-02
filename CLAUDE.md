@@ -70,10 +70,11 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
   `thead th` sticky); Planung-Kalender/Zeitachsen hatten das schon (`.cal`). Neue grosse Datentabellen ebenfalls in `.dscroll` legen.
   Scrollt die Seite statt des Rahmens, hält `stickyUpd` (setzt `--sty`) die Kopfzeilen direkt unter der Titelleiste (v106, v.a. Wochenansicht).
 - Flächen in Bericht und Abrechnung **nie aus Feldgrenzen**: JD-Fläche nur Maschine oder Bedeckungskarte (NAS `setFlaeche`, App `jdbRow`);
-  Verwaltung › Abrechnung (`abRow`, seit v114) **ohne jeden Vergleich mit Feldgrenzen**: Fläche = 1. effektive Fläche mit Häkchen «genau»,
-  2. Fläche aus dem Bericht (JD), 3. Fläche aus dem Auftrag (effektiv, sonst geplant); `haQ` = Herkunft (Tooltip, CSV-Spalte «Fläche Herkunft»). `haAusGrenze` entfernt.
+  Verwaltung › Abrechnung (`abRow`, seit v114/v115) **ohne jeden Vergleich mit Feldgrenzen**: Fläche = 1. effektive Fläche (`flaecheEff`, ✓),
+  2. Fläche aus dem Bericht (JD), 3. geplante Fläche aus dem Auftrag; `haQ` = eff/jd/geplant (Tooltip, CSV-Spalte «Fläche Herkunft»). `haAusGrenze` entfernt.
   Spritzen › Abrechnung (`billing`) dagegen: immer die Fläche aus dem Auftrag (`flOf`: effektiv, sonst geplant) – v108 (JD-Fläche/0 ha) in v112 auf Wunsch zurückgenommen.
-- Fertigmeldung (`doneDialog`): Feld änderbar (nur Felder des Kunden, Kunde fix; `setKfeld` leert den Feldtext ausser bei Spritzaufträgen mit Parzelle)
-  und Häkchen «genaue Fläche» (`flaecheGenau`, auch im Auftragsfenster). Genaue Fläche hat in Verwaltung › Abrechnung Vorrang vor JD, markiert mit ✓, CSV-Spalte «Fläche Auftrag genau».
+- Fertigmeldung (`doneDialog`): Feld änderbar (nur Felder des Kunden, Kunde fix; `setKfeld` leert den Feldtext ausser bei Spritzaufträgen mit Parzelle).
+  «Fläche effektiv» standardmässig **leer** (nur eintragen, wenn genau bekannt; leer = Fläche aus dem Bericht), geplante Fläche als Hinweis;
+  Knopf «📐 Feldgrenzen anzeigen» klappt die Vermessungen des gewählten Feldes auf (nur Info, keine Übernahme). Häkchen «genau» (v113) in v115 wieder entfernt.
 - Applikationskarten: Knopf «🗺 Applikationskarte» im Auftrag (Spritzen/Säen/Düngen oder vorhandene Karte; speichert den Auftrag und wechselt im selben Fenster – wegen iPhone-App-Speicher), Liste unter Mehr › Einstellungen.
 - Ausdrucke Kunden: Logo mit Adresse; Ausdrucke Eigener Betrieb: Betriebsadresse statt Logo.

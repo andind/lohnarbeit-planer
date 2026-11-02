@@ -1252,6 +1252,6 @@ body.fsmode #selbar { left: 12px; }
 /* Kopfzeilen bleiben unter der Titelleiste, auch wenn die Seite scrollt (--sty aus stickyUpd) */
 .cal .g-head, .cal .g-corner, .cal .tl-corner, .cal .tl-head:not(.tlh-m), .cal .tlh-axis, .dscroll > table > thead th { top: var(--sty, 0px) !important; }
 @media print { .noprint { display: none !important; } }
-.fld .tog.genau { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
-.fld .tog.genau input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+.fld .dngrzbtn { margin-top: 6px; align-self: flex-start; }
+.dngrz { margin: -4px 0 12px; max-height: 40vh; overflow: auto; }
 .genaum { color: var(--s-erledigt, #2f7d32); font-weight: 700; }

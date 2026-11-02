@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '114', APP_STAND = '02.11.2026';
+const APP_VERSION = '115', APP_STAND = '02.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1254,7 +1254,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
       <div id="doneBox" ${done ? '' : 'hidden'}>
         <div class="three">
           <label class="fld"><span>Erledigt am</span><input class="input" type="date" name="erledigtAm" value="${a.erledigtAm || ''}"></label>
-          <label class="fld"><span>Fläche eff. (ha)</span><input class="input" name="flaecheEff" inputmode="decimal" value="${a.flaecheEff ?? ''}"><span class="tog genau"><input type="checkbox" name="genau" ${a.flaecheGenau ? 'checked' : ''}> genau</span></label>
+          <label class="fld"><span>Fläche eff. (ha)</span><input class="input" name="flaecheEff" inputmode="decimal" value="${a.flaecheEff ?? ''}" placeholder="${a.flaeche != null ? 'geplant ' + fmtNum(a.flaeche) : ''}"></label>
           <label class="fld"><span>Stunden eff.</span><input class="input" name="stundenEff" inputmode="decimal" value="${a.stundenEff ?? ''}"></label>
         </div></div>
     </div>`}
@@ -1289,7 +1289,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
       if (o.status === 'erledigt' || o.status === 'verrechnet') {
         o.erledigtAm = fd.get('erledigtAm') || o.datum || todayIso(); if (!o.datum) o.datum = o.erledigtAm;
         o.flaecheEff = num(fd.get('flaecheEff')); o.stundenEff = num(fd.get('stundenEff'));
-        o.flaecheGenau = !!fd.get('genau') && o.flaecheEff != null; if (!o.flaecheGenau) delete o.flaecheGenau;
+        delete o.flaecheGenau;
       }
     }
     if (isOpen(o)) o.status = o.datum ? 'geplant' : 'offen';
@@ -1557,12 +1557,14 @@ function doneDialog(id) {
   const fs = Store.all('felder').filter(f => f.kunde === a.kunde && (f.aktiv !== false || f.id === a.kfeld)).sort(byName);
   const body = `
     <p style="margin-top:0"><b>${esc(kundeName(a.kunde))}</b> · ${artKultur(a)}</p>
-    <label class="fld"><span>Feld</span><select class="input" name="kfeld" data-plain><option value="">— kein Feld —</option>${fs.map(f => `<option value="${f.id}" ${f.id === a.kfeld ? 'selected' : ''}>${esc(f.name)}${f.aktiv === false ? ' (archiviert)' : ''}</option>`).join('')}</select>${a.parzelle && a.feld ? `<div class="sub2">Parzelle: ${esc(a.feld)} (bleibt)</div>` : ''}</label>
+    <label class="fld"><span>Feld</span><select class="input" name="kfeld" data-plain><option value="">— kein Feld —</option>${fs.map(f => `<option value="${f.id}" ${f.id === a.kfeld ? 'selected' : ''}>${esc(f.name)}${f.aktiv === false ? ' (archiviert)' : ''}</option>`).join('')}</select>${a.parzelle && a.feld ? `<div class="sub2">Parzelle: ${esc(a.feld)} (bleibt)</div>` : ''}
+      <button type="button" class="btn mini dngrzbtn" data-dn="grz" ${a.kfeld ? '' : 'hidden'}>📐 Feldgrenzen anzeigen</button></label>
+    <div class="dngrz" hidden></div>
     <label class="fld"><span>Erledigt am</span><input class="input" type="date" name="erledigtAm" value="${a.datum && a.datum <= todayIso() ? a.datum : todayIso()}"></label>
     <label class="fld"><span>Maschine</span><select class="input" name="maschine"><option value="">—</option>${ms.map(m => `<option value="${m.id}" ${m.id === a.maschine ? 'selected' : ''}>${esc(m.name)} (pro ${esc(m.einheit)})</option>`).join('')}</select></label>
     <div class="two">
-      <label class="fld"><span>Fläche effektiv (ha)</span><input class="input" name="flaecheEff" inputmode="decimal" value="${a.flaecheEff ?? a.flaeche ?? ''}" autofocus>
-        <span class="tog genau"><input type="checkbox" name="genau" ${a.flaecheGenau ? 'checked' : ''}> genaue Fläche</span></label>
+      <label class="fld"><span>Fläche effektiv (ha)</span><input class="input" name="flaecheEff" inputmode="decimal" value="${a.flaecheEff ?? ''}" placeholder="leer = Fläche aus dem Bericht" autofocus>
+        <span class="sub2">geplant: ${a.flaeche != null ? fmtNum(a.flaeche) + ' ha' : '–'}</span></label>
       <label class="fld"><span>Stunden effektiv</span><input class="input" name="stundenEff" inputmode="decimal" value="${a.stundenEff ?? dauerOf(a) ?? ''}"></label>
     </div>
     ${rsDoneHtml(a)}
@@ -1570,13 +1572,18 @@ function doneDialog(id) {
   Dlg.open('Erledigt melden', body, saveFooter(), fd => {
     Object.assign(a, { status: 'erledigt', erledigtAm: fd.get('erledigtAm') || todayIso(), maschine: fd.get('maschine'),
       flaecheEff: num(fd.get('flaecheEff')), stundenEff: num(fd.get('stundenEff')), notiz: fd.get('notiz').trim() });
-    a.flaecheGenau = !!fd.get('genau') && a.flaecheEff != null; if (!a.flaecheGenau) delete a.flaecheGenau;
+    delete a.flaecheGenau;
     setKfeld(a, fd.get('kfeld') || '');
     rsDoneRead(fd, a);
     if (!a.datum) a.datum = a.erledigtAm;
     Store.put('auftraege', a); toast('Als erledigt gemeldet'); return true;
   });
   rsDoneWire(Dlg.form);
+  // Feldgrenzen (Vermessungen) des gewählten Feldes ein-/ausklappen – nur zur Information, die Fläche wird nicht übernommen
+  const F = Dlg.form, box = F.querySelector('.dngrz'), btn = F.querySelector('.dngrzbtn');
+  const grzShow = () => { box.innerHTML = grenzenHtml(feldById(F.kfeld.value)); };
+  btn.addEventListener('click', () => { box.hidden = !box.hidden; if (!box.hidden) grzShow(); btn.textContent = box.hidden ? '📐 Feldgrenzen anzeigen' : '📐 Feldgrenzen ausblenden'; });
+  F.kfeld.addEventListener('change', () => { btn.hidden = !F.kfeld.value; if (!F.kfeld.value) box.hidden = true; else if (!box.hidden) grzShow(); });
 }
 
 function listDialog(kind) {
@@ -4102,13 +4109,12 @@ function abRows() {
   return rows;
 }
 // Fläche in der Abrechnung (kein Vergleich mit Feldgrenzen):
-// 1. effektive Fläche im Auftrag mit Häkchen «genau», 2. Fläche aus dem Bericht (MyJohnDeere), 3. Fläche aus dem Auftrag (effektiv, sonst geplant).
-const GENAU_MARK = '<span class="genaum" title="genaue Fläche (bei der Fertigmeldung bestätigt)"> ✓</span>';
+// 1. effektive Fläche (Fertigmeldung), 2. Fläche aus dem Bericht (MyJohnDeere), 3. geplante Fläche aus dem Auftrag.
+const EFF_MARK = '<span class="genaum" title="effektive Fläche (bei der Fertigmeldung eingetragen)"> ✓</span>';
 function abRow(o, j, km) {
   const k = o ? Store.get('kunden', o.kunde) : km.get(abKeyK(j.kunde)) || null;
-  const genau = !!(o && o.flaecheGenau && o.flaecheEff != null);
-  const m = o ? maschine(o.maschine) : null, haP = o ? (o.flaecheEff ?? o.flaeche ?? null) : null, haJ = j ? j.ha : null;
-  const ha = genau ? o.flaecheEff : (haJ ?? haP), haQ = ha == null ? '' : genau ? 'genau' : haJ != null ? 'jd' : 'auftrag';
+  const m = o ? maschine(o.maschine) : null, haE = o ? (o.flaecheEff ?? null) : null, haG = o ? (o.flaeche ?? null) : null, haJ = j ? j.ha : null;
+  const haP = haE ?? haG, ha = haE ?? haJ ?? haG, haQ = ha == null ? '' : haE != null ? 'eff' : haJ != null ? 'jd' : 'geplant';
   // Pflanzenschutzmittel (Stammdaten Spritzen): nur Name, keine Gesamtmenge
   const prodP = o ? prodList(o).map(p => `${p.name}${p.menge != null && !isPsm(p.name) ? ` ${fmtNum(p.menge)} ${p.einheit || prodUnit(p.name)}/ha` : ''}`).join(', ') : '';
   const haC = ha, gesP = o && haC ? prodList(o).filter(p => p.menge != null && !isPsm(p.name)).map(p => `${p.name} ${fmtNum(r2(p.menge * haC))} ${p.einheit || prodUnit(p.name)}`).join(', ') : '';
@@ -4118,7 +4124,7 @@ function abRow(o, j, km) {
   return { id: o ? 'o:' + o.id : 'j:' + j.id, oid: o ? o.id : '', jid: j ? j.id : '', src: o && j ? 'beide' : o ? 'planer' : 'jd', d, start: j ? j.start : '', end: j ? j.end : '',
     dauer: j ? j.dauer : null, std: o ? (o.stundenEff ?? dauerOf(o) ?? null) : null, nr: o ? o.nr || '' : '',
     kunde: k ? k.name : (j ? j.kunde : ''), feld: (o && aFeld(o)) || (j ? j.feld : ''), arbeit: o ? o.arbeit || '' : j.arbeit, kultur: (o && o.kultur) || (j ? j.kultur : ''),
-    haP, genau, haJ, ha, haQ, quelle: j ? j.quelle : '', maschine: (m && m.name) || (j ? j.maschine : ''), fahrer: j ? j.fahrer : '',
+    haP, haE, haG, haJ, ha, haQ, quelle: j ? j.quelle : '', maschine: (m && m.name) || (j ? j.maschine : ''), fahrer: j ? j.fahrer : '',
     produkte: prodP || (j ? [jdbProdTxt(j), j.sorten].filter(Boolean).join(' · ') : ''), gesamt: o ? gesP : (j ? jdbGesTxt(j) : ''), notiz: o ? o.notiz || '' : '', abr, am, link: !!(o && o.jdLink) };
 }
 /* ---------- Filter (Mehrfachauswahl wie im Bericht) ---------- */
@@ -4166,6 +4172,7 @@ function abSelBar(list) {
 }
 /* ---------- Spalten ---------- */
 const abD = d => d ? fmtDate(d, { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
+const AB_HAQ = { eff: 'effektive Fläche (Fertigmeldung)', jd: 'Fläche aus dem Bericht (MyJohnDeere)', geplant: 'geplante Fläche aus dem Auftrag' };
 const AB_COLS = [
   { id: 'datum', l: 'Datum', w: 80, v: r => abD(r.d), csv: r => r.d },
   { id: 'src', l: 'Herkunft', w: 104, v: r => AB_SRC[r.src], html: r => `<span class="absrc absrc-${r.src}" title="${r.src === 'beide' ? 'Auftrag und Arbeitsgang verbunden' + (r.link ? ' (von Hand)' : ' (automatisch)') : ''}">${r.src === 'beide' ? `Planer + JD${r.link ? ' 🔗' : ''}` : r.src === 'planer' ? 'Planer' : 'JD'}</span>` },
@@ -4175,9 +4182,9 @@ const AB_COLS = [
   { id: 'arbeit', l: 'Arbeit', w: 130, v: r => r.arbeit },
   { id: 'kunde', l: 'Kunde', w: 150, v: r => r.kunde },
   { id: 'feld', l: 'Feld', w: 130, v: r => r.feld, html: r => r.feld ? `<span class="fldlink" data-ab="grz" data-id="${esc(r.id)}" title="Vermessungen anzeigen">${esc(r.feld)}</span>` : '' },
-  { id: 'ha', l: 'ha', w: 60, n: 1, v: r => r.ha != null ? fmtNum(r.ha) : '', csv: r => r.ha ?? '', html: r => r.ha == null ? '' : `<span title="${{ genau: 'Fläche aus dem Auftrag (genau)', jd: 'Fläche aus dem Bericht (MyJohnDeere)', auftrag: 'Fläche aus dem Auftrag' }[r.haQ]}">${fmtNum(r.ha)}</span>${r.genau ? GENAU_MARK : ''}` },
+  { id: 'ha', l: 'ha', w: 60, n: 1, v: r => r.ha != null ? fmtNum(r.ha) : '', csv: r => r.ha ?? '', html: r => r.ha == null ? '' : `<span title="${AB_HAQ[r.haQ]}">${fmtNum(r.ha)}</span>${r.haQ === 'eff' ? EFF_MARK : ''}` },
   { id: 'haP', l: 'ha Auftrag', w: 76, n: 1, v: r => r.haP != null ? fmtNum(r.haP) : '', csv: r => r.haP ?? '',
-    html: r => r.haP != null ? `${fmtNum(r.haP)}${r.genau ? GENAU_MARK : ''}` : '' },
+    html: r => r.haE != null ? `${fmtNum(r.haE)}${EFF_MARK}` : r.haG != null ? `<span class="nr" title="geplante Fläche (keine effektive Fläche gemeldet)">${fmtNum(r.haG)} gepl.</span>` : '' },
   { id: 'haJ', l: 'ha JD', w: 66, n: 1, v: r => r.haJ != null ? fmtNum(r.haJ) : '', csv: r => r.haJ ?? '',
     html: r => r.haJ == null ? '' : `<span class="${r.haP != null && Math.abs(r.haJ - r.haP) > Math.max(0.1, r.haP * 0.1) ? 'abdiff' : ''}" title="${r.haP != null ? `Abweichung zum Auftrag: ${fmtNum(r2(r.haJ - r.haP))} ha` : ''}${r.quelle ? ` · Quelle: ${r.quelle}` : ''}">${fmtNum(r.haJ)}</span>` },
   { id: 'std', l: 'Std. Auftrag', w: 82, n: 1, v: r => r.std != null ? fmtNum(r2(r.std)) : '', csv: r => r.std != null ? r2(r.std) : '' },
@@ -4270,8 +4277,8 @@ function abPrint() {
     ${abTable(list, { print: true })}</div>`, { noTitle: true });
 }
 function abCsv() {
-  const rows = [['Datum', 'Herkunft', 'Auftrag-Nr', 'Beginn (JD)', 'Ende (JD)', 'Arbeit', 'Kunde', 'Feld', 'Fläche ha', 'Fläche Herkunft', 'Fläche Auftrag ha', 'Fläche Auftrag genau', 'Fläche JD ha', 'Flächen-Quelle JD', 'Stunden Auftrag', 'Dauer JD h', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Gesamtmenge', 'Bemerkung', 'Abgerechnet', 'Abgerechnet am', 'Auftrag-ID', 'JD-ID']];
-  abList().forEach(r => rows.push([r.d, AB_SRC[r.src], r.nr, jdbDT(r.start), jdbDT(r.end), r.arbeit, r.kunde, r.feld, r.ha ?? '', { genau: 'Auftrag genau', jd: 'Bericht (JD)', auftrag: 'Auftrag' }[r.haQ] || '', r.haP ?? '', r.genau ? 'ja' : '', r.haJ ?? '', r.quelle || '', r.std != null ? r2(r.std) : '', r.dauer != null ? r2(r.dauer) : '', r.maschine, r.fahrer, r.kultur, r.produkte, r.gesamt, r.notiz, r.abr ? 'ja' : 'nein', r.am || '', r.oid, r.jid]));
+  const rows = [['Datum', 'Herkunft', 'Auftrag-Nr', 'Beginn (JD)', 'Ende (JD)', 'Arbeit', 'Kunde', 'Feld', 'Fläche ha', 'Fläche Herkunft', 'Fläche effektiv ha', 'Fläche geplant ha', 'Fläche JD ha', 'Flächen-Quelle JD', 'Stunden Auftrag', 'Dauer JD h', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Gesamtmenge', 'Bemerkung', 'Abgerechnet', 'Abgerechnet am', 'Auftrag-ID', 'JD-ID']];
+  abList().forEach(r => rows.push([r.d, AB_SRC[r.src], r.nr, jdbDT(r.start), jdbDT(r.end), r.arbeit, r.kunde, r.feld, r.ha ?? '', { eff: 'effektiv', jd: 'Bericht (JD)', geplant: 'geplant' }[r.haQ] || '', r.haE ?? '', r.haG ?? '', r.haJ ?? '', r.quelle || '', r.std != null ? r2(r.std) : '', r.dauer != null ? r2(r.dauer) : '', r.maschine, r.fahrer, r.kultur, r.produkte, r.gesamt, r.notiz, r.abr ? 'ja' : 'nein', r.am || '', r.oid, r.jid]));
   const A = App.abr;
   download(`Abrechnung_${A.von || 'alle'}_${A.bis || ''}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }
