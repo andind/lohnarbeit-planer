@@ -97,7 +97,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <div class="app">
 <aside>
   <header class="top">
-    <div><a class="back" href="index.html" title="Zurück zum IM-Verwalter">← IM-Verwalter</a><br><h1 style="display:inline">Applikationskarte</h1><span class="ver">v1.3</span></div>
+    <div><a class="back" href="index.html" title="Zurück zum IM-Verwalter">← IM-Verwalter</a><br><h1 style="display:inline">Applikationskarte</h1><span class="ver">v1.2</span></div>
     <div class="row">
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
       <button id="bSave" title="Im IM-Verwalter speichern (über Dropbox auf allen Geräten)">Speichern</button>
@@ -142,7 +142,6 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <section>
     <h2>Feldgrenze <span id="fieldHa" class="status"></span></h2>
     <div class="row">
-      <button id="bFieldJd" class="pri" title="Feldgrenze des gewählten Feldes aus MyJohnDeere übernehmen (über den IM-Verwalter)">Aus MyJohnDeere</button>
       <button id="bFieldDraw">Zeichnen</button>
       <button id="bFieldLoad">Laden (Shapefile/GeoJSON)</button>
       <input type="file" id="fField" accept=".zip,.geojson,.json" hidden>
@@ -152,7 +151,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
     <div class="row vgrow"><label class="check" style="align-items:center"><input type="checkbox" id="cVg"><span>Vorgewende markieren</span></label>
       <input id="iVgB" type="number" min="1" max="100" step="0.5" style="width:76px" aria-label="Breite Vorgewende in Metern"><span class="status">m breit</span></div>
     <label class="f" id="featPick" hidden>Mehrere Felder in der Datei – welches?<select id="featSel"></select></label>
-    <div class="hint">«Aus MyJohnDeere» übernimmt die aktive Feldgrenze des gewählten Feldes (Kunde und Feld oben aus der Liste wählen; braucht NAS-Dienst ab Version 53). Sonst im Operations Center das Feld als Shapefile (ZIP) exportieren und hier laden. Zonen werden automatisch auf die Feldgrenze zugeschnitten. Das Vorgewende ist ein Streifen der gewählten Breite entlang der Feldgrenze mit eigener Rate (in der Liste unter «Zonen»); es hat Vorrang vor den Zonen.</div>
+    <div class="hint">Feldgrenze aus dem Operations Center: Feld exportieren als Shapefile (ZIP) und hier laden. Zonen werden automatisch auf die Feldgrenze zugeschnitten. Das Vorgewende ist ein Streifen der gewählten Breite entlang der Feldgrenze mit eigener Rate (in der Liste unter «Zonen»); es hat Vorrang vor den Zonen.</div>
   </section>
 
   <section>
@@ -195,7 +194,6 @@ button:disabled{opacity:.45;cursor:not-allowed}
 </div>
 <div class="toast" id="toast"></div>
 
-<script src="config.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.17.0/dist/leaflet-geoman.min.js"></script>
 <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
@@ -203,7 +201,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
 "use strict";
-const VERSION = "1.3";
+const VERSION = "1.2";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -397,7 +395,7 @@ document.querySelectorAll("#segArbeit button").forEach(b => b.addEventListener("
   syncForm(); render();
 }));
 $("iKunde").addEventListener("input", e => { S.kunde = e.target.value; const k = IMV.kunden().find(k=>k.name===S.kunde.trim()); S.kid = k ? k.id : ""; fillLists(); saveDraft(); });
-$("iFeld").addEventListener("input", e => { S.feld = e.target.value; const f = S.kid ? IMV.felder(S.kid).find(f=>f.name===S.feld.trim()) : null; const neu = f && f.id !== S.fid; S.fid = f ? f.id : ""; saveDraft(); if (neu && !S.field) fieldFromJd(true); });
+$("iFeld").addEventListener("input", e => { S.feld = e.target.value; const f = S.kid ? IMV.felder(S.kid).find(f=>f.name===S.feld.trim()) : null; S.fid = f ? f.id : ""; saveDraft(); });
 $("iProdukt").addEventListener("input", e => { S.produkt = e.target.value; render(); });
 $("iEinheit").addEventListener("change", e => { S.einheit = e.target.value; render(); });
 $("iGrund").addEventListener("change", e => { S.grundrate = num(e.target.value); render(); });
@@ -438,43 +436,6 @@ map.on("pm:create", e => {
 $("bFieldDraw").addEventListener("click", () => startDraw("field","Polygon"));
 $("bZonePoly").addEventListener("click", () => startDraw("zone","Polygon"));
 $("bZoneRect").addEventListener("click", () => startDraw("zone","Rectangle"));
-
-/* ---------- Feldgrenze aus MyJohnDeere: jd-grenzen.json (NAS-Dienst) aus dem Dropbox-Ordner des IM-Verwalters ---------- */
-const DBX = {
-  key(){ return (window.APP_CONFIG && window.APP_CONFIG.appKey) || ""; },
-  tok(){ try { return JSON.parse(localStorage.getItem("lp_tok")||"null"); } catch(e){ return null; } },
-  async token(){
-    const t = this.tok(); if (!t) return null;
-    if (t.access && t.exp - 120000 > Date.now()) return t.access;
-    if (!t.refresh || !this.key()) return null;
-    const r = await fetch("https://api.dropboxapi.com/oauth2/token", { method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" },
-      body:new URLSearchParams({ client_id:this.key(), grant_type:"refresh_token", refresh_token:t.refresh }) });
-    if (!r.ok) return null;
-    const j = await r.json();
-    try { localStorage.setItem("lp_tok", JSON.stringify({ access:j.access_token, refresh:j.refresh_token || t.refresh, exp:Date.now() + (j.expires_in||3600)*1000 })); } catch(e){}
-    return j.access_token;
-  },
-  async json(path){
-    const t = await this.token(); if (!t) throw new Error("login");
-    const r = await fetch("https://content.dropboxapi.com/2/files/download", { method:"POST", cache:"no-store", headers:{ Authorization:"Bearer "+t, "Dropbox-API-Arg":JSON.stringify({ path }) } });
-    if (r.status===409) throw new Error("fehlt"); if (!r.ok) throw new Error("Dropbox "+r.status);
-    return r.json();
-  }
-};
-let jdGrz = null; // einmal pro Seitenaufruf geladen
-async function jdGrenzen(){ if (!jdGrz) jdGrz = await DBX.json("/jd-grenzen.json"); return jdGrz; }
-async function fieldFromJd(quiet){
-  if (!S.fid){ if (!quiet) toast("Zuerst oben Kunde und Feld aus der Liste wählen."); return false; }
-  try {
-    const d = await jdGrenzen(), g = d && d.felder && d.felder[S.fid];
-    if (!g || !g.geo){ if (!quiet) toast("Für dieses Feld liefert MyJohnDeere keinen Umriss – Feldgrenze laden oder zeichnen."); return false; }
-    stopEdit(); setField({ type:"Feature", properties:{}, geometry:g.geo }); toast(`Feldgrenze aus MyJohnDeere: ${g.name||S.feld} (${fmt(areaHa(feat(S.field)),2)} ha)`); return true;
-  } catch(e){
-    if (!quiet) toast(e.message==="login" ? "Nicht mit Dropbox verbunden – im IM-Verwalter unter Mehr › Dropbox anmelden." : e.message==="fehlt" ? "Noch keine Feldgrenzen vorhanden – NAS-Dienst auf Version 53 aktualisieren und abgleichen." : "Feldgrenzen konnten nicht geladen werden ("+e.message+").");
-    return false;
-  }
-}
-$("bFieldJd").addEventListener("click", () => fieldFromJd(false));
 
 /* ---------- Feldgrenze ---------- */
 function setField(f, fit=true){
@@ -762,9 +723,7 @@ fillProj();
       const st = Object.assign(blank(), { auftrag:a.id, kid:a.kunde||"", fid:f?f.id:"", kunde:k?k.name:"", feld:(f&&f.name)||a.feld||"", arbeit:art, einheit:UNITS[art][0], grundrate:DEF_RATE[art], produkt:pr?pr.name:"" });
       if (art==="PS"){ st.einheit = "l/ha"; if (a.wasser!=null) st.grundrate = a.wasser; st.produkt = (a.produkte||[]).filter(p=>p&&p.name).map(p=>p.name).join(" + ").slice(0,40) || "Spritzbrühe"; }
       else if (art==="Duengung" && pr && pr.menge!=null){ const u = (pr.einheit||"").toLowerCase(); if (u==="kg"||u==="l"){ st.grundrate = pr.menge; st.einheit = u+"/ha"; } }
-      loadState(st, false); toast("Neue Karte zum Auftrag "+(a.nr||""));
-      if (st.fid) fieldFromJd(true).then(ok => { if (!ok) toast("Neue Karte zum Auftrag "+(a.nr||"")+" – Feldgrenze laden oder zeichnen"); });
-      return;
+      loadState(st, false); toast("Neue Karte zum Auftrag "+(a.nr||"")+" – Feldgrenze laden oder zeichnen"); return;
     }
   }
   const draft = lsGet(LS_D);
