@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '104', APP_STAND = '01.11.2026';
+const APP_VERSION = '105', APP_STAND = '02.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -3058,7 +3058,7 @@ function alContent() {
     <div class="chips static" style="margin-bottom:10px">${sums}</div>
     ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-act="alPrint">Drucken / PDF</button><button class="btn" data-act="alCsv">Excel (CSV)</button></div>
     ${alSelBar(list)}
-    <div class="panel tscroll">${alTable(shown)}</div>
+    <div class="panel tscroll dscroll">${alTable(shown)}</div>
     ${list.length > shown.length ? `<div class="btns" style="margin-top:10px"><button class="btn" data-act="alMore">Weitere ${Math.min(300, list.length - shown.length)} anzeigen</button></div>` : ''}` : '<div class="empty">Keine Aufträge für diese Auswahl.</div>'}`;
 }
 
@@ -3972,10 +3972,10 @@ function jdBerichtView() {
           <button class="btn" data-act="jbReset">Filter zurücksetzen</button></div></div>
         <p><b>${list.length} Arbeitsgänge · ${fmtNum(jdbHaSum(list))} ha</b>${+J.minHa ? (() => { const n = all.filter(jdbFilter({ ...J, minHa: '' })).length - list.length; return n ? ` <span class="nr">· ${n} Kleinstflächen unter ${fmtNum(+J.minHa)} ha ausgeblendet</span>` : ''; })() : ''}${list.length ? ` <span class="nr">· ${list.filter(r => jdbAbr(r.id)).length} abgerechnet, ${list.filter(r => !jdbAbr(r.id)).length} offen</span>` : ''}</p>
         <div class="chips static" style="margin-bottom:10px">${jdbSummary(list)}</div>
-        ${list.length ? `<details class="panel jdbsumbox" ${J.sumOpen ? 'open' : ''}><summary data-act="jbSumToggle">Summen pro Kunde und Arbeit</summary><div class="tscroll" style="margin-top:8px">${J.sumOpen ? jdbSummen(list) : ''}</div>${J.sumOpen ? '<div class="btns" style="margin-top:8px"><button class="btn" data-act="jbSumPrint">Summen drucken / PDF</button></div>' : ''}</details>` : ''}
+        ${list.length ? `<details class="panel jdbsumbox" ${J.sumOpen ? 'open' : ''}><summary data-act="jbSumToggle">Summen pro Kunde und Arbeit</summary><div class="tscroll dscroll" style="margin-top:8px">${J.sumOpen ? jdbSummen(list) : ''}</div>${J.sumOpen ? '<div class="btns" style="margin-top:8px"><button class="btn" data-act="jbSumPrint">Summen drucken / PDF</button></div>' : ''}</details>` : ''}
         ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-act="jbPrint">Drucken / PDF</button><button class="btn" data-act="jbCsv">Excel (CSV)</button><button class="btn" data-act="jbCols">Spalten…</button></div>
         ${jdbSelBar(list)}
-        <div class="panel tscroll">${jdbTable(shown, { all: list })}</div>
+        <div class="panel tscroll dscroll">${jdbTable(shown, { all: list })}</div>
         ${list.length > shown.length ? `<div class="btns" style="margin-top:10px"><button class="btn" data-act="jbMore">Weitere ${Math.min(300, list.length - shown.length)} anzeigen</button></div>` : ''}` : '<div class="empty">Keine Arbeitsgänge für diese Auswahl.</div>'}`;
       if (!J.fs) return inner;
       return `<div class="fsview jdbfs"><div class="fsbar"><b class="lbl jdbfs-t">Daten Operations Center John Deere</b>
@@ -4308,10 +4308,10 @@ function abView() {
           <button class="btn" data-ab="reset">Filter zurücksetzen</button></div></div>
         <p><b>${list.length} Einträge · ${fmtNum(abHaSum(list))} ha</b>${list.length ? ` <span class="nr">· ${list.filter(r => r.abr).length} abgerechnet, ${list.filter(r => !r.abr).length} offen</span>` : ''}</p>
         <div class="chips static" style="margin-bottom:10px">${abSummary(list)}</div>
-        ${list.length ? `<details class="panel jdbsumbox" ${A.sumOpen ? 'open' : ''}><summary data-ab="sumToggle">Summen pro Kunde und Arbeit</summary><div class="tscroll" style="margin-top:8px">${A.sumOpen ? abSummen(list) : ''}</div>${A.sumOpen ? '<div class="btns" style="margin-top:8px"><button class="btn" data-ab="sumPrint">Summen drucken / PDF</button></div>' : ''}</details>` : ''}
+        ${list.length ? `<details class="panel jdbsumbox" ${A.sumOpen ? 'open' : ''}><summary data-ab="sumToggle">Summen pro Kunde und Arbeit</summary><div class="tscroll dscroll" style="margin-top:8px">${A.sumOpen ? abSummen(list) : ''}</div>${A.sumOpen ? '<div class="btns" style="margin-top:8px"><button class="btn" data-ab="sumPrint">Summen drucken / PDF</button></div>' : ''}</details>` : ''}
         ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-ab="print">Drucken / PDF</button><button class="btn" data-ab="csv">Excel (CSV)</button><button class="btn" data-ab="cols">Spalten…</button></div>
         ${abSelBar(list)}
-        <div class="panel tscroll">${abTable(shown, { all: list })}</div>
+        <div class="panel tscroll dscroll">${abTable(shown, { all: list })}</div>
         ${list.length > shown.length ? `<div class="btns" style="margin-top:10px"><button class="btn" data-ab="more">Weitere ${Math.min(300, list.length - shown.length)} anzeigen</button></div>` : ''}` : '<div class="empty">Keine Einträge für diese Auswahl.</div>'}`;
       if (!A.fs) return inner;
       return `<div class="fsview jdbfs"><div class="fsbar"><b class="lbl jdbfs-t">Abrechnung</b>

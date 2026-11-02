@@ -65,4 +65,6 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
 - Zoom: nie das ganze Fenster. Planung zoomt den Kalender (`App.zoom`), alle anderen Ansichten nur die Daten (oberste Tabellen,
   `.rows`, `.list` über `--vz` in styles.css – keine Filterleisten/Knöpfe; `vzSet`, pro Ansicht/Unterreiter in `lp_vz` gemerkt); Titelleiste −/%/+, Ctrl+Mausrad, Ctrl +/−/0, zwei Finger. Viewport `maximum-scale=1`.
 - Vollbild (alle Ansichten): Modulleiste ausgeblendet (`body.fsmode`, gesetzt in `hdrUpdate`).
+- Fixierte Spaltenüberschriften: Tabellen in Aufträge (Liste), Verwaltung (Bericht, Abrechnung, Summen) im Rahmen `.dscroll` (Bildschirmhöhe,
+  `thead th` sticky); Planung-Kalender/Zeitachsen hatten das schon (`.cal`). Neue grosse Datentabellen ebenfalls in `.dscroll` legen.
 - Ausdrucke Kunden: Logo mit Adresse; Ausdrucke Eigener Betrieb: Betriebsadresse statt Logo.

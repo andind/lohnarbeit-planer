@@ -1238,3 +1238,14 @@ td.ebbu, .ebleg.ebbu { background: color-mix(in srgb, #3b6fd1 16%, var(--surface
 body.fsmode .tabs { display: none !important; }
 body.fsmode main { margin-left: 0 !important; max-width: none; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
 body.fsmode #selbar { left: 12px; }
+/* Fixierte Spaltenüberschriften (Aufträge-Liste, Bericht, Abrechnung, Summen): Tabelle scrollt in einem Rahmen in Bildschirmhöhe,
+   die Überschriften bleiben oben stehen. (Planung: Kalender und Zeitachsen hatten das schon.) */
+.dscroll { overflow: auto; max-height: calc(calc(100dvh / var(--uz, 1)) - 84px); -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+@media (max-width: 599px) { .dscroll { max-height: calc(calc(100dvh / var(--uz, 1)) - 84px - var(--tabh) - env(safe-area-inset-bottom)); } }
+.dscroll > table > thead th { position: sticky; top: 0; z-index: 3; background: var(--surface); box-shadow: inset 0 -2px 0 var(--line); }
+.dscroll > table > thead th.ck { z-index: 4; }
+.panel.dscroll { padding-top: 0; }
+.panel.dscroll > table > thead th { padding-top: 10px; }
+.jdbfs-body .dscroll { max-height: none; overflow: visible; }
+.jdbfs-body .panel.dscroll { padding-top: revert; }
+@media print { .dscroll { max-height: none !important; overflow: visible !important; } }
