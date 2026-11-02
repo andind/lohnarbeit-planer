@@ -72,5 +72,7 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
 - Flächen in Bericht und Abrechnung **nie aus Feldgrenzen**: JD-Fläche nur Maschine oder Bedeckungskarte (NAS `setFlaeche`, App `jdbRow`);
   Auftragsfläche gleich Feldfläche/Vermessung (`haAusGrenze`) zählt in der Abrechnung nicht (Spalte «ha Auftrag» durchgestrichen in Klammern).
   Spritzen › Abrechnung (`billing`) dagegen: immer die Fläche aus dem Auftrag (`flOf`: effektiv, sonst geplant) – v108 (JD-Fläche/0 ha) in v112 auf Wunsch zurückgenommen.
+- Fertigmeldung (`doneDialog`): Feld änderbar (nur Felder des Kunden, Kunde fix; `setKfeld` leert den Feldtext ausser bei Spritzaufträgen mit Parzelle)
+  und Häkchen «genaue Fläche» (`flaecheGenau`, auch im Auftragsfenster). Genaue Fläche zählt in Verwaltung › Abrechnung immer (auch wenn gleich Feldgrenze), markiert mit ✓, CSV-Spalte «Fläche Auftrag genau».
 - Applikationskarten: Knopf «🗺 Applikationskarte» im Auftrag (Spritzen/Säen/Düngen oder vorhandene Karte; speichert den Auftrag und wechselt im selben Fenster – wegen iPhone-App-Speicher), Liste unter Mehr › Einstellungen.
 - Ausdrucke Kunden: Logo mit Adresse; Ausdrucke Eigener Betrieb: Betriebsadresse statt Logo.

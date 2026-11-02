@@ -1253,3 +1253,6 @@ body.fsmode #selbar { left: 12px; }
 .cal .g-head, .cal .g-corner, .cal .tl-corner, .cal .tl-head:not(.tlh-m), .cal .tlh-axis, .dscroll > table > thead th { top: var(--sty, 0px) !important; }
 .abgrz { text-decoration: line-through; }
 @media print { .noprint { display: none !important; } }
+.fld .tog.genau { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.fld .tog.genau input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+.genaum { color: var(--s-erledigt, #2f7d32); font-weight: 700; }
