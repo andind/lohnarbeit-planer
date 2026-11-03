@@ -71,7 +71,7 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
   Scrollt die Seite statt des Rahmens, hält `stickyUpd` (setzt `--sty`) die Kopfzeilen direkt unter der Titelleiste (v106, v.a. Wochenansicht).
 - Flächen in Bericht und Abrechnung **nie aus Feldgrenzen**: JD-Fläche nur Maschine oder Bedeckungskarte (NAS `setFlaeche`, App `jdbRow`);
   Verwaltung › Abrechnung (`abRow`, seit v114/v115) **ohne jeden Vergleich mit Feldgrenzen**. Vier Flächenspalten (v117): «ha Planung» (`haG`),
-  «ha effektiv» (`haE`, ✓ wenn genau), «ha JD» (`haJ`, Bericht), «ha Auftrag» (`ha`) = 1. effektiv (✓), 2. JD, 3. Planung; `haQ` = eff/jd/geplant.
+  «ha effektiv» (`haE`, ✓ wenn genau), «ha JD» (`haJ`, Bericht), «ha Auftrag» (`ha`) = 1. effektiv, 2. JD, 3. Planung (✓ nur wenn genau, wie «ha effektiv», v118); `haQ` = eff/jd/geplant.
   **Alle Summen** (Total, Gruppen, Summen pro Kunde/Arbeit, Chips) nutzen «ha Auftrag» (`abHaSum`). `abColCfg` stellt alte Spalten-Einstellungen um. `haAusGrenze` entfernt.
   Spritzen › Abrechnung (`billing`) dagegen: immer die Fläche aus dem Auftrag (`flOf`: effektiv, sonst geplant) – v108 (JD-Fläche/0 ha) in v112 auf Wunsch zurückgenommen.
 - Fertigmeldung (`doneDialog`): Feld änderbar (nur Felder des Kunden, Kunde fix; `setKfeld` leert den Feldtext ausser bei Spritzaufträgen mit Parzelle).

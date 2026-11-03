@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '117', APP_STAND = '03.11.2026';
+const APP_VERSION = '118', APP_STAND = '03.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -4175,7 +4175,6 @@ function abSelBar(list) {
 /* ---------- Spalten ---------- */
 const abD = d => d ? fmtDate(d, { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
 const AB_HAQ = { eff: 'effektive Fläche aus der Fertigmeldung', jd: 'Fläche aus dem Bericht (MyJohnDeere)', geplant: 'geplante Fläche aus dem Auftrag' };
-const EFF_MARK = '<span class="genaum" title="effektive Fläche aus der Fertigmeldung"> ✓</span>';
 const AB_COLS = [
   { id: 'datum', l: 'Datum', w: 80, v: r => abD(r.d), csv: r => r.d },
   { id: 'src', l: 'Herkunft', w: 104, v: r => AB_SRC[r.src], html: r => `<span class="absrc absrc-${r.src}" title="${r.src === 'beide' ? 'Auftrag und Arbeitsgang verbunden' + (r.link ? ' (von Hand)' : ' (automatisch)') : ''}">${r.src === 'beide' ? `Planer + JD${r.link ? ' 🔗' : ''}` : r.src === 'planer' ? 'Planer' : 'JD'}</span>` },
@@ -4190,9 +4189,9 @@ const AB_COLS = [
     html: r => r.haE != null ? `${fmtNum(r.haE)}${r.genau ? GENAU_MARK : ''}` : '' },
   { id: 'haJ', l: 'ha JD', w: 66, n: 1, v: r => r.haJ != null ? fmtNum(r.haJ) : '', csv: r => r.haJ ?? '',
     html: r => r.haJ == null ? '' : `<span class="${r.haP != null && Math.abs(r.haJ - r.haP) > Math.max(0.1, r.haP * 0.1) ? 'abdiff' : ''}" title="${r.haP != null ? `Abweichung zum Auftrag: ${fmtNum(r2(r.haJ - r.haP))} ha` : ''}${r.quelle ? ` · Quelle: ${r.quelle}` : ''}">${fmtNum(r.haJ)}</span>` },
-  // Fläche Auftrag: 1. effektiv (✓), 2. Bericht (JD), 3. geplant – diese Fläche zählt für alle Summen
-  { id: 'ha', l: 'ha Auftrag', w: 80, n: 1, v: r => r.ha != null ? fmtNum(r.ha) + (r.haQ === 'eff' ? ' ✓' : '') : '', csv: r => r.ha ?? '',
-    html: r => r.ha == null ? '' : `<b title="${AB_HAQ[r.haQ]}">${fmtNum(r.ha)}</b>${r.haQ === 'eff' ? EFF_MARK : ''}` },
+  // Fläche Auftrag: 1. effektiv, 2. Bericht (JD), 3. geplant; ✓ nur bei genauer Fläche – diese Fläche zählt für alle Summen
+  { id: 'ha', l: 'ha Auftrag', w: 80, n: 1, v: r => r.ha != null ? fmtNum(r.ha) + (r.haQ === 'eff' && r.genau ? ' ✓' : '') : '', csv: r => r.ha ?? '',
+    html: r => r.ha == null ? '' : `<b title="${AB_HAQ[r.haQ]}">${fmtNum(r.ha)}</b>${r.haQ === 'eff' && r.genau ? GENAU_MARK : ''}` },
   { id: 'std', l: 'Std. Auftrag', w: 82, n: 1, v: r => r.std != null ? fmtNum(r2(r.std)) : '', csv: r => r.std != null ? r2(r.std) : '' },
   { id: 'dauer', l: 'Dauer JD', w: 76, n: 1, v: r => r.dauer != null ? hrs(r2(r.dauer)) : '', csv: r => r.dauer != null ? r2(r.dauer) : '' },
   { id: 'maschine', l: 'Maschine', w: 140, v: r => r.maschine },
