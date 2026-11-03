@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '116', APP_STAND = '02.11.2026';
+const APP_VERSION = '117', APP_STAND = '03.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -4174,7 +4174,8 @@ function abSelBar(list) {
 }
 /* ---------- Spalten ---------- */
 const abD = d => d ? fmtDate(d, { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
-const AB_HAQ = { eff: 'effektive Fläche (Fertigmeldung)', jd: 'Fläche aus dem Bericht (MyJohnDeere)', geplant: 'geplante Fläche aus dem Auftrag' };
+const AB_HAQ = { eff: 'effektive Fläche aus der Fertigmeldung', jd: 'Fläche aus dem Bericht (MyJohnDeere)', geplant: 'geplante Fläche aus dem Auftrag' };
+const EFF_MARK = '<span class="genaum" title="effektive Fläche aus der Fertigmeldung"> ✓</span>';
 const AB_COLS = [
   { id: 'datum', l: 'Datum', w: 80, v: r => abD(r.d), csv: r => r.d },
   { id: 'src', l: 'Herkunft', w: 104, v: r => AB_SRC[r.src], html: r => `<span class="absrc absrc-${r.src}" title="${r.src === 'beide' ? 'Auftrag und Arbeitsgang verbunden' + (r.link ? ' (von Hand)' : ' (automatisch)') : ''}">${r.src === 'beide' ? `Planer + JD${r.link ? ' 🔗' : ''}` : r.src === 'planer' ? 'Planer' : 'JD'}</span>` },
@@ -4184,11 +4185,14 @@ const AB_COLS = [
   { id: 'arbeit', l: 'Arbeit', w: 130, v: r => r.arbeit },
   { id: 'kunde', l: 'Kunde', w: 150, v: r => r.kunde },
   { id: 'feld', l: 'Feld', w: 130, v: r => r.feld, html: r => r.feld ? `<span class="fldlink" data-ab="grz" data-id="${esc(r.id)}" title="Vermessungen anzeigen">${esc(r.feld)}</span>` : '' },
-  { id: 'ha', l: 'ha', w: 60, n: 1, v: r => r.ha != null ? fmtNum(r.ha) : '', csv: r => r.ha ?? '', html: r => r.ha == null ? '' : `<span title="${AB_HAQ[r.haQ]}">${fmtNum(r.ha)}</span>${r.haQ === 'eff' && r.genau ? GENAU_MARK : ''}` },
-  { id: 'haP', l: 'ha Auftrag', w: 76, n: 1, v: r => r.haP != null ? fmtNum(r.haP) : '', csv: r => r.haP ?? '',
-    html: r => r.haE != null ? `${fmtNum(r.haE)}${r.genau ? GENAU_MARK : ''}` : r.haG != null ? `<span class="nr" title="geplante Fläche (keine effektive Fläche gemeldet)">${fmtNum(r.haG)} gepl.</span>` : '' },
+  { id: 'haG', l: 'ha Planung', w: 88, n: 1, v: r => r.haG != null ? fmtNum(r.haG) : '', csv: r => r.haG ?? '' },
+  { id: 'haE', l: 'ha effektiv', w: 80, n: 1, v: r => r.haE != null ? fmtNum(r.haE) + (r.genau ? ' ✓' : '') : '', csv: r => r.haE ?? '',
+    html: r => r.haE != null ? `${fmtNum(r.haE)}${r.genau ? GENAU_MARK : ''}` : '' },
   { id: 'haJ', l: 'ha JD', w: 66, n: 1, v: r => r.haJ != null ? fmtNum(r.haJ) : '', csv: r => r.haJ ?? '',
     html: r => r.haJ == null ? '' : `<span class="${r.haP != null && Math.abs(r.haJ - r.haP) > Math.max(0.1, r.haP * 0.1) ? 'abdiff' : ''}" title="${r.haP != null ? `Abweichung zum Auftrag: ${fmtNum(r2(r.haJ - r.haP))} ha` : ''}${r.quelle ? ` · Quelle: ${r.quelle}` : ''}">${fmtNum(r.haJ)}</span>` },
+  // Fläche Auftrag: 1. effektiv (✓), 2. Bericht (JD), 3. geplant – diese Fläche zählt für alle Summen
+  { id: 'ha', l: 'ha Auftrag', w: 80, n: 1, v: r => r.ha != null ? fmtNum(r.ha) + (r.haQ === 'eff' ? ' ✓' : '') : '', csv: r => r.ha ?? '',
+    html: r => r.ha == null ? '' : `<b title="${AB_HAQ[r.haQ]}">${fmtNum(r.ha)}</b>${r.haQ === 'eff' ? EFF_MARK : ''}` },
   { id: 'std', l: 'Std. Auftrag', w: 82, n: 1, v: r => r.std != null ? fmtNum(r2(r.std)) : '', csv: r => r.std != null ? r2(r.std) : '' },
   { id: 'dauer', l: 'Dauer JD', w: 76, n: 1, v: r => r.dauer != null ? hrs(r2(r.dauer)) : '', csv: r => r.dauer != null ? r2(r.dauer) : '' },
   { id: 'maschine', l: 'Maschine', w: 140, v: r => r.maschine },
@@ -4199,10 +4203,16 @@ const AB_COLS = [
   { id: 'notiz', l: 'Bemerkung', w: 160, v: r => r.notiz },
   { id: 'abr', l: 'Abgerechnet', w: 104, v: r => r.abr ? '✓ ' + (r.am ? abD(r.am) : '') : '', html: r => r.abr ? `<span class="badge verrechnet">✓ ${r.am ? abD(r.am) : 'abgerechnet'}</span>` : '<span class="nr">offen</span>' }
 ];
-const AB_DEF = { order: ['datum', 'src', 'nr', 'arbeit', 'kunde', 'feld', 'ha', 'haP', 'haJ', 'std', 'dauer', 'maschine', 'kultur', 'produkte', 'gesamt', 'abr'], w: {} };
+const AB_DEF = { order: ['datum', 'src', 'nr', 'arbeit', 'kunde', 'feld', 'haG', 'haE', 'haJ', 'ha', 'std', 'dauer', 'maschine', 'kultur', 'produkte', 'gesamt', 'abr'], w: {} };
 function abColCfg() {
   let c; try { c = JSON.parse(ls('lp_abrcols') || 'null'); } catch { c = null; }
   if (!c || !Array.isArray(c.order)) c = JSON.parse(JSON.stringify(AB_DEF));
+  // bis v116: Spalten «ha», «ha Auftrag» (haP), «ha JD» → Planung, effektiv, JD, Auftrag (an derselben Stelle)
+  if (!c.order.includes('haG') && !c.order.includes('haE')) {
+    const k = c.order.findIndex(id => id === 'ha' || id === 'haP' || id === 'haJ');
+    c.order = c.order.filter(id => id !== 'ha' && id !== 'haP' && id !== 'haJ');
+    if (k >= 0) c.order.splice(k, 0, 'haG', 'haE', 'haJ', 'ha');
+  }
   c.order = c.order.filter(id => AB_COLS.some(x => x.id === id)); c.w = c.w || {}; return c;
 }
 const abColSave = c => ls('lp_abrcols', JSON.stringify(c));
@@ -4214,7 +4224,7 @@ function abTable(list, { print, all } = {}) {
   const head = `<thead><tr>${ck ? `<th class="ck" data-stop><input type="checkbox" data-abin="selAll" ${allOn ? 'checked' : ''} title="Alle angezeigten auswählen"></th>` : ''}${cols.map(c => `<th class="${c.n ? 'n' : ''}" ${print ? '' : `draggable="true" data-col="${c.id}" title="Ziehen zum Verschieben"`}>${esc(c.l)}${print ? '' : `<span class="cres" data-col="${c.id}" title="Breite ändern"></span>`}</th>`).join('')}</tr></thead>`;
   const row = r => `<tr class="${print ? '' : 'click'}${r.abr ? ' jdab' : ''}${ck && S.has(r.id) ? ' alsel' : ''}" ${print ? '' : `data-ab="row" data-id="${esc(r.id)}"`}>${ck ? `<td class="ck" data-stop><input type="checkbox" data-abin="sel" value="${esc(r.id)}" ${S.has(r.id) ? 'checked' : ''}></td>` : ''}${cols.map(c => `<td class="${c.n ? 'n' : ''} c-${c.id}">${!print && c.html ? c.html(r) : esc(c.v(r))}</td>`).join('')}</tr>`;
   const TL = all || list, sum = k => r2(TL.reduce((s, r) => s + (r[k] || 0), 0));
-  const tot = `<tfoot><tr class="tot jdbtot">${ck ? '<td></td>' : ''}${cols.map((c, i) => `<td class="${c.n ? 'n' : ''}">${c.id === 'ha' ? `<b>${fmtNum(abHaSum(TL))}</b>` : c.id === 'haP' ? `<b>${fmtNum(sum('haP'))}</b>` : c.id === 'haJ' ? `<b>${fmtNum(sum('haJ'))}</b>` : c.id === 'std' ? `<b>${fmtNum(sum('std'))}</b>` : c.id === 'dauer' ? `<b>${hrs(sum('dauer'))}</b>` : i === 0 ? `<b>Total ${TL.length}</b>` : ''}</td>`).join('')}</tr></tfoot>`;
+  const tot = `<tfoot><tr class="tot jdbtot">${ck ? '<td></td>' : ''}${cols.map((c, i) => `<td class="${c.n ? 'n' : ''}">${c.id === 'haG' ? `<b>${fmtNum(sum('haG'))}</b>` : c.id === 'haE' ? `<b>${fmtNum(sum('haE'))}</b>` : c.id === 'haJ' ? `<b>${fmtNum(sum('haJ'))}</b>` : c.id === 'ha' ? `<b>${fmtNum(abHaSum(TL))}</b>` : c.id === 'std' ? `<b>${fmtNum(sum('std'))}</b>` : c.id === 'dauer' ? `<b>${hrs(sum('dauer'))}</b>` : i === 0 ? `<b>Total ${TL.length}</b>` : ''}</td>`).join('')}</tr></tfoot>`;
   const tcls = `btab jdbtab abtab${print ? '' : ' jdbfix abfix'}`, tw = print ? '' : ` style="width:${(ck ? 36 : 0) + cols.reduce((s, c) => s + c.w, 0)}px"`;
   if (!g) return `<table class="${tcls}"${tw}>${colg}${head}<tbody>${list.map(row).join('')}</tbody>${tot}</table>`;
   const groups = groupBy(list.slice().sort((a, b) => String(abGroupKey(a, g)).localeCompare(String(abGroupKey(b, g)), 'de') * (g === 'monat' ? -1 : 1)), r => abGroupKey(r, g));
@@ -4279,8 +4289,8 @@ function abPrint() {
     ${abTable(list, { print: true })}</div>`, { noTitle: true });
 }
 function abCsv() {
-  const rows = [['Datum', 'Herkunft', 'Auftrag-Nr', 'Beginn (JD)', 'Ende (JD)', 'Arbeit', 'Kunde', 'Feld', 'Fläche ha', 'Fläche Herkunft', 'Fläche effektiv ha', 'Fläche effektiv genau', 'Fläche geplant ha', 'Fläche JD ha', 'Flächen-Quelle JD', 'Stunden Auftrag', 'Dauer JD h', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Gesamtmenge', 'Bemerkung', 'Abgerechnet', 'Abgerechnet am', 'Auftrag-ID', 'JD-ID']];
-  abList().forEach(r => rows.push([r.d, AB_SRC[r.src], r.nr, jdbDT(r.start), jdbDT(r.end), r.arbeit, r.kunde, r.feld, r.ha ?? '', { eff: 'effektiv', jd: 'Bericht (JD)', geplant: 'geplant' }[r.haQ] || '', r.haE ?? '', r.genau ? 'ja' : '', r.haG ?? '', r.haJ ?? '', r.quelle || '', r.std != null ? r2(r.std) : '', r.dauer != null ? r2(r.dauer) : '', r.maschine, r.fahrer, r.kultur, r.produkte, r.gesamt, r.notiz, r.abr ? 'ja' : 'nein', r.am || '', r.oid, r.jid]));
+  const rows = [['Datum', 'Herkunft', 'Auftrag-Nr', 'Beginn (JD)', 'Ende (JD)', 'Arbeit', 'Kunde', 'Feld', 'Fläche Planung ha', 'Fläche effektiv ha', 'Fläche effektiv genau', 'Fläche JD ha', 'Flächen-Quelle JD', 'Fläche Auftrag ha', 'Fläche Auftrag Herkunft', 'Stunden Auftrag', 'Dauer JD h', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Gesamtmenge', 'Bemerkung', 'Abgerechnet', 'Abgerechnet am', 'Auftrag-ID', 'JD-ID']];
+  abList().forEach(r => rows.push([r.d, AB_SRC[r.src], r.nr, jdbDT(r.start), jdbDT(r.end), r.arbeit, r.kunde, r.feld, r.haG ?? '', r.haE ?? '', r.genau ? 'ja' : '', r.haJ ?? '', r.quelle || '', r.ha ?? '', { eff: 'effektiv', jd: 'Bericht (JD)', geplant: 'Planung' }[r.haQ] || '', r.std != null ? r2(r.std) : '', r.dauer != null ? r2(r.dauer) : '', r.maschine, r.fahrer, r.kultur, r.produkte, r.gesamt, r.notiz, r.abr ? 'ja' : 'nein', r.am || '', r.oid, r.jid]));
   const A = App.abr;
   download(`Abrechnung_${A.von || 'alle'}_${A.bis || ''}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }

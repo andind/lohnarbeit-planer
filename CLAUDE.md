@@ -70,8 +70,9 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
   `thead th` sticky); Planung-Kalender/Zeitachsen hatten das schon (`.cal`). Neue grosse Datentabellen ebenfalls in `.dscroll` legen.
   Scrollt die Seite statt des Rahmens, hält `stickyUpd` (setzt `--sty`) die Kopfzeilen direkt unter der Titelleiste (v106, v.a. Wochenansicht).
 - Flächen in Bericht und Abrechnung **nie aus Feldgrenzen**: JD-Fläche nur Maschine oder Bedeckungskarte (NAS `setFlaeche`, App `jdbRow`);
-  Verwaltung › Abrechnung (`abRow`, seit v114/v115) **ohne jeden Vergleich mit Feldgrenzen**: Fläche = 1. effektive Fläche (`flaecheEff`; ✓ wenn genau),
-  2. Fläche aus dem Bericht (JD), 3. geplante Fläche aus dem Auftrag; `haQ` = eff/jd/geplant (Tooltip, CSV-Spalte «Fläche Herkunft»). `haAusGrenze` entfernt.
+  Verwaltung › Abrechnung (`abRow`, seit v114/v115) **ohne jeden Vergleich mit Feldgrenzen**. Vier Flächenspalten (v117): «ha Planung» (`haG`),
+  «ha effektiv» (`haE`, ✓ wenn genau), «ha JD» (`haJ`, Bericht), «ha Auftrag» (`ha`) = 1. effektiv (✓), 2. JD, 3. Planung; `haQ` = eff/jd/geplant.
+  **Alle Summen** (Total, Gruppen, Summen pro Kunde/Arbeit, Chips) nutzen «ha Auftrag» (`abHaSum`). `abColCfg` stellt alte Spalten-Einstellungen um. `haAusGrenze` entfernt.
   Spritzen › Abrechnung (`billing`) dagegen: immer die Fläche aus dem Auftrag (`flOf`: effektiv, sonst geplant) – v108 (JD-Fläche/0 ha) in v112 auf Wunsch zurückgenommen.
 - Fertigmeldung (`doneDialog`): Feld änderbar (nur Felder des Kunden, Kunde fix; `setKfeld` leert den Feldtext ausser bei Spritzaufträgen mit Parzelle).
   «Fläche effektiv» standardmässig **leer** (nur eintragen, wenn genau bekannt; leer = Fläche aus dem Bericht), geplante Fläche als Hinweis;
