@@ -106,7 +106,7 @@ body.grenze .rx-only{display:none!important}
 <div class="app">
 <aside>
   <header class="top">
-    <div><a class="back" href="index.html" title="Zurück zum IM-Verwalter">← IM-Verwalter</a><br><h1 style="display:inline">Applikationskarte</h1><span class="ver">v1.4</span></div>
+    <div><a class="back" href="index.html" title="Zurück zum IM-Verwalter">← IM-Verwalter</a><br><h1 style="display:inline">Applikationskarte</h1><span class="ver">v1.4.1</span></div>
     <div class="row">
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
       <button id="bSave" title="Im IM-Verwalter speichern (über Dropbox auf allen Geräten)">Speichern</button>
@@ -233,7 +233,7 @@ body.grenze .rx-only{display:none!important}
 <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
 "use strict";
-const VERSION = "1.4";
+const VERSION = "1.4.1";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -248,8 +248,10 @@ let editing = null;    // 'field' | zone id
 
 /* ---------- Karte ---------- */
 const CH_BOUNDS = [[45.80, 5.95], [47.82, 10.50]];
+// Start: Gemeinde Schüpfen (Ausschnitt um das Gemeindegebiet); mit Feldgrenze wird danach auf das Feld gezoomt
+const START_BOUNDS = [[47.012, 7.335], [47.062, 7.420]];
 const map = L.map("map", { zoomControl:true });
-map.fitBounds(CH_BOUNDS);
+map.fitBounds(START_BOUNDS);
 map.pm.setLang("de");
 const wmts = l => `https://wmts.geo.admin.ch/1.0.0/${l}/default/current/3857/{z}/{x}/{y}.jpeg`;
 const att = '© <a href="https://www.swisstopo.admin.ch" target="_blank">swisstopo</a>';
