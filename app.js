@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '118', APP_STAND = '03.11.2026';
+const APP_VERSION = '119', APP_STAND = '05.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1791,7 +1791,7 @@ addEventListener('resize', () => stickyUpd());
 const rxAll = () => Store.all('einstellungen').filter(r => /^rx-/.test(r.id) && r.state).sort((a, b) => String(b.saved || '').localeCompare(String(a.saved || '')));
 const rxOf = oid => oid ? rxAll().find(r => r.auftrag === oid) : null;
 const RX_ARBEIT = /spritz|pflanzenschutz|s[äa]e|saat|d[üu]ng|streu/i;
-const rxName = r => { const st = r.state || {}; return [st.feld || 'ohne Feld', st.produkt || ({ Saat: 'Saat', Duengung: 'Düngung', PS: 'Pflanzenschutz' })[st.arbeit] || '', st.kunde].filter(Boolean).join(' · '); };
+const rxName = r => { const st = r.state || {}; return [st.feld || 'ohne Feld', st.modus === 'grenze' ? 'Feldgrenze' : st.produkt || ({ Saat: 'Saat', Duengung: 'Düngung', PS: 'Pflanzenschutz' })[st.arbeit] || '', st.kunde].filter(Boolean).join(' · '); };
 const rxBtn = a => (rxOf(a.id) || RX_ARBEIT.test(a.arbeit || '')) ? `<button type="button" class="btn small" data-act="rxOpen" data-id="${a.id}" title="Auftrag speichern und die Applikationskarte dazu öffnen (Zonen mit unterschiedlicher Menge, Export für John Deere)">🗺 ${rxOf(a.id) ? 'Karte' : 'Applikationskarte'}</button>` : '';
 function rxPanel() {
   const L = rxAll();
