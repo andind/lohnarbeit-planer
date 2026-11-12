@@ -1,7 +1,7 @@
 /* Applikationskarte – Service Worker v1.13
    Programm und Bibliotheken werden für den Offline-Start zwischengespeichert.
    Karten, Parzellen, Satelliten- und AV-Daten kommen immer frisch aus dem Netz. */
-const CACHE = "appkarte-v1.13";
+const CACHE = "appkarte-v1.13b";
 const APP = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 const LIBS = [
   "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
@@ -34,7 +34,7 @@ self.addEventListener("fetch", e => {
   const url = new URL(req.url);
   // Programmseite: zuerst Netz (für Updates), sonst Zwischenspeicher
   if (req.mode === "navigate" || (url.origin === location.origin && /\/(index\.html)?$/.test(url.pathname))) {
-    e.respondWith(fetch(req).then(r => { const cp = r.clone(); caches.open(CACHE).then(c => c.put("./index.html", cp)); return r; })
+    e.respondWith(fetch(req.url, { cache:"no-cache", credentials:"same-origin" }).then(r => { if (r.ok){ const cp = r.clone(); caches.open(CACHE).then(c => c.put("./index.html", cp)); } return r; })
       .catch(async () => (await caches.match("./index.html")) || (await caches.match("./"))));
     return;
   }
