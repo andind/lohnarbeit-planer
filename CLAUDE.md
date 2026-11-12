@@ -14,8 +14,11 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
   (Arbeitsgänge) in den Dropbox-Ordner; Anfrage über `jd-sync-request.json`. Seit v53 für **alle** Arbeitsgänge die Bedeckungskarte:
   Fläche ohne Überlappungen (`haB`, Raster, jede Zelle einmal) und **virtuelle Feldgrenze** (`gridBoundary`: ~1 m vergröbern, schliessen, Löcher < 50 m² füllen,
   Umriss vereinfachen 0.5 m) → eigene Datei `jd-grenzen.json` (Cache NAS `data/bedeckung-grenzen.json`; `data/grenzen.json` = Vermessungen!), im Arbeitsgang nur `grzB: 1`.
-  Bedeckungskarte noch über alte Export-API `/fieldOps/{id}` (läuft laut John Deere bis Nov. 2027; Umstellung auf «Operations Export API»
-  offen – Doku nur mit Login auf developer.deere.com, Andreas muss sie liefern; Rückmeldungen an JD bis 01.01.2027). Mindestversion im IM-Verwalter: `NAS_MIN = '49'`.
+  Bedeckungskarte über die neue **Operations Data Export API** (`oxRequest`): POST `{isg}/operations/{id}/operationsExportRequests`
+  (`exportSettings: SHAPEFILE, Point, EachSection, splitShapeFile false`, Header `Accept-UOM-System: METRIC`) → `o.covReq` (Request-ID) → GET Status
+  (CREATED/PROCESSING/REPROCESS warten, SUCCESSFUL → `files[].presignedUri` ohne Anmeldung laden, FAILURE). `{isg}` = `apiBase` mit `/platform` → `/isg`
+  (oder `cfg.isgBase`). Rückfall pro Arbeitsgang auf alte `/fieldOps/{id}` (bis Nov. 2027); nach 3× 401/403 neue API für den Lauf aus; `cfg.exportApi='alt'` = nur alt.
+  Doku liest man im integrierten Browser (developer.deere.com/dev-docs/operations-export, Seite wird per JS aufgebaut). Mindestversion im IM-Verwalter: `NAS_MIN = '49'`.
   Version in `app/server.js` (`VERSION`, `STAND`). Zugangsdaten (Client-ID/Secret, Tokens) liegen nur auf dem NAS in `data/` –
   **nie Zugangsdaten ins Repository** (öffentlich). Andreas kopiert den Ordner `jd-sync` selbst aufs NAS.
 - Wöchentliche Aufgabe «IM-Verwalter Wochenabschluss» (So 19:33): führt die Docs «Entstehungsgeschichte» und

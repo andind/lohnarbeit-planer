@@ -6,7 +6,7 @@
    Dazu: tägliche Datensicherung der IM-Verwalter-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '53', STAND = '12.11.2026'; // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
+const VERSION = '53', STAND = '12.11.2026'; // v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -519,8 +519,60 @@ function pointsGrid(recs, dbfBuf) {
 // Bedeckungskarte anfordern: Buffer = fertig, 'wait' = wird erstellt, { none: Status } = für diesen Arbeitsgang keine Karte
 // Ein einzelner Arbeitsgang ohne Karte (404 …) stoppt die übrigen NICHT; abgebrochen wird nur bei wiederholt fehlender Berechtigung.
 let covCombo, covDead, covStat, covErr, cov403, covParamFail, covSave = null;
+/* ---------- Neue «Operations Data Export»-API (ersetzt GET /fieldOps/{id}, alte API laut John Deere bis Nov. 2027) ----------
+   1. POST {isg}/operations/{id}/operationsExportRequests  { exportSettings: { format: 'SHAPEFILE', shapeType: 'Point', resolution: 'EachSection', splitShapeFile: false } }
+      Header Accept-UOM-System: METRIC → Request-ID
+   2. GET  {isg}/operations/{id}/operationsExportRequests/{requestId} → requestStatus CREATED/PROCESSING/REPROCESS (warten), SUCCESSFUL (files[].presignedUri), FAILURE
+   3. Dateien über die vorsignierten Links (ohne Anmeldung) holen.
+   Klappt die neue API nicht (kein Zugriff, unbekannte ID …), wird für diesen Arbeitsgang die alte API verwendet. cfg.exportApi = 'alt' schaltet sie ganz ab. */
+const isgBase = () => (cfg.isgBase || cfg.apiBase.replace(/\/platform\/?$/, '/isg')).replace(/\/$/, '');
+let oxDead = false, ox403 = 0, oxStat = {};
+async function oxFetch(url, opt = {}) {
+  let r; for (let t = 0; t < 2; t++) { r = await fetch(url, { ...opt, headers: { Authorization: 'Bearer ' + await jdAccess(), Accept: ACCEPT, ...(opt.headers || {}) } }); reqCount++; if (r.status === 401 && t === 0) { st.jd.exp = 0; continue; } break; }
+  return r;
+}
+async function oxRequest(o) {
+  if (oxDead || cfg.exportApi === 'alt') return 'alt';
+  const u = `${isgBase()}/operations/${encodeURIComponent(o.id)}/operationsExportRequests`;
+  const fail = async (r, wo) => { const tx = await r.text().catch(() => ''); oxStat[r.status] = (oxStat[r.status] || 0) + 1;
+    if (!covErr['neu ' + r.status]) covErr['neu ' + r.status] = `${o.fieldName || o.id} (${wo}): ${tx.trim().slice(0, 300) || 'ohne Meldung'}`;
+    if (r.status === 401 || r.status === 403) { if (++ox403 >= 3) { oxDead = true; log(`Neue Export-API: kein Zugriff (${r.status}) – Freischaltung «Operations Export» der App auf developer.deere.com prüfen. Bis dahin alte Schnittstelle.`); } }
+    if (r.status === 429 || r.status >= 500) return 'wait';
+    delete o.covReq; return 'alt'; };
+  // laufende Anfrage weiterverfolgen (gleicher Bearbeitungsstand, höchstens 2 Tage alt), sonst neu anfordern
+  if (!(o.covReq && o.covReq.mod === o.modified && Date.now() - Date.parse(o.covReq.at) < 2 * 864e5)) {
+    let r = await oxFetch(u, { method: 'POST', headers: { 'Content-Type': ACCEPT, 'Accept-UOM-System': 'METRIC' }, body: JSON.stringify({ exportSettings: { format: 'SHAPEFILE', shapeType: 'Point', resolution: 'EachSection', splitShapeFile: false } }) });
+    if (r.status === 415) r = await oxFetch(u, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept-UOM-System': 'METRIC' }, body: JSON.stringify({ exportSettings: { format: 'SHAPEFILE', shapeType: 'Point', resolution: 'EachSection', splitShapeFile: false } }) });
+    if (r.status >= 300) return fail(r, 'Anfrage');
+    ox403 = 0; oxStat[r.status] = (oxStat[r.status] || 0) + 1;
+    let js = null; try { js = await r.json(); } catch { }
+    const loc = r.headers.get('location') || '';
+    const id = (js && (js.id || js.requestId)) || (loc.match(/operationsExportRequests\/([^/?#]+)/) || [])[1];
+    if (!id) { if (!covErr['neu id']) covErr['neu id'] = `${o.fieldName}: Antwort ohne Request-ID ${JSON.stringify(js || {}).slice(0, 200)}`; return 'alt'; }
+    o.covReq = { id, at: new Date().toISOString(), mod: o.modified };
+    return 'wait';
+  }
+  const r = await oxFetch(`${u}/${encodeURIComponent(o.covReq.id)}`);
+  if (r.status >= 300) { if (r.status === 404) { delete o.covReq; return 'wait'; } return fail(r, 'Status'); }
+  let js = null; try { js = await r.json(); } catch { }
+  const stt = String(js && js.requestStatus || '').toUpperCase();
+  oxStat[stt || '?'] = (oxStat[stt || '?'] || 0) + 1;
+  if (stt === 'FAILURE') { delete o.covReq; return { none: 'export-fehler' }; }
+  if (stt !== 'SUCCESSFUL') return 'wait';
+  const bufs = [];
+  for (const f of (js.files || [])) {
+    if (!f || !f.presignedUri) continue;
+    const d = await fetch(f.presignedUri); const b = Buffer.from(await d.arrayBuffer());
+    if (d.status === 200 && b[0] === 0x50 && b[1] === 0x4b) bufs.push(b);
+    else if (!covErr['neu download']) covErr['neu download'] = `${o.fieldName}: Download ${d.status}`;
+  }
+  delete o.covReq; st.covApiNeu = (st.covApiNeu || 0) + 1;
+  if (!bufs.length) return { none: (js.files || []).length ? 'download' : 'leer' };
+  return bufs.length === 1 ? bufs[0] : bufs;
+}
 async function coverageRequest(o) {
   if (covDead) return { none: 'gestoppt' };
+  const nx = await oxRequest(o); if (nx !== 'alt') return nx;
   const base = o.lk?.shapeFileAsync || `/fieldOps/${encodeURIComponent(o.id)}`;
   const full = /^https?:/.test(base) ? base : cfg.apiBase.replace(/\/$/, '') + base;
   const combos = /shapeType/.test(full) ? [null] : covCombo !== undefined ? [covCombo] : [{ shapeType: 'Point' }, {}, { shapeType: 'Point', resolution: 'EachSection' }];
@@ -567,7 +619,7 @@ const covDone = o => o.cov && o.cov.mod === o.modified && (o.cov.ha ? o.cov.g ==
 let grenzen = load('bedeckung-grenzen.json', {});
 const arbCache = () => { try { return (load('arbeiten.json', null) || {}).ops; } catch { return null; } };
 async function coverageAreas(list, maxWaitMs = 20 * 60 * 1000) {
-  covCombo = st.covCombo; covDead = false; covStat = {}; covErr = {}; cov403 = 0; covParamFail = 0;
+  covCombo = st.covCombo; covDead = false; covStat = {}; covErr = {}; cov403 = 0; covParamFail = 0; oxDead = false; ox403 = 0; oxStat = {};
   // zuerst Arbeitsgänge ohne Maschinenfläche, dann die neuesten
   let pending = list.slice().sort((a, b) => ((areaFromMeas(a.measurements) == null ? 0 : 1) - (areaFromMeas(b.measurements) == null ? 0 : 1)) || String(b.start || '').localeCompare(String(a.start || ''))), first = true, ok = 0, none = 0; const end = Date.now() + maxWaitMs;
   if (pending.length) log(`Bedeckungskarte: ${pending.length} Arbeitsgänge werden abgefragt (Fläche ohne Überlappungen, virtuelle Feldgrenze)`);
@@ -579,19 +631,23 @@ async function coverageAreas(list, maxWaitMs = 20 * 60 * 1000) {
       if (st.arbProgress) st.arbProgress.done++;
       let res = null; try { res = await coverageRequest(o); } catch (e) { covErr.netz = covErr.netz || `${o.fieldName}: ${e.message}`; res = { none: 'netz' }; }
       if (res === 'wait') { still.push(o); continue; }
+      if (Array.isArray(res)) { // mehrere Dateien: die mit der grössten Fläche (Export ist ungeteilt angefordert, sollte selten vorkommen)
+        let best = null; for (const b of res) { try { const c = coverageCalc(b); if (c && (!best || c.ha > best.c.ha)) best = { b, c }; } catch { } }
+        res = best ? best.b : { none: 'leer' };
+      }
       let ha = null, grz = null; if (Buffer.isBuffer(res)) { try { const c = coverageCalc(res); if (c) { ha = c.ha; grz = c.grz; } } catch (e) { covErr.lesen = covErr.lesen || `${o.fieldName}: ${e.message}`; } }
       if (grz) grenzen[o.id] = { mod: o.modified, grz }; else delete grenzen[o.id];
       const st0 = Buffer.isBuffer(res) ? (ha ? 'ok' : 'leer') : res && res.none;
       // gemerkt werden Karten und eindeutige «keine Karte»-Antworten; Berechtigungs- und Netzfehler werden beim nächsten Lauf neu versucht
-      if (Buffer.isBuffer(res) || [404, 410, 204, 'json', 'download', 'leer'].includes(st0)) o.cov = { mod: o.modified, ha, at: new Date().toISOString(), st: st0, g: COV_G };
+      if (Buffer.isBuffer(res) || [404, 410, 204, 'json', 'download', 'leer', 'export-fehler'].includes(st0)) o.cov = { mod: o.modified, ha, at: new Date().toISOString(), st: st0, g: COV_G };
       if (ha) ok++; else none++;
       if ((ok + none) % 25 === 0 && covSave) covSave(ok + none);
     }
     pending = still;
   }
   if (covCombo !== undefined) st.covCombo = covCombo;
-  if (list.length) st.covInfo = { at: new Date().toISOString(), gefragt: list.length, mitFlaeche: ok, ohneKarte: none, offen: pending.length, status: covStat, meldungen: covErr, gestoppt: covDead };
-  if (list.length) log(`Bedeckungskarte: ${ok} Flächen berechnet (Speicher ${Math.round(process.memoryUsage().rss / 1048576)} MB), ${none} ohne Karte, ${pending.length} noch in Arbeit · Antworten ${Object.entries(covStat).map(([k, v]) => `${k}×${v}`).join(', ') || '–'}`);
+  if (list.length) st.covInfo = { at: new Date().toISOString(), gefragt: list.length, mitFlaeche: ok, ohneKarte: none, offen: pending.length, status: covStat, neueApi: { antworten: oxStat, gestoppt: oxDead, aus: cfg.exportApi === 'alt' }, meldungen: covErr, gestoppt: covDead };
+  if (list.length) log(`Bedeckungskarte: ${ok} Flächen berechnet (Speicher ${Math.round(process.memoryUsage().rss / 1048576)} MB), ${none} ohne Karte, ${pending.length} noch in Arbeit · neue API ${Object.entries(oxStat).map(([k, v]) => `${k}×${v}`).join(', ') || '–'}${oxDead ? ' (kein Zugriff)' : ''} · alte API ${Object.entries(covStat).map(([k, v]) => `${k}×${v}`).join(', ') || '–'}`);
   for (const [k, v] of Object.entries(covErr)) log(`  Bedeckungskarte ${k}: ${v}`);
   return ok;
 }
@@ -770,7 +826,7 @@ async function runSync(reason) {
 }
 async function writeArbeiten(arb) {
   // haB = Fläche aus der Bedeckungskarte ohne Überlappungen (jede Stelle einmal), unabhängig von der Maschinenfläche
-  const ops = Object.values(arb.ops).sort((a, b) => String(b.start || '').localeCompare(String(a.start || ''))).map(({ lk, cov, v, ...o }) => {
+  const ops = Object.values(arb.ops).sort((a, b) => String(b.start || '').localeCompare(String(a.start || ''))).map(({ lk, cov, covReq, v, ...o }) => {
     if (cov && cov.mod === o.modified && cov.ha) o.haB = cov.ha; if (grenzen[o.id]) o.grzB = 1; return o; });
   const gz = {}; for (const o of ops) if (grenzen[o.id]) gz[o.id] = grenzen[o.id].grz;
   try { await dbxUpload(cfg.grenzenPath || '/jd-grenzen.json', JSON.stringify({ format: 'jd-grenzen', v: 1, dienst: VERSION, stand: new Date().toISOString(), info: 'Virtuelle Feldgrenzen aus den Bedeckungskarten (GeoJSON-MultiPolygon-Koordinaten je Arbeitsgang)', ops: gz })); } catch (e) { log('Virtuelle Feldgrenzen hochladen: ' + e.message); }
@@ -1114,7 +1170,7 @@ ${st.excelLast ? `<p>Letzter Excel-Export: ${esc(new Date(st.excelLast.at).toLoc
 <div class="row"><div><label>Dropbox-Ordner für Excel</label><input name="excelPfad" value="${esc(cfg.excelPfad)}"></div><div><label>Excel-Dateien behalten (Wochen)</label><input name="excelBehalt" type="number" min="1" max="520" value="${esc(cfg.excelBehalt)}"></div></div>
 <button>Speichern</button></form>
 <div class="row" style="flex:0"><form method="post" action="/sicherung/jetzt"><button class="sec" ${st.dbx ? '' : 'disabled'}>Jetzt sichern</button></form><form method="post" action="/excel/jetzt"><button class="sec" ${st.dbx ? '' : 'disabled'}>Excel jetzt erstellen</button></form></div></section>
-<section><h2>Arbeitsdaten (Vorrat)</h2><p><small>Arbeitsgänge aus MyJohnDeere (Säen, Spritzen, Ernten, Bodenbearbeitung …) mit Messwerten werden als <b>${esc(cfg.arbeitenPath)}</b> abgelegt (IM-Verwalter › Verwaltung › Bericht und Abrechnung). Aus jeder Bedeckungskarte wird die Fläche <b>ohne Überlappungen</b> («ha bedeckt») berechnet und eine <b>virtuelle Feldgrenze</b> erstellt (<b>${esc(cfg.grenzenPath || '/jd-grenzen.json')}</b>). Bedeckungskarten kommen noch über die bisherige Export-Schnittstelle von John Deere (<code>/fieldOps</code>, läuft laut John Deere bis November 2027 – Umstellung auf die neue «Operations Export API» folgt).</small></p>
+<section><h2>Arbeitsdaten (Vorrat)</h2><p><small>Arbeitsgänge aus MyJohnDeere (Säen, Spritzen, Ernten, Bodenbearbeitung …) mit Messwerten werden als <b>${esc(cfg.arbeitenPath)}</b> abgelegt (IM-Verwalter › Verwaltung › Bericht und Abrechnung). Aus jeder Bedeckungskarte wird die Fläche <b>ohne Überlappungen</b> («ha bedeckt») berechnet und eine <b>virtuelle Feldgrenze</b> erstellt (<b>${esc(cfg.grenzenPath || '/jd-grenzen.json')}</b>). Bedeckungskarten kommen über die neue <b>Operations Data Export</b>-Schnittstelle von John Deere (<code>/isg/operations/…/operationsExportRequests</code>); wo sie nicht klappt, über die alte (<code>/fieldOps</code>, läuft laut John Deere bis November 2027)${st.covInfo && st.covInfo.neueApi ? ` · letzter Lauf neue API: ${esc(Object.entries(st.covInfo.neueApi.antworten || {}).map(([k, v]) => k + '×' + v).join(', ') || '–')}${st.covInfo.neueApi.gestoppt ? ' <span class="no">kein Zugriff – Freischaltung prüfen</span>' : ''}` : ''}.</small></p>
 ${!cfg.arbeitenAktiv ? '<p class="no">Ausgeschaltet</p>' : st.arbLast ? `Letzter Lauf: ${esc(new Date(st.arbLast.at).toLocaleString('de-CH'))} ${st.arbLast.ok ? '<span class="ok">ok</span>' : `<span class="no">Fehler</span><br><small>${esc(st.arbLast.error)}</small>`}<br>` : 'Noch nicht gelaufen – startet mit dem nächsten Abgleich.<br>'}
 ${st.arbOk ? `${st.arbOk.ops} Arbeitsgänge seit ${esc(st.arbOk.seit)} · ${Object.entries(st.arbOk.types || {}).map(([k, v]) => esc(k) + ' ' + v).join(' · ')}<br>` : ''}${st.arbProgress ? `<b>Läuft gerade: ${esc(st.arbProgress.phase)} – ${st.arbProgress.done} von ${st.arbProgress.total} (seit ${esc(new Date(st.arbProgress.at).toLocaleTimeString('de-CH'))})</b><br>` : ''}${st.flaechen ? `Flächen: ${st.flaechen.maschine} aus Maschine, ${st.flaechen.bedeckung} aus Bedeckungskarte (Ersatz), ${Object.values(arbCache() || {}).filter(o => o.cov && o.cov.ha && o.cov.mod === o.modified).length} mit «ha bedeckt», ${Object.keys(grenzen).length} virtuelle Feldgrenzen, ${st.flaechen.ohne} ohne Fläche<br>` : ''}${st.covInfo && st.covInfo.gefragt ? `<small>Bedeckungskarte zuletzt ${esc(new Date(st.covInfo.at).toLocaleString('de-CH'))}: ${st.covInfo.gefragt} abgefragt, ${st.covInfo.mitFlaeche} berechnet, ${st.covInfo.ohneKarte} ohne Karte, ${st.covInfo.offen} noch in Arbeit${st.covInfo.gestoppt ? ' · <span class="no">abgebrochen</span>' : ''} · Antworten ${esc(Object.entries(st.covInfo.status || {}).map(([k, v]) => k + '×' + v).join(', '))}${Object.entries(st.covInfo.meldungen || {}).map(([k, v]) => `<br>${esc(k)}: ${esc(v)}`).join('')}</small><br>` : ''}
 ${st.jd && !hasAg2() ? '<p class="no">Die bestehende John-Deere-Anmeldung enthält die Berechtigung für Arbeitsdaten noch nicht – bitte unten in Schritt 2 neu anmelden. Mandanten und Felder laufen bis dahin normal weiter.</p>' : ''}
