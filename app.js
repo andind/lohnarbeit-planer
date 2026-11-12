@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '123', APP_STAND = '12.11.2026';
+const APP_VERSION = '124', APP_STAND = '12.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -176,7 +176,7 @@ function undoLabel(e) {
   const SEP = Undo.SEP, [c, id] = e.ch[0].k.split(SEP), doc = Store.data[c] && (Store.data[c].find(x => x.id === id) || (e.ch[0].before ? JSON.parse(e.ch[0].before) : null)) || {};
   const n = e.ch.length > 1 ? ` (+${e.ch.length - 1})` : '';
   if (c === 'auftraege') return `Auftrag ${doc.nr || ''} ${doc.arbeit ? '· ' + doc.arbeit : ''}`.trim() + n;
-  if (c === 'einstellungen') return (/^rx-/.test(id) ? 'Applikationskarte' : /^eb-/.test(id) ? 'Eigener Betrieb' : /^rs-/.test(id) ? 'Rübensamen' : /^vb/.test(id) ? 'Vorbestellung Spritzen' : 'Einstellungen') + n;
+  if (c === 'einstellungen') return (/^rx-/.test(id) ? 'Applikationskarte (alt)' : /^eb-/.test(id) ? 'Eigener Betrieb' : /^rs-/.test(id) ? 'Rübensamen' : /^vb/.test(id) ? 'Vorbestellung Spritzen' : 'Einstellungen') + n;
   const L = { kunden: 'Kunde', maschinen: 'Maschine', parzellen: 'Parzelle', produkte: 'Produkt', felder: 'Feld', personal: 'Personal', pausen: 'Pause' };
   return `${L[c] || c}${doc.name ? ' ' + doc.name : ''}` + n;
 }
@@ -724,7 +724,7 @@ window.addEventListener('storage', e => {
     const d = JSON.parse(e.newValue); if (!d || typeof d !== 'object') return;
     COLL.forEach(c => { if (!Array.isArray(d[c])) d[c] = []; });
     Store.data = d; Store.v++; Undo.base();
-    if (ls('lp_dirty')) Sync.schedule(3000); // z.B. Applikationskarte gespeichert (karte.html) → nach Dropbox
+    if (ls('lp_dirty')) Sync.schedule(3000);
     if (Dlg.el && Dlg.el.open) App.pendingRender = true; else App.render();
   } catch { }
 });
@@ -1111,7 +1111,6 @@ const Views = {
           <label class="fld"><span>Umfang</span><select class="input" id="exArt"><option value="offen">Nur noch nicht verrechnete</option><option value="alle">Alle erledigten und verrechneten</option></select></label>
           <label style="display:flex;gap:8px;align-items:center;font-size:14px"><input type="checkbox" id="exMark"> Exportierte danach als «verrechnet» markieren</label>
           <div class="btns"><button class="btn primary" data-act="export">CSV herunterladen</button></div></div>
-        ${rxPanel()}
         <div class="panel"><h2>Datensicherung</h2>
           <p>Zusätzliche Sicherung aller Daten als Datei. Dropbox führt zudem selbst einen Versionsverlauf der Datendatei.</p>
           <p><b>Alles als Excel:</b> sämtliche Daten in einer Excel-Datei mit je einem Blatt für Aufträge, Spritzprodukte, Kunden, Felder, Parzellen, Produkte, Preisverlauf, Maschinen, Listen, Vermessungen, Spritzprogramme, Vorbestellung, Rübensamen, Rübensamen Sorten, JD-Abrechnung, Einstellungen sowie Eigener Betrieb (Parzellen, Kulturen, Fruchtfolge, Düngung, Dünger, Zwischenfrüchte, Bodenproben) – zum Auswerten, Archivieren oder Weitergeben. <b>Sicherung herunterladen</b> enthält alle Daten aller Module zum Wiedereinlesen.</p>
@@ -1211,7 +1210,7 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
   const s = statusOf(a), done = s === 'erledigt' || s === 'verrechnet';
   const planDate = a.datum || pre?.datum || (plan ? (a.wunsch && a.wunsch >= todayIso() ? a.wunsch : (App.view === 'plan' ? isoDate(App.plan.date) : todayIso())) : '');
   const body = `
-    ${isOpen(a) ? `<div class="odtop"><span class="nr">${isNew ? 'Neuer Auftrag' : `Auftrag ${esc(a.nr || '')}`}</span>${rxBtn(a)}<button type="button" class="btn small donebtn odone" data-act="doneSave" data-id="${a.id}" title="Auftrag speichern und direkt als erledigt melden (Datum, Fläche, Stunden, Bemerkungen)">✓ Erledigt melden</button></div>` : rxOf(a.id) ? `<div class="odtop">${rxBtn(a)}</div>` : ''}
+    ${isOpen(a) ? `<div class="odtop"><span class="nr">${isNew ? 'Neuer Auftrag' : `Auftrag ${esc(a.nr || '')}`}</span><button type="button" class="btn small donebtn odone" data-act="doneSave" data-id="${a.id}" title="Auftrag speichern und direkt als erledigt melden (Datum, Fläche, Stunden, Bemerkungen)">✓ Erledigt melden</button></div>` : ''}
     <label class="fld"><span>Kunde</span>
       <div class="combo">
         <input class="input combo-in" name="kunde" value="${esc(k ? kundeLabel(k) : '')}" placeholder="Name, Ort oder Nr. eingeben" autocomplete="off" autocapitalize="words" spellcheck="false" required ${isNew && !kundeId ? 'autofocus' : ''}>
@@ -1786,20 +1785,6 @@ let _stRaf = 0;
 addEventListener('scroll', () => { if (!_stRaf) _stRaf = requestAnimationFrame(() => { _stRaf = 0; stickyUpd(); }); }, { passive: true });
 addEventListener('resize', () => stickyUpd());
 
-/* ================= Applikationskarten (karte.html): gespeichert in «einstellungen» mit id «rx-…» =================
-   Die Karte ist eine eigene Seite (mit Kartenbibliotheken), liest und schreibt dieselben Daten im Browser und wird über Dropbox abgeglichen. */
-const rxAll = () => Store.all('einstellungen').filter(r => /^rx-/.test(r.id) && r.state).sort((a, b) => String(b.saved || '').localeCompare(String(a.saved || '')));
-const rxOf = oid => oid ? rxAll().find(r => r.auftrag === oid) : null;
-const RX_ARBEIT = /spritz|pflanzenschutz|s[äa]e|saat|d[üu]ng|streu/i;
-const rxName = r => { const st = r.state || {}; return [st.feld || 'ohne Feld', st.modus === 'grenze' ? 'Feldgrenze' : st.produkt || ({ Saat: 'Saat', Duengung: 'Düngung', PS: 'Pflanzenschutz' })[st.arbeit] || '', st.kunde].filter(Boolean).join(' · '); };
-const rxBtn = a => (rxOf(a.id) || RX_ARBEIT.test(a.arbeit || '')) ? `<button type="button" class="btn small" data-act="rxOpen" data-id="${a.id}" title="Auftrag speichern und die Applikationskarte dazu öffnen (Zonen mit unterschiedlicher Menge, Export für John Deere)">🗺 ${rxOf(a.id) ? 'Karte' : 'Applikationskarte'}</button>` : '';
-function rxPanel() {
-  const L = rxAll();
-  return `<div class="panel"><h2>Applikationskarten <small class="nr">${L.length}</small></h2>
-    <p class="nr" style="margin-top:0">Karten mit Zonen unterschiedlicher Menge (Saat, Düngung, Pflanzenschutz) zeichnen und als Shapefile für das John Deere Operations Center exportieren. Gespeicherte Karten werden über Dropbox auf allen Geräten abgeglichen. Aus einem Auftrag: «🗺 Applikationskarte».</p>
-    ${L.length ? `<div class="rows">${L.slice(0, 50).map(r => `<a class="rowi" href="karte.html?karte=${encodeURIComponent(r.id)}"><div class="grow"><div class="t">${esc(rxName(r))}</div><div class="s">${r.saved ? fmtDate(String(r.saved).slice(0, 10), { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''}${r.auftrag && Store.get('auftraege', r.auftrag) ? ' · Auftrag ' + esc(Store.get('auftraege', r.auftrag).nr || '') : ''}</div></div><span class="nr">›</span></a>`).join('')}</div>` : ''}
-    <div class="btns"><a class="btn" href="karte.html?neu=1">＋ Neue Karte</a></div></div>`;
-}
 
 /* ================= Mehrfachauswahl ================= */
 function toggleSel(id) { if (App.sel.has(id)) App.sel.delete(id); else App.sel.add(id); App.render(); }
@@ -4019,14 +4004,15 @@ async function bedGrzFill(box) {
   const id = box.dataset.id, r = (App.jdb.rows || []).find(x => x.id === id), g = await bedGrz(id);
   if (!box.isConnected) return;
   if (!g) { box.innerHTML = '<span class="nr">Keine virtuelle Feldgrenze gefunden (jd-grenzen.json im Dropbox-Ordner fehlt oder ist noch nicht nachgeführt).</span>'; return; }
-  box.innerHTML = `${bedGrzSvg(g)}<div class="btns" style="margin-top:6px"><button type="button" class="btn small" data-act="bedGrzKarte" data-id="${esc(id)}" title="In der Applikationskarte öffnen (Modus «Nur Feldgrenze»), dort als ZIP für John Deere exportieren">📐 In Applikationskarte öffnen</button>
+  box.innerHTML = `${bedGrzSvg(g)}<div class="btns" style="margin-top:6px"><button type="button" class="btn small" data-act="bedGrzGeo" data-id="${esc(id)}" title="Virtuelle Feldgrenze als GeoJSON-Datei speichern – z. B. für das Programm «Applikationskarte» (Feldgrenze laden)">⬇ Als GeoJSON speichern</button>
     <span class="nr">${r && r.haB != null ? fmtNum(r.haB) + ' ha bearbeitet' : ''}${g.length > 1 ? ` · ${g.length} Teile` : ''}${g.some(p => p.length > 1) ? ' · mit Aussparungen' : ''}</span></div>`;
 }
-async function bedGrzKarte(id) {
+async function bedGrzGeo(id) {
   const r = (App.jdb.rows || []).find(x => x.id === id), g = await bedGrz(id); if (!r || !g) return;
-  const f = feldFuer({ fid: r.fid, kunde: r.kunde, feld: r.feld }), k = Store.all('kunden').find(x => x.name === r.kunde);
-  try { localStorage.setItem('imv.bedeckungGrenze', JSON.stringify({ kunde: r.kunde, feld: r.feld, kid: k ? k.id : '', fid: f ? f.id : '', datum: r.d, arbeit: r.arbeit, geometry: { type: 'MultiPolygon', coordinates: g } })); } catch { toast('Speicher voll – Grenze kann nicht übergeben werden'); return; }
-  location.href = 'karte.html?bedeckung=1';
+  const fc = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { CLIENT: r.kunde, FIELD: r.feld, DATUM: r.d, ARBEIT: r.arbeit, HA_BEDECKT: r.ha, QUELLE: 'Virtuelle Feldgrenze aus der Bedeckungskarte (IM-Verwalter)' }, geometry: { type: 'MultiPolygon', coordinates: g } }] };
+  const clean = t => String(t || '').replace(/[^\wäöüÄÖÜ-]+/g, '_');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(fc)], { type: 'application/geo+json' }));
+  a.download = `Grenze_${clean(r.kunde || 'Kunde')}_${clean(r.feld || 'Feld')}_${r.d}.geojson`; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 function jdBerichtView() {
   return {
@@ -5741,7 +5727,6 @@ document.addEventListener('click', async e => {
     case 'editOrder': orderDialog(id); break;
     case 'planOrder': e.stopPropagation(); orderDialog(id, { plan: 'vorschlag' }); break;
     case 'done': e.stopPropagation(); doneDialog(id); break;
-    case 'rxOpen': Dlg.afterSave = () => { location.href = 'karte.html?auftrag=' + encodeURIComponent(id); }; if (!Dlg.form.reportValidity()) { Dlg.afterSave = null; break; } Dlg.form.requestSubmit(); break;
     case 'doneSave': Dlg.afterSave = () => doneDialog(id); if (!Dlg.form.reportValidity()) { Dlg.afterSave = null; break; } Dlg.form.requestSubmit(); break;
     case 'unplan': f.datum.value = ''; f.zeit.value = ''; toast('Beim Speichern wird die Einplanung entfernt'); break;
     case 'quickKunde': if (jdLock()) toast('Neue Kunden werden in MyJohnDeere erfasst.'); else quickKundeDialog(); break;
@@ -5777,7 +5762,7 @@ document.addEventListener('click', async e => {
     case 'jbPrint': jdbPrint(); break;
     case 'jbRow': jdbDetail(id); break;
     case 'jbGrz': jdbGrenzen(id); break;
-    case 'bedGrzKarte': bedGrzKarte(id); break;
+    case 'bedGrzGeo': bedGrzGeo(id); break;
     case 'jbMark': jdbMarkSel(t.dataset.v === '1'); break;
     case 'jbMarkOne': { const on = t.dataset.v === '1'; jdbMark([id], on); toast(on ? 'Als abgerechnet markiert' : 'Wieder offen'); jdbDetail(id); break; }
     case 'jbSelAllList': { const S = App.jdbSel || (App.jdbSel = new Set()); jdbList().forEach(r => S.add(r.id)); App.render(); break; }
