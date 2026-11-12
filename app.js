@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '121', APP_STAND = '12.11.2026';
+const APP_VERSION = '122', APP_STAND = '12.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -640,8 +640,8 @@ const App = {
   view: ls('lp_view') || 'auftraege',
   filter: { auftraege: 'offen', q: '', kq: '', aview: ls('lp_aview') || 'karten' },
   al: { von: '', bis: '', k: '', a: '', c: '', m: '', f: '', grp: '', sort: 'wunsch', limit: 300 },
-  abr: { minHa: ls('lp_abrmin') || '', von: null, bis: null, k: [], a: [], f: [], m: [], c: [], q: '', src: '', ab: '', grp: '', sort: 'desc', limit: 300, open: null },
-  jdb: { minHa: ls('lp_jdbmin') || '', rows: null, meta: null, von: null, bis: null, k: [], a: [], f: [], m: [], c: [], q: '', grp: '', sort: 'desc', limit: 300, open: null },
+  abr: { minHa: ls('lp_abrmin') || '', bed: ls('lp_abrbed') || '', von: null, bis: null, k: [], a: [], f: [], m: [], c: [], q: '', src: '', ab: '', grp: '', sort: 'desc', limit: 300, open: null },
+  jdb: { minHa: ls('lp_jdbmin') || '', bed: ls('lp_jdbbed') || '', rows: null, meta: null, von: null, bis: null, k: [], a: [], f: [], m: [], c: [], q: '', grp: '', sort: 'desc', limit: 300, open: null },
   plan: { ua: '', um: '', us: ls('lp_pus') || 'wunsch', axW: ls('lp_axW') || 'tage', axT: ls('lp_axT') || 'senkrecht', side: ls('lp_pside') !== '0', upos: ls('lp_upos') || 'neben', mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false,
   spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jsort: 'desc', jf: null, jfOpen: false, jlimit: 200,
@@ -3765,8 +3765,9 @@ function jdbRow(o) {
     .map(([k, v]) => [JDB_KEYS[k] || k, typeof v === 'object' && !Array.isArray(v) ? jdbFmt(v) || JSON.stringify(v).slice(0, 80) : Array.isArray(v) ? jdbNames(v).join(', ') || `${v.length} Einträge` : String(v)]).filter(([, v]) => v) }));
   const type = o.type || raw.fieldOperationType || '';
   return { id: o.id, fid: o.field || '', d: String(start).slice(0, 10), start, end, dauer, type, arbeit: JDB_ART[type] || type || '–',
-    kunde: o.clientName || '', feld: o.fieldName || '', ha: haV != null ? Math.round(haV * 100) / 100 : null, quelle,
-    haB: o.haB != null ? Math.round(o.haB * 100) / 100 : null, grzB: !!o.grzB, maschine: mach.join(', ') || JDB_MACH[o.machineType || raw.adaptMachineType] || o.machineType || raw.adaptMachineType || '',
+    // v122: Standardfläche = bedeckte Fläche (Bedeckungskarte ohne Überlappungen); Maschinenfläche nur noch zur Information (haM)
+    kunde: o.clientName || '', feld: o.fieldName || '', ha: o.haB != null ? Math.round(o.haB * 100) / 100 : null,
+    haM: haV != null && quelle !== 'Bedeckungskarte' ? Math.round(haV * 100) / 100 : null, quelle, grzB: !!o.grzB, /* Ersatzwert aus der Bedeckungskarte ist keine Maschinenfläche */ maschine: mach.join(', ') || JDB_MACH[o.machineType || raw.adaptMachineType] || o.machineType || raw.adaptMachineType || '',
     fahrer: fahrer.join(', '), kultur: crop, produkte: prodTxt, sorten: sorten.join(', '), menge: rate, gesamt: jdbGesamt(ms), saison: o.cropSeason || raw.cropSeason || '', details };
 }
 const JDB_KEY = 'lp_jdb';
@@ -3823,6 +3824,7 @@ function jdbFilter(J, skip = '') {
     && ok('k', r.kunde) && ok('a', r.arbeit) && ok('f', r.feld) && ok('c', r.kultur)
     && (skip === 'm' || !jdbArr(J.m).length || r.maschine.split(', ').some(x => jdbArr(J.m).includes(x)))
     && (!+J.minHa || r.ha == null || r.ha >= +J.minHa)
+    && (J.bed === 'alle' || r.ha != null) // ohne Bedeckung standardmässig ausgeblendet (v122)
     && (!J.ab || (J.ab === 'ja') === !!jdbAbr(r.id))
     && (!q || [r.kunde, r.feld, r.arbeit, r.maschine, r.kultur, r.produkte, r.sorten, r.fahrer].join(' ').toLowerCase().includes(q));
 }
@@ -3870,10 +3872,10 @@ const JDB_COLS = [
   { id: 'arbeit', l: 'Arbeit', w: 130, v: r => r.arbeit },
   { id: 'kunde', l: 'Kunde', w: 150, v: r => r.kunde },
   { id: 'feld', l: 'Feld', w: 130, v: r => r.feld, html: r => r.feld ? `<span class="fldlink" data-act="jbGrz" data-id="${esc(r.id)}" title="Vermessungen anzeigen">${esc(r.feld)}</span>` : '' },
-  { id: 'ha', l: 'ha', w: 60, n: 1, v: r => r.ha != null ? fmtNum(r.ha) + (r.quelle === 'Bedeckungskarte' ? ' B' : '') : '', csv: r => r.ha ?? '',
-    html: r => r.ha != null ? `${fmtNum(r.ha)}${r.quelle === 'Bedeckungskarte' ? BED_MARK : ''}` : '' },
-  { id: 'haB', l: 'ha bedeckt', w: 84, n: 1, v: r => r.haB != null ? fmtNum(r.haB) : '', csv: r => r.haB ?? '',
-    html: r => r.haB != null ? `<span title="aus der Bedeckungskarte, ohne Überlappungen (jede Stelle einmal gezählt)">${fmtNum(r.haB)}</span>` : '' },
+  { id: 'ha', l: 'ha bedeckt', w: 84, n: 1, v: r => r.ha != null ? fmtNum(r.ha) : '', csv: r => r.ha ?? '',
+    html: r => r.ha != null ? `<b title="aus der Bedeckungskarte, ohne Überlappungen (jede Stelle einmal gezählt)">${fmtNum(r.ha)}</b>` : '' },
+  { id: 'haM', l: 'ha Maschine', w: 88, n: 1, v: r => r.haM != null ? fmtNum(r.haM) : '', csv: r => r.haM ?? '',
+    html: r => r.haM != null ? `<span class="nr" title="Fläche der Maschine (nur zur Information${r.quelle ? ', Quelle: ' + r.quelle : ''})">${fmtNum(r.haM)}</span>` : '' },
   { id: 'quelle', l: 'Flächen-Quelle', w: 118, v: r => r.quelle || '', html: r => r.quelle ? `<span class="fq fq-${r.quelle === 'Bedeckungskarte' ? 'b' : 'm'}">${esc(r.quelle)}</span>` : '<span class="nr">–</span>' },
   { id: 'maschine', l: 'Maschine', w: 140, v: r => r.maschine },
   { id: 'fahrer', l: 'Fahrer', w: 120, v: r => r.fahrer },
@@ -3885,13 +3887,14 @@ const JDB_COLS = [
 ];
 // B = Fläche aus der Bedeckungskarte berechnet (NAS-Dienst, ohne Überlappungen)
 const BED_MARK = '<span class="bedm" title="aus der Bedeckungskarte berechnet (ohne Überlappungen)">B</span>';
-const JDB_DEF = { order: ['beginn', 'ende', 'dauer', 'arbeit', 'kunde', 'feld', 'ha', 'haB', 'quelle', 'maschine', 'kultur', 'produkte', 'menge', 'gesamt', 'abr'], w: {} };
+const JDB_DEF = { order: ['beginn', 'ende', 'dauer', 'arbeit', 'kunde', 'feld', 'ha', 'haM', 'quelle', 'maschine', 'kultur', 'produkte', 'menge', 'gesamt', 'abr'], w: {} };
 function jdbColCfg() {
   let c; try { c = JSON.parse(ls('lp_jdbcols') || 'null'); } catch { c = null; }
   if (!c || !Array.isArray(c.order)) c = JSON.parse(JSON.stringify(JDB_DEF));
+  c.order = c.order.map(id => id === 'haB' ? 'haM' : id); // v121 «ha bedeckt» → v122 «ha Maschine» (bedeckt ist jetzt Spalte «ha»)
   c.order = c.order.filter(id => JDB_COLS.some(x => x.id === id)); c.w = c.w || {};
   if (!(c.known || []).includes('quelle') && !c.order.includes('quelle')) { const i = c.order.indexOf('ha'); c.order.splice(i < 0 ? c.order.length : i + 1, 0, 'quelle'); } // neue Spalte einmal einblenden
-  if (!(c.known || []).includes('haB') && !c.order.includes('haB')) { const i = c.order.indexOf('ha'); c.order.splice(i < 0 ? c.order.length : i + 1, 0, 'haB'); }
+  if (!(c.known || []).includes('haM') && !c.order.includes('haM')) { const i = c.order.indexOf('ha'); c.order.splice(i < 0 ? c.order.length : i + 1, 0, 'haM'); }
   if (!(c.known || []).includes('gesamt') && !c.order.includes('gesamt')) { const i = c.order.indexOf('menge'); c.order.splice(i < 0 ? c.order.length : i + 1, 0, 'gesamt'); }
   c.known = JDB_COLS.map(x => x.id);
   return c;
@@ -3905,7 +3908,7 @@ function jdbTable(list, { print, all } = {}) {
   const head = `<thead><tr>${ck ? `<th class="ck" data-stop><input type="checkbox" data-in="jbSelAll" ${allOn ? 'checked' : ''} title="Alle angezeigten auswählen"></th>` : ''}${cols.map(c => `<th class="${c.n ? 'n' : ''}" ${print ? '' : `draggable="true" data-col="${c.id}" title="Ziehen zum Verschieben"`}>${esc(c.l)}${print ? '' : `<span class="cres" data-col="${c.id}" title="Breite ändern"></span>`}</th>`).join('')}</tr></thead>`;
   const row = r => { const ab = jdbAbr(r.id); return `<tr class="${print ? '' : 'click'}${ab ? ' jdab' : ''}${ck && S.has(r.id) ? ' alsel' : ''}" ${print ? '' : `data-act="jbRow" data-id="${esc(r.id)}"`}>${ck ? `<td class="ck" data-stop><input type="checkbox" data-in="jbSel" value="${esc(r.id)}" ${S.has(r.id) ? 'checked' : ''}></td>` : ''}${cols.map(c => `<td class="${c.n ? 'n' : ''} c-${c.id}">${!print && c.html ? c.html(r) : esc(c.v(r))}</td>`).join('')}</tr>`; };
   const TL = all || list, dSum = TL.reduce((t, r) => t + (r.dauer || 0), 0);
-  const tot = `<tfoot><tr class="tot jdbtot">${ck ? '<td></td>' : ''}${cols.map((c, i) => `<td class="${c.n ? 'n' : ''}">${c.id === 'ha' ? `<b>${fmtNum(jdbHaSum(TL))}</b>` : c.id === 'haB' ? `<b>${fmtNum(r2(TL.reduce((x, r) => x + (r.haB || 0), 0)))}</b>` : c.id === 'dauer' ? `<b>${hrs(r2(dSum))}</b>` : i === 0 ? `<b>Total ${TL.length}</b>` : ''}</td>`).join('')}</tr></tfoot>`;
+  const tot = `<tfoot><tr class="tot jdbtot">${ck ? '<td></td>' : ''}${cols.map((c, i) => `<td class="${c.n ? 'n' : ''}">${c.id === 'ha' ? `<b>${fmtNum(jdbHaSum(TL))}</b>` : c.id === 'haM' ? `<span class="nr">${fmtNum(r2(TL.reduce((x, r) => x + (r.haM || 0), 0)))}</span>` : c.id === 'dauer' ? `<b>${hrs(r2(dSum))}</b>` : i === 0 ? `<b>Total ${TL.length}</b>` : ''}</td>`).join('')}</tr></tfoot>`;
   const tcls = `btab jdbtab${print ? '' : ' jdbfix'}`, tw = print ? '' : ` style="width:${(ck ? 36 : 0) + cols.reduce((s, c) => s + c.w, 0)}px"`;
   if (!g) return `<table class="${tcls}"${tw}>${colg}${head}<tbody>${list.map(row).join('')}</tbody>${tot}</table>`;
   const groups = groupBy(list.slice().sort((a, b) => String(jdbGroupKey(a, g)).localeCompare(String(jdbGroupKey(b, g)), 'de') * (g === 'monat' ? -1 : 1)), r => jdbGroupKey(r, g));
@@ -3973,15 +3976,15 @@ function jdbSummenPrint() {
   printHtml(title, `<div class="bill jdbprint">${LETTERHEAD}<div class="bill-h"><div><b>Arbeitsbericht · Summen</b><br><span class="nr">Fläche in ha · Anzahl Arbeitsgänge</span></div><div class="r">${esc(title)}<br>${list.length} Arbeitsgänge · ${fmtNum(jdbHaSum(list))} ha</div></div>${jdbSummen(list, { print: true })}</div>`, { noTitle: true });
 }
 function jdbCsv() {
-  const rows = [['Datum', 'Beginn', 'Ende', 'Dauer h', 'Arbeit', 'Kunde', 'Feld', 'Fläche ha', 'Flächen-Quelle', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Sorten', 'Menge/ha', 'Gesamtmenge', 'Saison', 'Abgerechnet am', 'ID']];
-  jdbList().forEach(r => rows.push([r.d, jdbDT(r.start), jdbDT(r.end), r.dauer != null ? r.dauer.toFixed(2) : '', r.arbeit, r.kunde, r.feld, r.ha ?? '', r.quelle || '', r.maschine, r.fahrer, r.kultur, jdbProdTxt(r), r.sorten, r.menge, jdbGesTxt(r), r.saison, jdbAbr(r.id)?.am || '', r.id]));
+  const rows = [['Datum', 'Beginn', 'Ende', 'Dauer h', 'Arbeit', 'Kunde', 'Feld', 'Fläche bedeckt ha', 'Fläche Maschine ha', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Sorten', 'Menge/ha', 'Gesamtmenge', 'Saison', 'Abgerechnet am', 'ID']];
+  jdbList().forEach(r => rows.push([r.d, jdbDT(r.start), jdbDT(r.end), r.dauer != null ? r.dauer.toFixed(2) : '', r.arbeit, r.kunde, r.feld, r.ha ?? '', r.haM ?? '', r.maschine, r.fahrer, r.kultur, jdbProdTxt(r), r.sorten, r.menge, jdbGesTxt(r), r.saison, jdbAbr(r.id)?.am || '', r.id]));
   const J = App.jdb;
   download(`JD-Arbeitsbericht_${J.von || 'alle'}_${J.bis || ''}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }
 function jdbPrint() {
   const J = App.jdb, list = jdbList();
   const title = `Arbeitsbericht ${J.von || J.bis ? `${J.von ? fmtDate(J.von, { day: '2-digit', month: '2-digit', year: 'numeric' }) : '…'} – ${J.bis ? fmtDate(J.bis, { day: '2-digit', month: '2-digit', year: 'numeric' }) : '…'}` : ''}`;
-  const filt = [J.ab && (J.ab === 'ja' ? 'nur abgerechnete' : 'nur offene'), +J.minHa && `ohne Flächen unter ${fmtNum(+J.minHa)} ha`, ...Object.entries(JDB_MS).map(([k, [, l]]) => jdbArr(J[k]).length ? `${l}: ${jdbArr(J[k]).join(', ')}` : '')].filter(Boolean).join(' · ');
+  const filt = [J.ab && (J.ab === 'ja' ? 'nur abgerechnete' : 'nur offene'), +J.minHa && `ohne Flächen unter ${fmtNum(+J.minHa)} ha`, J.bed !== 'alle' && 'ohne Arbeitsgänge ohne Bedeckung', ...Object.entries(JDB_MS).map(([k, [, l]]) => jdbArr(J[k]).length ? `${l}: ${jdbArr(J[k]).join(', ')}` : '')].filter(Boolean).join(' · ');
   printHtml(title, `<div class="bill jdbprint">${LETTERHEAD}<div class="bill-h"><div><b>${esc(jdbArr(J.k).length === 1 ? J.k[0] : 'Arbeitsbericht')}</b>${filt ? `<br><span class="nr">${esc(filt)}</span>` : ''}</div><div class="r">${esc(title)}<br>${list.length} Arbeitsgänge · ${fmtNum(jdbHaSum(list))} ha</div></div>
     ${jdbTable(list, { print: true })}</div>`, { noTitle: true });
 }
@@ -3989,7 +3992,7 @@ function jdbDetail(id) {
   const r = (App.jdb.rows || []).find(x => x.id === id); if (!r) return;
   const kv = (k, v) => v ? `<tr><td class="nr">${esc(k)}</td><td>${esc(v)}</td></tr>` : '';
   const dt = s => s ? new Date(s).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '';
-  const body = `<table class="btab kv">${kv('Arbeit', r.arbeit)}${kv('Kunde', r.kunde)}${kv('Feld', r.feld)}${kv('Fläche', r.ha != null ? fmtNum(r.ha) + ' ha' + (r.quelle ? ` (${r.quelle})` : '') : '')}${kv('Fläche bedeckt', r.haB != null ? fmtNum(r.haB) + ' ha (Bedeckungskarte, ohne Überlappungen)' : '')}${kv('Abgerechnet', jdbAbr(r.id) ? fmtDate(jdbAbr(r.id).am, { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'offen')}${kv('Beginn', dt(r.start))}${kv('Ende', dt(r.end))}${kv('Dauer', r.dauer != null ? hrs(r.dauer) : '')}
+  const body = `<table class="btab kv">${kv('Arbeit', r.arbeit)}${kv('Kunde', r.kunde)}${kv('Feld', r.feld)}${kv('Fläche bedeckt', r.ha != null ? fmtNum(r.ha) + ' ha (Bedeckungskarte, ohne Überlappungen)' : 'keine Bedeckungskarte')}${kv('Fläche Maschine', r.haM != null ? fmtNum(r.haM) + ' ha (nur zur Information)' : '')}${kv('Abgerechnet', jdbAbr(r.id) ? fmtDate(jdbAbr(r.id).am, { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'offen')}${kv('Beginn', dt(r.start))}${kv('Ende', dt(r.end))}${kv('Dauer', r.dauer != null ? hrs(r.dauer) : '')}
     ${kv('Maschine', r.maschine)}${kv('Fahrer', r.fahrer)}${kv('Kultur', r.kultur)}${kv('Saison', r.saison)}${kv('Produkte', jdbProdTxt(r))}${kv('Sorten', r.sorten)}${kv('Menge/ha', r.menge)}${kv('Gesamtmenge', jdbGesTxt(r))}</table>
     ${r.grzB ? `<div class="fld" style="margin-top:12px"><span>Virtuelle Feldgrenze (aus der Bedeckungskarte)</span></div><div class="bedgrz" data-id="${esc(r.id)}"><span class="nr">wird geladen …</span></div>` : ''}
     <div class="fld" style="margin-top:12px"><span>Vermessungen des Feldes${r.feld ? ` «${esc(r.feld)}»` : ''}</span></div>${grenzenHtml(feldFuer({ fid: r.fid, kunde: r.kunde, feld: r.feld }))}
@@ -4049,12 +4052,13 @@ function jdBerichtView() {
           </div>` : ''}</div>`; };
       const shown = list.slice(0, J.limit || 300), m = J.meta || {};
       const inner = `<p class="nr" style="margin-top:0">${m.n || all.length} Arbeitsgänge${m.org ? ' · ' + esc(m.org) : ''}${m.stand ? ` · Stand ${esc(new Date(m.stand).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }))}` : ''}${m.seit ? ` · ab ${fmtDate(m.seit, { day: '2-digit', month: '2-digit', year: 'numeric' })}` : ''}
-          ${(() => { const q = { m: 0, b: 0, o: 0 }; all.forEach(r => r.quelle === 'Bedeckungskarte' ? q.b++ : r.ha != null ? q.m++ : q.o++); return ` · Flächen: ${q.m} Maschine, ${q.b} Bedeckungskarte, ${q.o} ohne`; })()}${m.bedeckung && m.bedeckung.gestoppt ? ' · <span style="color:var(--danger)">Bedeckungskarte: Abfrage abgebrochen – siehe NAS-Dienst</span>' : ''}
+          ${(() => { const q = { m: 0, b: 0, o: 0 }; all.forEach(r => r.ha != null ? q.b++ : q.o++); return ` · ${q.b} mit Bedeckung, ${q.o} ohne`; })()}${m.bedeckung && m.bedeckung.gestoppt ? ' · <span style="color:var(--danger)">Bedeckungskarte: Abfrage abgebrochen – siehe NAS-Dienst</span>' : ''}
           · <a href="#" data-act="jbLoad">${J.loading ? 'lädt…' : 'neu laden'}</a> · <a href="#" data-act="jbFile">Datei wählen</a></p>
         <div class="panel jfilter"><div class="jfgrid">
           <label class="fld"><span>Von</span><input class="input" type="date" data-in="jb" data-k="von" value="${esc(J.von)}"></label>
           <label class="fld"><span>Bis</span><input class="input" type="date" data-in="jb" data-k="bis" value="${esc(J.bis)}"></label>
           ${sel('k')}${sel('a')}${sel('f')}${sel('m')}${sel('c')}
+          <label class="fld"><span>Ohne Bedeckung</span><select class="input" data-plain data-in="jbBed"><option value="">ausblenden</option><option value="alle" ${J.bed === 'alle' ? 'selected' : ''}>anzeigen</option></select></label>
           <label class="fld"><span>Kleinstflächen</span><select class="input" data-plain data-in="jbMin">${[['', 'Alle anzeigen'], ['0.05', 'unter 0.05 ha ausblenden'], ['0.1', 'unter 0.1 ha ausblenden'], ['0.2', 'unter 0.2 ha ausblenden'], ['0.5', 'unter 0.5 ha ausblenden'], ['1', 'unter 1 ha ausblenden']].map(([v, l]) => `<option value="${v}" ${String(J.minHa || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <label class="fld"><span>Abrechnung</span><select class="input" data-plain data-in="jb" data-k="ab"><option value="">Alle</option><option value="nein" ${J.ab === 'nein' ? 'selected' : ''}>Nur offene</option><option value="ja" ${J.ab === 'ja' ? 'selected' : ''}>Nur abgerechnete</option></select></label>
           <label class="fld"><span>Gruppieren nach</span><select class="input" data-plain data-in="jb" data-k="grp">${JDB_GRP.map(([v, l]) => `<option value="${v}" ${J.grp === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
@@ -4063,7 +4067,7 @@ function jdBerichtView() {
         <div class="btns"><span class="seg mini">${[['woche', 'Diese Woche'], ['30', '30 Tage'], ['jahr', 'Dieses Jahr'], ['vorjahr', 'Vorjahr'], ['alle', 'Alles']].map(([v, l]) => `<button type="button" data-act="jbPreset" data-v="${v}">${l}</button>`).join('')}</span>
           <input class="input search" type="search" placeholder="Suchen: Produkt, Sorte, Fahrer…" value="${esc(J.q || '')}" data-in="jbq" style="max-width:260px">
           <button class="btn" data-act="jbReset">Filter zurücksetzen</button></div></div>
-        <p><b>${list.length} Arbeitsgänge · ${fmtNum(jdbHaSum(list))} ha</b>${+J.minHa ? (() => { const n = all.filter(jdbFilter({ ...J, minHa: '' })).length - list.length; return n ? ` <span class="nr">· ${n} Kleinstflächen unter ${fmtNum(+J.minHa)} ha ausgeblendet</span>` : ''; })() : ''}${list.length ? ` <span class="nr">· ${list.filter(r => jdbAbr(r.id)).length} abgerechnet, ${list.filter(r => !jdbAbr(r.id)).length} offen</span>` : ''}</p>
+        <p><b>${list.length} Arbeitsgänge · ${fmtNum(jdbHaSum(list))} ha bedeckt</b>${J.bed !== 'alle' ? (() => { const n = all.filter(jdbFilter({ ...J, bed: 'alle' })).length - list.length; return n ? ` <span class="nr">· ${n} ohne Bedeckung ausgeblendet</span>` : ''; })() : ''}${+J.minHa ? (() => { const n = all.filter(jdbFilter({ ...J, minHa: '' })).length - list.length; return n ? ` <span class="nr">· ${n} Kleinstflächen unter ${fmtNum(+J.minHa)} ha ausgeblendet</span>` : ''; })() : ''}${list.length ? ` <span class="nr">· ${list.filter(r => jdbAbr(r.id)).length} abgerechnet, ${list.filter(r => !jdbAbr(r.id)).length} offen</span>` : ''}</p>
         <div class="chips static" style="margin-bottom:10px">${jdbSummary(list)}</div>
         ${list.length ? `<details class="panel jdbsumbox" ${J.sumOpen ? 'open' : ''}><summary data-act="jbSumToggle">Summen pro Kunde und Arbeit</summary><div class="tscroll dscroll" style="margin-top:8px">${J.sumOpen ? jdbSummen(list) : ''}</div>${J.sumOpen ? '<div class="btns" style="margin-top:8px"><button class="btn" data-act="jbSumPrint">Summen drucken / PDF</button></div>' : ''}</details>` : ''}
         ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-act="jbPrint">Drucken / PDF</button><button class="btn" data-act="jbCsv">Excel (CSV)</button><button class="btn" data-act="jbCols">Spalten…</button></div>
@@ -4134,7 +4138,7 @@ function abRows() {
       const rc = r.type || ''; if (cat && rc && cat !== rc && !(cat === 'application' && rc === 'fertilizing')) return;
       let s = 3 - dd; if (cat && rc && (cat === rc || (cat === 'application' && rc === 'fertilizing'))) s += 2;
       const rf = r._fk; if (feld && rf && (feld === rf || feld.includes(rf) || rf.includes(feld))) s += 2;
-      if (o.flaeche && r.ha) { const q = Math.min(o.flaeche, r.ha) / Math.max(o.flaeche, r.ha); if (q > 0.8) s += 1; }
+      { const rh = r.ha ?? r.haM; if (o.flaeche && rh) { const q = Math.min(o.flaeche, rh) / Math.max(o.flaeche, rh); if (q > 0.8) s += 1; } }
       if (s >= 3) cand.push({ o: o.id, j: r.id, s });
     });
   });
@@ -4150,10 +4154,10 @@ function abRows() {
 const GENAU_MARK = '<span class="genaum" title="genaue Fläche (bei der Fertigmeldung bestätigt)"> ✓</span>';
 function abRow(o, j, km) {
   const k = o ? Store.get('kunden', o.kunde) : km.get(abKeyK(j.kunde)) || null;
-  const m = o ? maschine(o.maschine) : null, haE = o ? (o.flaecheEff ?? null) : null, haG = o ? (o.flaeche ?? null) : null, haJ = j ? j.ha : null, haB = j ? (j.haB ?? null) : null;
+  const m = o ? maschine(o.maschine) : null, haE = o ? (o.flaecheEff ?? null) : null, haG = o ? (o.flaeche ?? null) : null, haJ = j ? (j.haM ?? null) : null, haB = j ? (j.ha ?? null) : null;
   const genau = !!(o && o.flaecheGenau && haE != null);
-  // Rang: 1. effektiv, 2. bedeckt (Bedeckungskarte ohne Überlappungen), 3. Bericht (JD), 4. geplant
-  const haP = haE ?? haG, ha = haE ?? haB ?? haJ ?? haG, haQ = ha == null ? '' : haE != null ? 'eff' : haB != null ? 'bed' : haJ != null ? (j.quelle === 'Bedeckungskarte' ? 'jdb' : 'jd') : 'geplant';
+  // Rang (v122): 1. effektiv, 2. Bericht = bedeckte Fläche, 3. Planung; Maschinenfläche (haJ) nur zur Information
+  const haP = haE ?? haG, ha = haE ?? haB ?? haG, haQ = ha == null ? '' : haE != null ? 'eff' : haB != null ? 'bed' : 'geplant';
   // Pflanzenschutzmittel (Stammdaten Spritzen): nur Name, keine Gesamtmenge
   const prodP = o ? prodList(o).map(p => `${p.name}${p.menge != null && !isPsm(p.name) ? ` ${fmtNum(p.menge)} ${p.einheit || prodUnit(p.name)}/ha` : ''}`).join(', ') : '';
   const haC = ha, gesP = o && haC ? prodList(o).filter(p => p.menge != null && !isPsm(p.name)).map(p => `${p.name} ${fmtNum(r2(p.menge * haC))} ${p.einheit || prodUnit(p.name)}`).join(', ') : '';
@@ -4176,6 +4180,7 @@ function abFilter(A, skip = '') {
     && (skip === 'm' || !jdbArr(A.m).length || r.maschine.split(', ').some(x => jdbArr(A.m).includes(x)))
     && (!+A.minHa || r.ha == null || r.ha >= +A.minHa)
     && (!A.src || r.src === A.src)
+    && (A.bed === 'alle' || r.src !== 'jd' || r.haB != null) // Arbeitsgänge aus dem Bericht ohne Bedeckung standardmässig ausgeblendet (v122)
     && (!A.ab || (A.ab === 'ja') === !!r.abr)
     && (!q || [r.nr, r.kunde, r.feld, r.arbeit, r.maschine, r.kultur, r.produkte, r.fahrer, r.notiz].join(' ').toLowerCase().includes(q));
 }
@@ -4211,7 +4216,8 @@ function abSelBar(list) {
 }
 /* ---------- Spalten ---------- */
 const abD = d => d ? fmtDate(d, { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
-const AB_HAQ = { eff: 'effektive Fläche aus der Fertigmeldung', bed: 'Fläche aus der Bedeckungskarte (ohne Überlappungen)', jd: 'Fläche aus dem Bericht (MyJohnDeere)', jdb: 'Fläche aus dem Bericht – aus der Bedeckungskarte berechnet', geplant: 'geplante Fläche aus dem Auftrag' };
+const AB_HAQ = { eff: '✓ effektive Fläche aus der Fertigmeldung', bed: 'B = Fläche aus dem Bericht (Bedeckungskarte ohne Überlappungen)', geplant: 'P = geplante Fläche aus dem Auftrag' };
+const EFF_MARK = '<span class="genaum" title="effektive Fläche (Fertigmeldung)"> ✓</span>', PLAN_MARK = '<span class="planm" title="geplante Fläche (Auftrag)">P</span>';
 const AB_COLS = [
   { id: 'datum', l: 'Datum', w: 80, v: r => abD(r.d), csv: r => r.d },
   { id: 'src', l: 'Herkunft', w: 104, v: r => AB_SRC[r.src], html: r => `<span class="absrc absrc-${r.src}" title="${r.src === 'beide' ? 'Auftrag und Arbeitsgang verbunden' + (r.link ? ' (von Hand)' : ' (automatisch)') : ''}">${r.src === 'beide' ? `Planer + JD${r.link ? ' 🔗' : ''}` : r.src === 'planer' ? 'Planer' : 'JD'}</span>` },
@@ -4222,15 +4228,14 @@ const AB_COLS = [
   { id: 'kunde', l: 'Kunde', w: 150, v: r => r.kunde },
   { id: 'feld', l: 'Feld', w: 130, v: r => r.feld, html: r => r.feld ? `<span class="fldlink" data-ab="grz" data-id="${esc(r.id)}" title="Vermessungen anzeigen">${esc(r.feld)}</span>` : '' },
   { id: 'haG', l: 'ha Planung', w: 88, n: 1, v: r => r.haG != null ? fmtNum(r.haG) : '', csv: r => r.haG ?? '' },
-  { id: 'haE', l: 'ha effektiv', w: 80, n: 1, v: r => r.haE != null ? fmtNum(r.haE) + (r.genau ? ' ✓' : '') : '', csv: r => r.haE ?? '',
-    html: r => r.haE != null ? `${fmtNum(r.haE)}${r.genau ? GENAU_MARK : ''}` : '' },
-  { id: 'haB', l: 'ha bedeckt', w: 84, n: 1, v: r => r.haB != null ? fmtNum(r.haB) : '', csv: r => r.haB ?? '',
-    html: r => r.haB != null ? `<span title="aus der Bedeckungskarte, ohne Überlappungen (jede Stelle einmal gezählt)">${fmtNum(r.haB)}</span>` : '' },
-  { id: 'haJ', l: 'ha JD', w: 66, n: 1, v: r => r.haJ != null ? fmtNum(r.haJ) + (r.quelle === 'Bedeckungskarte' ? ' B' : '') : '', csv: r => r.haJ ?? '',
-    html: r => r.haJ == null ? '' : `<span class="${r.haP != null && Math.abs(r.haJ - r.haP) > Math.max(0.1, r.haP * 0.1) ? 'abdiff' : ''}" title="${r.haP != null ? `Abweichung zum Auftrag: ${fmtNum(r2(r.haJ - r.haP))} ha` : ''}${r.quelle ? ` · Quelle: ${r.quelle}` : ''}">${fmtNum(r.haJ)}</span>${r.quelle === 'Bedeckungskarte' ? BED_MARK : ''}` },
-  // Fläche Auftrag: 1. effektiv, 2. bedeckt, 3. Bericht (JD), 4. geplant; ✓ nur bei genauer Fläche, B = aus der Bedeckungskarte – diese Fläche zählt für alle Summen
-  { id: 'ha', l: 'ha Auftrag', w: 80, n: 1, v: r => r.ha != null ? fmtNum(r.ha) + (r.haQ === 'eff' && r.genau ? ' ✓' : '') + (r.haQ === 'bed' || r.haQ === 'jdb' ? ' B' : '') : '', csv: r => r.ha ?? '',
-    html: r => r.ha == null ? '' : `<b title="${AB_HAQ[r.haQ]}">${fmtNum(r.ha)}</b>${r.haQ === 'eff' && r.genau ? GENAU_MARK : ''}${r.haQ === 'bed' || r.haQ === 'jdb' ? BED_MARK : ''}` },
+  { id: 'haE', l: 'ha effektiv', w: 80, n: 1, v: r => r.haE != null ? fmtNum(r.haE) : '', csv: r => r.haE ?? '' },
+  { id: 'haB', l: 'ha Bericht', w: 80, n: 1, v: r => r.haB != null ? fmtNum(r.haB) : '', csv: r => r.haB ?? '',
+    html: r => r.haB != null ? `<span title="Bericht: bedeckte Fläche aus der Bedeckungskarte, ohne Überlappungen">${fmtNum(r.haB)}</span>` : '' },
+  { id: 'haJ', l: 'ha Maschine', w: 88, n: 1, v: r => r.haJ != null ? fmtNum(r.haJ) : '', csv: r => r.haJ ?? '',
+    html: r => r.haJ == null ? '' : `<span class="nr" title="Fläche der Maschine – nur zur Information">${fmtNum(r.haJ)}</span>` },
+  // Fläche Auftrag (v122): 1. effektiv (✓), 2. Bericht = bedeckt (B), 3. Planung (P) – nur hier markiert; diese Fläche zählt für alle Summen
+  { id: 'ha', l: 'ha Auftrag', w: 84, n: 1, v: r => r.ha != null ? fmtNum(r.ha) + ({ eff: ' ✓', bed: ' B', geplant: ' P' }[r.haQ] || '') : '', csv: r => r.ha ?? '',
+    html: r => r.ha == null ? '' : `<b title="${AB_HAQ[r.haQ]}">${fmtNum(r.ha)}</b>${{ eff: EFF_MARK, bed: BED_MARK, geplant: PLAN_MARK }[r.haQ] || ''}` },
   { id: 'std', l: 'Std. Auftrag', w: 82, n: 1, v: r => r.std != null ? fmtNum(r2(r.std)) : '', csv: r => r.std != null ? r2(r.std) : '' },
   { id: 'dauer', l: 'Dauer JD', w: 76, n: 1, v: r => r.dauer != null ? hrs(r2(r.dauer)) : '', csv: r => r.dauer != null ? r2(r.dauer) : '' },
   { id: 'maschine', l: 'Maschine', w: 140, v: r => r.maschine },
@@ -4325,13 +4330,13 @@ function abSummenPrint() {
 }
 function abPrint() {
   const A = App.abr, list = abList(), title = `Abrechnung ${abRange()}`;
-  const filt = [A.ab && (A.ab === 'ja' ? 'nur abgerechnete' : 'nur offene'), A.src && AB_SRC[A.src], +A.minHa && `ohne Flächen unter ${fmtNum(+A.minHa)} ha`, ...Object.entries(AB_MS).map(([k, [, l]]) => jdbArr(A[k]).length ? `${l}: ${jdbArr(A[k]).join(', ')}` : '')].filter(Boolean).join(' · ');
+  const filt = [A.ab && (A.ab === 'ja' ? 'nur abgerechnete' : 'nur offene'), A.src && AB_SRC[A.src], +A.minHa && `ohne Flächen unter ${fmtNum(+A.minHa)} ha`, A.bed !== 'alle' && 'ohne Bericht-Einträge ohne Bedeckung', ...Object.entries(AB_MS).map(([k, [, l]]) => jdbArr(A[k]).length ? `${l}: ${jdbArr(A[k]).join(', ')}` : '')].filter(Boolean).join(' · ');
   printHtml(title, `<div class="bill jdbprint">${LETTERHEAD}<div class="bill-h"><div><b>${esc(jdbArr(A.k).length === 1 ? A.k[0] : 'Abrechnung')}</b>${filt ? `<br><span class="nr">${esc(filt)}</span>` : ''}</div><div class="r">${esc(title)}<br>${list.length} Einträge · ${fmtNum(abHaSum(list))} ha</div></div>
     ${abTable(list, { print: true })}</div>`, { noTitle: true });
 }
 function abCsv() {
-  const rows = [['Datum', 'Herkunft', 'Auftrag-Nr', 'Beginn (JD)', 'Ende (JD)', 'Arbeit', 'Kunde', 'Feld', 'Fläche Planung ha', 'Fläche effektiv ha', 'Fläche effektiv genau', 'Fläche bedeckt ha', 'Fläche JD ha', 'Flächen-Quelle JD', 'Fläche Auftrag ha', 'Fläche Auftrag Herkunft', 'Stunden Auftrag', 'Dauer JD h', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Gesamtmenge', 'Bemerkung', 'Abgerechnet', 'Abgerechnet am', 'Auftrag-ID', 'JD-ID']];
-  abList().forEach(r => rows.push([r.d, AB_SRC[r.src], r.nr, jdbDT(r.start), jdbDT(r.end), r.arbeit, r.kunde, r.feld, r.haG ?? '', r.haE ?? '', r.genau ? 'ja' : '', r.haB ?? '', r.haJ ?? '', r.quelle || '', r.ha ?? '', { eff: 'effektiv', bed: 'bedeckt (B)', jd: 'Bericht (JD)', jdb: 'Bericht (JD, B)', geplant: 'Planung' }[r.haQ] || '', r.std != null ? r2(r.std) : '', r.dauer != null ? r2(r.dauer) : '', r.maschine, r.fahrer, r.kultur, r.produkte, r.gesamt, r.notiz, r.abr ? 'ja' : 'nein', r.am || '', r.oid, r.jid]));
+  const rows = [['Datum', 'Herkunft', 'Auftrag-Nr', 'Beginn (JD)', 'Ende (JD)', 'Arbeit', 'Kunde', 'Feld', 'Fläche Planung ha', 'Fläche effektiv ha', 'Fläche effektiv genau', 'Fläche Bericht (bedeckt) ha', 'Fläche Maschine ha', 'Flächen-Quelle JD', 'Fläche Auftrag ha', 'Fläche Auftrag Herkunft', 'Stunden Auftrag', 'Dauer JD h', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Gesamtmenge', 'Bemerkung', 'Abgerechnet', 'Abgerechnet am', 'Auftrag-ID', 'JD-ID']];
+  abList().forEach(r => rows.push([r.d, AB_SRC[r.src], r.nr, jdbDT(r.start), jdbDT(r.end), r.arbeit, r.kunde, r.feld, r.haG ?? '', r.haE ?? '', r.genau ? 'ja' : '', r.haB ?? '', r.haJ ?? '', r.quelle || '', r.ha ?? '', { eff: 'effektiv (✓)', bed: 'Bericht bedeckt (B)', geplant: 'Planung (P)' }[r.haQ] || '', r.std != null ? r2(r.std) : '', r.dauer != null ? r2(r.dauer) : '', r.maschine, r.fahrer, r.kultur, r.produkte, r.gesamt, r.notiz, r.abr ? 'ja' : 'nein', r.am || '', r.oid, r.jid]));
   const A = App.abr;
   download(`Abrechnung_${A.von || 'alle'}_${A.bis || ''}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }
@@ -4346,7 +4351,7 @@ function abDetail(id) {
       ${kv('Mittel', r.produkte && r.src !== 'jd' && o ? prodList(o).map(p => `${p.name} ${p.menge != null ? fmtNum(p.menge) + ' ' + (p.einheit || prodUnit(p.name)) + '/ha' : ''}`).join(', ') : '')}${kv('Bemerkung', o.notiz)}</table>
       <div class="btns" style="margin-top:8px"><button type="button" class="btn small" data-ab="openOrder" data-id="${o.id}">Auftrag öffnen</button></div>`
     : `<p class="nr">Kein Auftrag im Planer verbunden.</p>${j ? `<div class="btns"><button type="button" class="btn small" data-ab="linkPick" data-id="${esc(r.id)}">Mit Auftrag verknüpfen…</button></div>` : ''}`;
-  const right = j ? `<table class="btab kv">${kv('Arbeit', j.arbeit)}${kv('Kunde (JD)', j.kunde)}${kv('Feld', j.feld)}${kv('Fläche', j.ha != null ? fmtNum(j.ha) + ' ha' + (j.quelle ? ` (${j.quelle})` : '') : '')}${kv('Beginn', dt(j.start))}${kv('Ende', dt(j.end))}${kv('Dauer', j.dauer != null ? hrs(r2(j.dauer)) : '')}
+  const right = j ? `<table class="btab kv">${kv('Arbeit', j.arbeit)}${kv('Kunde (JD)', j.kunde)}${kv('Feld', j.feld)}${kv('Fläche bedeckt', j.ha != null ? fmtNum(j.ha) + ' ha (Bedeckungskarte)' : 'keine Bedeckungskarte')}${kv('Fläche Maschine', j.haM != null ? fmtNum(j.haM) + ' ha (nur zur Information)' : '')}${kv('Beginn', dt(j.start))}${kv('Ende', dt(j.end))}${kv('Dauer', j.dauer != null ? hrs(r2(j.dauer)) : '')}
       ${kv('Maschine', j.maschine)}${kv('Fahrer', j.fahrer)}${kv('Kultur', j.kultur)}${kv('Produkte', jdbProdTxt(j))}${kv('Sorten', j.sorten)}${kv('Gesamtmenge', jdbGesTxt(j))}</table>
       <div class="btns" style="margin-top:8px"><button type="button" class="btn small" data-ab="jdDetail" data-id="${esc(j.id)}">Alle Messwerte</button></div>`
     : `<p class="nr">Kein Arbeitsgang aus MyJohnDeere verbunden.</p>${o ? `<div class="btns"><button type="button" class="btn small" data-ab="linkPick" data-id="${esc(r.id)}">Mit Arbeitsgang verknüpfen…</button></div>` : ''}`;
@@ -4413,6 +4418,7 @@ function abView() {
           <label class="fld"><span>Bis</span><input class="input" type="date" data-abin="f" data-k="bis" value="${esc(A.bis)}"></label>
           ${sel('k')}${sel('a')}${sel('f')}${sel('m')}${sel('c')}
           <label class="fld"><span>Herkunft</span><select class="input" data-plain data-abin="f" data-k="src"><option value="">Alle</option>${Object.entries(AB_SRC).map(([v, l]) => `<option value="${v}" ${A.src === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <label class="fld"><span>Bericht ohne Bedeckung</span><select class="input" data-plain data-abin="bed"><option value="">ausblenden</option><option value="alle" ${A.bed === 'alle' ? 'selected' : ''}>anzeigen</option></select></label>
           <label class="fld"><span>Kleinstflächen</span><select class="input" data-plain data-abin="min">${[['', 'Alle anzeigen'], ['0.05', 'unter 0.05 ha ausblenden'], ['0.1', 'unter 0.1 ha ausblenden'], ['0.2', 'unter 0.2 ha ausblenden'], ['0.5', 'unter 0.5 ha ausblenden'], ['1', 'unter 1 ha ausblenden']].map(([v, l]) => `<option value="${v}" ${String(A.minHa || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
           <label class="fld"><span>Abrechnung</span><select class="input" data-plain data-abin="f" data-k="ab"><option value="">Alle</option><option value="nein" ${A.ab === 'nein' ? 'selected' : ''}>Nur offene</option><option value="ja" ${A.ab === 'ja' ? 'selected' : ''}>Nur abgerechnete</option></select></label>
           <label class="fld"><span>Gruppieren nach</span><select class="input" data-plain data-abin="f" data-k="grp">${AB_GRP.map(([v, l]) => `<option value="${v}" ${A.grp === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
@@ -4497,6 +4503,7 @@ document.addEventListener('change', e => {
   const k = e.target.dataset ? e.target.dataset.abin : null; if (!k) return; const A = App.abr, S = App.abrSel || (App.abrSel = new Set());
   if (k === 'f') { A[e.target.dataset.k] = e.target.value; A.limit = 300; App.render(); }
   else if (k === 'min') { A.minHa = e.target.value; ls('lp_abrmin', e.target.value); A.limit = 300; App.render(); }
+  else if (k === 'bed') { A.bed = e.target.value; ls('lp_abrbed', e.target.value); A.limit = 300; App.render(); }
   else if (k === 'msc') { const cur = new Set(jdbArr(A[e.target.dataset.k])); e.target.checked ? cur.add(e.target.value) : cur.delete(e.target.value); const sc = $('.msel.open .msel-list')?.scrollTop; A[e.target.dataset.k] = [...cur]; A.limit = 300; App.render(); const l = $('.msel.open .msel-list'); if (l && sc) l.scrollTop = sc; }
   else if (k === 'sel') { e.target.checked ? S.add(e.target.value) : S.delete(e.target.value); App.render(); }
   else if (k === 'selAll') { abList().slice(0, A.limit || 300).forEach(r => e.target.checked ? S.add(r.id) : S.delete(r.id)); App.render(); }
@@ -5931,6 +5938,7 @@ document.addEventListener('change', e => {
   if (k === 'axW' || k === 'axT') { App.plan[k] = e.target.value; ls(k === 'axW' ? 'lp_axW' : 'lp_axT', e.target.value); App.tlScroll = null; toast('Anordnung der Planung geändert'); return; }
   if (k === 'uiScale') { uiScaleSet(e.target.value); return; }
   if (k === 'jbMin') { App.jdb.minHa = e.target.value; ls('lp_jdbmin', e.target.value); App.jdb.limit = 300; App.render(); return; }
+  if (k === 'jbBed') { App.jdb.bed = e.target.value; ls('lp_jdbbed', e.target.value); App.jdb.limit = 300; App.render(); return; }
   if (k === 'jbMsC') { jdbMsCheck(e.target); return; }
   if (k === 'jbSel' || k === 'jbSelAll') { jdbSelToggle(e.target); return; }
   if (k === 'alSel' || k === 'alSelAll') { alSelToggle(e.target); return; }

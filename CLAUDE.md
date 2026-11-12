@@ -76,17 +76,18 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
 - Fixierte Spaltenüberschriften: Tabellen in Aufträge (Liste), Verwaltung (Bericht, Abrechnung, Summen) im Rahmen `.dscroll` (Bildschirmhöhe,
   `thead th` sticky); Planung-Kalender/Zeitachsen hatten das schon (`.cal`). Neue grosse Datentabellen ebenfalls in `.dscroll` legen.
   Scrollt die Seite statt des Rahmens, hält `stickyUpd` (setzt `--sty`) die Kopfzeilen direkt unter der Titelleiste (v106, v.a. Wochenansicht).
-- Flächen in Bericht und Abrechnung **nie aus Feldgrenzen**: JD-Fläche nur Maschine oder Bedeckungskarte (NAS `setFlaeche`, App `jdbRow`);
-  Verwaltung › Abrechnung (`abRow`, seit v114/v115) **ohne jeden Vergleich mit Feldgrenzen**. Fünf Flächenspalten (v117/v121): «ha Planung» (`haG`),
-  «ha effektiv» (`haE`, ✓ wenn genau), «ha bedeckt» (`haB`, v121), «ha JD» (`haJ`, Bericht), «ha Auftrag» (`ha`) = **1. effektiv, 2. bedeckt, 3. JD, 4. Planung**
-  (✓ nur wenn genau, wie «ha effektiv», v118); `haQ` = eff/bed/jd/jdb/geplant. **B** (`BED_MARK`) = Fläche aus der Bedeckungskarte berechnet
-  (in «ha Auftrag» bei bed/jdb, in «ha JD» bzw. Bericht «ha» bei Quelle Bedeckungskarte). Bericht: Spalte «ha bedeckt», im Arbeitsgang
-  Vorschau der virtuellen Feldgrenze (`bedGrz*`) und «In Applikationskarte öffnen» (`karte.html?bedeckung=1`, Übergabe über localStorage `imv.bedeckungGrenze`, Modus «Nur Feldgrenze»).
+- Flächen in Bericht und Abrechnung **nie aus Feldgrenzen**. Seit v122 ist die **bedeckte Fläche** (Bedeckungskarte, NAS `haB`) die Standardfläche:
+  **Bericht** (`jdbRow`): `ha` = bedeckt (Spalte «ha bedeckt», Summen), `haM` = Maschinenfläche nur zur Information (Spalte «ha Maschine», grau;
+  leer, wenn der NAS nur den Ersatzwert aus der Bedeckungskarte hatte). Arbeitsgänge ohne Bedeckung standardmässig ausgeblendet (Filter «Ohne Bedeckung», `J.bed`, `lp_jdbbed`).
+  **Abrechnung** (`abRow`): Spalten «ha Planung» (`haG`), «ha effektiv» (`haE`), «ha Bericht» (`haB` = bedeckt), «ha Maschine» (`haJ`, nur Info), «ha Auftrag» (`ha`) =
+  **1. effektiv, 2. Bericht (bedeckt), 3. Planung**; Markierung **nur** in «ha Auftrag»: ✓ effektiv, B bedeckt, P Planung (`haQ` eff/bed/geplant).
+  Einträge «nur JD» ohne Bedeckung standardmässig ausgeblendet (Filter «Bericht ohne Bedeckung», `A.bed`, `lp_abrbed`). Spalten-Einstellungen werden umgestellt
+  (`jdbColCfg`: haB→haM). Bericht › Arbeitsgang: Vorschau der virtuellen Feldgrenze (`bedGrz*`) und «In Applikationskarte öffnen» (`karte.html?bedeckung=1`, Übergabe über localStorage `imv.bedeckungGrenze`, Modus «Nur Feldgrenze»).
   **Alle Summen** (Total, Gruppen, Summen pro Kunde/Arbeit, Chips) nutzen «ha Auftrag» (`abHaSum`). `abColCfg` stellt alte Spalten-Einstellungen um. `haAusGrenze` entfernt.
   Spritzen › Abrechnung (`billing`) dagegen: immer die Fläche aus dem Auftrag (`flOf`: effektiv, sonst geplant) – v108 (JD-Fläche/0 ha) in v112 auf Wunsch zurückgenommen.
 - Fertigmeldung (`doneDialog`): Feld änderbar (nur Felder des Kunden, Kunde fix; `setKfeld` leert den Feldtext ausser bei Spritzaufträgen mit Parzelle).
   «Fläche effektiv» standardmässig **leer** (nur eintragen, wenn genau bekannt; leer = Fläche aus dem Bericht), geplante Fläche als Hinweis;
   Knopf «📐 Feldgrenzen anzeigen» klappt die Vermessungen des gewählten Feldes auf (nur Info, keine Übernahme). Häkchen «genaue Fläche» (`flaecheGenau`, auch im Auftragsfenster) **bleibt** (v116 wieder eingesetzt): nur Kennzeichnung –
-  ✓ in Verwaltung › Abrechnung, CSV-Spalte «Fläche effektiv genau»; ändert die Reihenfolge der Flächen nicht.
+  seit v122 nur noch CSV-Spalte «Fläche effektiv genau» (✓ in «ha Auftrag» heisst jetzt: effektive Fläche); ändert die Reihenfolge der Flächen nicht.
 - Applikationskarten: Knopf «🗺 Applikationskarte» im Auftrag (Spritzen/Säen/Düngen oder vorhandene Karte; speichert den Auftrag und wechselt im selben Fenster – wegen iPhone-App-Speicher), Liste unter Mehr › Einstellungen.
 - Ausdrucke Kunden: Logo mit Adresse; Ausdrucke Eigener Betrieb: Betriebsadresse statt Logo.

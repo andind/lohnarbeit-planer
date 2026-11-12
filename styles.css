@@ -1263,3 +1263,5 @@ body.fsmode #selbar { left: 12px; }
 .bedgrz { margin: 4px 0 8px; }
 .bedsvg { display: block; background: var(--card2, rgba(127,127,127,.06)); border-radius: 8px; }
 .bedsvg path { fill: rgba(47,125,50,.35); stroke: #2f7d32; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+/* v122: P = geplante Fläche in «ha Auftrag» */
+.planm { display: inline-block; margin-left: 4px; padding: 0 4px; border-radius: 4px; font-size: 10.5px; font-weight: 700; line-height: 15px; color: #fff; background: #8a8f98; vertical-align: 1px; }
