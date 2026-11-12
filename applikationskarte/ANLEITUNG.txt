@@ -1,0 +1,34 @@
+Applikationskarte v1.12 als App – by Andreas Indermühle
+=======================================================
+
+Eine Webseite lässt sich nur als App installieren, wenn sie über https aus dem
+Internet kommt. Als Datei vom PC (Doppelklick) läuft sie weiterhin, aber ohne
+«App installieren».
+
+1. Auf GitHub Pages stellen (wie der IM-Verwalter)
+   - Im Repository andind/lohnarbeit-planer einen Ordner «applikationskarte» anlegen
+     und alle Dateien aus diesem ZIP hineinlegen (index.html, manifest.webmanifest,
+     sw.js, icon-*.png, apple-touch-icon.png).
+   - Nach 1–2 Minuten ist die App erreichbar unter:
+     https://andind.github.io/lohnarbeit-planer/applikationskarte/
+   - Alternativ ein eigenes Repository «applikationskarte» mit GitHub Pages.
+
+2. Installieren
+   - PC (Chrome oder Edge): Seite öffnen, oben links «App installieren» klicken
+     (oder das Symbol rechts in der Adresszeile). Danach im Startmenü und in der
+     Taskleiste, öffnet in einem eigenen Fenster.
+   - iPhone / iPad (Safari): Teilen-Symbol → «Zum Home-Bildschirm».
+   - Android-Tablet (Chrome): Menü → «App installieren».
+
+3. Updates
+   - Neue Version: index.html (und sw.js) auf GitHub ersetzen. Die App lädt die
+     neue Version beim nächsten Start und meldet «Neue Version geladen».
+
+Hinweise
+   - Das Programm startet auch ohne Internet. Luftbild, Parzellen, Bodenbedeckung,
+     Ortssuche und Sentinel-2 brauchen aber eine Verbindung.
+   - Gespeicherte Karten liegen im Speicher des jeweiligen Geräts bzw. Browsers.
+     Zum Übertragen auf ein anderes Gerät «Als Datei sichern (.json)» verwenden.
+   - Achtung: Beim Wechsel vom Datei-Doppelklick zur installierten App sind die
+     bisher im Browser gespeicherten Karten nicht automatisch dabei. Vorher mit
+     «Als Datei sichern (.json)» sichern und in der App mit «Datei laden» öffnen.

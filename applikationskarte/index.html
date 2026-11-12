@@ -1,0 +1,1756 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Applikationskarte</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#2f6b3f">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Applikationskarte">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.17.0/dist/leaflet-geoman.css">
+<style>
+/* Layout: Arbeitsspalte links (Auftrag → Feld → Zonen → Export), Karte rechts; auf dem Handy Karte oben, Spalte darunter */
+:root{
+  --bg:#f3f4f1; --panel:#ffffff; --fg:#1d2420; --muted:#66706a; --line:#d9ddd6;
+  --accent:#2f6b3f; --accent-fg:#ffffff; --accent-soft:#e3eee5; --warn:#a4421d; --chip:#eef0ec;
+  --display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --body:"Barlow","Segoe UI",Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#141816; --panel:#1c211e; --fg:#e7ebe6; --muted:#9aa49d; --line:#2f3732;
+  --accent:#6fbf83; --accent-fg:#0f1a12; --accent-soft:#233127; --warn:#e58a63; --chip:#262d29; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.4 var(--body)}
+.app{display:grid;grid-template-columns:400px 1fr;height:100%}
+aside{background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;display:flex;flex-direction:column}
+#map{height:100%;min-height:300px}
+header.top{padding:14px 16px 12px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+header.top h1{font:700 24px/1 var(--display);letter-spacing:.02em;margin:0;text-transform:uppercase}
+header.top .ver{font:500 12px var(--display);color:var(--muted);letter-spacing:.06em;margin-left:6px}
+section{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+section h2{font:600 13px var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0;display:flex;justify-content:flex-start;align-items:center;gap:8px;min-height:24px}
+section h2 > span, section h2 > button{margin-left:auto}
+section h2 > .status{font:400 12.5px var(--body);letter-spacing:0;text-transform:none;color:var(--muted);text-align:right;min-width:0}
+section h2 > .status b{color:var(--fg)}
+section h2 > button.ghost{font:500 12.5px var(--body);letter-spacing:0;text-transform:none;padding:2px 6px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+label.f{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted);min-width:0}
+input,select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:100%;min-width:0}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+input[type=number]{font-variant-numeric:tabular-nums;text-align:right}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.seg button{border:0;border-radius:0;background:var(--bg);color:var(--fg);padding:7px 4px;font:600 14px var(--display);letter-spacing:.03em}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--accent);color:var(--accent-fg)}
+button{font:500 14px var(--body);cursor:pointer;border:1px solid var(--line);background:var(--chip);color:var(--fg);border-radius:4px;padding:6px 10px}
+button:hover{border-color:var(--muted)}
+button.pri{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);font-weight:600}
+button.big{padding:10px 12px;font-size:15px;width:100%}
+button.ghost{background:transparent;border-color:transparent;padding:4px 6px;color:var(--muted)}
+button.ghost:hover{color:var(--fg)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.status{font-size:13px;color:var(--muted)}
+.status b{color:var(--fg);font-variant-numeric:tabular-nums}
+.zl{display:flex;flex-direction:column;gap:6px}
+.z{display:grid;grid-template-columns:14px 1fr 92px auto;gap:6px;align-items:center;padding:6px;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
+.z.sel{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.z .sw{width:14px;height:28px;border-radius:2px;border:1px solid rgba(0,0,0,.25)}
+.z .meta{grid-column:2 / -1;display:flex;justify-content:space-between;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.z.base input.nm{border-color:transparent;background:transparent;font-weight:600;padding-left:0}
+.pct.up{color:var(--accent)} .pct.dn{color:var(--warn)}
+.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.sum div{display:flex;flex-direction:column}
+.sum span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.sum b{font:600 20px var(--display);font-variant-numeric:tabular-nums}
+body.grenze .rx-only{display:none!important}
+.modeseg{margin:12px 16px 0}
+[hidden]{display:none!important}
+.orpt{display:grid;grid-template-columns:22px 1fr auto;gap:6px;align-items:center;font-size:13px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);font-variant-numeric:tabular-nums}
+.warn{color:var(--warn);font-weight:600}
+aside section > h2{cursor:pointer;user-select:none}
+aside section > h2::before{content:"";flex:0 0 auto;width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;margin:0 3px 0 1px;transform:rotate(90deg);transition:transform .15s}
+aside section.collapsed > h2::before{transform:rotate(0deg)}
+aside section > h2:hover{color:var(--fg)}
+aside section.collapsed > :not(h2){display:none!important}
+aside section.collapsed{padding-block:11px}
+@media (prefers-reduced-motion:reduce){aside section > h2::before{transition:none}}
+.s2list{display:flex;flex-direction:column;gap:4px;max-height:260px;overflow-y:auto}
+.s2it{display:grid;grid-template-columns:1fr auto;gap:0 8px;text-align:left;background:var(--bg);padding:6px 8px}
+.s2it.on{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.s2d{font-weight:600;font-variant-numeric:tabular-nums}
+.s2m{grid-column:1;font-size:12px;color:var(--muted)}
+.s2b{grid-column:2;grid-row:1 / 3;align-self:center;font-size:12px;padding:2px 7px;border-radius:10px;background:var(--chip);color:var(--muted);white-space:nowrap}
+.s2b.good{background:#2f8f46;color:#fff}.s2b.mid{background:#d39a1c;color:#1d1d1d}.s2b.bad{background:#b6402a;color:#fff}.s2b.wait{font-style:italic}
+.s2leg{display:flex;align-items:center;gap:6px;font-size:12px;font-variant-numeric:tabular-nums}
+.s2leg i{flex:1;height:10px;border-radius:2px;background:linear-gradient(90deg,#a50026,#e34a33,#fdae61,#fee08b,#d9ef8b,#91cf60,#1a9850,#006837)}
+.sub{font:600 12px var(--display);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:4px 0 0}
+.hint{font-size:12.5px;color:var(--muted);line-height:1.45}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:13px}
+.check input{width:auto;margin-top:3px}
+.empty{font-size:13px;color:var(--muted);padding:10px;border:1px dashed var(--line);border-radius:4px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--fg);color:var(--panel);padding:9px 14px;border-radius:4px;font-size:14px;z-index:2000;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw}
+.toast.on{opacity:1}
+/* Kartenelemente */
+.mapbar{position:absolute;top:10px;left:56px;right:60px;z-index:800;display:flex;gap:6px;max-width:440px}
+.mapbar input{background:var(--panel);box-shadow:0 1px 4px rgba(0,0,0,.25);border:0;padding:8px 10px}
+.results{position:absolute;top:46px;left:56px;z-index:801;background:var(--panel);border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:440px;width:calc(100% - 116px);overflow:hidden}
+.results button{display:block;width:100%;text-align:left;border:0;border-radius:0;border-bottom:1px solid var(--line);background:var(--panel)}
+.drawbar{position:absolute;bottom:22px;left:50%;transform:translateX(-50%);z-index:800;background:var(--panel);border-radius:6px;box-shadow:0 2px 10px rgba(0,0,0,.35);padding:8px 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:calc(100% - 24px)}
+.drawbar span{font-size:13px}
+.legend{background:var(--panel);color:var(--fg);padding:8px 10px;border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.3);font-size:12px;font-variant-numeric:tabular-nums;min-width:120px}
+.legend .lg{display:flex;align-items:center;gap:6px;margin-top:3px}
+.legend i{width:14px;height:12px;display:inline-block;border:1px solid rgba(0,0,0,.3)}
+.mapwrap{position:relative;height:100%}
+.zlabel{background:rgba(255,255,255,.85);border:0;box-shadow:none;font:600 12px var(--display);padding:1px 5px;color:#1d2420}
+.zlabel::before{display:none}
+.parzctl{background:var(--panel);color:var(--fg);padding:8px 10px;border-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.3);font-size:13px;display:flex;flex-direction:column;gap:6px;min-width:170px}
+.parzctl label{display:flex;gap:6px;align-items:center;cursor:pointer;font-weight:600}
+.parzctl input[type=checkbox]{width:auto}
+.parzctl input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--accent)}
+.parzctl .z{display:block;padding:0;border:0;background:none;font-size:11.5px;color:var(--warn)}
+.leaflet-container.picking{cursor:pointer}
+.parztip{font:600 12px var(--body)}
+@media (max-width:760px){
+  .app{display:flex;flex-direction:column;height:auto}
+  .mapwrap{height:58vh}
+  aside{border-right:0;overflow:visible}
+  .mapbar{left:52px;right:52px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+<aside>
+  <header class="top">
+    <div><h1>Applikationskarte</h1><span class="ver">v1.12 · by Andreas Indermühle</span></div>
+    <div class="row">
+      <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
+      <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
+      <button id="bSave" title="Im Browser speichern">Speichern</button>
+    </div>
+  </header>
+  <div class="seg modeseg" id="segModus" style="grid-template-columns:1fr 1fr">
+    <button data-m="rx">Applikationskarte</button><button data-m="grenze">Nur Feldgrenze</button>
+  </div>
+
+  <section>
+    <h2>Gespeicherte Karten</h2>
+    <div class="row">
+      <select id="projSel" style="flex:1"><option value="">– Karte öffnen –</option></select>
+      <button id="bDelProj" class="ghost" title="Gewählte gespeicherte Karte löschen">Löschen</button>
+    </div>
+    <div class="row">
+      <button id="bJsonOut">Als Datei sichern (.json)</button>
+      <button id="bJsonIn">Datei laden</button>
+      <input type="file" id="fJson" accept=".json,application/json" hidden>
+    </div>
+    <div id="delConfirm" class="row" hidden><span class="status">Wirklich löschen?</span><button id="bDelYes" class="pri">Ja, löschen</button><button id="bDelNo">Nein</button></div>
+  </section>
+
+  <section>
+    <h2 id="hAuftrag">Auftrag</h2>
+    <div class="grid2">
+      <label class="f">Kunde<input id="iKunde" placeholder="z. B. Andreas Indermühle"></label>
+      <label class="f">Betrieb<input id="iBetrieb" placeholder="optional"></label>
+      <label class="f">Feld<input id="iFeld" placeholder="z. B. Hofmatt"></label>
+    </div>
+    <div class="seg rx-only" id="segArbeit">
+      <button data-a="Saat">Saat</button><button data-a="Duengung">Düngung</button><button data-a="PS">Pflanzenschutz</button>
+    </div>
+    <div class="grid2 rx-only">
+      <label class="f">Produkt<input id="iProdukt" placeholder="z. B. Ammonsalpeter 27 %"></label>
+      <label class="f">Einheit<select id="iEinheit"></select></label>
+    </div>
+    <div class="grid2 rx-only">
+      <label class="f">Grundrate (Rest des Feldes)<input id="iGrund" type="number" step="any" min="0"></label>
+      <div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Feldgrenze <span id="fieldHa" class="status"></span></h2>
+    <div class="row">
+      <button id="bFieldDraw">Zeichnen</button>
+      <button id="bFieldLoad">Laden (Shapefile/GeoJSON)</button>
+      <input type="file" id="fField" accept=".zip,.geojson,.json" hidden>
+      <button id="bFieldZoom" class="ghost">Zum Feld</button>
+      <button id="bFieldEdit" class="ghost">Bearbeiten</button>
+      <button id="bFieldDel" class="ghost">Entfernen</button>
+    </div>
+    <div class="row">
+      <button id="bParzPick" class="pri" title="Parzellen auf der Karte anklicken und als Feldgrenze übernehmen">Parzellen anklicken</button>
+      <button id="bFieldAdd" title="Weitere Teilfläche zum Feld hinzufügen">+ Teilfläche</button>
+      <button id="bFieldHole" title="Hof, Hecke, Teich usw. aus dem Feld ausschneiden">− Aussparung</button>
+    </div>
+    <label class="f" id="featPick" hidden>Mehrere Felder in der Datei – welches?<select id="featSel"></select></label>
+    <div class="status" id="fieldInfo"></div>
+    <button id="bFieldExport" class="big">Feldgrenze exportieren (.zip)</button>
+    <div class="hint rx-only">Feldgrenze aus dem Operations Center: Feld exportieren als Shapefile (ZIP) und hier laden. Zonen werden automatisch auf die Feldgrenze zugeschnitten.</div>
+    <div class="hint">«Parzellen anklicken»: eine oder mehrere Parzellen der amtlichen Vermessung wählen und als Feldgrenze übernehmen. Mit «Nur Acker/Wiese/Weide» werden Wege, Gebäude, Wald und Gewässer gemäss Bodenbedeckung automatisch weggeschnitten. Ist schon eine Feldgrenze da, werden sie dazugefügt. Wege oder Waldränder danach mit «− Aussparung» oder «Bearbeiten» anpassen.</div>
+    <div class="hint grenze-only" hidden>Im Operations Center unter <b>Dateien</b> hochladen und als <b>Grenze</b> importieren. Kunde, Betrieb und Feld sind als CLIENT, FARM und FIELD in der Datei – beim Import zuordnen.</div>
+  </section>
+
+  <section>
+    <h2>Vorgewende <span id="vgHa" class="status"></span></h2>
+    <label class="check"><input type="checkbox" id="cVg"><span>Vorgewende auf der Karte anzeigen</span></label>
+    <div class="grid2">
+      <label class="f">Arbeitsbreite (m)<input id="iVgBreite" type="number" step="any" min="0"></label>
+      <label class="f">Anzahl Runden<input id="iVgRunden" type="number" step="1" min="1"></label>
+    </div>
+    <div class="hint" id="vgInfo">Breite = Arbeitsbreite × Runden, gemessen ab der Feldgrenze nach innen.</div>
+  </section>
+
+  <section>
+    <h2>Satellit · Sentinel-2 <span id="s2Info" class="status"></span></h2>
+    <div class="grid2">
+      <label class="f">Von<input type="date" id="s2Von"></label>
+      <label class="f">Bis<input type="date" id="s2Bis"></label>
+      <label class="f">Index<select id="s2Idx"><option value="NDVI">NDVI (10 m)</option><option value="NDRE">NDRE (20 m, dichte Bestände)</option></select></label>
+      <label class="f">Wolken auf Kachel max.<select id="s2Cc"><option value="20">20 %</option><option value="50" selected>50 %</option><option value="80">80 %</option><option value="101">alle</option></select></label>
+    </div>
+    <button id="bS2Search">Aufnahmen über dem Feld suchen</button>
+    <div class="s2list" id="s2List"></div>
+    <div class="hint">Sentinel-2 L2A (ESA Copernicus, via AWS Open Data). Wolken, Schatten und Schnee über dem Feld werden pro Pixel ausgeblendet (grau).</div>
+  </section>
+
+  <section>
+    <h2>Drohne · Orthophoto <span id="orInfo" class="status"></span></h2>
+    <div class="row">
+      <button id="bOrLoad">Orthophoto laden (GeoTIFF)</button>
+      <input type="file" id="fOr" accept=".tif,.tiff,image/tiff" hidden>
+      <button id="bOrZoom" class="ghost" hidden>Zum Bild</button>
+      <button id="bOrDel" class="ghost" hidden>Entfernen</button>
+    </div>
+    <label class="f" id="orOpRow" hidden>Deckkraft<input type="range" id="rOr" min="0.1" max="1" step="0.05" value="1"></label>
+    <div id="orAlign" hidden style="display:flex;flex-direction:column;gap:8px">
+      <div class="sub">Ausrichten und entzerren</div>
+      <div class="row">
+        <button id="bOrPt" class="pri">+ Passpunkt setzen</button>
+        <select id="orMode" style="flex:1;min-width:0" aria-label="Art der Korrektur">
+          <option value="auto">Automatisch (nach Anzahl Punkte)</option>
+          <option value="shift">Nur verschieben (ab 1 Punkt)</option>
+          <option value="helmert">Verschieben + Drehen + Massstab (ab 2)</option>
+          <option value="affine">Affin – entzerrt Schräglage (ab 3)</option>
+          <option value="tin">Gummiband – lokale Verzerrungen (ab 4)</option>
+        </select>
+      </div>
+      <div class="status" id="orAlignInfo"></div>
+      <div id="orPtList" style="display:flex;flex-direction:column;gap:4px"></div>
+      <div class="row">
+        <button id="bOrUndo" class="ghost">Letzten löschen</button>
+        <button id="bOrReset" class="ghost">Alle zurücksetzen</button>
+      </div>
+      <div id="orResetRow" class="row" hidden><span class="status">Alle Passpunkte löschen?</span><button id="bOrResetYes" class="pri">Ja, löschen</button><button id="bOrResetNo">Nein</button></div>
+      <div class="hint">Je Passpunkt zuerst einen gut erkennbaren Punkt im Drohnenbild anklicken, dann denselben Punkt im Luftbild (das Drohnenbild wird dazu ausgeblendet). Punkte möglichst an den Rändern und Ecken verteilen. Für Gummiband 6–10 Punkte über das ganze Bild verteilen. Die Ausrichtung wird pro Bild im Browser gemerkt.</div>
+    </div>
+    <div id="orIdx" hidden style="display:flex;flex-direction:column;gap:8px">
+      <div class="grid2">
+        <label class="f">Grünindex<select id="orIdxSel"><option value="ExG">ExG (robust)</option><option value="VARI">VARI</option><option value="GLI">GLI</option></select></label>
+        <label class="f">Rastergrösse<select id="orCell"><option value="1">1 m</option><option value="2">2 m</option><option value="3" selected>3 m</option><option value="5">5 m</option><option value="10">10 m</option></select></label>
+      </div>
+      <button id="bOrIdx">Grünindex über dem Feld berechnen</button>
+    </div>
+    <div class="hint">GeoTIFF aus WebODM («odm_orthophoto.tif»). Für schnelles Laden in WebODM die Option <b>cog</b> aktivieren. Das Bild wird nicht mitgespeichert, nur angezeigt.</div>
+  </section>
+
+  <section id="idxSec" hidden>
+    <h2 id="idxTitle">Index</h2>
+    <div id="s2Vis" style="display:flex;flex-direction:column;gap:6px">
+      <div class="s2leg" id="s2Legend"></div>
+      <div class="status" id="s2Stat"></div>
+      <div class="row"><label class="f" style="flex:1">Deckkraft<input type="range" id="rS2" min="0.1" max="1" step="0.05" value="0.75"></label><button id="bS2Hide" class="ghost">Ausblenden</button></div>
+    </div>
+    <div id="s2Zones" class="rx-only" hidden style="display:flex;flex-direction:column;gap:8px">
+      <div class="sub">Zonen aus diesem Index</div>
+      <div class="grid2">
+        <label class="f">Anzahl Zonen<select id="s2N"><option>2</option><option selected>3</option><option>4</option><option>5</option></select></label>
+        <label class="f">Glättung<select id="s2Smooth"><option value="0">keine</option><option value="1">leicht</option><option value="2" selected>mittel</option><option value="4">stark</option></select></label>
+        <label class="f">Rate bei tiefem Index<input type="number" step="any" min="0" id="s2Lo"></label>
+        <label class="f">Rate bei hohem Index<input type="number" step="any" min="0" id="s2Hi"></label>
+      </div>
+      <div class="row"><button id="bS2Swap" class="ghost" title="Raten tauschen">⇅ Raten tauschen</button></div>
+      <div class="hint">Zonen mit gleich viel Fläche (Quantile). Zwischenzonen werden linear abgestuft. Vorgabe: schwache Stellen mehr, starke weniger (Ausgleich) – für Ertragspotenzial die Raten tauschen.</div>
+      <button id="bS2Zones" class="pri">Zonen erstellen</button>
+      <div id="s2Repl" class="row" hidden><span class="status">Bestehende Zonen ersetzen?</span><button id="bS2ReplYes" class="pri">Ja, ersetzen</button><button id="bS2ReplNo">Nein</button></div>
+    </div>
+  </section>
+
+  <section class="rx-only">
+    <h2>Zonen <button id="bZonenVis" class="ghost" title="Taste Z">Zonen ausblenden</button></h2>
+    <div class="row">
+      <button id="bZonePoly" class="pri">+ Zone zeichnen</button>
+      <button id="bZoneRect">+ Rechteck</button>
+    </div>
+    <div class="zl" id="zoneList"></div>
+    <div class="hint">Zonen dürfen über den Feldrand hinaus gezeichnet werden. Überlappen sich Zonen, gilt die später gezeichnete (weiter unten in der Liste).</div>
+  </section>
+
+  <section class="rx-only">
+    <h2>Übersicht</h2>
+    <div class="sum">
+      <div><span>Fläche</span><b id="sHa">–</b></div>
+      <div><span>Ø Rate</span><b id="sAvg">–</b></div>
+      <div><span>Menge total</span><b id="sTot">–</b></div>
+    </div>
+  </section>
+
+  <section class="rx-only">
+    <h2>Export John Deere</h2>
+    <label class="check" id="koeRow" hidden><input type="checkbox" id="cKoe" checked><span>Saatmenge als Kö/ha exportieren (× 10 000) – das Operations Center kennt keine Kö/m².</span></label>
+    <button id="bExport" class="pri big">Shapefile exportieren (.zip)</button>
+    <div class="hint">ZIP im Operations Center unter <b>Dateien</b> hochladen, als Applikationskarte (Rx) importieren, Spalte <b>RATE</b> und die passende Einheit wählen, dann per Datensynchronisation oder USB aufs Terminal.</div>
+  </section>
+</aside>
+
+<div class="mapwrap">
+  <div id="map"></div>
+  <div class="mapbar"><input id="search" placeholder="Ort, Adresse oder Parzelle suchen …" autocomplete="off"></div>
+  <div class="results" id="results" hidden></div>
+  <div class="drawbar" id="drawbar" hidden>
+    <span id="drawTxt">Punkte setzen, Doppelklick schliesst</span>
+    <label class="check" id="agriRow" hidden style="font-size:13px"><input type="checkbox" id="cAgri"><span>Nur Acker/Wiese/Weide</span></label>
+    <button id="bFinish" class="pri">Fertig</button>
+    <button id="bCancel">Abbrechen</button>
+  </div>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ---------- Als App installieren (PWA) ---------- */
+let installEvt = null;
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; document.getElementById("bInstall").hidden = false; });
+window.addEventListener("appinstalled", () => { installEvt = null; document.getElementById("bInstall").hidden = true; if (window.toast) toast("Applikationskarte als App installiert"); });
+document.getElementById("bInstall").addEventListener("click", async () => {
+  if (!installEvt) return;
+  installEvt.prompt();
+  try { await installEvt.userChoice; } catch(e){}
+  installEvt = null; document.getElementById("bInstall").hidden = true;
+});
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  navigator.serviceWorker.register("sw.js").then(reg => {
+    reg.addEventListener("updatefound", () => {
+      const nw = reg.installing; if (!nw) return;
+      nw.addEventListener("statechange", () => { if (nw.state==="installed" && navigator.serviceWorker.controller) if (window.toast) toast("Neue Version geladen – Seite neu laden, um sie zu verwenden."); });
+    });
+  }).catch(e => console.warn("Service Worker:", e));
+}
+</script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.17.0/dist/leaflet-geoman.min.js"></script>
+<script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+<script src="https://unpkg.com/shpjs@4.0.4/dist/shp.min.js"></script>
+<script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://unpkg.com/geotiff@2.1.3/dist-browser/geotiff.js"></script>
+<script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
+<script>
+"use strict";
+const VERSION = "1.12";
+const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
+const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
+const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
+const $ = id => document.getElementById(id);
+
+/* ---------- Zustand ---------- */
+function blank(){ return { id:null, kunde:"", feld:"", arbeit:"Duengung", produkt:"", einheit:"kg/ha", grundrate:DEF_RATE.Duengung, field:null, zones:[], nextNo:1, vgShow:false, vgBreite:12, vgRunden:2, modus:"rx", betrieb:"" }; }
+let S = blank();
+let selId = null;
+let drawMode = null;   // 'field' | 'zone'
+let editing = null;    // 'field' | zone id
+
+/* ---------- Karte ---------- */
+const CH_BOUNDS = [[45.80, 5.95], [47.82, 10.50]];
+const map = L.map("map", { zoomControl:true });
+map.fitBounds(CH_BOUNDS);
+map.createPane("ortho"); map.getPane("ortho").style.zIndex = 250;
+map.createPane("parz"); map.getPane("parz").style.zIndex = 260; map.getPane("parz").style.pointerEvents = "none";
+map.pm.setLang("de");
+const wmts = l => `https://wmts.geo.admin.ch/1.0.0/${l}/default/current/3857/{z}/{x}/{y}.jpeg`;
+const att = '© <a href="https://www.swisstopo.admin.ch" target="_blank">swisstopo</a>';
+const luft = L.tileLayer(wmts("ch.swisstopo.swissimage"), { maxNativeZoom:19, maxZoom:21, attribution:att }).addTo(map);
+const lk = L.tileLayer(wmts("ch.swisstopo.pixelkarte-farbe"), { maxNativeZoom:18, maxZoom:21, attribution:att });
+const kat = L.tileLayer.wms("https://wms.geo.admin.ch/", { layers:"ch.kantone.cadastralwebmap-farbe", format:"image/png", transparent:true, version:"1.3.0", maxZoom:21, attribution:att, pane:"parz" });
+L.control.layers({ "Luftbild":luft, "Landeskarte":lk }, {}, { position:"topright" }).addTo(map);
+const LS_PZ = "appkarte.parzellen";
+let pzPref = { on:true, op:0.8, bb:false, agri:true, zonen:true, idx:true };
+try { const v = JSON.parse(localStorage.getItem(LS_PZ)); if (v) pzPref = Object.assign(pzPref, v); } catch(e){}
+const parzCtl = L.control({ position:"topright" });
+parzCtl.onAdd = () => {
+  const d = L.DomUtil.create("div","parzctl");
+  d.innerHTML = `<label><input type="checkbox" id="cParz"> Parzellengrenzen</label>
+    <input type="range" id="rParz" min="0.2" max="1" step="0.05" aria-label="Deckkraft Parzellen">
+    <span class="z" id="parzZoom" hidden>Erst ab näherem Zoom sichtbar</span>
+    <label><input type="checkbox" id="cBB"> Bodenbedeckung (AV)</label>
+    <label title="Taste Z"><input type="checkbox" id="cZonen"> Zonen</label>
+    <label><input type="checkbox" id="cIdxL"> Index (Satellit/Drohne)</label>
+    <span class="z" id="bbZoom" hidden>Ab näherem Zoom sichtbar</span>`;
+  L.DomEvent.disableClickPropagation(d); L.DomEvent.disableScrollPropagation(d);
+  return d;
+};
+parzCtl.addTo(map);
+function applyParz(){
+  $("cZonen").checked = pzPref.zonen; $("cIdxL").checked = pzPref.idx;
+  $("cParz").checked = pzPref.on; $("cBB").checked = pzPref.bb; $("rParz").value = pzPref.op; $("rParz").hidden = !pzPref.on;
+  kat.setOpacity(pzPref.op);
+  if (pzPref.on) { if (!map.hasLayer(kat)) kat.addTo(map); } else map.removeLayer(kat);
+  $("parzZoom").hidden = !pzPref.on || map.getZoom() >= 15;
+  try { localStorage.setItem(LS_PZ, JSON.stringify(pzPref)); } catch(e){}
+}
+$("cParz").addEventListener("change", e => { pzPref.on = e.target.checked; applyParz(); });
+/* ---------- Amtliche Vermessung (geodienste.ch, WFS) ---------- */
+const AV_WFS = "https://wfs.geodienste.ch/av_0/deu?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&OUTPUTFORMAT=" + encodeURIComponent("application/json; subtype=geojson") + "&SRSNAME=EPSG:4326";
+const AGRI = ["Acker_Wiese_Weide","Reben","uebrige_Intensivkultur"];
+function bbColor(a){
+  a = a || "";
+  if (a==="Acker_Wiese_Weide") return "#9fd65a";
+  if (a==="Reben" || a==="uebrige_Intensivkultur") return "#a06cd5";
+  if (/Wald|bestockt|Gehoelz/i.test(a)) return "#2e7d32";
+  if (a==="Gebaeude") return "#e0473c";
+  if (/Gewaesser|Wasserbecken|Schilf|Moor/i.test(a)) return "#3f9fe0";
+  if (/Strasse|Trottoir|Verkehrsinsel|Bahn|Flugplatz|befestigt/i.test(a)) return "#a3a3a3";
+  if (/Garten|humusiert/i.test(a)) return "#e6d36b";
+  return "#d0d0d0";
+}
+const BB_NAME = { Acker_Wiese_Weide:"Acker/Wiese/Weide", Gebaeude:"Gebäude", Strasse_Weg:"Strasse/Weg", uebrige_befestigte:"übrige befestigte", uebrige_humusierte:"übrige humusierte", geschlossener_Wald:"Wald", Gartenanlage:"Garten", uebrige_Intensivkultur:"Intensivkultur" };
+async function avFetch(type, b){
+  // b = [minLat, minLon, maxLat, maxLon]
+  const url = `${AV_WFS}&TYPENAMES=${type}&COUNT=3000&BBOX=${b.map(v=>v.toFixed(6)).join(",")},EPSG:4326`;
+  const r = await fetch(url); if (!r.ok) throw new Error("HTTP "+r.status);
+  const j = await r.json(); return (j.features||[]).filter(f => f.geometry && /Polygon/.test(f.geometry.type));
+}
+const bbLayer = L.layerGroup();
+let bbReq = 0;
+async function loadBB(){
+  bbLayer.clearLayers();
+  const show = pzPref.bb && map.getZoom() >= 16;
+  $("bbZoom").hidden = !pzPref.bb || show;
+  if (!show) return;
+  const my = ++bbReq, bb = map.getBounds();
+  try {
+    const feats = await avFetch("ms:LCSF", [bb.getSouth(), bb.getWest(), bb.getNorth(), bb.getEast()]);
+    if (my!==bbReq) return;
+    bbLayer.clearLayers();
+    L.geoJSON({ type:"FeatureCollection", features:feats }, { pmIgnore:true, interactive:true, bubblingMouseEvents:true,
+      style: f => ({ color:bbColor(f.properties.Art), weight:1, fillColor:bbColor(f.properties.Art), fillOpacity:.3 }),
+      onEachFeature: (f, l) => l.bindTooltip(BB_NAME[f.properties.Art] || (f.properties.Art||"").replace(/_/g," "), { sticky:true, className:"zlabel" })
+    }).addTo(bbLayer);
+  } catch(e){ console.warn(e); if (my===bbReq) toast("Bodenbedeckung konnte nicht geladen werden (geodienste.ch)."); }
+}
+function zoneVis(){
+  const show = pzPref.zonen && S.modus!=="grenze";
+  zoneLayers.forEach(l => show ? (map.hasLayer(l) || l.addTo(map)) : map.removeLayer(l));
+  if (show) { if (!map.hasLayer(previewLayer)) previewLayer.addTo(map); } else map.removeLayer(previewLayer);
+  $("cZonen").checked = pzPref.zonen;
+  $("bZonenVis").textContent = pzPref.zonen ? "Zonen ausblenden" : "Zonen einblenden";
+}
+function setZonen(on){ if (!on) stopEdit(); pzPref.zonen = on; zoneVis(); try { localStorage.setItem(LS_PZ, JSON.stringify(pzPref)); } catch(e){} }
+function idxVis(){
+  if (pzPref.idx) { if (!map.hasLayer(s2Layer)) s2Layer.addTo(map); } else map.removeLayer(s2Layer);
+  $("cIdxL").checked = pzPref.idx;
+}
+$("cZonen").addEventListener("change", e => setZonen(e.target.checked));
+$("cIdxL").addEventListener("change", e => { pzPref.idx = e.target.checked; idxVis(); try { localStorage.setItem(LS_PZ, JSON.stringify(pzPref)); } catch(err){} });
+document.addEventListener("keydown", e => {
+  if ((e.key==="z" || e.key==="Z") && !e.ctrlKey && !e.metaKey && !e.altKey && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) setZonen(!pzPref.zonen);
+});
+$("cBB").addEventListener("change", e => {
+  pzPref.bb = e.target.checked;
+  if (pzPref.bb) bbLayer.addTo(map); else map.removeLayer(bbLayer);
+  applyParz(); loadBB();
+});
+map.on("moveend", () => { if (pzPref.bb) loadBB(); });
+$("rParz").addEventListener("input", e => { pzPref.op = +e.target.value; applyParz(); });
+map.on("zoomend", () => { $("parzZoom").hidden = !pzPref.on || map.getZoom() >= 15; });
+applyParz();
+if (pzPref.bb){ bbLayer.addTo(map); }
+L.control.scale({ imperial:false }).addTo(map);
+
+const previewLayer = L.layerGroup().addTo(map);
+const vgLayer = L.layerGroup().addTo(map);
+let fieldLayer = null;
+const zoneLayers = new Map();
+
+const legend = L.control({ position:"bottomright" });
+legend.onAdd = () => { const d = L.DomUtil.create("div","legend"); d.id = "legend"; return d; };
+legend.addTo(map);
+
+/* ---------- Hilfen ---------- */
+function toast(t){ const el=$("toast"); el.textContent=t; el.classList.add("on"); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove("on"), t.length>70 ? 5000 : 2600); }
+const fmt = (n,d=2) => (n==null||isNaN(n)) ? "–" : n.toLocaleString("de-CH",{minimumFractionDigits:d,maximumFractionDigits:d});
+const num = v => { const n = parseFloat(String(v).replace(",",".")); return isNaN(n)?0:n; };
+function color(rate, lo, hi){
+  if (hi<=lo) return RAMP[2];
+  const t = Math.min(1,Math.max(0,(rate-lo)/(hi-lo)));
+  return RAMP[Math.round(t*(RAMP.length-1))];
+}
+function areaHa(f){ try { return f ? turf.area(f)/10000 : 0; } catch(e){ return 0; } }
+function feat(g){ return g ? (g.type==="Feature" ? g : turf.feature(g)) : null; }
+function clean(f){
+  if (!f || !f.geometry) return null;
+  const g = f.geometry;
+  if (g.type==="Polygon") return turf.area(f) > 1 ? f : null;
+  if (g.type==="MultiPolygon"){
+    const parts = g.coordinates.filter(p => turf.area(turf.polygon(p)) > 1);
+    if (!parts.length) return null;
+    return parts.length===1 ? turf.polygon(parts[0]) : turf.multiPolygon(parts);
+  }
+  if (g.type==="GeometryCollection"){
+    const polys=[]; g.geometries.forEach(x=>{ if(x.type==="Polygon") polys.push(x.coordinates); if(x.type==="MultiPolygon") polys.push(...x.coordinates); });
+    return polys.length ? clean(turf.multiPolygon(polys)) : null;
+  }
+  return null;
+}
+const safe = fn => { try { return clean(fn()); } catch(e){ console.warn(e); return null; } };
+function totalOf(rate, ha, unit){
+  if (unit==="Kö/m²") return { v: rate*ha*10000, u:"Kö" };
+  return { v: rate*ha, u: unit.split("/")[0] };
+}
+function fmtTotal(t){
+  if (t.u==="Kö") return t.v>=1e6 ? fmt(t.v/1e6,2)+" Mio. Kö" : fmt(t.v,0)+" Kö";
+  return fmt(t.v, t.v>=100?0:1)+" "+t.u;
+}
+
+/* ---------- Berechnung: Zonen zuschneiden ---------- */
+function compute(){
+  const field = S.field ? feat(S.field) : null;
+  const out = [];
+  let later = null;
+  for (let i=S.zones.length-1; i>=0; i--){
+    const z = S.zones[i];
+    const zf = feat(z.geom);
+    let g = zf;
+    if (field) g = safe(()=>turf.intersect(g, field));
+    if (g && later) g = safe(()=>turf.difference(g, later));
+    later = later ? (safe(()=>turf.union(later, zf)) || later) : zf;
+    out.unshift({ id:z.id, name:z.name, rate:z.rate, geom:g, ha:areaHa(g) });
+  }
+  let base = null;
+  if (field){
+    base = later ? safe(()=>turf.difference(field, later)) : clean(field);
+  }
+  return { base: base ? { id:"base", name:"Grundrate", rate:S.grundrate, geom:base, ha:areaHa(base) } : null, zones: out };
+}
+
+/* ---------- Darstellung ---------- */
+let lastCalc = null;
+function render(){
+  const c = compute(); lastCalc = c;
+  const rates = [S.grundrate, ...S.zones.map(z=>z.rate)];
+  const lo = Math.min(...rates), hi = Math.max(...rates);
+
+  previewLayer.clearLayers();
+  const grenze = S.modus==="grenze";
+  const parts = (c.base?[c.base]:[]).concat(c.zones);
+  if (!grenze) parts.forEach(p => {
+    if (!p.geom) return;
+    L.geoJSON(p.geom, { pmIgnore:true, interactive:false, style:{ stroke:false, fillColor:color(p.rate,lo,hi), fillOpacity:.55 } }).addTo(previewLayer);
+  });
+  zoneLayers.forEach((lay,id) => {
+    const z = S.zones.find(x=>x.id===id); if(!z) return;
+    lay.setStyle({ color: id===selId ? "#ffffff" : color(z.rate,lo,hi), weight: id===selId ? 3 : 2, dashArray: id===selId ? null : "5 4", fillOpacity:0.01 });
+    lay.setTooltipContent(`${z.name} · ${fmt(z.rate, z.rate%1?1:0)} ${S.einheit}`);
+  });
+
+  /* Liste */
+  const list = $("zoneList"); list.innerHTML = "";
+  const unit = S.einheit;
+  const row = (p, isBase) => {
+    const z = isBase ? null : S.zones.find(x=>x.id===p.id);
+    const d = document.createElement("div");
+    d.className = "z" + (isBase?" base":"") + (p.id===selId?" sel":"");
+    const pct = S.grundrate ? Math.round((p.rate/S.grundrate-1)*100) : 0;
+    d.innerHTML = `<div class="sw" style="background:${color(p.rate,lo,hi)}"></div>
+      <input class="nm" id="nm_${p.id}" value="${(p.name||"").replace(/"/g,"&quot;")}" ${isBase?"readonly tabindex=-1":""} aria-label="Zonenname">
+      <input type="number" step="any" min="0" id="rt_${p.id}" value="${p.rate}" aria-label="Rate">
+      <div class="row" style="gap:0">${isBase?"":`<button class="ghost" data-act="edit" title="Form bearbeiten">✎</button><button class="ghost" data-act="del" title="Zone löschen">✕</button>`}</div>
+      <div class="meta"><span>${fmt(p.ha,2)} ha${isBase?"":` · <span class="pct ${pct>0?"up":pct<0?"dn":""}">${pct>0?"+":""}${pct} %</span>`}</span><span>${fmtTotal(totalOf(p.rate,p.ha,unit))}</span></div>`;
+    const rt = d.querySelector(`#rt_${p.id}`);
+    rt.addEventListener("change", () => {
+      const v = num(rt.value);
+      if (isBase){ S.grundrate = v; $("iGrund").value = v; } else z.rate = v;
+      render();
+    });
+    if (!isBase){
+      const nm = d.querySelector(`#nm_${p.id}`);
+      nm.addEventListener("change", () => { z.name = nm.value.trim() || z.name; render(); });
+      d.addEventListener("click", e => { if (e.target.tagName!=="INPUT" && !e.target.dataset.act) select(p.id, true); });
+      d.querySelector('[data-act=edit]').addEventListener("click", () => toggleEdit(p.id));
+      d.querySelector('[data-act=del]').addEventListener("click", () => delZone(p.id));
+    }
+    list.appendChild(d);
+  };
+  if (c.base) row(c.base, true);
+  else if (!S.zones.length) list.innerHTML = `<div class="empty">Noch keine Zonen. Feldgrenze laden oder zeichnen, dann Zonen mit abweichender Menge einzeichnen.</div>`;
+  c.zones.forEach(p => row(p, false));
+
+  /* Übersicht */
+  const all = parts.filter(p=>p.geom);
+  const ha = all.reduce((s,p)=>s+p.ha,0);
+  const rateHa = all.reduce((s,p)=>s+p.ha*p.rate,0);
+  $("sHa").textContent = ha ? fmt(ha,2)+" ha" : "–";
+  $("sAvg").textContent = ha ? fmt(rateHa/ha, 1)+" "+unit : "–";
+  $("sTot").textContent = ha ? fmtTotal(totalOf(rateHa/ha, ha, unit)) : "–";
+  renderVg();
+  $("fieldHa").innerHTML = S.field ? `<b>${fmt(areaHa(feat(S.field)),2)} ha</b>` : "keine";
+
+  /* Legende */
+  const lg = $("legend");
+  const uniq = [...new Set(rates)].sort((a,b)=>a-b);
+  lg.innerHTML = `<b>${S.produkt || "Rate"}</b> <span style="color:var(--muted)">${unit}</span>` +
+    uniq.map(r=>`<div class="lg"><i style="background:${color(r,lo,hi)}"></i>${fmt(r, r%1?1:0)}</div>`).join("");
+  if (S.vgShow && S.field) lg.innerHTML += `<div class="lg"><i style="background:#ff7a1a;opacity:.7"></i>Vorgewende ${fmt(vgWidth(), vgWidth()%1?1:0)} m</div>`;
+  if (grenze) lg.innerHTML = S.vgShow && S.field ? `<div class="lg"><i style="background:#ff7a1a;opacity:.7"></i>Vorgewende ${fmt(vgWidth(), vgWidth()%1?1:0)} m</div>` : "";
+  lg.style.display = (grenze ? lg.innerHTML : (S.field || S.zones.length)) ? "" : "none";
+  fieldInfoUpdate();
+
+  $("koeRow").hidden = unit!=="Kö/m²";
+  saveDraft();
+}
+
+/* ---------- Auftrag ---------- */
+function fillUnits(){
+  const sel = $("iEinheit"); sel.innerHTML = "";
+  UNITS[S.arbeit].forEach(u => { const o=document.createElement("option"); o.textContent=u; sel.appendChild(o); });
+  if (!UNITS[S.arbeit].includes(S.einheit)) S.einheit = UNITS[S.arbeit][0];
+  sel.value = S.einheit;
+}
+function vgWidth(){ return Math.max(0, num(S.vgBreite) * Math.max(1, Math.round(num(S.vgRunden)))); }
+let vgKey = "", vgCache = null;
+function renderVg(){
+  vgLayer.clearLayers();
+  const w = vgWidth();
+  $("vgInfo").textContent = `Breite ${fmt(w, w%1?1:0)} m (Arbeitsbreite × Runden), gemessen ab der Feldgrenze nach innen.`;
+  if (!S.vgShow || !S.field || w<=0){ $("vgHa").textContent = ""; return; }
+  const key = JSON.stringify(S.field.geometry) + "|" + w;
+  if (key!==vgKey){
+    vgKey = key; vgCache = null;
+    const field = feat(S.field);
+    try {
+      const inner = turf.buffer(field, -w, { units:"meters" });
+      const innerC = clean(inner);
+      vgCache = { inner: innerC, band: innerC ? safe(()=>turf.difference(field, innerC)) : clean(field) };
+    } catch(e){ console.warn(e); vgCache = { inner:null, band:clean(field) }; }
+  }
+  if (!vgCache) return;
+  if (vgCache.band) L.geoJSON(vgCache.band, { pmIgnore:true, interactive:false,
+    style:{ stroke:false, fillColor:"#ff7a1a", fillOpacity:.38 } }).addTo(vgLayer);
+  if (vgCache.inner) L.geoJSON(vgCache.inner, { pmIgnore:true, interactive:false,
+    style:{ color:"#ff7a1a", weight:2, dashArray:"8 6", fill:false } }).addTo(vgLayer);
+  const ha = areaHa(vgCache.band);
+  $("vgHa").innerHTML = `<b>${fmt(ha,2)} ha</b>` + (vgCache.inner ? "" : " · Feld zu schmal");
+}
+function syncForm(){
+  $("iBetrieb").value = S.betrieb || "";
+  $("cVg").checked = !!S.vgShow; $("iVgBreite").value = S.vgBreite; $("iVgRunden").value = S.vgRunden;
+  $("iKunde").value = S.kunde; $("iFeld").value = S.feld; $("iProdukt").value = S.produkt; $("iGrund").value = S.grundrate;
+  document.querySelectorAll("#segArbeit button").forEach(b => b.classList.toggle("on", b.dataset.a===S.arbeit));
+  fillUnits();
+}
+document.querySelectorAll("#segArbeit button").forEach(b => b.addEventListener("click", () => {
+  if (S.arbeit===b.dataset.a) return;
+  S.arbeit = b.dataset.a; S.einheit = UNITS[S.arbeit][0];
+  if (!S.zones.length) S.grundrate = DEF_RATE[S.arbeit];
+  syncForm(); render();
+}));
+$("iKunde").addEventListener("input", e => { S.kunde = e.target.value; saveDraft(); });
+$("iFeld").addEventListener("input", e => { S.feld = e.target.value; saveDraft(); });
+$("iBetrieb").addEventListener("input", e => { S.betrieb = e.target.value; saveDraft(); });
+function applyModus(){
+  const g = S.modus==="grenze";
+  document.body.classList.toggle("grenze", g);
+  document.querySelectorAll("#segModus button").forEach(b => b.classList.toggle("on", b.dataset.m===S.modus));
+  document.querySelectorAll(".grenze-only").forEach(el => el.hidden = !g);
+  $("hAuftrag").textContent = g ? "Feld" : "Auftrag";
+  $("bFieldExport").classList.toggle("pri", g);
+  zoneVis();
+}
+document.querySelectorAll("#segModus button").forEach(b => b.addEventListener("click", () => {
+  if (S.modus===b.dataset.m) return;
+  endDraw(); stopEdit(); S.modus = b.dataset.m; selId = null; applyModus(); render();
+}));
+$("iProdukt").addEventListener("input", e => { S.produkt = e.target.value; render(); });
+$("iEinheit").addEventListener("change", e => { S.einheit = e.target.value; render(); });
+$("iGrund").addEventListener("change", e => { S.grundrate = num(e.target.value); render(); });
+$("cVg").addEventListener("change", e => { S.vgShow = e.target.checked; if (S.vgShow && !S.field) toast("Für das Vorgewende zuerst eine Feldgrenze laden oder zeichnen."); render(); });
+$("iVgBreite").addEventListener("change", e => { S.vgBreite = num(e.target.value); render(); });
+$("iVgRunden").addEventListener("change", e => { S.vgRunden = Math.max(1, Math.round(num(e.target.value))); e.target.value = S.vgRunden; render(); });
+
+/* ---------- Zeichnen ---------- */
+const DRAW_OPTS = { snappable:true, snapDistance:18, allowSelfIntersection:false, finishOn:"dblclick",
+  templineStyle:{ color:"#ffffff" }, hintlineStyle:{ color:"#ffffff", dashArray:[5,5] }, pathOptions:{ color:"#ffffff", weight:2 } };
+function startDraw(mode, shape){
+  stopEdit();
+  drawMode = mode;
+  map.pm.enableDraw(shape, DRAW_OPTS);
+  $("drawTxt").textContent = shape==="Rectangle" ? "Ecke klicken, ziehen bzw. zweite Ecke klicken" :
+    (mode==="field" ? "Feldgrenze: Punkte setzen, Doppelklick oder «Fertig» schliesst" : "Zone: Punkte setzen, Doppelklick oder «Fertig» schliesst");
+  $("bFinish").hidden = shape==="Rectangle";
+  $("drawbar").hidden = false;
+}
+function endDraw(){ if (drawMode==="pick") endPick(); if (drawMode==="or1" || drawMode==="or2") orPickEnd(); drawMode = null; map.pm.disableDraw(); $("drawbar").hidden = true; }
+/* ---------- Parzellen anklicken (geo.admin.ch) ---------- */
+const pickLayer = L.layerGroup().addTo(map);
+let picked = [];      // { egrid, nr, geom }
+let pickBusy = false;
+function startPick(){
+  endDraw(); stopEdit();
+  drawMode = "pick"; picked = [];
+  if (!pzPref.on){ pzPref.on = true; applyParz(); }
+  map.getContainer().classList.add("picking");
+  $("drawTxt").textContent = "Parzelle anklicken = hinzufügen, nochmals anklicken = entfernen";
+  $("bFinish").hidden = false; $("drawbar").hidden = false;
+  $("agriRow").hidden = false; $("cAgri").checked = pzPref.agri;
+  if (map.getZoom() < 15) toast("Näher hineinzoomen, damit die Parzellen sichtbar sind.");
+}
+$("cAgri").addEventListener("change", e => { pzPref.agri = e.target.checked; applyParz(); });
+function endPick(){ $("agriRow").hidden = true; map.getContainer().classList.remove("picking"); pickLayer.clearLayers(); picked = []; }
+function drawPicked(){
+  pickLayer.clearLayers();
+  picked.forEach(p => L.geoJSON(p.geom, { pmIgnore:true, interactive:false, style:{ color:"#ffd400", weight:3, fillColor:"#ffd400", fillOpacity:.25 } })
+    .bindTooltip(`Parz. ${p.nr}`, { permanent:true, direction:"center", className:"zlabel parztip" }).addTo(pickLayer));
+  const ha = picked.reduce((s,p)=>s+areaHa(feat(p.geom)),0);
+  $("drawTxt").textContent = picked.length ? `${picked.length} Parzelle${picked.length>1?"n":""} · ${fmt(ha,2)} ha – weitere anklicken oder «Fertig»` : "Parzelle anklicken = hinzufügen, nochmals anklicken = entfernen";
+}
+map.on("click", async e => {
+  if (drawMode!=="pick" || pickBusy) return;
+  pickBusy = true;
+  try {
+    const { lat, lng } = e.latlng;
+    const url = `https://api3.geo.admin.ch/rest/services/ech/MapServer/identify?geometry=${lng.toFixed(7)},${lat.toFixed(7)}&geometryType=esriGeometryPoint&layers=all:ch.kantone.cadastralwebmap-farbe&tolerance=0&sr=4326&returnGeometry=true&geometryFormat=geojson&lang=de`;
+    const j = await (await fetch(url)).json();
+    const r = (j.results||[]).find(x => x.geometry && /Polygon/.test(x.geometry.type));
+    if (!r){ toast("An dieser Stelle wurde keine Parzelle gefunden."); return; }
+    const egrid = r.properties.egris_egrid || String(r.id);
+    const i = picked.findIndex(p => p.egrid===egrid);
+    if (i>=0) picked.splice(i,1);
+    else picked.push({ egrid, nr:r.properties.number || "?", geom:r.geometry });
+    drawPicked();
+  } catch(err){ console.warn(err); toast("Parzellendienst nicht erreichbar. Internetverbindung prüfen."); }
+  finally { pickBusy = false; }
+});
+async function finishPick(){
+  if (!picked.length){ endDraw(); return; }
+  if (pickBusy) return;
+  let u = feat(picked[0].geom);
+  for (let k=1; k<picked.length; k++) u = safe(()=>turf.union(u, feat(picked[k].geom))) || u;
+  // Haarrisse zwischen Nachbarparzellen schliessen
+  const closed = safe(()=>turf.buffer(turf.buffer(u, 0.3, { units:"meters" }), -0.3, { units:"meters" }));
+  let res = clean(closed || u);
+  const nrs = picked.map(p=>p.nr);
+  let agriNote = "";
+  if (pzPref.agri && res){
+    pickBusy = true; $("drawTxt").textContent = "Bodenbedeckung wird geladen …";
+    try {
+      const bx = turf.bbox(res);
+      const feats = (await avFetch("ms:LCSF", [bx[1], bx[0], bx[3], bx[2]])).filter(f => AGRI.includes(f.properties.Art));
+      if (!feats.length) agriNote = " (keine Acker/Wiese/Weide-Fläche gefunden, ganze Parzelle übernommen)";
+      else {
+        const parts = [];
+        feats.forEach(f => { const x = safe(()=>turf.intersect(feat(f.geometry), res)); if (x) parts.push(x); });
+        let a = parts[0];
+        for (let k=1; k<parts.length; k++) a = safe(()=>turf.union(a, parts[k])) || a;
+        const a2 = a ? clean(safe(()=>turf.buffer(turf.buffer(a, 0.3, { units:"meters" }), -0.3, { units:"meters" })) || a) : null;
+        if (a2){ const before = areaHa(res); res = a2; agriNote = ` – ${fmt(before-areaHa(res),2)} ha Weg/Gebäude/Wald abgezogen`; }
+      }
+    } catch(e){ console.warn(e); agriNote = " (Bodenbedeckung nicht erreichbar, ganze Parzelle übernommen)"; }
+    finally { pickBusy = false; }
+  }
+  const mode = S.field ? "add" : "new";
+  let final = res;
+  if (mode==="add") final = safe(()=>turf.union(feat(S.field), res)) || res;
+  endDraw();
+  if (!S.feld){ S.feld = "Parz. " + nrs.join(", "); $("iFeld").value = S.feld; }
+  setField(final, mode==="new");
+  toast((mode==="add" ? `Parzelle${nrs.length>1?"n":""} ${nrs.join(", ")} zum Feld hinzugefügt` : `Feldgrenze aus Parzelle${nrs.length>1?"n":""} ${nrs.join(", ")} übernommen`) + agriNote);
+}
+$("bParzPick").addEventListener("click", () => drawMode==="pick" ? finishPick() : startPick());
+$("bCancel").addEventListener("click", () => { endDraw(); stopEdit(); });
+$("bFinish").addEventListener("click", () => {
+  if (drawMode==="pick"){ finishPick(); return; }
+  if (drawMode==="or1" || drawMode==="or2"){ endDraw(); return; }
+  if (editing!==null){ stopEdit(); return; }
+  try { if (map.pm.Draw.Polygon._enabled) map.pm.Draw.Polygon._finishShape(); } catch(e){ toast("Mindestens drei Punkte setzen."); }
+});
+document.addEventListener("keydown", e => { if (e.key==="Escape"){ endDraw(); stopEdit(); } });
+
+map.on("pm:create", e => {
+  const gj = e.layer.toGeoJSON();
+  map.removeLayer(e.layer);
+  const mode = drawMode; endDraw();
+  if (mode==="field"){ setField(gj); toast("Feldgrenze gesetzt"); }
+  else if (mode==="add" || mode==="hole"){
+    const cur = feat(S.field), nf = feat(gj.geometry);
+    const res = mode==="add" ? safe(()=>turf.union(cur, nf)) : safe(()=>turf.difference(cur, nf));
+    if (!res){ toast(mode==="hole" ? "Die Aussparung würde das ganze Feld entfernen." : "Teilfläche konnte nicht hinzugefügt werden."); return; }
+    setField(res, false); toast(mode==="add" ? "Teilfläche hinzugefügt" : "Aussparung ausgeschnitten");
+  }
+  else if (mode==="zone"){
+    const z = { id:"z"+Date.now().toString(36), name:"Zone "+(S.nextNo++), rate:S.grundrate, geom:gj.geometry };
+    if (!pzPref.zonen) setZonen(true);
+    S.zones.push(z); addZoneLayer(z); select(z.id); render();
+    setTimeout(()=>{ const el=$("rt_"+z.id); if(el){ el.focus(); el.select(); } },30);
+  }
+});
+$("bFieldDraw").addEventListener("click", () => startDraw("field","Polygon"));
+$("bFieldAdd").addEventListener("click", () => { if (!S.field){ startDraw("field","Polygon"); return; } startDraw("add","Polygon"); $("drawTxt").textContent = "Teilfläche: Punkte setzen, Doppelklick oder «Fertig» schliesst"; });
+$("bFieldHole").addEventListener("click", () => { if (!S.field){ toast("Zuerst eine Feldgrenze zeichnen oder laden."); return; } startDraw("hole","Polygon"); $("drawTxt").textContent = "Aussparung: Fläche umranden, die nicht zum Feld gehört"; });
+$("bZonenVis").addEventListener("click", () => setZonen(!pzPref.zonen));
+$("bZonePoly").addEventListener("click", () => startDraw("zone","Polygon"));
+$("bZoneRect").addEventListener("click", () => startDraw("zone","Rectangle"));
+
+/* ---------- Feldgrenze ---------- */
+function setField(f, fit=true){
+  s2Reset();
+  if (fieldLayer){ map.removeLayer(fieldLayer); fieldLayer=null; }
+  if (!f){ S.field=null; render(); return; }
+  S.field = { type:"Feature", properties:{}, geometry:f.geometry };
+  fieldLayer = L.geoJSON(S.field, { style:{ color:"#ffffff", weight:3, fill:false }, interactive:false }).addTo(map).getLayers()[0];
+  fieldLayer.on("pm:edit", () => { S.field.geometry = fieldLayer.toGeoJSON().geometry; render(); });
+  if (fit) map.fitBounds(fieldLayer.getBounds(), { padding:[30,30] });
+  render();
+}
+$("bFieldZoom").addEventListener("click", () => { if (fieldLayer) map.fitBounds(fieldLayer.getBounds(), { padding:[30,30] }); else toast("Noch keine Feldgrenze vorhanden."); });
+$("bFieldDel").addEventListener("click", () => { stopEdit(); setField(null); });
+$("bFieldEdit").addEventListener("click", () => {
+  if (!fieldLayer){ toast("Noch keine Feldgrenze vorhanden."); return; }
+  if (editing==="field"){ stopEdit(); return; }
+  stopEdit(); editing = "field"; fieldLayer.pm.enable({ allowSelfIntersection:false, snappable:true });
+  showEditBar("Feldgrenze bearbeiten: Punkte ziehen, Rechtsklick auf Punkt löscht ihn");
+});
+$("bFieldLoad").addEventListener("click", () => $("fField").click());
+let pickFeats = [];
+$("fField").addEventListener("change", async e => {
+  const file = e.target.files[0]; e.target.value = ""; if (!file) return;
+  try {
+    let gj;
+    if (/\.zip$/i.test(file.name)) gj = await shp(await file.arrayBuffer());
+    else gj = JSON.parse(await file.text());
+    const fcs = Array.isArray(gj) ? gj : [gj];
+    const feats = [];
+    fcs.forEach(fc => (fc.type==="FeatureCollection" ? fc.features : [fc]).forEach(f => {
+      if (f && f.geometry && /Polygon/.test(f.geometry.type)) feats.push(f);
+    }));
+    if (!feats.length){ toast("In der Datei wurde keine Fläche gefunden."); return; }
+    if (feats.length===1){ applyImported(feats[0]); $("featPick").hidden = true; return; }
+    pickFeats = feats;
+    const sel = $("featSel"); sel.innerHTML = `<option value="">– wählen (${feats.length}) –</option>`;
+    feats.map((f,i)=>({f,i,n:featName(f,i)})).sort((a,b)=>a.n.localeCompare(b.n,"de")).forEach(({f,i,n}) => {
+      const o=document.createElement("option"); o.value=i; o.textContent=`${n} (${fmt(areaHa(f),2)} ha)`; sel.appendChild(o);
+    });
+    $("featPick").hidden = false; sel.focus();
+  } catch(err){ console.error(err); toast("Datei konnte nicht gelesen werden. Shapefile als ZIP (mit .shp, .dbf, .prj) oder GeoJSON verwenden."); }
+});
+$("featSel").addEventListener("change", e => { if (e.target.value==="") return; applyImported(pickFeats[+e.target.value]); });
+function featName(f,i){
+  const p = f.properties||{};
+  const k = Object.keys(p).find(k => /^(field_?name|feld|name|fieldname|fld_name|bezeichnung)$/i.test(k)) || Object.keys(p).find(k=>/name/i.test(k));
+  return k && p[k] ? String(p[k]) : "Fläche "+(i+1);
+}
+function applyImported(f){
+  if (!S.feld){ const n = featName(f,0); if (!/^Fläche /.test(n)){ S.feld = n; $("iFeld").value = n; } }
+  setField(f); toast("Feldgrenze geladen");
+}
+
+/* ---------- Zonen ---------- */
+function addZoneLayer(z){
+  const lay = L.geoJSON(feat(z.geom)).getLayers()[0];
+  lay.setStyle({ fill:true, fillOpacity:0.01 });
+  lay.bindTooltip("", { sticky:true, className:"zlabel" });
+  lay.on("click", () => { if (!drawMode) select(z.id, false); });
+  lay.on("pm:edit", () => { z.geom = lay.toGeoJSON().geometry; render(); });
+  if (pzPref.zonen && S.modus!=="grenze") lay.addTo(map);
+  zoneLayers.set(z.id, lay);
+}
+function select(id, pan){
+  selId = id; const lay = zoneLayers.get(id);
+  if (lay){ lay.bringToFront(); if (pan && !map.getBounds().contains(lay.getBounds())) map.fitBounds(lay.getBounds(),{padding:[40,40],maxZoom:18}); }
+  render();
+}
+function toggleEdit(id){
+  if (!pzPref.zonen) setZonen(true);
+  if (editing===id){ stopEdit(); return; }
+  stopEdit(); const lay = zoneLayers.get(id); if (!lay) return;
+  editing = id; selId = id; lay.pm.enable({ allowSelfIntersection:false, snappable:true });
+  showEditBar("Zone bearbeiten: Punkte ziehen, Rechtsklick auf Punkt löscht ihn"); render();
+}
+function showEditBar(t){ $("drawTxt").textContent = t; $("bFinish").hidden = false; $("drawbar").hidden = false; }
+function stopEdit(){
+  if (editing==="field" && fieldLayer) fieldLayer.pm.disable();
+  else if (editing && zoneLayers.get(editing)) zoneLayers.get(editing).pm.disable();
+  if (editing!==null){ editing = null; $("drawbar").hidden = true; }
+}
+function delZone(id){
+  if (editing===id) stopEdit();
+  const lay = zoneLayers.get(id); if (lay) map.removeLayer(lay); zoneLayers.delete(id);
+  S.zones = S.zones.filter(z=>z.id!==id); if (selId===id) selId=null;
+  render(); toast("Zone gelöscht");
+}
+
+/* ---------- Laden / Speichern ---------- */
+function loadState(st, fit=true){
+  stopEdit(); endDraw();
+  zoneLayers.forEach(l=>map.removeLayer(l)); zoneLayers.clear();
+  if (fieldLayer){ map.removeLayer(fieldLayer); fieldLayer=null; }
+  S = Object.assign(blank(), st); selId = null;
+  syncForm();
+  S.zones.forEach(addZoneLayer);
+  applyModus();
+  if (S.field) setField(S.field, fit); else render();
+  if (fit && !S.field && S.zones.length){ const g=L.featureGroup([...zoneLayers.values()]); map.fitBounds(g.getBounds(),{padding:[30,30]}); }
+}
+const LS_P = "appkarte.projekte", LS_D = "appkarte.entwurf";
+const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch(e){ return null; } };
+const lsSet = (k,v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch(e){ return false; } };
+function saveDraft(){ lsSet(LS_D, S); }
+function projName(s){ return [s.feld||"Ohne Feldname", s.modus==="grenze" ? "Feldgrenze" : s.produkt||({Saat:"Saat",Duengung:"Düngung",PS:"Pflanzenschutz"})[s.arbeit], s.kunde].filter(Boolean).join(" · "); }
+function fillProj(){
+  const list = lsGet(LS_P) || []; const sel = $("projSel");
+  sel.innerHTML = `<option value="">– Karte öffnen (${list.length}) –</option>`;
+  list.sort((a,b)=>b.saved.localeCompare(a.saved)).forEach(p => {
+    const o=document.createElement("option"); o.value=p.id;
+    o.textContent = `${projName(p.state)} – ${new Date(p.saved).toLocaleDateString("de-CH")}`; sel.appendChild(o);
+  });
+  if (S.id && list.some(p=>p.id===S.id)) sel.value = S.id;
+}
+$("bSave").addEventListener("click", () => {
+  if (!S.id) S.id = "p"+Date.now().toString(36);
+  const list = (lsGet(LS_P)||[]).filter(p=>p.id!==S.id);
+  list.push({ id:S.id, saved:new Date().toISOString(), state:S });
+  if (lsSet(LS_P, list)){ fillProj(); toast("Gespeichert: "+projName(S)); }
+  else toast("Speichern im Browser nicht möglich. Bitte «Als Datei sichern» verwenden.");
+});
+$("projSel").addEventListener("change", e => {
+  const p = (lsGet(LS_P)||[]).find(p=>p.id===e.target.value); if (p){ loadState(p.state); toast("Geöffnet: "+projName(p.state)); }
+});
+$("bDelProj").addEventListener("click", () => { if (!$("projSel").value){ toast("Zuerst eine gespeicherte Karte wählen."); return; } $("delConfirm").hidden = false; });
+$("bDelNo").addEventListener("click", () => $("delConfirm").hidden = true);
+$("bDelYes").addEventListener("click", () => {
+  const id = $("projSel").value; lsSet(LS_P, (lsGet(LS_P)||[]).filter(p=>p.id!==id));
+  if (S.id===id) S.id=null; $("delConfirm").hidden = true; fillProj(); toast("Gespeicherte Karte gelöscht");
+});
+$("bNeu").addEventListener("click", () => { const keep = { modus:S.modus, betrieb:S.betrieb, vgShow:S.vgShow, vgBreite:S.vgBreite, vgRunden:S.vgRunden, kunde:S.kunde, arbeit:S.arbeit, einheit:S.einheit, grundrate:S.grundrate, produkt:S.produkt }; loadState(Object.assign(blank(), keep), false); fillProj(); toast("Neue Karte – Auftragsdaten übernommen"); });
+
+function download(name, blob){
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+function fileBase(){
+  const raw = `RX_${S.feld||"Feld"}_${S.produkt||S.arbeit}`;
+  return ascii(raw).replace(/[^A-Za-z0-9_-]+/g,"_").replace(/_+/g,"_").replace(/_$/,"").slice(0,48);
+}
+$("bJsonOut").addEventListener("click", () => {
+  download(fileBase().replace(/^RX_/,"Karte_")+".json", new Blob([JSON.stringify({ app:"Applikationskarte", version:VERSION, state:S }, null, 1)], { type:"application/json" }));
+});
+$("bJsonIn").addEventListener("click", () => $("fJson").click());
+$("fJson").addEventListener("change", async e => {
+  const f = e.target.files[0]; e.target.value=""; if(!f) return;
+  try { const j = JSON.parse(await f.text()); loadState(j.state || j); toast("Karte geladen"); }
+  catch(err){ toast("Diese Datei ist keine gesicherte Applikationskarte."); }
+});
+
+/* ---------- Shapefile-Export ---------- */
+function ascii(s){
+  return String(s).replace(/ä/g,"ae").replace(/ö/g,"oe").replace(/ü/g,"ue").replace(/Ä/g,"Ae").replace(/Ö/g,"Oe").replace(/Ü/g,"Ue")
+    .replace(/ß/g,"ss").replace(/²/g,"2").replace(/³/g,"3").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^\x20-\x7E]/g,"");
+}
+function ringCW(r){ let s=0; for(let i=0;i<r.length-1;i++) s += (r[i+1][0]-r[i][0])*(r[i+1][1]+r[i][1]); return s>0; }
+function prepRings(geom){
+  const polys = geom.type==="Polygon" ? [geom.coordinates] : geom.coordinates;
+  const rings = [];
+  polys.forEach(p => p.forEach((r,i) => {
+    r = r.map(c=>[c[0],c[1]]);
+    const a=r[0], b=r[r.length-1]; if (a[0]!==b[0]||a[1]!==b[1]) r.push([a[0],a[1]]);
+    const wantCW = i===0;
+    if (ringCW(r)!==wantCW) r.reverse();
+    rings.push(r);
+  }));
+  return rings;
+}
+function bboxOf(rings){ let b=[Infinity,Infinity,-Infinity,-Infinity]; rings.forEach(r=>r.forEach(([x,y])=>{ if(x<b[0])b[0]=x; if(y<b[1])b[1]=y; if(x>b[2])b[2]=x; if(y>b[3])b[3]=y; })); return b; }
+function writeShp(records){
+  const recs = records.map(r => { const rings = prepRings(r.geom); const np = rings.reduce((s,x)=>s+x.length,0); return { rings, np, bb:bboxOf(rings), len: 44 + 4*rings.length + 16*np }; });
+  const total = 100 + recs.reduce((s,r)=>s+8+r.len,0);
+  const shp = new DataView(new ArrayBuffer(total)), shx = new DataView(new ArrayBuffer(100 + 8*recs.length));
+  const all = [Infinity,Infinity,-Infinity,-Infinity];
+  recs.forEach(r=>{ all[0]=Math.min(all[0],r.bb[0]); all[1]=Math.min(all[1],r.bb[1]); all[2]=Math.max(all[2],r.bb[2]); all[3]=Math.max(all[3],r.bb[3]); });
+  const header = (dv, lenBytes) => {
+    dv.setInt32(0,9994,false); dv.setInt32(24,lenBytes/2,false); dv.setInt32(28,1000,true); dv.setInt32(32,5,true);
+    all.forEach((v,i)=>dv.setFloat64(36+8*i,v,true));
+  };
+  header(shp,total); header(shx,100+8*recs.length);
+  let o = 100;
+  recs.forEach((r,i) => {
+    shx.setInt32(100+8*i, o/2, false); shx.setInt32(104+8*i, r.len/2, false);
+    shp.setInt32(o, i+1, false); shp.setInt32(o+4, r.len/2, false); o += 8;
+    shp.setInt32(o,5,true); r.bb.forEach((v,k)=>shp.setFloat64(o+4+8*k,v,true));
+    shp.setInt32(o+36, r.rings.length, true); shp.setInt32(o+40, r.np, true);
+    let p = o+44, idx = 0;
+    r.rings.forEach(ring => { shp.setInt32(p, idx, true); p+=4; idx+=ring.length; });
+    r.rings.forEach(ring => ring.forEach(([x,y]) => { shp.setFloat64(p,x,true); shp.setFloat64(p+8,y,true); p+=16; }));
+    o = p;
+  });
+  return { shp: shp.buffer, shx: shx.buffer };
+}
+function writeDbf(fields, rows){
+  const recLen = 1 + fields.reduce((s,f)=>s+f.len,0), hdrLen = 32 + 32*fields.length + 1;
+  const buf = new Uint8Array(hdrLen + recLen*rows.length + 1); const dv = new DataView(buf.buffer);
+  const d = new Date(); buf[0]=3; buf[1]=d.getFullYear()-1900; buf[2]=d.getMonth()+1; buf[3]=d.getDate();
+  dv.setUint32(4, rows.length, true); dv.setUint16(8, hdrLen, true); dv.setUint16(10, recLen, true);
+  fields.forEach((f,i) => { const b=32+32*i; for(let k=0;k<f.name.length;k++) buf[b+k]=f.name.charCodeAt(k); buf[b+11]=f.type.charCodeAt(0); buf[b+16]=f.len; buf[b+17]=f.dec||0; });
+  buf[hdrLen-1] = 0x0D;
+  rows.forEach((row,r) => {
+    let p = hdrLen + r*recLen; buf[p++] = 0x20;
+    fields.forEach(f => {
+      let s = f.type==="N" ? Number(row[f.name]).toFixed(f.dec||0).padStart(f.len," ") : ascii(row[f.name]??"").slice(0,f.len).padEnd(f.len," ");
+      s = s.slice(-f.len);
+      for (let k=0;k<f.len;k++) buf[p++] = s.charCodeAt(k);
+    });
+  });
+  buf[buf.length-1] = 0x1A;
+  return buf.buffer;
+}
+function fieldInfoUpdate(){
+  const el = $("fieldInfo");
+  if (!S.field){ el.textContent = ""; return; }
+  const g = S.field.geometry, polys = g.type==="Polygon" ? [g.coordinates] : g.coordinates;
+  const holes = polys.reduce((n,p)=>n+p.length-1,0);
+  let km = 0; try { km = turf.length(turf.polygonToLine(feat(S.field)), { units:"kilometers" }); } catch(e){}
+  el.innerHTML = `Fläche <b>${fmt(areaHa(feat(S.field)),2)} ha</b> · Umfang <b>${fmt(km*1000,0)} m</b>` +
+    (polys.length>1 ? ` · ${polys.length} Teilflächen` : "") + (holes ? ` · ${holes} Aussparung${holes>1?"en":""}` : "");
+}
+$("bFieldExport").addEventListener("click", async () => {
+  stopEdit();
+  if (!S.field){ toast("Zuerst eine Feldgrenze zeichnen oder laden."); return; }
+  if (!S.feld.trim()){ toast("Bitte einen Feldnamen eintragen."); $("iFeld").focus(); return; }
+  const f = clean(feat(S.field)); if (!f){ toast("Die Feldgrenze ist ungültig."); return; }
+  const ha = areaHa(f);
+  const fields = [ {name:"CLIENT",type:"C",len:40}, {name:"FARM",type:"C",len:40}, {name:"FIELD",type:"C",len:40}, {name:"AREA_HA",type:"N",len:12,dec:4} ];
+  const rows = [{ CLIENT:S.kunde||"", FARM:S.betrieb||S.kunde||"", FIELD:S.feld, AREA_HA:ha }];
+  const { shp, shx } = writeShp([{ geom:f.geometry }]);
+  const base = ascii(`Grenze_${S.kunde?S.kunde+"_":""}${S.feld}`).replace(/[^A-Za-z0-9_-]+/g,"_").replace(/_+/g,"_").replace(/_$/,"").slice(0,48);
+  const zip = new JSZip();
+  zip.file(base+".shp", shp); zip.file(base+".shx", shx); zip.file(base+".dbf", writeDbf(fields, rows)); zip.file(base+".prj", PRJ); zip.file(base+".cpg", "ASCII");
+  download(base+".zip", await zip.generateAsync({ type:"blob" }));
+  toast(`Exportiert: ${base}.zip (${fmt(ha,2)} ha)`);
+});
+const PRJ = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
+$("bExport").addEventListener("click", async () => {
+  stopEdit();
+  const c = lastCalc || compute();
+  const parts = (c.base?[c.base]:[]).concat(c.zones).filter(p=>p.geom && p.ha>0);
+  if (!parts.length){ toast("Nichts zu exportieren – zuerst Feldgrenze oder Zonen zeichnen."); return; }
+  const koe = S.einheit==="Kö/m²" && $("cKoe").checked;
+  const factor = koe ? 10000 : 1, unit = koe ? "Koe/ha" : ascii(S.einheit);
+  const fields = [ {name:"RATE",type:"N",len:14,dec:2}, {name:"ZONE",type:"C",len:30}, {name:"PRODUKT",type:"C",len:40}, {name:"EINHEIT",type:"C",len:10}, {name:"FLAECHE_HA",type:"N",len:12,dec:4} ];
+  const rows = parts.map(p => ({ RATE:p.rate*factor, ZONE:p.name, PRODUKT:S.produkt||S.arbeit, EINHEIT:unit, FLAECHE_HA:p.ha }));
+  const { shp, shx } = writeShp(parts.map(p=>({ geom:p.geom.geometry || p.geom })));
+  const base = fileBase(), zip = new JSZip();
+  zip.file(base+".shp", shp); zip.file(base+".shx", shx); zip.file(base+".dbf", writeDbf(fields, rows)); zip.file(base+".prj", PRJ); zip.file(base+".cpg", "ASCII");
+  download(base+".zip", await zip.generateAsync({ type:"blob" }));
+  toast(`Exportiert: ${base}.zip (${parts.length} Zonen)`);
+});
+
+/* ---------- Ortssuche (geo.admin.ch) ---------- */
+let sT;
+$("search").addEventListener("input", e => {
+  clearTimeout(sT); const q = e.target.value.trim();
+  if (q.length<3){ $("results").hidden = true; return; }
+  sT = setTimeout(async () => {
+    try {
+      const r = await fetch(`https://api3.geo.admin.ch/rest/services/api/SearchServer?searchText=${encodeURIComponent(q)}&type=locations&sr=4326&limit=8`);
+      const j = await r.json(); const box = $("results"); box.innerHTML = "";
+      (j.results||[]).forEach(x => {
+        const b = document.createElement("button");
+        b.textContent = x.attrs.label.replace(/<[^>]+>/g,"");
+        b.addEventListener("click", () => { map.setView([x.attrs.lat, x.attrs.lon], x.attrs.origin==="parcel"?18:17); box.hidden = true; });
+        box.appendChild(b);
+      });
+      box.hidden = !box.children.length;
+    } catch(err){ $("results").hidden = true; }
+  }, 280);
+});
+$("search").addEventListener("keydown", e => { if (e.key==="Enter"){ const b=$("results").querySelector("button"); if(b) b.click(); } });
+
+/* ---------- Sentinel-2: Zonenbildung aus Pixelraster (rein rechnerisch) ---------- */
+// grid: { w, h, vals:Float32Array (NaN = ungültig), corner:(i,j)=>[lon,lat] für Pixelecke i (Spalte), j (Zeile) }
+function s2Smooth(grid, cls, passes){
+  const { w, h } = grid; let c = cls;
+  for (let p=0; p<passes; p++){
+    const n = new Int8Array(c.length);
+    for (let j=0;j<h;j++) for (let i=0;i<w;i++){
+      const k = j*w+i; if (c[k]<0){ n[k]=-1; continue; }
+      const cnt = {}; let best=c[k], bc=0;
+      for (let dj=-1;dj<=1;dj++) for (let di=-1;di<=1;di++){
+        const ii=i+di, jj=j+dj; if (ii<0||jj<0||ii>=w||jj>=h) continue;
+        const v=c[jj*w+ii]; if (v<0) continue; cnt[v]=(cnt[v]||0)+1;
+        if (cnt[v]>bc || (cnt[v]===bc && v===c[k])){ bc=cnt[v]; best=v; }
+      }
+      n[k]=best;
+    }
+    c = n;
+  }
+  return c;
+}
+function s2Breaks(vals, n){
+  const v = Array.from(vals).filter(x=>!isNaN(x)).sort((a,b)=>a-b);
+  const br = []; for (let q=1;q<n;q++) br.push(v[Math.min(v.length-1, Math.floor(v.length*q/n))]);
+  return br;
+}
+function s2Classify(grid, n, passes){
+  const br = s2Breaks(grid.vals, n);
+  const cls = new Int8Array(grid.vals.length);
+  grid.vals.forEach((x,k) => { if (isNaN(x)) { cls[k]=-1; return; } let c=0; while (c<br.length && x>=br[c]) c++; cls[k]=c; });
+  return { cls: s2Smooth(grid, cls, passes), breaks: br };
+}
+// Zeilenweise Läufe gleicher Klasse zu Rechtecken, Rechtecke über Zeilen zusammenfassen, dann vereinigen
+function s2ClassPolys(grid, cls, n){
+  const { w, h } = grid;
+  const out = [];
+  for (let c=0;c<n;c++){
+    // Läufe je Zeile
+    let open = new Map(); const rects = [];
+    for (let j=0;j<h;j++){
+      const runs = [];
+      let i=0; while (i<w){ if (cls[j*w+i]===c){ let e=i; while (e+1<w && cls[j*w+e+1]===c) e++; runs.push([i,e]); i=e+1; } else i++; }
+      const next = new Map();
+      runs.forEach(([a,b]) => { const key=a+":"+b; const r = open.get(key); if (r){ r.j1=j; next.set(key,r); open.delete(key); } else { const nr={a,b,j0:j,j1:j}; next.set(key,nr); } });
+      open.forEach(r=>rects.push(r)); open = next;
+    }
+    open.forEach(r=>rects.push(r));
+    if (!rects.length){ out.push(null); continue; }
+    const polys = rects.map(r => {
+      const A=grid.corner(r.a,r.j0), B=grid.corner(r.b+1,r.j0), C=grid.corner(r.b+1,r.j1+1), D=grid.corner(r.a,r.j1+1);
+      return [[A,D,C,B,A]];
+    });
+    out.push({ type:"Feature", properties:{}, geometry:{ type:"MultiPolygon", coordinates:polys } });
+  }
+  return out;
+}
+// Vereinigung in Baumform (schneller als nacheinander)
+function s2UnionAll(feats){
+  let list = feats.filter(Boolean);
+  if (!list.length) return null;
+  while (list.length>1){
+    const nx=[]; for (let k=0;k<list.length;k+=2){ if (k+1<list.length){ let u=null; try{ u=turf.union(list[k],list[k+1]); }catch(e){} nx.push(u||list[k]); } else nx.push(list[k]); }
+    list = nx;
+  }
+  return list[0];
+}
+function s2Dissolve(mp){
+  if (!mp) return null;
+  const parts = mp.geometry.coordinates.map(p => turf.polygon(p));
+  return s2UnionAll(parts);
+}
+
+/* ---------- Sentinel-2 (Element84 Earth Search, AWS Open Data) ---------- */
+const S2_STAC = "https://earth-search.aws.element84.com/v1/search";
+const S2_BAD_SCL = new Set([0,1,3,8,9,10,11]);   // keine Daten, defekt, Schatten, Wolken, Zirren, Schnee
+const S2_BANDS = { NDVI:{ a:"nir", b:"red", res:10, name:"NDVI" }, NDRE:{ a:"nir08", b:"rededge1", res:20, name:"NDRE" } };
+const S2_RAMP = ["#a50026","#e34a33","#fdae61","#fee08b","#d9ef8b","#91cf60","#1a9850","#006837"];
+const s2Tiff = new Map();
+let s2Items = [], s2Sel = null, s2Data = null, s2Busy = false, s2CheckRun = 0;
+const s2Layer = L.layerGroup();
+const s2Renderer = L.canvas({ padding:0.3 });
+let s2Op = 0.75;
+
+function s2Hex(c){ return [1,3,5].map(k=>parseInt(c.slice(k,k+2),16)); }
+function s2Color(t){
+  t = Math.min(1, Math.max(0, t)); const x = t*(S2_RAMP.length-1), i = Math.floor(x), f = x-i;
+  if (i>=S2_RAMP.length-1) return S2_RAMP[S2_RAMP.length-1];
+  const a = s2Hex(S2_RAMP[i]), b = s2Hex(S2_RAMP[i+1]);
+  return "#" + a.map((v,k)=>Math.round(v+(b[k]-v)*f).toString(16).padStart(2,"0")).join("");
+}
+function s2Def(epsg){
+  const z = epsg - (epsg>32700 ? 32700 : 32600);
+  return `+proj=utm +zone=${z} ${epsg>32700?"+south ":""}+datum=WGS84 +units=m +no_defs`;
+}
+async function s2Image(url){
+  if (!s2Tiff.has(url)) s2Tiff.set(url, GeoTIFF.fromUrl(url).then(t=>t.getImage()));
+  try { return await s2Tiff.get(url); } catch(e){ s2Tiff.delete(url); throw e; }
+}
+function s2FieldUtm(field, def){
+  const pts = turf.coordAll(field).map(c => proj4("EPSG:4326", def, c));
+  const xs = pts.map(p=>p[0]), ys = pts.map(p=>p[1]);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+async function s2Window(url, bb, pad){
+  const im = await s2Image(url);
+  const o = im.getOrigin(), r = im.getResolution();
+  const W = im.getWidth(), H = im.getHeight();
+  let c0 = Math.floor((bb[0]-pad-o[0])/r[0]), c1 = Math.ceil((bb[2]+pad-o[0])/r[0]);
+  let r0 = Math.floor((bb[3]+pad-o[1])/r[1]), r1 = Math.ceil((bb[1]-pad-o[1])/r[1]);
+  c0 = Math.max(0,c0); r0 = Math.max(0,r0); c1 = Math.min(W,c1); r1 = Math.min(H,r1);
+  if (c1<=c0 || r1<=r0) throw new Error("Feld liegt ausserhalb der Kachel");
+  const d = await im.readRasters({ window:[c0,r0,c1,r1], samples:[0] });
+  return { data:d[0], w:c1-c0, h:r1-r0, x0:o[0]+c0*r[0], y0:o[1]+r0*r[1], rx:r[0], ry:r[1] };
+}
+function s2Offset(item){
+  const p = item.properties;
+  return (p["earthsearch:boa_offset_applied"]===false && parseFloat(p["s2:processing_baseline"]||"0")>=4) ? 1000 : 0;
+}
+// Wolkenanteil über dem Feld (nur SCL, 20 m)
+async function s2CloudCheck(item, field){
+  const def = s2Def(item.properties["proj:epsg"]);
+  const s = await s2Window(item.assets.scl.href, s2FieldUtm(field, def), 0);
+  let inF = 0, bad = 0, nod = 0;
+  for (let j=0;j<s.h;j++) for (let i=0;i<s.w;i++){
+    const ll = proj4(def, "EPSG:4326", [s.x0+(i+.5)*s.rx, s.y0+(j+.5)*s.ry]);
+    if (!turf.booleanPointInPolygon(ll, field)) continue;
+    inF++; const v = s.data[j*s.w+i]; if (v===0) nod++; if (S2_BAD_SCL.has(v)) bad++;
+  }
+  return { inF, free: inF ? 1-bad/inF : 0, nodata: inF ? nod/inF : 1 };
+}
+async function s2LoadIndex(item, field, idx){
+  const B = S2_BANDS[idx], def = s2Def(item.properties["proj:epsg"]), off = s2Offset(item);
+  const bb = s2FieldUtm(field, def);
+  const [A, Bb, S] = await Promise.all([ s2Window(item.assets[B.a].href, bb, B.res), s2Window(item.assets[B.b].href, bb, B.res), s2Window(item.assets.scl.href, bb, 40) ]);
+  const w = A.w, h = A.h, vals = new Float32Array(w*h).fill(NaN), inField = new Uint8Array(w*h);
+  const corners = new Array((w+1)*(h+1));
+  for (let j=0;j<=h;j++) for (let i=0;i<=w;i++) corners[j*(w+1)+i] = proj4(def, "EPSG:4326", [A.x0+i*A.rx, A.y0+j*A.ry]).map(v=>+v.toFixed(8));
+  let nIn = 0, nOk = 0;
+  for (let j=0;j<h;j++) for (let i=0;i<w;i++){
+    const k = j*w+i, cx = A.x0+(i+.5)*A.rx, cy = A.y0+(j+.5)*A.ry;
+    const ll = proj4(def, "EPSG:4326", [cx, cy]);
+    if (!turf.booleanPointInPolygon(ll, field)) continue;
+    inField[k] = 1; nIn++;
+    const si = Math.floor((cx-S.x0)/S.rx), sj = Math.floor((cy-S.y0)/S.ry);
+    const scl = (si>=0 && sj>=0 && si<S.w && sj<S.h) ? S.data[sj*S.w+si] : 0;
+    const a = A.data[k], b = Bb.data[k];
+    if (!a || !b || S2_BAD_SCL.has(scl)) continue;
+    const av = a-off, bv = b-off; if (av+bv<=0) continue;
+    vals[k] = (av-bv)/(av+bv); nOk++;
+  }
+  const ok = Array.from(vals).filter(v=>!isNaN(v)).sort((x,y)=>x-y);
+  const q = p => ok.length ? ok[Math.min(ok.length-1, Math.floor(ok.length*p))] : NaN;
+  return { grid:{ w, h, vals, inField, corner:(i,j)=>corners[j*(w+1)+i] }, nIn, nOk, mean: ok.length ? ok.reduce((s,v)=>s+v,0)/ok.length : NaN,
+    p02:q(.02), p98:q(.98), min:ok[0], max:ok[ok.length-1], idx, res:B.res, date:item.properties.datetime };
+}
+function s2Draw(){
+  s2Layer.clearLayers();
+  if (!s2Data) return;
+  const g = s2Data.grid, lo = s2Data.p02, hi = s2Data.p98;
+  for (let j=0;j<g.h;j++) for (let i=0;i<g.w;i++){
+    const k = j*g.w+i; if (!g.inField[k]) continue;
+    const v = g.vals[k], ok = !isNaN(v);
+    const ring = [g.corner(i,j), g.corner(i+1,j), g.corner(i+1,j+1), g.corner(i,j+1)].map(c=>[c[1],c[0]]);
+    L.polygon(ring, { renderer:s2Renderer, pmIgnore:true, interactive:false, stroke:false,
+      fillColor: ok ? s2Color(hi>lo ? (v-lo)/(hi-lo) : .5) : "#8a8a8a", fillOpacity: ok ? s2Op : s2Op*0.6 }).addTo(s2Layer);
+  }
+}
+function s2Reset(){
+  s2Items = []; s2Sel = null; s2Data = null; s2CheckRun++; s2Layer.clearLayers();
+  if ($("s2List")) { $("s2List").innerHTML = ""; $("idxSec").hidden = true; $("s2Info").textContent = ""; }
+}
+function s2Day(dt){ return new Date(dt).toLocaleDateString("de-CH", { weekday:"short", day:"2-digit", month:"2-digit", year:"numeric" }); }
+function s2RenderList(){
+  const box = $("s2List"); box.innerHTML = "";
+  if (!s2Items.length){ box.innerHTML = `<div class="empty">Keine Aufnahmen im gewählten Zeitraum. Zeitraum verlängern oder mehr Wolken zulassen.</div>`; return; }
+  s2Items.forEach(it => {
+    const b = document.createElement("button");
+    b.className = "s2it" + (s2Sel===it.id ? " on" : "");
+    const ck = it._check;
+    let badge = `<span class="s2b wait">Feld wird geprüft …</span>`;
+    if (ck==="err") badge = `<span class="s2b">Feld: ?</span>`;
+    else if (ck){ const pct = Math.round(ck.free*100); badge = ck.nodata>0.5 ? `<span class="s2b bad">keine Daten</span>` : `<span class="s2b ${pct>=95?"good":pct>=60?"mid":"bad"}">Feld ${pct} % frei</span>`; }
+    else if (it._skip) badge = `<span class="s2b">nicht geprüft</span>`;
+    b.innerHTML = `<span class="s2d">${s2Day(it.properties.datetime)}</span><span class="s2m">${it.properties.platform ? it.properties.platform.replace("sentinel-","S") .toUpperCase() : ""} · Kachel ${Math.round(it.properties["eo:cloud_cover"])} % Wolken</span>${badge}`;
+    b.addEventListener("click", () => s2Open(it));
+    box.appendChild(b);
+  });
+}
+async function s2Search(){
+  if (!S.field){ toast("Zuerst eine Feldgrenze zeichnen oder laden."); return; }
+  if (typeof GeoTIFF==="undefined" || typeof proj4==="undefined"){ toast("Satellitenmodul nicht geladen. Internetverbindung prüfen und Seite neu laden."); return; }
+  s2Reset();
+  const field = feat(S.field);
+  const von = $("s2Von").value || "2015-01-01", bis = $("s2Bis").value || new Date().toISOString().slice(0,10);
+  $("s2List").innerHTML = `<div class="empty">Aufnahmen werden gesucht …</div>`;
+  try {
+    const body = { collections:["sentinel-2-l2a"], intersects: turf.bboxPolygon(turf.bbox(field)).geometry,
+      datetime:`${von}T00:00:00Z/${bis}T23:59:59Z`, limit:80, query:{ "eo:cloud_cover":{ lt:+$("s2Cc").value } },
+      sortby:[{ field:"properties.datetime", direction:"desc" }] };
+    const r = await fetch(S2_STAC, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(body) });
+    if (!r.ok) throw new Error("HTTP "+r.status);
+    const j = await r.json();
+    const fb = turf.bbox(field), byDay = new Map();
+    (j.features||[]).forEach(f => {
+      if (!f.assets || !f.assets.scl) return;
+      const d = f.properties.datetime.slice(0,10), b = f.bbox || [0,0,0,0];
+      const inside = b[0]<=fb[0] && b[1]<=fb[1] && b[2]>=fb[2] && b[3]>=fb[3];
+      const cur = byDay.get(d);
+      if (!cur || (inside && !cur._inside) || (inside===cur._inside && f.properties["eo:cloud_cover"] < cur.properties["eo:cloud_cover"])){ f._inside = inside; byDay.set(d, f); }
+    });
+    s2Items = [...byDay.values()];
+    s2RenderList();
+    $("s2Info").textContent = s2Items.length ? `${s2Items.length} Aufnahmen` : "";
+    // Wolken über dem Feld der Reihe nach prüfen (max. 25)
+    const run = ++s2CheckRun;
+    for (let k=0;k<s2Items.length;k++){
+      if (run!==s2CheckRun) return;
+      const it = s2Items[k];
+      if (k>=25){ it._skip = true; continue; }
+      try { it._check = await s2CloudCheck(it, field); } catch(e){ console.warn(e); it._check = "err"; }
+      if (run===s2CheckRun) s2RenderList();
+    }
+    if (run===s2CheckRun) s2RenderList();
+  } catch(e){ console.warn(e); $("s2List").innerHTML = `<div class="empty">Suche fehlgeschlagen. Internetverbindung prüfen und nochmals versuchen.</div>`; }
+}
+async function s2Open(it){
+  if (s2Busy || !S.field) return;
+  s2Busy = true; s2Sel = it.id; s2RenderList();
+  $("s2Info").textContent = "Aufnahme wird geladen …";
+  try {
+    s2Data = await s2LoadIndex(it, feat(S.field), $("s2Idx").value);
+    if (!s2Data.nOk){ toast("Über dem Feld sind keine verwertbaren Pixel (Wolken oder keine Daten)."); }
+    $("s2Info").innerHTML = `${s2Data.idx} ${new Date(s2Data.date).toLocaleDateString("de-CH")} · Ø <b>${fmt(s2Data.mean,2)}</b>`;
+    idxShow(`${s2Data.idx} · Sentinel-2 · ${new Date(s2Data.date).toLocaleDateString("de-CH")}`);
+  } catch(e){ console.warn(e); toast("Aufnahme konnte nicht geladen werden."); $("s2Info").textContent = ""; s2Sel = null; s2RenderList(); }
+  finally { s2Busy = false; }
+}
+function idxShow(title){
+  s2Op = 0.75; $("rS2").value = s2Op;
+  s2Draw();
+  const okPct = s2Data.nIn ? Math.round(s2Data.nOk/s2Data.nIn*100) : 0;
+  $("idxTitle").textContent = title;
+  $("s2Legend").innerHTML = `<span>${fmt(s2Data.p02,2)}</span><i></i><span>${fmt(s2Data.p98,2)}</span>`;
+  $("s2Stat").textContent = `${s2Data.nOk} Zellen à ${s2Data.res} m verwertbar (${okPct} % des Feldes) · Ø ${fmt(s2Data.mean,2)} · Bereich ${fmt(s2Data.min,2)} bis ${fmt(s2Data.max,2)}`;
+  $("idxSec").hidden = false;
+  $("s2Zones").hidden = !s2Data.nOk;
+  if (!$("s2Lo").value) { $("s2Lo").value = s2Round(S.grundrate*1.15); $("s2Hi").value = s2Round(S.grundrate*0.85); }
+  $("s2Repl").hidden = true;
+}
+function s2Round(v){ return v>=50 ? Math.round(v) : Math.round(v*10)/10; }
+function s2MakeZones(){
+  if (!s2Data) return;
+  const n = +$("s2N").value, passes = +$("s2Smooth").value;
+  const lo = num($("s2Lo").value), hi = num($("s2Hi").value);
+  const { cls, breaks } = s2Classify(s2Data.grid, n, passes);
+  // Pixel ausserhalb des Feldes nie einer Zone zuordnen
+  for (let k=0;k<cls.length;k++) if (!s2Data.grid.inField[k]) cls[k] = -1;
+  const mps = s2ClassPolys(s2Data.grid, cls, n);
+  stopEdit(); endDraw();
+  zoneLayers.forEach(l=>map.removeLayer(l)); zoneLayers.clear();
+  S.zones = []; S.nextNo = 1;
+  const lab = s2Data.idx, edges = [s2Data.min, ...breaks, s2Data.max];
+  mps.forEach((mp, c) => {
+    const g = s2Dissolve(mp); if (!g) return;
+    const rate = n>1 ? s2Round(lo + (hi-lo)*c/(n-1)) : lo;
+    const z = { id:"z"+Date.now().toString(36)+c, name:`${lab} ${fmt(edges[c],2)}–${fmt(edges[c+1],2)}`, rate, geom:g.geometry };
+    S.zones.push(z); addZoneLayer(z);
+  });
+  S.nextNo = S.zones.length+1; selId = null;
+  if (!pzPref.zonen) setZonen(true);
+  $("s2Repl").hidden = true;
+  s2Op = 0.25; $("rS2").value = s2Op; s2Draw();
+  render();
+  toast(`${S.zones.length} Zonen aus ${lab} vom ${new Date(s2Data.date).toLocaleDateString("de-CH")} erstellt`);
+}
+function s2Init(){
+  const today = new Date(), from = new Date(today.getTime() - 120*864e5);
+  $("s2Bis").value = today.toISOString().slice(0,10); $("s2Von").value = from.toISOString().slice(0,10);
+  $("bS2Search").addEventListener("click", s2Search);
+  $("s2Idx").addEventListener("change", () => { const it = s2Items.find(x=>x.id===s2Sel); if (it) s2Open(it); });
+  $("rS2").addEventListener("input", e => { s2Op = +e.target.value; s2Draw(); });
+  $("bS2Hide").addEventListener("click", () => { s2Sel = null; s2Data = null; s2Layer.clearLayers(); $("idxSec").hidden = true; $("s2Info").textContent = s2Items.length ? `${s2Items.length} Aufnahmen` : ""; s2RenderList(); });
+  $("bS2Swap").addEventListener("click", () => { const a = $("s2Lo").value; $("s2Lo").value = $("s2Hi").value; $("s2Hi").value = a; });
+  $("bS2Zones").addEventListener("click", () => { if (S.zones.length) $("s2Repl").hidden = false; else s2MakeZones(); });
+  $("bS2ReplYes").addEventListener("click", s2MakeZones);
+  $("bS2ReplNo").addEventListener("click", () => $("s2Repl").hidden = true);
+}
+s2Init();
+
+/* ---------- Drohne: Orthophoto (GeoTIFF aus WebODM) ---------- */
+const OR_DEFS = {
+  2056:"+proj=somerc +lat_0=46.9524055555556 +lon_0=7.43958333333333 +k_0=1 +x_0=2600000 +y_0=1200000 +ellps=bessel +towgs84=674.374,15.056,405.346,0,0,0,0 +units=m +no_defs",
+  21781:"+proj=somerc +lat_0=46.9524055555556 +lon_0=7.43958333333333 +k_0=1 +x_0=600000 +y_0=200000 +ellps=bessel +towgs84=674.374,15.056,405.346,0,0,0,0 +units=m +no_defs",
+  3857:"EPSG:3857", 4326:"EPSG:4326"
+};
+function orDef(epsg){ if (epsg>=32601 && epsg<=32760) return s2Def(epsg); return OR_DEFS[epsg] || null; }
+let ortho = null;   // { tiff, img, def, epsg, bb, W, H, spp, bits, src, tw, th, layer, url, bounds, name, date, metric, T, pairs, mode }
+const OR_MAX = 4096;
+
+/* ---- Transformationen (im Koordinatensystem des Bildes, in Metern) ---- */
+const OR_ID = { kind:"none", fwd:p=>p, inv:p=>p };
+function orAffineT(ox, oy, a, b, c, d, e, f, kind){
+  // x' = a(x-ox) + b(y-oy) + c + ox ; y' = d(x-ox) + e(y-oy) + f + oy
+  const det = a*e - b*d;
+  return { kind, A:[a,b,c,d,e,f], o:[ox,oy],
+    fwd: p => { const x=p[0]-ox, y=p[1]-oy; return [a*x+b*y+c+ox, d*x+e*y+f+oy]; },
+    inv: p => { const x=p[0]-ox-c, y=p[1]-oy-f; return [( e*x - b*y)/det + ox, (-d*x + a*y)/det + oy]; } };
+}
+function orCentroid(pts){ const n=pts.length; return [pts.reduce((s,p)=>s+p[0],0)/n, pts.reduce((s,p)=>s+p[1],0)/n]; }
+function orFitShift(S, D){
+  const n = S.length; let dx=0, dy=0; S.forEach((s,i)=>{ dx+=D[i][0]-s[0]; dy+=D[i][1]-s[1]; });
+  const o = orCentroid(S); return orAffineT(o[0], o[1], 1, 0, dx/n, 0, 1, dy/n, "shift");
+}
+function orFitHelmert(S, D){
+  const sc = orCentroid(S), dc = orCentroid(D);
+  let sxx=0, sxy=0, nn=0;
+  S.forEach((s,i) => { const xs=s[0]-sc[0], ys=s[1]-sc[1], xd=D[i][0]-dc[0], yd=D[i][1]-dc[1];
+    sxx += xs*xd + ys*yd; sxy += xs*yd - ys*xd; nn += xs*xs + ys*ys; });
+  if (nn<=0) return orFitShift(S, D);
+  const a = sxx/nn, b = sxy/nn;
+  return orAffineT(sc[0], sc[1], a, -b, dc[0]-sc[0], b, a, dc[1]-sc[1], "helmert");
+}
+function orSolve3(M, v){
+  const m = M.map((r,i)=>[...r, v[i]]);
+  for (let c=0;c<3;c++){
+    let p=c; for (let r=c+1;r<3;r++) if (Math.abs(m[r][c])>Math.abs(m[p][c])) p=r;
+    [m[c], m[p]] = [m[p], m[c]];
+    if (Math.abs(m[c][c])<1e-12) return null;
+    for (let r=0;r<3;r++) if (r!==c){ const f=m[r][c]/m[c][c]; for (let k=c;k<4;k++) m[r][k]-=f*m[c][k]; }
+  }
+  return [m[0][3]/m[0][0], m[1][3]/m[1][1], m[2][3]/m[2][2]];
+}
+function orFitAffine(S, D){
+  const o = orCentroid(S);
+  const N = [[0,0,0],[0,0,0],[0,0,0]], bx=[0,0,0], by=[0,0,0];
+  S.forEach((s,i) => { const r=[s[0]-o[0], s[1]-o[1], 1], tx=D[i][0]-o[0], ty=D[i][1]-o[1];
+    for (let a=0;a<3;a++){ for (let b=0;b<3;b++) N[a][b]+=r[a]*r[b]; bx[a]+=r[a]*tx; by[a]+=r[a]*ty; } });
+  const X = orSolve3(N, bx), Y = orSolve3(N, by);
+  if (!X || !Y) return null;   // Punkte auf einer Linie
+  return orAffineT(o[0], o[1], X[0], X[1], X[2], Y[0], Y[1], Y[2], "affine");
+}
+function orTri3(s, d){
+  // Affine aus 3 Punktpaaren (exakt)
+  const o = s[0];
+  const x1=s[1][0]-o[0], y1=s[1][1]-o[1], x2=s[2][0]-o[0], y2=s[2][1]-o[1], det = x1*y2 - x2*y1;
+  if (Math.abs(det)<1e-9) return null;
+  const u1=d[1][0]-d[0][0], v1=d[1][1]-d[0][1], u2=d[2][0]-d[0][0], v2=d[2][1]-d[0][1];
+  const a=( u1*y2 - u2*y1)/det, b=(-u1*x2 + u2*x1)/det, dd=( v1*y2 - v2*y1)/det, e=(-v1*x2 + v2*x1)/det;
+  return orAffineT(o[0], o[1], a, b, d[0][0]-o[0], dd, e, d[0][1]-o[1], "tri");
+}
+function orBary(p, t){
+  const [a,b,c] = t, d = (b[1]-c[1])*(a[0]-c[0]) + (c[0]-b[0])*(a[1]-c[1]);
+  if (Math.abs(d)<1e-12) return false;
+  const l1 = ((b[1]-c[1])*(p[0]-c[0]) + (c[0]-b[0])*(p[1]-c[1]))/d;
+  const l2 = ((c[1]-a[1])*(p[0]-c[0]) + (a[0]-c[0])*(p[1]-c[1]))/d;
+  return l1>=-1e-9 && l2>=-1e-9 && 1-l1-l2>=-1e-9;
+}
+function orFitTin(S, D){
+  const base = orFitAffine(S, D) || orFitHelmert(S, D);
+  const bb = ortho.bb, mx = (bb[2]-bb[0])*0.05, my = (bb[3]-bb[1])*0.05;
+  const x0=bb[0]-mx, x1=bb[2]+mx, y0=bb[1]-my, y1=bb[3]+my, xm=(x0+x1)/2, ym=(y0+y1)/2;
+  const anchors = [[x0,y0],[xm,y0],[x1,y0],[x1,ym],[x1,y1],[xm,y1],[x0,y1],[x0,ym]];
+  const src = [...S, ...anchors], dst = [...D, ...anchors.map(base.fwd)];
+  const key = p => p[0].toFixed(3)+","+p[1].toFixed(3), idx = new Map(); src.forEach((p,i)=>idx.set(key(p), i));
+  const tin = turf.tin(turf.featureCollection(src.map(p=>turf.point(p))));
+  const tris = [];
+  tin.features.forEach(f => {
+    const r = f.geometry.coordinates[0].slice(0,3), ids = r.map(p=>idx.get(key(p)));
+    if (ids.some(i=>i===undefined)) return;
+    const s3 = ids.map(i=>src[i]), d3 = ids.map(i=>dst[i]);
+    const tf = orTri3(s3, d3), ti = orTri3(d3, s3);
+    if (tf && ti) tris.push({ s:s3, d:d3, tf, ti });
+  });
+  return { kind:"tin", base, tris,
+    fwd: p => { for (const t of tris) if (orBary(p, t.s)) return t.tf.fwd(p); return base.fwd(p); },
+    inv: q => { for (const t of tris) if (orBary(q, t.d)) return t.ti.fwd(q); return base.inv(q); } };
+}
+const OR_MODE_NAME = { shift:"Verschieben", helmert:"Verschieben + Drehen + Massstab", affine:"Affin (entzerrt)", tin:"Gummiband (lokal entzerrt)" };
+function orFit(){
+  const P = ortho.pairs, n = P.length;
+  ortho.fitNote = "";
+  if (!n){ ortho.T = OR_ID; return; }
+  const S = P.map(p=>p.s), D = P.map(p=>p.t);
+  let mode = ortho.mode;
+  if (mode==="auto") mode = n===1 ? "shift" : n===2 ? "helmert" : "affine";
+  const need = { shift:1, helmert:2, affine:3, tin:4 }[mode];
+  if (n < need){ ortho.fitNote = `${OR_MODE_NAME[mode]} braucht mindestens ${need} Passpunkte.`; mode = n===1 ? "shift" : n===2 ? "helmert" : "affine"; }
+  let T = mode==="shift" ? orFitShift(S,D) : mode==="helmert" ? orFitHelmert(S,D) : mode==="affine" ? orFitAffine(S,D) : orFitTin(S,D);
+  if (!T){ T = orFitHelmert(S,D); ortho.fitNote = "Die Punkte liegen fast auf einer Linie – Affin nicht möglich, Drehen + Massstab verwendet."; }
+  ortho.T = T;
+  // Abweichungen (bei Gummiband gegenüber der Grundtransformation)
+  const R = T.kind==="tin" ? T.base : T;
+  P.forEach(p => { const f = R.fwd(p.s); p.res = Math.hypot(f[0]-p.t[0], f[1]-p.t[1]) * (ortho.epsg===3857 ? Math.cos(orLat()*Math.PI/180) : 1); });
+}
+function orLat(){ const bb=ortho.bb; return proj4(ortho.def,"EPSG:4326",[(bb[0]+bb[2])/2,(bb[1]+bb[3])/2])[1]; }
+
+/* ---- Laden und Darstellen ---- */
+function orScale(bits){ return bits>8 ? 255/((2**bits)-1) : 1; }
+async function orRead(bbox, w, h){
+  const spp = ortho.spp, samples = spp>=4 ? [0,1,2,3] : spp>=3 ? [0,1,2] : [0];
+  const opt = { width:w, height:h, samples, interleave:true, resampleMethod:"bilinear" };
+  if (bbox) opt.bbox = bbox;
+  return { data: await ortho.tiff.readRasters(opt), n: samples.length };
+}
+function orAff3(s, d){
+  // Canvas-Transformation (u,v) -> (p,q) aus 3 Punktpaaren
+  const T = orTri3(s, d); if (!T) return null;
+  const [a,b,c,dd,e,f] = T.A, o = T.o;
+  return [a, dd, b, e, c + o[0] - a*o[0] - b*o[1], f + o[1] - dd*o[0] - e*o[1]];
+}
+async function orRender(){
+  const { def, bb, tw, th } = ortho, T = ortho.T || OR_ID;
+  const sx = (bb[2]-bb[0])/tw, sy = (bb[3]-bb[1])/th;
+  const UV = (u,v) => [bb[0]+u*sx, bb[3]-v*sy];
+  const toM = c => proj4(def, "EPSG:3857", T.fwd(c));
+  // Ausdehnung über Randpunkte bestimmen
+  const edge = [];
+  for (let k=0;k<=16;k++){ const t=k/16; edge.push([t*tw,0],[t*tw,th],[0,t*th],[tw,t*th]); }
+  const ms = edge.map(([u,v]) => toM(UV(u,v)));
+  const mx0 = Math.min(...ms.map(m=>m[0])), mx1 = Math.max(...ms.map(m=>m[0]));
+  const my0 = Math.min(...ms.map(m=>m[1])), my1 = Math.max(...ms.map(m=>m[1]));
+  const A = toM(UV(0,0)), B = toM(UV(tw,0));
+  const res = Math.hypot(B[0]-A[0], B[1]-A[1]) / tw;
+  let ow = Math.ceil((mx1-mx0)/res), oh = Math.ceil((my1-my0)/res);
+  const f = Math.min(1, OR_MAX/Math.max(ow,oh)); ow = Math.max(1,Math.round(ow*f)); oh = Math.max(1,Math.round(oh*f));
+  const P = m => [ (m[0]-mx0)/(mx1-mx0)*ow, (my1-m[1])/(my1-my0)*oh ];
+  const out = document.createElement("canvas"); out.width = ow; out.height = oh;
+  const ctx = out.getContext("2d"); ctx.imageSmoothingQuality = "high";
+  const toUV = c => [(c[0]-bb[0])/sx, (bb[3]-c[1])/sy];
+  if (T.kind!=="tin"){
+    const s3 = [[0,0],[tw,0],[0,th]], d3 = s3.map(([u,v]) => P(toM(UV(u,v))));
+    const m = orAff3(s3, d3); ctx.setTransform(...m); ctx.drawImage(ortho.src, 0, 0);
+  } else {
+    T.tris.forEach(t => {
+      const s3 = t.s.map(toUV), d3 = t.s.map(c => P(proj4(def, "EPSG:3857", t.tf.fwd(c))));
+      const m = orAff3(s3, d3); if (!m) return;
+      const cx = (d3[0][0]+d3[1][0]+d3[2][0])/3, cy = (d3[0][1]+d3[1][1]+d3[2][1])/3;
+      ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.beginPath();
+      d3.forEach((p,i) => { const dx=p[0]-cx, dy=p[1]-cy, l=Math.hypot(dx,dy)||1, q=[p[0]+dx/l*1.2, p[1]+dy/l*1.2]; i ? ctx.lineTo(q[0],q[1]) : ctx.moveTo(q[0],q[1]); });
+      ctx.closePath(); ctx.clip(); ctx.setTransform(...m); ctx.drawImage(ortho.src, 0, 0); ctx.restore();
+    });
+  }
+  const blob = await new Promise(r => out.toBlob(r, "image/png"));
+  const url = URL.createObjectURL(blob);
+  const ll = c => { const v = proj4("EPSG:3857","EPSG:4326",c); return [v[1], v[0]]; };
+  const bounds = L.latLngBounds([ll([mx0,my0]), ll([mx1,my1])]);
+  const layer = L.imageOverlay(url, bounds, { pane:"ortho", opacity:+$("rOr").value, interactive:false }).addTo(map);
+  if (ortho.layer) map.removeLayer(ortho.layer);
+  if (ortho.url) URL.revokeObjectURL(ortho.url);
+  Object.assign(ortho, { layer, url, bounds });
+}
+async function orLoad(file){
+  const tiff = await GeoTIFF.fromBlob(file);
+  const img = await tiff.getImage();
+  const gk = img.getGeoKeys() || {};
+  const epsg = gk.ProjectedCSTypeGeoKey || gk.GeographicTypeGeoKey;
+  const def = orDef(epsg);
+  if (!def) throw new Error(`Koordinatensystem EPSG:${epsg||"?"} wird nicht unterstützt (möglich: UTM, LV95, LV03, WGS84).`);
+  const W = img.getWidth(), H = img.getHeight(), spp = img.getSamplesPerPixel(), bits = img.getBitsPerSample();
+  const nImg = await tiff.getImageCount();
+  if (nImg===1 && W*H > 120e6) throw new Error("Das Bild ist sehr gross und hat keine Übersichten. In WebODM mit Option «cog» oder gröberer Auflösung (z. B. 5 cm) neu erstellen.");
+  if (ortho) orRemove();
+  ortho = { tiff, img, def, epsg, bb:img.getBoundingBox(), W, H, spp, bits, name:file.name, size:file.size, date:file.lastModified, metric: epsg!==4326, T:OR_ID, pairs:[], mode:"auto" };
+  const sc = Math.min(1, OR_MAX/Math.max(W,H)), tw = Math.max(1,Math.round(W*sc)), th = Math.max(1,Math.round(H*sc));
+  const { data, n } = await orRead(null, tw, th);
+  const k = orScale(bits);
+  const src = document.createElement("canvas"); src.width = tw; src.height = th;
+  const sctx = src.getContext("2d"), id = sctx.createImageData(tw, th), px = id.data;
+  for (let p=0, q=0; p<tw*th; p++, q+=n){
+    const r = data[q]*k, g = n>=3 ? data[q+1]*k : r, b = n>=3 ? data[q+2]*k : r;
+    let a = n===4 ? data[q+3]*k : 255;
+    if (n<4 && r===0 && g===0 && b===0) a = 0;
+    px[p*4]=r; px[p*4+1]=g; px[p*4+2]=b; px[p*4+3]=a;
+  }
+  sctx.putImageData(id, 0, 0);
+  Object.assign(ortho, { src, tw, th });
+  // gespeicherte Ausrichtung für dieses Bild übernehmen
+  const st = orStoreGet();
+  if (st && Array.isArray(st.pairs) && st.pairs.length){ ortho.pairs = st.pairs.map(p=>({ s:p.s, t:p.t })); ortho.mode = st.mode || "auto"; orFit(); ortho.restored = true; }
+  await orRender();
+  const bb = ortho.bb, cx = (bb[0]+bb[2])/2, cy = (bb[1]+bb[3])/2;
+  const a = proj4(def,"EPSG:4326",[cx,cy]), b2 = proj4(def,"EPSG:4326",[cx+(bb[2]-bb[0])/W, cy]);
+  ortho.gsd = turf.distance(a, b2, { units:"meters" })*100;
+  const B = ortho.bounds; ortho.areaHa = turf.area(turf.bboxPolygon([B.getWest(), B.getSouth(), B.getEast(), B.getNorth()]))/1e4;
+}
+function orRemove(){
+  if (!ortho) return;
+  if (drawMode && String(drawMode).startsWith("or")) endDraw();
+  if (ortho.layer) map.removeLayer(ortho.layer);
+  if (ortho.url) URL.revokeObjectURL(ortho.url);
+  ortho = null; orPtLayer.clearLayers();
+  $("orInfo").textContent = ""; ["bOrZoom","bOrDel","orOpRow","orIdx","orAlign"].forEach(id => $(id).hidden = true);
+}
+
+/* ---- Passpunkte ---- */
+const orPtLayer = L.layerGroup().addTo(map);
+let orTmp = null, orOpacityBefore = 1;
+function orKey(){ return "appkarte.ortho." + ortho.name + "." + ortho.size + "." + ortho.W + "x" + ortho.H; }
+function orStoreGet(){ try { return JSON.parse(localStorage.getItem(orKey())); } catch(e){ return null; } }
+function orStoreSet(){ try { if (ortho.pairs.length) localStorage.setItem(orKey(), JSON.stringify({ mode:ortho.mode, pairs:ortho.pairs.map(p=>({ s:p.s, t:p.t })) })); else localStorage.removeItem(orKey()); } catch(e){} }
+const orLL = c => { const v = proj4(ortho.def, "EPSG:4326", c); return [v[1], v[0]]; };
+const orSrc = ll => proj4("EPSG:4326", ortho.def, [ll.lng, ll.lat]);
+function orDrawPts(){
+  orPtLayer.clearLayers();
+  if (!ortho) return;
+  ortho.pairs.forEach((p,i) => {
+    const a = orLL(ortho.T.fwd(p.s)), b = orLL(p.t);
+    L.polyline([a,b], { color:"#ff7a1a", weight:2, dashArray:"3 3", interactive:false, pmIgnore:true }).addTo(orPtLayer);
+    L.circleMarker(b, { radius:7, color:"#ffffff", weight:2, fillColor:"#1f6fd6", fillOpacity:1, interactive:false, pmIgnore:true })
+      .bindTooltip(String(i+1), { permanent:true, direction:"right", className:"zlabel" }).addTo(orPtLayer);
+    L.circleMarker(a, { radius:4, color:"#ff7a1a", weight:2, fillColor:"#ff7a1a", fillOpacity:1, interactive:false, pmIgnore:true }).addTo(orPtLayer);
+  });
+  if (orTmp) L.circleMarker(orLL(ortho.T.fwd(orTmp)), { radius:7, color:"#ff7a1a", weight:3, fill:false, interactive:false, pmIgnore:true }).addTo(orPtLayer);
+}
+function orAlignUI(){
+  if (!ortho) return;
+  const P = ortho.pairs, box = $("orPtList"); box.innerHTML = "";
+  const used = ortho.T.kind==="none" ? "keine" : OR_MODE_NAME[ortho.T.kind==="tin" ? "tin" : ortho.T.kind];
+  P.forEach((p,i) => {
+    const r = document.createElement("div"); r.className = "orpt";
+    const bad = P.length>=3 && p.res > 3*Math.max(0.3, P.reduce((s,q)=>s+q.res,0)/P.length);
+    r.innerHTML = `<b>${i+1}</b><span>${ortho.T.kind==="tin" && P.length>=3 ? "Abw. ohne Gummiband " : P.length>=2 && ortho.T.kind!=="shift" ? "Abweichung " : ""}${P.length>=2 && ortho.T.kind!=="shift" ? `<span class="${bad?"warn":""}">${fmt(p.res, p.res<10?2:1)} m</span>` : "Verschiebung " + fmt(Math.hypot(p.t[0]-p.s[0], p.t[1]-p.s[1]),2) + " m"}</span><button class="ghost" data-i="${i}" title="Passpunkt löschen">✕</button>`;
+    r.querySelector("button").addEventListener("click", () => { ortho.pairs.splice(i,1); orApply(); });
+    box.appendChild(r);
+  });
+  let info = P.length ? `Verwendet: <b>${used}</b> · ${P.length} Passpunkt${P.length>1?"e":""}` : "Noch keine Passpunkte – das Bild liegt so, wie WebODM es berechnet hat.";
+  if (P.length>=2 && ortho.T.kind!=="shift"){ const rms = Math.sqrt(P.reduce((s,q)=>s+q.res*q.res,0)/P.length); info += ` · mittlere Abweichung ${fmt(rms,2)} m`; }
+  if (ortho.fitNote) info += `<br><span class="warn">${ortho.fitNote}</span>`;
+  $("orAlignInfo").innerHTML = info;
+  $("orMode").value = ortho.mode;
+  $("bOrUndo").disabled = $("bOrReset").disabled = !P.length;
+}
+async function orApply(){
+  orFit(); orStoreSet();
+  await orRender(); orDrawPts(); orAlignUI();
+  if (s2Data && s2Data.src==="drone"){ s2Data = null; s2Layer.clearLayers(); $("idxSec").hidden = true; toast("Bild neu ausgerichtet – Grünindex bitte neu berechnen."); }
+}
+function orPickStart(){
+  if (!ortho) return;
+  endDraw(); stopEdit();
+  drawMode = "or1"; orTmp = null;
+  orOpacityBefore = +$("rOr").value; ortho.layer.setOpacity(1);
+  map.getContainer().classList.add("picking");
+  $("drawTxt").textContent = "1/2 · Gut erkennbaren Punkt im DROHNENBILD anklicken (Wegkreuzung, Schachtdeckel, Feldecke)";
+  $("bFinish").hidden = false; $("drawbar").hidden = false;
+}
+function orPickEnd(){
+  orTmp = null; map.getContainer().classList.remove("picking");
+  if (ortho && ortho.layer) ortho.layer.setOpacity(orOpacityBefore);
+  orDrawPts();
+}
+map.on("click", e => {
+  if (!ortho || (drawMode!=="or1" && drawMode!=="or2")) return;
+  if (drawMode==="or1"){
+    orTmp = ortho.T.inv(orSrc(e.latlng));
+    drawMode = "or2"; ortho.layer.setOpacity(0);
+    $("drawTxt").textContent = "2/2 · Denselben Punkt im LUFTBILD (swisstopo) anklicken";
+    orDrawPts();
+  } else {
+    ortho.pairs.push({ s:orTmp, t:orSrc(e.latlng) }); orTmp = null;
+    drawMode = "or1"; ortho.layer.setOpacity(1);
+    $("drawTxt").textContent = `Passpunkt ${ortho.pairs.length} gesetzt · nächsten Punkt im DROHNENBILD anklicken oder «Fertig»`;
+    orApply();
+  }
+});
+function orInit(){
+  $("bOrLoad").addEventListener("click", () => $("fOr").click());
+  $("fOr").addEventListener("change", async e => {
+    const file = e.target.files[0]; e.target.value = ""; if (!file) return;
+    if (typeof GeoTIFF==="undefined" || typeof proj4==="undefined"){ toast("Bildmodul nicht geladen. Internetverbindung prüfen und Seite neu laden."); return; }
+    $("orInfo").textContent = "wird geladen …";
+    try {
+      await orLoad(file);
+      $("orInfo").innerHTML = `<b>${fmt(ortho.gsd, ortho.gsd<10?1:0)} cm</b> · ${fmt(ortho.areaHa,1)} ha`;
+      ["bOrZoom","bOrDel","orOpRow","orAlign"].forEach(id => $(id).hidden = false);
+      $("orIdx").hidden = !ortho.metric || ortho.spp<3;
+      map.fitBounds(ortho.bounds, { padding:[20,20] });
+      orDrawPts(); orAlignUI();
+      toast(ortho.restored ? `Orthophoto geladen – gespeicherte Ausrichtung mit ${ortho.pairs.length} Passpunkt${ortho.pairs.length>1?"en":""} angewendet` : `Orthophoto geladen: ${file.name}`);
+    } catch(err){ console.warn(err); $("orInfo").textContent = ""; toast(err.message && !/^[A-Z][a-z]+Error/.test(err.message) ? err.message : "Die Datei konnte nicht als GeoTIFF gelesen werden."); }
+  });
+  $("rOr").addEventListener("input", e => { if (ortho && ortho.layer && drawMode!=="or2") ortho.layer.setOpacity(+e.target.value); orOpacityBefore = +e.target.value; });
+  $("bOrZoom").addEventListener("click", () => { if (ortho) map.fitBounds(ortho.bounds, { padding:[20,20] }); });
+  $("bOrDel").addEventListener("click", () => { orRemove(); toast("Orthophoto entfernt"); });
+  $("bOrPt").addEventListener("click", orPickStart);
+  $("orMode").addEventListener("change", e => { ortho.mode = e.target.value; orApply(); });
+  $("bOrUndo").addEventListener("click", () => { ortho.pairs.pop(); orApply(); });
+  $("bOrReset").addEventListener("click", () => $("orResetRow").hidden = false);
+  $("bOrResetNo").addEventListener("click", () => $("orResetRow").hidden = true);
+  $("bOrResetYes").addEventListener("click", () => { $("orResetRow").hidden = true; ortho.pairs = []; orApply(); toast("Ausrichtung zurückgesetzt"); });
+  $("bOrIdx").addEventListener("click", async () => {
+    if (!ortho) return;
+    if (!S.field){ toast("Zuerst eine Feldgrenze zeichnen oder laden."); return; }
+    const btn = $("bOrIdx"); btn.disabled = true; const old = btn.textContent; btn.textContent = "Wird berechnet …";
+    try {
+      s2Sel = null; if (s2Items.length) s2RenderList();
+      s2Data = await orIndex(feat(S.field), $("orIdxSel").value, +$("orCell").value);
+      if (!s2Data.nOk) toast("Über dem Feld wurden keine Bildpixel gefunden.");
+      idxShow(`${s2Data.idx} · Drohne · ${new Date(s2Data.date).toLocaleDateString("de-CH")}`);
+    } catch(err){ console.warn(err); toast(err.message || "Grünindex konnte nicht berechnet werden."); }
+    finally { btn.disabled = false; btn.textContent = old; }
+  });
+}
+// Grünindex pro Rasterzelle über dem Feld (berücksichtigt die Ausrichtung)
+async function orIndex(field, idx, cell){
+  if (!ortho.metric) throw new Error("Für den Grünindex wird ein Bild in Metern gebraucht (UTM oder LV95).");
+  const def = ortho.def, T = ortho.T || OR_ID;
+  const pts = turf.coordAll(field).map(c => T.inv(proj4("EPSG:4326", def, c)));
+  let fb = [Math.min(...pts.map(p=>p[0])), Math.min(...pts.map(p=>p[1])), Math.max(...pts.map(p=>p[0])), Math.max(...pts.map(p=>p[1]))];
+  const bb = ortho.bb;
+  fb = [Math.max(fb[0],bb[0]), Math.max(fb[1],bb[1]), Math.min(fb[2],bb[2]), Math.min(fb[3],bb[3])];
+  if (fb[2]<=fb[0] || fb[3]<=fb[1]) throw new Error("Das Orthophoto deckt das Feld nicht ab.");
+  let cellU = cell;
+  if (ortho.epsg===3857) cellU = cell/Math.cos(orLat()*Math.PI/180);
+  const w = Math.max(1, Math.ceil((fb[2]-fb[0])/cellU)), h = Math.max(1, Math.ceil((fb[3]-fb[1])/cellU));
+  const x0 = fb[0], y1 = fb[1] + h*cellU;
+  let sub = 4; while (w*h*sub*sub > 12e6 && sub>1) sub--;
+  const { data, n } = await orRead([x0, fb[1], x0+w*cellU, y1], w*sub, h*sub);
+  if (n<3) throw new Error("Das Bild hat keine Farbkanäle (RGB).");
+  const k = orScale(ortho.bits), W2 = w*sub;
+  const vals = new Float32Array(w*h).fill(NaN), inField = new Uint8Array(w*h);
+  const toLL = p => proj4(def, "EPSG:4326", T.fwd(p));
+  const corners = new Array((w+1)*(h+1));
+  for (let j=0;j<=h;j++) for (let i=0;i<=w;i++) corners[j*(w+1)+i] = toLL([x0+i*cellU, y1-j*cellU]).map(v=>+v.toFixed(8));
+  let nIn = 0, nOk = 0;
+  for (let j=0;j<h;j++) for (let i=0;i<w;i++){
+    const kk = j*w+i;
+    if (!turf.booleanPointInPolygon(toLL([x0+(i+.5)*cellU, y1-(j+.5)*cellU]), field)) continue;
+    inField[kk] = 1; nIn++;
+    let sum = 0, cnt = 0;
+    for (let sj=0; sj<sub; sj++) for (let si=0; si<sub; si++){
+      const q = ((j*sub+sj)*W2 + (i*sub+si))*n;
+      if (n===4 && data[q+3]===0) continue;
+      const R = data[q]*k, G = data[q+1]*k, B = data[q+2]*k, Tt = R+G+B;
+      if (Tt<=0) continue;
+      let v;
+      if (idx==="VARI"){ const d = G+R-B; if (Math.abs(d)<1) continue; v = Math.max(-1, Math.min(1, (G-R)/d)); }
+      else if (idx==="GLI"){ const d = 2*G+R+B; if (d<=0) continue; v = (2*G-R-B)/d; }
+      else { v = (2*G-R-B)/Tt; }
+      sum += v; cnt++;
+    }
+    if (cnt >= Math.max(1, sub*sub/2)){ vals[kk] = sum/cnt; nOk++; }
+  }
+  const ok = Array.from(vals).filter(v=>!isNaN(v)).sort((a,b)=>a-b);
+  const q = p => ok.length ? ok[Math.min(ok.length-1, Math.floor(ok.length*p))] : NaN;
+  return { grid:{ w, h, vals, inField, corner:(i,j)=>corners[j*(w+1)+i] }, nIn, nOk, mean: ok.length ? ok.reduce((s,v)=>s+v,0)/ok.length : NaN,
+    p02:q(.02), p98:q(.98), min:ok[0], max:ok[ok.length-1], idx, res:cell, date:ortho.date, src:"drone" };
+}
+orInit();
+
+idxVis();
+/* ---------- Abschnitte ein-/ausklappen ---------- */
+const LS_COL = "appkarte.eingeklappt";
+let colState = {};
+try { colState = JSON.parse(localStorage.getItem(LS_COL)) || {}; } catch(e){}
+document.querySelectorAll("aside section").forEach(sec => {
+  const h = sec.querySelector(":scope > h2"); if (!h) return;
+  const key = sec.id || (h.childNodes[0] ? h.childNodes[0].textContent.trim() : "");
+  if (!key) return;
+  h.setAttribute("role","button"); h.tabIndex = 0;
+  const set = c => { sec.classList.toggle("collapsed", c); h.setAttribute("aria-expanded", String(!c)); };
+  set(!!colState[key]);
+  const flip = () => { const c = !sec.classList.contains("collapsed"); set(c); colState[key] = c; try { localStorage.setItem(LS_COL, JSON.stringify(colState)); } catch(e){} };
+  h.addEventListener("click", e => { if (e.target.closest("button,input,select,a,label")) return; flip(); });
+  h.addEventListener("keydown", e => { if ((e.key==="Enter" || e.key===" ") && e.target===h){ e.preventDefault(); flip(); } });
+});
+/* ---------- Start ---------- */
+fillProj();
+const draft = lsGet(LS_D);
+if (draft && (draft.field || (draft.zones && draft.zones.length) || draft.feld)) loadState(draft, false);
+else { syncForm(); applyModus(); render(); }
+</script>
+</body>
+</html>
