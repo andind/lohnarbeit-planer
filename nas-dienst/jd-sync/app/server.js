@@ -6,7 +6,7 @@
    Dazu: tägliche Datensicherung der IM-Verwalter-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '54', STAND = '12.11.2026'; // v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
+const VERSION = '55', STAND = '12.11.2026'; // v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -404,10 +404,12 @@ function covResult(G, inv) {
    2. einmal schliessen (ausdehnen + schrumpfen um 1 Zelle) und Löcher unter 50 m² füllen
    3. Umriss verfolgen, vereinfachen (Toleranz 0.5 m), Teile unter 20 m² weglassen → MultiPolygon in Längen/Breitengraden (GeoJSON-Reihenfolge) */
 function gridBoundary(G, P) {
-  const f = Math.max(1, Math.round(1 / G.cell)), cs = G.cell * f, nx = Math.ceil(G.nx / f) + 2, ny = Math.ceil(G.ny / f) + 2;
+  const f = Math.max(2, Math.round(1 / G.cell)), cs = G.cell * f, nx = Math.ceil(G.nx / f) + 2, ny = Math.ceil(G.ny / f) + 2;
   if (nx * ny > 4e6) return null;
-  let b = new Uint8Array(nx * ny);
-  for (let r = 0; r < G.ny; r++) { const rb = (Math.floor(r / f) + 1) * nx, base = r * G.nx; for (let c = 0; c < G.nx; c++) if (G.grid[base + c]) b[rb + Math.floor(c / f) + 1] = 1; }
+  // grobe Zelle gilt als bearbeitet, wenn mindestens die Hälfte der feinen Zellen bedeckt ist (sonst wird der Rand ~½ Zelle zu weit, v55)
+  const cnt = new Uint16Array(nx * ny); let b = new Uint8Array(nx * ny);
+  for (let r = 0; r < G.ny; r++) { const rb = (Math.floor(r / f) + 1) * nx, base = r * G.nx; for (let c = 0; c < G.nx; c++) if (G.grid[base + c]) cnt[rb + Math.floor(c / f) + 1]++; }
+  const half = f * f / 2; for (let i = 0; i < cnt.length; i++) if (cnt[i] >= half) b[i] = 1;
   const morph = (src, val) => { const o = new Uint8Array(src.length); for (let r = 1; r < ny - 1; r++) for (let c = 1; c < nx - 1; c++) { const i = r * nx + c; let v = !val; for (let dr = -1; dr <= 1 && v !== val; dr++) for (let dc = -1; dc <= 1; dc++) if (!!src[i + dr * nx + dc] === val) { v = val; break; } o[i] = v ? 1 : 0; } return o; };
   b = morph(morph(b, true), false); // schliessen
   // Löcher (leere Flächen ohne Verbindung zum Rand) unter 50 m² füllen
@@ -616,7 +618,7 @@ async function coverageRequest(o) {
 }
 const COV_RETRY_MS = 14 * 864e5; // Arbeitsgänge ohne Karte erst nach 14 Tagen erneut fragen
 // COV_G: Stand der Berechnung – Karten aus älteren Versionen (ohne virtuelle Feldgrenze) werden einmal neu geholt
-const COV_G = 3; // 3 = v54 (Ellipsoid) – Flächen werden einmal neu berechnet
+const COV_G = 4; // 3 = v54 (Ellipsoid), 4 = v55 (Grenze genauer) – Karten werden einmal neu berechnet
 const covDone = o => o.cov && o.cov.mod === o.modified && (o.cov.ha ? o.cov.g === COV_G : (o.cov.at && Date.now() - Date.parse(o.cov.at) < COV_RETRY_MS));
 // virtuelle Feldgrenzen (aus der Bedeckungskarte) getrennt gespeichert und als eigene Datei in die Dropbox – hält jd-arbeiten.json klein
 let grenzen = load('bedeckung-grenzen.json', {});

@@ -9,11 +9,11 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
 - Hosting: GitHub Pages aus `andind/lohnarbeit-planer` (Branch `main`).
 - Daten: lokal im Browser (`localStorage` `lp_data`) + Abgleich mit Dropbox (`/planung.json` im App-Ordner, OAuth PKCE ohne Server).
 - `config.js` enthält den Dropbox App key – bei Updates **nicht überschreiben**.
-- NAS-Dienst **jd-sync** (Synology, Docker, Node 20) liegt in `nas-dienst/jd-sync/` (seit 01.11.2026, Version 54):
+- NAS-Dienst **jd-sync** (Synology, Docker, Node 20) liegt in `nas-dienst/jd-sync/` (seit 01.11.2026, Version 55):
   gleicht MyJohnDeere ab und schreibt `jd-sync.json` (Kunden, Felder, Vermessungen) und `jd-arbeiten.json`
   (Arbeitsgänge) in den Dropbox-Ordner; Anfrage über `jd-sync-request.json`. Seit v53 für **alle** Arbeitsgänge die Bedeckungskarte:
-  Fläche ohne Überlappungen (`haB`, Raster, jede Zelle einmal) und **virtuelle Feldgrenze** (`gridBoundary`: ~1 m vergröbern, schliessen, Löcher < 50 m² füllen,
-  Umriss vereinfachen 0.5 m; Umrechnung Grad→Meter auf dem WGS84-Ellipsoid `geoK` seit v54, Kugel war ~0.3 % daneben; `COV_G` erhöhen = alle Karten neu rechnen) → eigene Datei `jd-grenzen.json` (Cache NAS `data/bedeckung-grenzen.json`; `data/grenzen.json` = Vermessungen!), im Arbeitsgang nur `grzB: 1`.
+  Fläche ohne Überlappungen (`haB`, Raster, jede Zelle einmal) und **virtuelle Feldgrenze** (`gridBoundary`: ~1 m vergröbern – grobe Zelle zählt ab halb bedeckt (v55; vorher «irgendwas bedeckt» = Grenze ~1.7 % zu gross) –, schliessen, Löcher < 50 m² füllen,
+  Umriss vereinfachen 0.5 m; Umrechnung Grad→Meter auf dem WGS84-Ellipsoid `geoK` seit v54, Kugel war ~0.3 % daneben; geprüft an echtem Export «Vor Baumschule» 20.10.2026: bedeckt 1.7506 ha = exakte Vereinigung, Display-Grenze 1.7636 ha (Differenz = unbesäte Stellen an Spurenden/Vorgewende), unsere Grenze 1.7651 ha, Maschine 1.85 ha mit Überlappungen; `COV_G` erhöhen = alle Karten neu rechnen) → eigene Datei `jd-grenzen.json` (Cache NAS `data/bedeckung-grenzen.json`; `data/grenzen.json` = Vermessungen!), im Arbeitsgang nur `grzB: 1`.
   Bedeckungskarte über die neue **Operations Data Export API** (`oxRequest`): POST `{isg}/operations/{id}/operationsExportRequests`
   (`exportSettings: SHAPEFILE, Point, EachSection, splitShapeFile false`, Header `Accept-UOM-System: METRIC`) → `o.covReq` (Request-ID) → GET Status
   (CREATED/PROCESSING/REPROCESS warten, SUCCESSFUL → `files[].presignedUri` ohne Anmeldung laden, FAILURE). `{isg}` = `apiBase` mit `/platform` → `/isg`
