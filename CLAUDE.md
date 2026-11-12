@@ -82,7 +82,7 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
   **Abrechnung** (`abRow`): Spalten «ha Planung» (`haG`), «ha effektiv» (`haE`), «ha Bericht» (`haB` = bedeckt), «ha Maschine» (`haJ`, nur Info), «ha Auftrag» (`ha`) =
   **1. effektiv genau (✓), 2. Bericht bedeckt (B), 3. effektiv ohne «genau» (E), 4. Planung (P)** (v123); Markierung **nur** in «ha Auftrag» (`haQ` genau/bed/eff/geplant).
   Einträge «nur JD» ohne Bedeckung standardmässig ausgeblendet (Filter «Bericht ohne Bedeckung», `A.bed`, `lp_abrbed`). Spalten-Einstellungen werden umgestellt
-  (`jdbColCfg`: haB→haM). Bericht › Arbeitsgang: Vorschau der virtuellen Feldgrenze (`bedGrz*`) und «⬇ Als GeoJSON speichern» (`bedGrzGeo`, für das eigenständige Programm «Applikationskarte» › Feldgrenze laden).
+  (`jdbColCfg`: haB→haM). Bericht › Arbeitsgang **und Abrechnung › Eintrag** (v125): virtuelle Feldgrenze auf Kartenhintergrund (`bedGrzMap`, ohne Bibliothek: swisstopo-WMTS-Kacheln EPSG:3857 `wmts.geo.admin.ch/1.0.0/{ch.swisstopo.swissimage|ch.swisstopo.pixelkarte-farbe}/default/current/3857/z/x/y.jpeg` + SVG; Luftbild/Landeskarte gemerkt in `lp_bedlayer`, +/− Zoom) und «⬇ Als GeoJSON speichern» (`bedGrzGeo`, für das eigenständige Programm «Applikationskarte» › Feldgrenze laden).
   **Alle Summen** (Total, Gruppen, Summen pro Kunde/Arbeit, Chips) nutzen «ha Auftrag» (`abHaSum`). `abColCfg` stellt alte Spalten-Einstellungen um. `haAusGrenze` entfernt.
   Spritzen › Abrechnung (`billing`) dagegen: immer die Fläche aus dem Auftrag (`flOf`: effektiv, sonst geplant) – v108 (JD-Fläche/0 ha) in v112 auf Wunsch zurückgenommen.
 - Fertigmeldung (`doneDialog`): Feld änderbar (nur Felder des Kunden, Kunde fix; `setKfeld` leert den Feldtext ausser bei Spritzaufträgen mit Parzelle).

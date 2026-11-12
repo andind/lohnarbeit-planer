@@ -1267,3 +1267,14 @@ body.fsmode #selbar { left: 12px; }
 .planm { display: inline-block; margin-left: 4px; padding: 0 4px; border-radius: 4px; font-size: 10.5px; font-weight: 700; line-height: 15px; color: #fff; background: #8a8f98; vertical-align: 1px; }
 /* v123: E = effektive Fläche ohne «genau» */
 .effm { display: inline-block; margin-left: 4px; padding: 0 4px; border-radius: 4px; font-size: 10.5px; font-weight: 700; line-height: 15px; color: #fff; background: #b26a00; vertical-align: 1px; }
+/* v125: virtuelle Feldgrenze auf Kartenhintergrund (swisstopo) */
+.bedmap { position: relative; overflow: hidden; max-width: 100%; border-radius: 8px; background: #dde3d6; user-select: none; }
+.bedmap img { position: absolute; width: 256px; height: 256px; max-width: none; }
+.bedmap svg { position: absolute; left: 0; top: 0; }
+.bedmap svg path { fill: rgba(255,214,0,.28); stroke: #ffd600; stroke-width: 2.5; }
+.bedmap-ctl { position: absolute; left: 8px; top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.bedmap-ctl button, .bedmap-lay button { border: 1px solid rgba(0,0,0,.25); background: rgba(255,255,255,.92); color: #222; border-radius: 6px; font: 600 15px/1 system-ui, sans-serif; min-width: 30px; height: 30px; cursor: pointer; }
+.bedmap-lay { position: absolute; right: 8px; top: 8px; display: flex; gap: 4px; }
+.bedmap-lay button { font-size: 12px; padding: 0 8px; }
+.bedmap-lay button.on { background: #2f7d32; color: #fff; border-color: #2f7d32; }
+.bedmap-attr { position: absolute; right: 4px; bottom: 2px; font-size: 10px; color: #222; background: rgba(255,255,255,.75); padding: 0 4px; border-radius: 3px; }
