@@ -84,6 +84,8 @@ aside section > h2:hover{color:var(--fg)}
 aside section.collapsed > :not(h2){display:none!important}
 aside section.collapsed{padding-block:11px}
 @media (prefers-reduced-motion:reduce){aside section > h2::before{transition:none}}
+.modehint{margin:10px 16px 0;padding:8px 10px;border:1px solid var(--accent);border-radius:4px;background:var(--accent-soft);font-size:13px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.modehint button{padding:4px 10px}
 .s2list{display:flex;flex-direction:column;gap:4px;max-height:260px;overflow-y:auto}
 .s2it{display:grid;grid-template-columns:1fr auto;gap:0 8px;text-align:left;background:var(--bg);padding:6px 8px}
 .s2it.on{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
@@ -132,7 +134,7 @@ aside section.collapsed{padding-block:11px}
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>Applikationskarte</h1><span class="ver">v1.14 · by Andreas Indermühle</span></div>
+    <div><h1>Applikationskarte</h1><span class="ver">v1.15 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -142,6 +144,7 @@ aside section.collapsed{padding-block:11px}
   <div class="seg modeseg" id="segModus" style="grid-template-columns:1fr 1fr">
     <button data-m="rx">Applikationskarte</button><button data-m="grenze">Nur Feldgrenze</button>
   </div>
+  <div class="modehint grenze-only" hidden>Modus <b>Nur Feldgrenze</b>: Zonen, Raten und Export der Applikationskarte sind ausgeblendet. <button id="bToRx" class="pri">Zur Applikationskarte wechseln</button></div>
 
   <section>
     <h2>Gespeicherte Karten</h2>
@@ -357,7 +360,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.14";
+const VERSION = "1.15";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -910,7 +913,7 @@ function loadState(st, fit=true){
   if (S.field) setField(S.field, fit); else render();
   if (fit && !S.field && S.zones.length){ const g=L.featureGroup([...zoneLayers.values()]); map.fitBounds(g.getBounds(),{padding:[30,30]}); }
 }
-const LS_P = "appkarte.projekte", LS_D = "appkarte.entwurf";
+const LS_P = "appkarte.projekte", LS_D = "appkarte.app.entwurf";   // eigener Entwurf, getrennt von der Karte im IM-Verwalter
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch(e){ return null; } };
 const lsSet = (k,v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch(e){ return false; } };
 function saveDraft(){ lsSet(LS_D, S); }
@@ -1753,7 +1756,10 @@ document.querySelectorAll("aside section").forEach(sec => {
 });
 /* ---------- Start ---------- */
 fillProj();
-const draft = lsGet(LS_D);
+let draft = lsGet(LS_D);
+// einmalig: alten gemeinsamen Entwurf übernehmen, aber im Modus Applikationskarte
+if (!draft){ const alt = lsGet("appkarte.entwurf"); if (alt){ draft = Object.assign({}, alt, { modus:"rx" }); } }
+$("bToRx").addEventListener("click", () => { endDraw(); stopEdit(); S.modus = "rx"; selId = null; applyModus(); render(); });
 if (draft && (draft.field || (draft.zones && draft.zones.length) || draft.feld)) loadState(draft, false);
 else { syncForm(); applyModus(); render(); }
 </script>

@@ -1,4 +1,4 @@
-Applikationskarte v1.14 als App – by Andreas Indermühle
+Applikationskarte v1.15 als App – by Andreas Indermühle
 =======================================================
 
 Eine Webseite lässt sich nur als App installieren, wenn sie über https aus dem
