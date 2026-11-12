@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '120', APP_STAND = '05.11.2026';
+const APP_VERSION = '121', APP_STAND = '12.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -3765,7 +3765,8 @@ function jdbRow(o) {
     .map(([k, v]) => [JDB_KEYS[k] || k, typeof v === 'object' && !Array.isArray(v) ? jdbFmt(v) || JSON.stringify(v).slice(0, 80) : Array.isArray(v) ? jdbNames(v).join(', ') || `${v.length} Einträge` : String(v)]).filter(([, v]) => v) }));
   const type = o.type || raw.fieldOperationType || '';
   return { id: o.id, fid: o.field || '', d: String(start).slice(0, 10), start, end, dauer, type, arbeit: JDB_ART[type] || type || '–',
-    kunde: o.clientName || '', feld: o.fieldName || '', ha: haV != null ? Math.round(haV * 100) / 100 : null, quelle, maschine: mach.join(', ') || JDB_MACH[o.machineType || raw.adaptMachineType] || o.machineType || raw.adaptMachineType || '',
+    kunde: o.clientName || '', feld: o.fieldName || '', ha: haV != null ? Math.round(haV * 100) / 100 : null, quelle,
+    haB: o.haB != null ? Math.round(o.haB * 100) / 100 : null, grzB: !!o.grzB, maschine: mach.join(', ') || JDB_MACH[o.machineType || raw.adaptMachineType] || o.machineType || raw.adaptMachineType || '',
     fahrer: fahrer.join(', '), kultur: crop, produkte: prodTxt, sorten: sorten.join(', '), menge: rate, gesamt: jdbGesamt(ms), saison: o.cropSeason || raw.cropSeason || '', details };
 }
 const JDB_KEY = 'lp_jdb';
@@ -3792,6 +3793,7 @@ function jdbApply(d, src) {
   jdbCache(rows, App.jdb.meta); return true;
 }
 async function jdbLoad(silent) {
+  bedGrzCache = null; // virtuelle Feldgrenzen beim nächsten Öffnen neu holen
   const J = App.jdb;
   if (!Auth.configured() || !Auth.hasSession()) { if (!silent) toast('Zuerst mit Dropbox verbinden (Mehr › Dropbox)'); return; }
   J.loading = true; if (App.view === 'jdbericht' || App.view === 'abrechnung') App.render();
@@ -3868,7 +3870,10 @@ const JDB_COLS = [
   { id: 'arbeit', l: 'Arbeit', w: 130, v: r => r.arbeit },
   { id: 'kunde', l: 'Kunde', w: 150, v: r => r.kunde },
   { id: 'feld', l: 'Feld', w: 130, v: r => r.feld, html: r => r.feld ? `<span class="fldlink" data-act="jbGrz" data-id="${esc(r.id)}" title="Vermessungen anzeigen">${esc(r.feld)}</span>` : '' },
-  { id: 'ha', l: 'ha', w: 60, n: 1, v: r => r.ha != null ? fmtNum(r.ha) : '', csv: r => r.ha ?? '' },
+  { id: 'ha', l: 'ha', w: 60, n: 1, v: r => r.ha != null ? fmtNum(r.ha) + (r.quelle === 'Bedeckungskarte' ? ' B' : '') : '', csv: r => r.ha ?? '',
+    html: r => r.ha != null ? `${fmtNum(r.ha)}${r.quelle === 'Bedeckungskarte' ? BED_MARK : ''}` : '' },
+  { id: 'haB', l: 'ha bedeckt', w: 84, n: 1, v: r => r.haB != null ? fmtNum(r.haB) : '', csv: r => r.haB ?? '',
+    html: r => r.haB != null ? `<span title="aus der Bedeckungskarte, ohne Überlappungen (jede Stelle einmal gezählt)">${fmtNum(r.haB)}</span>` : '' },
   { id: 'quelle', l: 'Flächen-Quelle', w: 118, v: r => r.quelle || '', html: r => r.quelle ? `<span class="fq fq-${r.quelle === 'Bedeckungskarte' ? 'b' : 'm'}">${esc(r.quelle)}</span>` : '<span class="nr">–</span>' },
   { id: 'maschine', l: 'Maschine', w: 140, v: r => r.maschine },
   { id: 'fahrer', l: 'Fahrer', w: 120, v: r => r.fahrer },
@@ -3878,12 +3883,15 @@ const JDB_COLS = [
   { id: 'gesamt', l: 'Gesamtmenge', w: 190, v: r => jdbGesTxt(r) },
   { id: 'abr', l: 'Abgerechnet', w: 104, v: r => { const x = jdbAbr(r.id); return x ? '✓ ' + fmtDate(x.am, { day: '2-digit', month: '2-digit', year: '2-digit' }) : ''; }, html: r => { const x = jdbAbr(r.id); return x ? `<span class="badge verrechnet">✓ ${fmtDate(x.am, { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>` : '<span class="nr">offen</span>'; } }
 ];
-const JDB_DEF = { order: ['beginn', 'ende', 'dauer', 'arbeit', 'kunde', 'feld', 'ha', 'quelle', 'maschine', 'kultur', 'produkte', 'menge', 'gesamt', 'abr'], w: {} };
+// B = Fläche aus der Bedeckungskarte berechnet (NAS-Dienst, ohne Überlappungen)
+const BED_MARK = '<span class="bedm" title="aus der Bedeckungskarte berechnet (ohne Überlappungen)">B</span>';
+const JDB_DEF = { order: ['beginn', 'ende', 'dauer', 'arbeit', 'kunde', 'feld', 'ha', 'haB', 'quelle', 'maschine', 'kultur', 'produkte', 'menge', 'gesamt', 'abr'], w: {} };
 function jdbColCfg() {
   let c; try { c = JSON.parse(ls('lp_jdbcols') || 'null'); } catch { c = null; }
   if (!c || !Array.isArray(c.order)) c = JSON.parse(JSON.stringify(JDB_DEF));
   c.order = c.order.filter(id => JDB_COLS.some(x => x.id === id)); c.w = c.w || {};
   if (!(c.known || []).includes('quelle') && !c.order.includes('quelle')) { const i = c.order.indexOf('ha'); c.order.splice(i < 0 ? c.order.length : i + 1, 0, 'quelle'); } // neue Spalte einmal einblenden
+  if (!(c.known || []).includes('haB') && !c.order.includes('haB')) { const i = c.order.indexOf('ha'); c.order.splice(i < 0 ? c.order.length : i + 1, 0, 'haB'); }
   if (!(c.known || []).includes('gesamt') && !c.order.includes('gesamt')) { const i = c.order.indexOf('menge'); c.order.splice(i < 0 ? c.order.length : i + 1, 0, 'gesamt'); }
   c.known = JDB_COLS.map(x => x.id);
   return c;
@@ -3897,7 +3905,7 @@ function jdbTable(list, { print, all } = {}) {
   const head = `<thead><tr>${ck ? `<th class="ck" data-stop><input type="checkbox" data-in="jbSelAll" ${allOn ? 'checked' : ''} title="Alle angezeigten auswählen"></th>` : ''}${cols.map(c => `<th class="${c.n ? 'n' : ''}" ${print ? '' : `draggable="true" data-col="${c.id}" title="Ziehen zum Verschieben"`}>${esc(c.l)}${print ? '' : `<span class="cres" data-col="${c.id}" title="Breite ändern"></span>`}</th>`).join('')}</tr></thead>`;
   const row = r => { const ab = jdbAbr(r.id); return `<tr class="${print ? '' : 'click'}${ab ? ' jdab' : ''}${ck && S.has(r.id) ? ' alsel' : ''}" ${print ? '' : `data-act="jbRow" data-id="${esc(r.id)}"`}>${ck ? `<td class="ck" data-stop><input type="checkbox" data-in="jbSel" value="${esc(r.id)}" ${S.has(r.id) ? 'checked' : ''}></td>` : ''}${cols.map(c => `<td class="${c.n ? 'n' : ''} c-${c.id}">${!print && c.html ? c.html(r) : esc(c.v(r))}</td>`).join('')}</tr>`; };
   const TL = all || list, dSum = TL.reduce((t, r) => t + (r.dauer || 0), 0);
-  const tot = `<tfoot><tr class="tot jdbtot">${ck ? '<td></td>' : ''}${cols.map((c, i) => `<td class="${c.n ? 'n' : ''}">${c.id === 'ha' ? `<b>${fmtNum(jdbHaSum(TL))}</b>` : c.id === 'dauer' ? `<b>${hrs(r2(dSum))}</b>` : i === 0 ? `<b>Total ${TL.length}</b>` : ''}</td>`).join('')}</tr></tfoot>`;
+  const tot = `<tfoot><tr class="tot jdbtot">${ck ? '<td></td>' : ''}${cols.map((c, i) => `<td class="${c.n ? 'n' : ''}">${c.id === 'ha' ? `<b>${fmtNum(jdbHaSum(TL))}</b>` : c.id === 'haB' ? `<b>${fmtNum(r2(TL.reduce((x, r) => x + (r.haB || 0), 0)))}</b>` : c.id === 'dauer' ? `<b>${hrs(r2(dSum))}</b>` : i === 0 ? `<b>Total ${TL.length}</b>` : ''}</td>`).join('')}</tr></tfoot>`;
   const tcls = `btab jdbtab${print ? '' : ' jdbfix'}`, tw = print ? '' : ` style="width:${(ck ? 36 : 0) + cols.reduce((s, c) => s + c.w, 0)}px"`;
   if (!g) return `<table class="${tcls}"${tw}>${colg}${head}<tbody>${list.map(row).join('')}</tbody>${tot}</table>`;
   const groups = groupBy(list.slice().sort((a, b) => String(jdbGroupKey(a, g)).localeCompare(String(jdbGroupKey(b, g)), 'de') * (g === 'monat' ? -1 : 1)), r => jdbGroupKey(r, g));
@@ -3981,13 +3989,41 @@ function jdbDetail(id) {
   const r = (App.jdb.rows || []).find(x => x.id === id); if (!r) return;
   const kv = (k, v) => v ? `<tr><td class="nr">${esc(k)}</td><td>${esc(v)}</td></tr>` : '';
   const dt = s => s ? new Date(s).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '';
-  const body = `<table class="btab kv">${kv('Arbeit', r.arbeit)}${kv('Kunde', r.kunde)}${kv('Feld', r.feld)}${kv('Fläche', r.ha != null ? fmtNum(r.ha) + ' ha' + (r.quelle ? ` (${r.quelle})` : '') : '')}${kv('Abgerechnet', jdbAbr(r.id) ? fmtDate(jdbAbr(r.id).am, { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'offen')}${kv('Beginn', dt(r.start))}${kv('Ende', dt(r.end))}${kv('Dauer', r.dauer != null ? hrs(r.dauer) : '')}
+  const body = `<table class="btab kv">${kv('Arbeit', r.arbeit)}${kv('Kunde', r.kunde)}${kv('Feld', r.feld)}${kv('Fläche', r.ha != null ? fmtNum(r.ha) + ' ha' + (r.quelle ? ` (${r.quelle})` : '') : '')}${kv('Fläche bedeckt', r.haB != null ? fmtNum(r.haB) + ' ha (Bedeckungskarte, ohne Überlappungen)' : '')}${kv('Abgerechnet', jdbAbr(r.id) ? fmtDate(jdbAbr(r.id).am, { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'offen')}${kv('Beginn', dt(r.start))}${kv('Ende', dt(r.end))}${kv('Dauer', r.dauer != null ? hrs(r.dauer) : '')}
     ${kv('Maschine', r.maschine)}${kv('Fahrer', r.fahrer)}${kv('Kultur', r.kultur)}${kv('Saison', r.saison)}${kv('Produkte', jdbProdTxt(r))}${kv('Sorten', r.sorten)}${kv('Menge/ha', r.menge)}${kv('Gesamtmenge', jdbGesTxt(r))}</table>
+    ${r.grzB ? `<div class="fld" style="margin-top:12px"><span>Virtuelle Feldgrenze (aus der Bedeckungskarte)</span></div><div class="bedgrz" data-id="${esc(r.id)}"><span class="nr">wird geladen …</span></div>` : ''}
     <div class="fld" style="margin-top:12px"><span>Vermessungen des Feldes${r.feld ? ` «${esc(r.feld)}»` : ''}</span></div>${grenzenHtml(feldFuer({ fid: r.fid, kunde: r.kunde, feld: r.feld }))}
     ${r.details.map(m => `<div class="fld" style="margin-top:12px"><span>${esc(m.n)}</span></div><table class="btab kv">${m.v.map(([k, v]) => kv(k, v)).join('')}</table>`).join('')}
     <p class="nr" style="margin-top:12px">Quelle: MyJohnDeere · ID ${esc(r.id)}</p>`;
   const ab = jdbAbr(r.id);
+  setTimeout(() => { const b = $('#dlg .bedgrz'); if (b) bedGrzFill(b); }, 0);
   Dlg.open('Arbeitsgang', body, `${ab ? `<span class="badge verrechnet">✓ abgerechnet ${fmtDate(ab.am, { day: '2-digit', month: '2-digit', year: 'numeric' })}</span><button type="button" class="btn" data-act="jbMarkOne" data-id="${esc(r.id)}" data-v="0">Wieder offen</button>` : `<button type="button" class="btn primary" data-act="jbMarkOne" data-id="${esc(r.id)}" data-v="1">✓ Als abgerechnet markieren</button>`}<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
+}
+/* Virtuelle Feldgrenzen aus den Bedeckungskarten: eigene Datei jd-grenzen.json (NAS-Dienst ab v53), erst bei Bedarf geladen */
+let bedGrzCache = null;
+async function bedGrz(id) {
+  if (!bedGrzCache) { try { const d = await Drive.readJson('/jd-grenzen.json'); bedGrzCache = d && d.format === 'jd-grenzen' ? d.ops || {} : {}; } catch { bedGrzCache = null; return null; } }
+  return bedGrzCache[id] || null;
+}
+function bedGrzSvg(mp) { // MultiPolygon-Koordinaten [lon, lat] → SVG (Norden oben)
+  const all = mp.flat(2); const lat0 = all.reduce((s, p) => s + p[1], 0) / all.length, kx = Math.cos(lat0 * Math.PI / 180);
+  const xs = all.map(p => p[0] * kx), ys = all.map(p => p[1]), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const W = 320, s = W / Math.max(x1 - x0, y1 - y0, 1e-9), H = Math.max(60, (y1 - y0) * s), w = (x1 - x0) * s;
+  const d = mp.map(poly => poly.map(r => 'M' + r.map(p => `${((p[0] * kx - x0) * s + (W - w) / 2 + 4).toFixed(1)},${((y1 - p[1]) * s + 4).toFixed(1)}`).join('L') + 'Z').join('')).join('');
+  return `<svg class="bedsvg" viewBox="0 0 ${W + 8} ${H + 8}" width="100%" style="max-height:260px"><path d="${d}" fill-rule="evenodd" /></svg>`;
+}
+async function bedGrzFill(box) {
+  const id = box.dataset.id, r = (App.jdb.rows || []).find(x => x.id === id), g = await bedGrz(id);
+  if (!box.isConnected) return;
+  if (!g) { box.innerHTML = '<span class="nr">Keine virtuelle Feldgrenze gefunden (jd-grenzen.json im Dropbox-Ordner fehlt oder ist noch nicht nachgeführt).</span>'; return; }
+  box.innerHTML = `${bedGrzSvg(g)}<div class="btns" style="margin-top:6px"><button type="button" class="btn small" data-act="bedGrzKarte" data-id="${esc(id)}" title="In der Applikationskarte öffnen (Modus «Nur Feldgrenze»), dort als ZIP für John Deere exportieren">📐 In Applikationskarte öffnen</button>
+    <span class="nr">${r && r.haB != null ? fmtNum(r.haB) + ' ha bearbeitet' : ''}${g.length > 1 ? ` · ${g.length} Teile` : ''}${g.some(p => p.length > 1) ? ' · mit Aussparungen' : ''}</span></div>`;
+}
+async function bedGrzKarte(id) {
+  const r = (App.jdb.rows || []).find(x => x.id === id), g = await bedGrz(id); if (!r || !g) return;
+  const f = feldFuer({ fid: r.fid, kunde: r.kunde, feld: r.feld }), k = Store.all('kunden').find(x => x.name === r.kunde);
+  try { localStorage.setItem('imv.bedeckungGrenze', JSON.stringify({ kunde: r.kunde, feld: r.feld, kid: k ? k.id : '', fid: f ? f.id : '', datum: r.d, arbeit: r.arbeit, geometry: { type: 'MultiPolygon', coordinates: g } })); } catch { toast('Speicher voll – Grenze kann nicht übergeben werden'); return; }
+  location.href = 'karte.html?bedeckung=1';
 }
 function jdBerichtView() {
   return {
@@ -4114,9 +4150,10 @@ function abRows() {
 const GENAU_MARK = '<span class="genaum" title="genaue Fläche (bei der Fertigmeldung bestätigt)"> ✓</span>';
 function abRow(o, j, km) {
   const k = o ? Store.get('kunden', o.kunde) : km.get(abKeyK(j.kunde)) || null;
-  const m = o ? maschine(o.maschine) : null, haE = o ? (o.flaecheEff ?? null) : null, haG = o ? (o.flaeche ?? null) : null, haJ = j ? j.ha : null;
+  const m = o ? maschine(o.maschine) : null, haE = o ? (o.flaecheEff ?? null) : null, haG = o ? (o.flaeche ?? null) : null, haJ = j ? j.ha : null, haB = j ? (j.haB ?? null) : null;
   const genau = !!(o && o.flaecheGenau && haE != null);
-  const haP = haE ?? haG, ha = haE ?? haJ ?? haG, haQ = ha == null ? '' : haE != null ? 'eff' : haJ != null ? 'jd' : 'geplant';
+  // Rang: 1. effektiv, 2. bedeckt (Bedeckungskarte ohne Überlappungen), 3. Bericht (JD), 4. geplant
+  const haP = haE ?? haG, ha = haE ?? haB ?? haJ ?? haG, haQ = ha == null ? '' : haE != null ? 'eff' : haB != null ? 'bed' : haJ != null ? (j.quelle === 'Bedeckungskarte' ? 'jdb' : 'jd') : 'geplant';
   // Pflanzenschutzmittel (Stammdaten Spritzen): nur Name, keine Gesamtmenge
   const prodP = o ? prodList(o).map(p => `${p.name}${p.menge != null && !isPsm(p.name) ? ` ${fmtNum(p.menge)} ${p.einheit || prodUnit(p.name)}/ha` : ''}`).join(', ') : '';
   const haC = ha, gesP = o && haC ? prodList(o).filter(p => p.menge != null && !isPsm(p.name)).map(p => `${p.name} ${fmtNum(r2(p.menge * haC))} ${p.einheit || prodUnit(p.name)}`).join(', ') : '';
@@ -4126,7 +4163,7 @@ function abRow(o, j, km) {
   return { id: o ? 'o:' + o.id : 'j:' + j.id, oid: o ? o.id : '', jid: j ? j.id : '', src: o && j ? 'beide' : o ? 'planer' : 'jd', d, start: j ? j.start : '', end: j ? j.end : '',
     dauer: j ? j.dauer : null, std: o ? (o.stundenEff ?? dauerOf(o) ?? null) : null, nr: o ? o.nr || '' : '',
     kunde: k ? k.name : (j ? j.kunde : ''), feld: (o && aFeld(o)) || (j ? j.feld : ''), arbeit: o ? o.arbeit || '' : j.arbeit, kultur: (o && o.kultur) || (j ? j.kultur : ''),
-    haP, haE, haG, genau, haJ, ha, haQ, quelle: j ? j.quelle : '', maschine: (m && m.name) || (j ? j.maschine : ''), fahrer: j ? j.fahrer : '',
+    haP, haE, haG, genau, haJ, haB, ha, haQ, quelle: j ? j.quelle : '', maschine: (m && m.name) || (j ? j.maschine : ''), fahrer: j ? j.fahrer : '',
     produkte: prodP || (j ? [jdbProdTxt(j), j.sorten].filter(Boolean).join(' · ') : ''), gesamt: o ? gesP : (j ? jdbGesTxt(j) : ''), notiz: o ? o.notiz || '' : '', abr, am, link: !!(o && o.jdLink) };
 }
 /* ---------- Filter (Mehrfachauswahl wie im Bericht) ---------- */
@@ -4174,7 +4211,7 @@ function abSelBar(list) {
 }
 /* ---------- Spalten ---------- */
 const abD = d => d ? fmtDate(d, { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
-const AB_HAQ = { eff: 'effektive Fläche aus der Fertigmeldung', jd: 'Fläche aus dem Bericht (MyJohnDeere)', geplant: 'geplante Fläche aus dem Auftrag' };
+const AB_HAQ = { eff: 'effektive Fläche aus der Fertigmeldung', bed: 'Fläche aus der Bedeckungskarte (ohne Überlappungen)', jd: 'Fläche aus dem Bericht (MyJohnDeere)', jdb: 'Fläche aus dem Bericht – aus der Bedeckungskarte berechnet', geplant: 'geplante Fläche aus dem Auftrag' };
 const AB_COLS = [
   { id: 'datum', l: 'Datum', w: 80, v: r => abD(r.d), csv: r => r.d },
   { id: 'src', l: 'Herkunft', w: 104, v: r => AB_SRC[r.src], html: r => `<span class="absrc absrc-${r.src}" title="${r.src === 'beide' ? 'Auftrag und Arbeitsgang verbunden' + (r.link ? ' (von Hand)' : ' (automatisch)') : ''}">${r.src === 'beide' ? `Planer + JD${r.link ? ' 🔗' : ''}` : r.src === 'planer' ? 'Planer' : 'JD'}</span>` },
@@ -4187,11 +4224,13 @@ const AB_COLS = [
   { id: 'haG', l: 'ha Planung', w: 88, n: 1, v: r => r.haG != null ? fmtNum(r.haG) : '', csv: r => r.haG ?? '' },
   { id: 'haE', l: 'ha effektiv', w: 80, n: 1, v: r => r.haE != null ? fmtNum(r.haE) + (r.genau ? ' ✓' : '') : '', csv: r => r.haE ?? '',
     html: r => r.haE != null ? `${fmtNum(r.haE)}${r.genau ? GENAU_MARK : ''}` : '' },
-  { id: 'haJ', l: 'ha JD', w: 66, n: 1, v: r => r.haJ != null ? fmtNum(r.haJ) : '', csv: r => r.haJ ?? '',
-    html: r => r.haJ == null ? '' : `<span class="${r.haP != null && Math.abs(r.haJ - r.haP) > Math.max(0.1, r.haP * 0.1) ? 'abdiff' : ''}" title="${r.haP != null ? `Abweichung zum Auftrag: ${fmtNum(r2(r.haJ - r.haP))} ha` : ''}${r.quelle ? ` · Quelle: ${r.quelle}` : ''}">${fmtNum(r.haJ)}</span>` },
-  // Fläche Auftrag: 1. effektiv, 2. Bericht (JD), 3. geplant; ✓ nur bei genauer Fläche – diese Fläche zählt für alle Summen
-  { id: 'ha', l: 'ha Auftrag', w: 80, n: 1, v: r => r.ha != null ? fmtNum(r.ha) + (r.haQ === 'eff' && r.genau ? ' ✓' : '') : '', csv: r => r.ha ?? '',
-    html: r => r.ha == null ? '' : `<b title="${AB_HAQ[r.haQ]}">${fmtNum(r.ha)}</b>${r.haQ === 'eff' && r.genau ? GENAU_MARK : ''}` },
+  { id: 'haB', l: 'ha bedeckt', w: 84, n: 1, v: r => r.haB != null ? fmtNum(r.haB) : '', csv: r => r.haB ?? '',
+    html: r => r.haB != null ? `<span title="aus der Bedeckungskarte, ohne Überlappungen (jede Stelle einmal gezählt)">${fmtNum(r.haB)}</span>` : '' },
+  { id: 'haJ', l: 'ha JD', w: 66, n: 1, v: r => r.haJ != null ? fmtNum(r.haJ) + (r.quelle === 'Bedeckungskarte' ? ' B' : '') : '', csv: r => r.haJ ?? '',
+    html: r => r.haJ == null ? '' : `<span class="${r.haP != null && Math.abs(r.haJ - r.haP) > Math.max(0.1, r.haP * 0.1) ? 'abdiff' : ''}" title="${r.haP != null ? `Abweichung zum Auftrag: ${fmtNum(r2(r.haJ - r.haP))} ha` : ''}${r.quelle ? ` · Quelle: ${r.quelle}` : ''}">${fmtNum(r.haJ)}</span>${r.quelle === 'Bedeckungskarte' ? BED_MARK : ''}` },
+  // Fläche Auftrag: 1. effektiv, 2. bedeckt, 3. Bericht (JD), 4. geplant; ✓ nur bei genauer Fläche, B = aus der Bedeckungskarte – diese Fläche zählt für alle Summen
+  { id: 'ha', l: 'ha Auftrag', w: 80, n: 1, v: r => r.ha != null ? fmtNum(r.ha) + (r.haQ === 'eff' && r.genau ? ' ✓' : '') + (r.haQ === 'bed' || r.haQ === 'jdb' ? ' B' : '') : '', csv: r => r.ha ?? '',
+    html: r => r.ha == null ? '' : `<b title="${AB_HAQ[r.haQ]}">${fmtNum(r.ha)}</b>${r.haQ === 'eff' && r.genau ? GENAU_MARK : ''}${r.haQ === 'bed' || r.haQ === 'jdb' ? BED_MARK : ''}` },
   { id: 'std', l: 'Std. Auftrag', w: 82, n: 1, v: r => r.std != null ? fmtNum(r2(r.std)) : '', csv: r => r.std != null ? r2(r.std) : '' },
   { id: 'dauer', l: 'Dauer JD', w: 76, n: 1, v: r => r.dauer != null ? hrs(r2(r.dauer)) : '', csv: r => r.dauer != null ? r2(r.dauer) : '' },
   { id: 'maschine', l: 'Maschine', w: 140, v: r => r.maschine },
@@ -4202,7 +4241,7 @@ const AB_COLS = [
   { id: 'notiz', l: 'Bemerkung', w: 160, v: r => r.notiz },
   { id: 'abr', l: 'Abgerechnet', w: 104, v: r => r.abr ? '✓ ' + (r.am ? abD(r.am) : '') : '', html: r => r.abr ? `<span class="badge verrechnet">✓ ${r.am ? abD(r.am) : 'abgerechnet'}</span>` : '<span class="nr">offen</span>' }
 ];
-const AB_DEF = { order: ['datum', 'src', 'nr', 'arbeit', 'kunde', 'feld', 'haG', 'haE', 'haJ', 'ha', 'std', 'dauer', 'maschine', 'kultur', 'produkte', 'gesamt', 'abr'], w: {} };
+const AB_DEF = { order: ['datum', 'src', 'nr', 'arbeit', 'kunde', 'feld', 'haG', 'haE', 'haB', 'haJ', 'ha', 'std', 'dauer', 'maschine', 'kultur', 'produkte', 'gesamt', 'abr'], w: {} };
 function abColCfg() {
   let c; try { c = JSON.parse(ls('lp_abrcols') || 'null'); } catch { c = null; }
   if (!c || !Array.isArray(c.order)) c = JSON.parse(JSON.stringify(AB_DEF));
@@ -4212,6 +4251,9 @@ function abColCfg() {
     c.order = c.order.filter(id => id !== 'ha' && id !== 'haP' && id !== 'haJ');
     if (k >= 0) c.order.splice(k, 0, 'haG', 'haE', 'haJ', 'ha');
   }
+  // v121: neue Spalte «ha bedeckt» einmal vor «ha JD» einblenden
+  if (!(c.known || []).includes('haB') && !c.order.includes('haB')) { const i = c.order.indexOf('haJ'); c.order.splice(i < 0 ? c.order.length : i, 0, 'haB'); }
+  c.known = AB_COLS.map(x => x.id);
   c.order = c.order.filter(id => AB_COLS.some(x => x.id === id)); c.w = c.w || {}; return c;
 }
 const abColSave = c => ls('lp_abrcols', JSON.stringify(c));
@@ -4223,7 +4265,7 @@ function abTable(list, { print, all } = {}) {
   const head = `<thead><tr>${ck ? `<th class="ck" data-stop><input type="checkbox" data-abin="selAll" ${allOn ? 'checked' : ''} title="Alle angezeigten auswählen"></th>` : ''}${cols.map(c => `<th class="${c.n ? 'n' : ''}" ${print ? '' : `draggable="true" data-col="${c.id}" title="Ziehen zum Verschieben"`}>${esc(c.l)}${print ? '' : `<span class="cres" data-col="${c.id}" title="Breite ändern"></span>`}</th>`).join('')}</tr></thead>`;
   const row = r => `<tr class="${print ? '' : 'click'}${r.abr ? ' jdab' : ''}${ck && S.has(r.id) ? ' alsel' : ''}" ${print ? '' : `data-ab="row" data-id="${esc(r.id)}"`}>${ck ? `<td class="ck" data-stop><input type="checkbox" data-abin="sel" value="${esc(r.id)}" ${S.has(r.id) ? 'checked' : ''}></td>` : ''}${cols.map(c => `<td class="${c.n ? 'n' : ''} c-${c.id}">${!print && c.html ? c.html(r) : esc(c.v(r))}</td>`).join('')}</tr>`;
   const TL = all || list, sum = k => r2(TL.reduce((s, r) => s + (r[k] || 0), 0));
-  const tot = `<tfoot><tr class="tot jdbtot">${ck ? '<td></td>' : ''}${cols.map((c, i) => `<td class="${c.n ? 'n' : ''}">${c.id === 'haG' ? `<b>${fmtNum(sum('haG'))}</b>` : c.id === 'haE' ? `<b>${fmtNum(sum('haE'))}</b>` : c.id === 'haJ' ? `<b>${fmtNum(sum('haJ'))}</b>` : c.id === 'ha' ? `<b>${fmtNum(abHaSum(TL))}</b>` : c.id === 'std' ? `<b>${fmtNum(sum('std'))}</b>` : c.id === 'dauer' ? `<b>${hrs(sum('dauer'))}</b>` : i === 0 ? `<b>Total ${TL.length}</b>` : ''}</td>`).join('')}</tr></tfoot>`;
+  const tot = `<tfoot><tr class="tot jdbtot">${ck ? '<td></td>' : ''}${cols.map((c, i) => `<td class="${c.n ? 'n' : ''}">${c.id === 'haG' ? `<b>${fmtNum(sum('haG'))}</b>` : c.id === 'haE' ? `<b>${fmtNum(sum('haE'))}</b>` : c.id === 'haB' ? `<b>${fmtNum(sum('haB'))}</b>` : c.id === 'haJ' ? `<b>${fmtNum(sum('haJ'))}</b>` : c.id === 'ha' ? `<b>${fmtNum(abHaSum(TL))}</b>` : c.id === 'std' ? `<b>${fmtNum(sum('std'))}</b>` : c.id === 'dauer' ? `<b>${hrs(sum('dauer'))}</b>` : i === 0 ? `<b>Total ${TL.length}</b>` : ''}</td>`).join('')}</tr></tfoot>`;
   const tcls = `btab jdbtab abtab${print ? '' : ' jdbfix abfix'}`, tw = print ? '' : ` style="width:${(ck ? 36 : 0) + cols.reduce((s, c) => s + c.w, 0)}px"`;
   if (!g) return `<table class="${tcls}"${tw}>${colg}${head}<tbody>${list.map(row).join('')}</tbody>${tot}</table>`;
   const groups = groupBy(list.slice().sort((a, b) => String(abGroupKey(a, g)).localeCompare(String(abGroupKey(b, g)), 'de') * (g === 'monat' ? -1 : 1)), r => abGroupKey(r, g));
@@ -4288,8 +4330,8 @@ function abPrint() {
     ${abTable(list, { print: true })}</div>`, { noTitle: true });
 }
 function abCsv() {
-  const rows = [['Datum', 'Herkunft', 'Auftrag-Nr', 'Beginn (JD)', 'Ende (JD)', 'Arbeit', 'Kunde', 'Feld', 'Fläche Planung ha', 'Fläche effektiv ha', 'Fläche effektiv genau', 'Fläche JD ha', 'Flächen-Quelle JD', 'Fläche Auftrag ha', 'Fläche Auftrag Herkunft', 'Stunden Auftrag', 'Dauer JD h', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Gesamtmenge', 'Bemerkung', 'Abgerechnet', 'Abgerechnet am', 'Auftrag-ID', 'JD-ID']];
-  abList().forEach(r => rows.push([r.d, AB_SRC[r.src], r.nr, jdbDT(r.start), jdbDT(r.end), r.arbeit, r.kunde, r.feld, r.haG ?? '', r.haE ?? '', r.genau ? 'ja' : '', r.haJ ?? '', r.quelle || '', r.ha ?? '', { eff: 'effektiv', jd: 'Bericht (JD)', geplant: 'Planung' }[r.haQ] || '', r.std != null ? r2(r.std) : '', r.dauer != null ? r2(r.dauer) : '', r.maschine, r.fahrer, r.kultur, r.produkte, r.gesamt, r.notiz, r.abr ? 'ja' : 'nein', r.am || '', r.oid, r.jid]));
+  const rows = [['Datum', 'Herkunft', 'Auftrag-Nr', 'Beginn (JD)', 'Ende (JD)', 'Arbeit', 'Kunde', 'Feld', 'Fläche Planung ha', 'Fläche effektiv ha', 'Fläche effektiv genau', 'Fläche bedeckt ha', 'Fläche JD ha', 'Flächen-Quelle JD', 'Fläche Auftrag ha', 'Fläche Auftrag Herkunft', 'Stunden Auftrag', 'Dauer JD h', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Gesamtmenge', 'Bemerkung', 'Abgerechnet', 'Abgerechnet am', 'Auftrag-ID', 'JD-ID']];
+  abList().forEach(r => rows.push([r.d, AB_SRC[r.src], r.nr, jdbDT(r.start), jdbDT(r.end), r.arbeit, r.kunde, r.feld, r.haG ?? '', r.haE ?? '', r.genau ? 'ja' : '', r.haB ?? '', r.haJ ?? '', r.quelle || '', r.ha ?? '', { eff: 'effektiv', bed: 'bedeckt (B)', jd: 'Bericht (JD)', jdb: 'Bericht (JD, B)', geplant: 'Planung' }[r.haQ] || '', r.std != null ? r2(r.std) : '', r.dauer != null ? r2(r.dauer) : '', r.maschine, r.fahrer, r.kultur, r.produkte, r.gesamt, r.notiz, r.abr ? 'ja' : 'nein', r.am || '', r.oid, r.jid]));
   const A = App.abr;
   download(`Abrechnung_${A.von || 'alle'}_${A.bis || ''}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }
@@ -5728,6 +5770,7 @@ document.addEventListener('click', async e => {
     case 'jbPrint': jdbPrint(); break;
     case 'jbRow': jdbDetail(id); break;
     case 'jbGrz': jdbGrenzen(id); break;
+    case 'bedGrzKarte': bedGrzKarte(id); break;
     case 'jbMark': jdbMarkSel(t.dataset.v === '1'); break;
     case 'jbMarkOne': { const on = t.dataset.v === '1'; jdbMark([id], on); toast(on ? 'Als abgerechnet markiert' : 'Wieder offen'); jdbDetail(id); break; }
     case 'jbSelAllList': { const S = App.jdbSel || (App.jdbSel = new Set()); jdbList().forEach(r => S.add(r.id)); App.render(); break; }

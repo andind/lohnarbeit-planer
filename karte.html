@@ -106,7 +106,7 @@ body.grenze .rx-only{display:none!important}
 <div class="app">
 <aside>
   <header class="top">
-    <div><a class="back" href="index.html" title="Zurück zum IM-Verwalter">← IM-Verwalter</a><br><h1 style="display:inline">Applikationskarte</h1><span class="ver">v1.4.1</span></div>
+    <div><a class="back" href="index.html" title="Zurück zum IM-Verwalter">← IM-Verwalter</a><br><h1 style="display:inline">Applikationskarte</h1><span class="ver">v1.4.2</span></div>
     <div class="row">
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
       <button id="bSave" title="Im IM-Verwalter speichern (über Dropbox auf allen Geräten)">Speichern</button>
@@ -233,7 +233,7 @@ body.grenze .rx-only{display:none!important}
 <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
 "use strict";
-const VERSION = "1.4.1";
+const VERSION = "1.4.2";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -967,6 +967,17 @@ fillProj();
   const q = new URLSearchParams(location.search), aid = q.get("auftrag"), kid = q.get("karte");
   const open = p => { loadState(p.state); toast("Geöffnet: "+projName(p.state)); };
   if (q.has("neu")){ localStorage.removeItem(LS_D); syncForm(); fillLists(); applyModus(); render(); return; }
+  // aus IM-Verwalter › Bericht: virtuelle Feldgrenze aus der Bedeckungskarte als Feldgrenze übernehmen (Modus «Nur Feldgrenze»)
+  if (q.has("bedeckung")){
+    let g = null; try { g = JSON.parse(localStorage.getItem("imv.bedeckungGrenze") || "null"); } catch {}
+    if (g && g.geometry){
+      const f = g.fid ? IMV.all("felder").find(x=>x.id===g.fid) : null;
+      loadState(Object.assign(blank(), { modus:"grenze", kid:g.kid||"", fid:g.fid||"", kunde:g.kunde||"", feld:g.feld||"", betrieb:(f&&f.betrieb)||"", field:{ type:"Feature", properties:{}, geometry:g.geometry } }));
+      toast("Virtuelle Feldgrenze aus der Bedeckungskarte"+(g.datum?" vom "+g.datum.split("-").reverse().join("."):"")+" – prüfen, bei Bedarf bearbeiten und exportieren");
+      return;
+    }
+    toast("Keine Feldgrenze übergeben.");
+  }
   if (kid){ const p = IMV.maps().find(p=>p.id===kid); if (p){ open(p); return; } toast("Diese Karte gibt es nicht mehr."); }
   if (aid){
     const ex = IMV.maps().filter(p=>p.auftrag===aid).sort((a,b)=>String(b.saved).localeCompare(String(a.saved)))[0];

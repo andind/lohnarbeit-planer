@@ -9,9 +9,13 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
 - Hosting: GitHub Pages aus `andind/lohnarbeit-planer` (Branch `main`).
 - Daten: lokal im Browser (`localStorage` `lp_data`) + Abgleich mit Dropbox (`/planung.json` im App-Ordner, OAuth PKCE ohne Server).
 - `config.js` enthält den Dropbox App key – bei Updates **nicht überschreiben**.
-- NAS-Dienst **jd-sync** (Synology, Docker, Node 20) liegt in `nas-dienst/jd-sync/` (seit 01.11.2026, Version 52):
+- NAS-Dienst **jd-sync** (Synology, Docker, Node 20) liegt in `nas-dienst/jd-sync/` (seit 01.11.2026, Version 53):
   gleicht MyJohnDeere ab und schreibt `jd-sync.json` (Kunden, Felder, Vermessungen) und `jd-arbeiten.json`
-  (Arbeitsgänge) in den Dropbox-Ordner; Anfrage über `jd-sync-request.json`. Mindestversion im IM-Verwalter: `NAS_MIN = '49'`.
+  (Arbeitsgänge) in den Dropbox-Ordner; Anfrage über `jd-sync-request.json`. Seit v53 für **alle** Arbeitsgänge die Bedeckungskarte:
+  Fläche ohne Überlappungen (`haB`, Raster, jede Zelle einmal) und **virtuelle Feldgrenze** (`gridBoundary`: ~1 m vergröbern, schliessen, Löcher < 50 m² füllen,
+  Umriss vereinfachen 0.5 m) → eigene Datei `jd-grenzen.json` (Cache NAS `data/bedeckung-grenzen.json`; `data/grenzen.json` = Vermessungen!), im Arbeitsgang nur `grzB: 1`.
+  Bedeckungskarte noch über alte Export-API `/fieldOps/{id}` (läuft laut John Deere bis Nov. 2027; Umstellung auf «Operations Export API»
+  offen – Doku nur mit Login auf developer.deere.com, Andreas muss sie liefern; Rückmeldungen an JD bis 01.01.2027). Mindestversion im IM-Verwalter: `NAS_MIN = '49'`.
   Version in `app/server.js` (`VERSION`, `STAND`). Zugangsdaten (Client-ID/Secret, Tokens) liegen nur auf dem NAS in `data/` –
   **nie Zugangsdaten ins Repository** (öffentlich). Andreas kopiert den Ordner `jd-sync` selbst aufs NAS.
 - Wöchentliche Aufgabe «IM-Verwalter Wochenabschluss» (So 19:33): führt die Docs «Entstehungsgeschichte» und
@@ -24,7 +28,7 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
 | `betrieb.js` | Modul «Eigener Betrieb» (Fruchtfolge, Zwischenfrüchte, Düngung, Bodenproben, Stammdaten) |
 | `kulturen.js` | zentrale Kulturliste mit zwei Ebenen (Oberbegriff / genaue Kultur), Assistent «Kulturen ordnen» |
 | `index.html`, `styles.css`, `sw.js`, `manifest.webmanifest`, Icons, `logo.jpg` (Briefkopf) | |
-| `karte.html` | Applikationskarte = Andreas' Tool «Applikationskarte» **v1.4** (seit IM-Verwalter v119; v1.4.1: Start-Ausschnitt Gemeinde Schüpfen `START_BOUNDS`) mit Anbindung an den IM-Verwalter: Zonen zeichnen, Shapefile-Export für JD; Modus «Nur Feldgrenze» (Export CLIENT/FARM/FIELD), Parzellen anklicken (api3.geo.admin.ch), Bodenbedeckung AV (wfs.geodienste.ch), Teilfläche/Aussparung, Vorgewende nur Anzeige (Arbeitsbreite × Runden, `vgShow/vgBreite/vgRunden`; Karten aus v1.2 mit `vg {on, breite}` werden beim Öffnen umgestellt, eigene Vorgewende-Rate entfällt). Neue Versionen von Andreas: seine Datei als Grundlage nehmen und die Anbindung (IMV, Datalists, Start mit `?auftrag`/`?karte`/`?neu`, Zurück-Link, `[hidden]`-Regel) wieder einbauen. **Ausnahme**: nutzt Leaflet, Geoman, Turf, shpjs, JSZip von unpkg. Liest/schreibt `lp_data` (gleiche Adresse), Karten in «einstellungen» `rx-…` (`auftrag`, `state`), setzt `lp_dirty`; App gleicht über Dropbox ab. Aufruf: `karte.html?auftrag=ID`, `?karte=rx-…`, `?neu=1`. |
+| `karte.html` | Applikationskarte = Andreas' Tool «Applikationskarte» **v1.4** (seit IM-Verwalter v119; v1.4.1: Start-Ausschnitt Gemeinde Schüpfen `START_BOUNDS`; v1.4.2: `?bedeckung=1` übernimmt virtuelle Feldgrenze) mit Anbindung an den IM-Verwalter: Zonen zeichnen, Shapefile-Export für JD; Modus «Nur Feldgrenze» (Export CLIENT/FARM/FIELD), Parzellen anklicken (api3.geo.admin.ch), Bodenbedeckung AV (wfs.geodienste.ch), Teilfläche/Aussparung, Vorgewende nur Anzeige (Arbeitsbreite × Runden, `vgShow/vgBreite/vgRunden`; Karten aus v1.2 mit `vg {on, breite}` werden beim Öffnen umgestellt, eigene Vorgewende-Rate entfällt). Neue Versionen von Andreas: seine Datei als Grundlage nehmen und die Anbindung (IMV, Datalists, Start mit `?auftrag`/`?karte`/`?neu`, Zurück-Link, `[hidden]`-Regel) wieder einbauen. **Ausnahme**: nutzt Leaflet, Geoman, Turf, shpjs, JSZip von unpkg. Liest/schreibt `lp_data` (gleiche Adresse), Karten in «einstellungen» `rx-…` (`auftrag`, `state`), setzt `lp_dirty`; App gleicht über Dropbox ab. Aufruf: `karte.html?auftrag=ID`, `?karte=rx-…`, `?neu=1`. |
 
 ## Bei jedem Update
 1. Version erhöhen: `APP_VERSION` + `APP_STAND` in `app.js` **und** `CACHE = 'lohnarbeit-vNN'` in `sw.js`.
@@ -70,8 +74,11 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
   `thead th` sticky); Planung-Kalender/Zeitachsen hatten das schon (`.cal`). Neue grosse Datentabellen ebenfalls in `.dscroll` legen.
   Scrollt die Seite statt des Rahmens, hält `stickyUpd` (setzt `--sty`) die Kopfzeilen direkt unter der Titelleiste (v106, v.a. Wochenansicht).
 - Flächen in Bericht und Abrechnung **nie aus Feldgrenzen**: JD-Fläche nur Maschine oder Bedeckungskarte (NAS `setFlaeche`, App `jdbRow`);
-  Verwaltung › Abrechnung (`abRow`, seit v114/v115) **ohne jeden Vergleich mit Feldgrenzen**. Vier Flächenspalten (v117): «ha Planung» (`haG`),
-  «ha effektiv» (`haE`, ✓ wenn genau), «ha JD» (`haJ`, Bericht), «ha Auftrag» (`ha`) = 1. effektiv, 2. JD, 3. Planung (✓ nur wenn genau, wie «ha effektiv», v118); `haQ` = eff/jd/geplant.
+  Verwaltung › Abrechnung (`abRow`, seit v114/v115) **ohne jeden Vergleich mit Feldgrenzen**. Fünf Flächenspalten (v117/v121): «ha Planung» (`haG`),
+  «ha effektiv» (`haE`, ✓ wenn genau), «ha bedeckt» (`haB`, v121), «ha JD» (`haJ`, Bericht), «ha Auftrag» (`ha`) = **1. effektiv, 2. bedeckt, 3. JD, 4. Planung**
+  (✓ nur wenn genau, wie «ha effektiv», v118); `haQ` = eff/bed/jd/jdb/geplant. **B** (`BED_MARK`) = Fläche aus der Bedeckungskarte berechnet
+  (in «ha Auftrag» bei bed/jdb, in «ha JD» bzw. Bericht «ha» bei Quelle Bedeckungskarte). Bericht: Spalte «ha bedeckt», im Arbeitsgang
+  Vorschau der virtuellen Feldgrenze (`bedGrz*`) und «In Applikationskarte öffnen» (`karte.html?bedeckung=1`, Übergabe über localStorage `imv.bedeckungGrenze`, Modus «Nur Feldgrenze»).
   **Alle Summen** (Total, Gruppen, Summen pro Kunde/Arbeit, Chips) nutzen «ha Auftrag» (`abHaSum`). `abColCfg` stellt alte Spalten-Einstellungen um. `haAusGrenze` entfernt.
   Spritzen › Abrechnung (`billing`) dagegen: immer die Fläche aus dem Auftrag (`flOf`: effektiv, sonst geplant) – v108 (JD-Fläche/0 ha) in v112 auf Wunsch zurückgenommen.
 - Fertigmeldung (`doneDialog`): Feld änderbar (nur Felder des Kunden, Kunde fix; `setKfeld` leert den Feldtext ausser bei Spritzaufträgen mit Parzelle).

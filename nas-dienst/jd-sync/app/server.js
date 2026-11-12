@@ -6,7 +6,7 @@
    Dazu: tägliche Datensicherung der IM-Verwalter-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '52', STAND = '01.11.2026'; // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
+const VERSION = '53', STAND = '12.11.2026'; // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -330,11 +330,12 @@ function readDbf(b) {
 }
 // Vereinigungsfläche von Polygonen (lokale Meter) über ein Raster: jede Zelle wird nur einmal gezählt (Überlappungen einmal).
 // Speicherbedarf fest begrenzt (höchstens ~20 Mio. Zellen = 20 MB), unabhängig von der Anzahl Messpunkte.
-function unionArea(polys, step) {
-  if (!polys.length) return 0;
+function unionArea(polys, step) { const G = unionGrid(polys, step); return G ? G.filled * G.cell * G.cell : 0; }
+function unionGrid(polys, step) {
+  if (!polys.length) return null;
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const pl of polys) for (const r of pl) for (const [x, y] of r) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-  const W0 = x1 - x0, H0 = y1 - y0; if (!(W0 > 0 && H0 > 0)) return 0;
+  const W0 = x1 - x0, H0 = y1 - y0; if (!(W0 > 0 && H0 > 0)) return null;
   const cell = Math.max(step, Math.sqrt(W0 * H0 / 2e7));
   const nx = Math.ceil(W0 / cell) + 1, ny = Math.ceil(H0 / cell) + 1, grid = new Uint8Array(nx * ny);
   let filled = 0;
@@ -354,11 +355,11 @@ function unionArea(polys, step) {
       }
     }
   }
-  return filled * cell * cell;
+  return { grid, nx, ny, cell, x0, y0, filled };
 }
 const EARTH_R = 6371008.8, RAD = Math.PI / 180;
 // Fläche (ha) aus einer Bedeckungskarte (ZIP mit Shapefile): Polygone direkt, Punkte über Arbeitsbreite × Distanz
-function coverageHa(zipBuf) {
+function coverageCalc(zipBuf) {
   const files = unzip(zipBuf), names = Object.keys(files);
   const shpN = names.find(n => /\.shp$/i.test(n)), dbfN = names.find(n => /\.dbf$/i.test(n)), prjN = names.find(n => /\.prj$/i.test(n));
   if (!shpN || !files[shpN]) return null;
@@ -374,14 +375,89 @@ function coverageHa(zipBuf) {
     parts.push(npt); const rings = []; for (let i = 0; i < np; i++) { const r = xy.slice(parts[i], parts[i + 1]); if (r.length >= 3) rings.push(r); }
     if (rings.length) polysGeo.push(rings);
   }
-  const project = (pts) => { const lat0 = pts.reduce((s, q) => s + q[1], 0) / pts.length, lon0 = pts.reduce((s, q) => s + q[0], 0) / pts.length; const kx = RAD * EARTH_R * Math.cos(lat0 * RAD), ky = RAD * EARTH_R; return q => [(q[0] - lon0) * kx, (q[1] - lat0) * ky]; };
   if (polysGeo.length) {
-    let polys = polysGeo;
-    if (geo) { const pr = project(polysGeo.flat(2)); polys = polysGeo.map(pl => pl.map(r => r.map(pr))); }
-    const a = unionArea(polys, 0.1) / 10000; return a > 0 ? Math.round(a * 10000) / 10000 : null;
+    let polys = polysGeo, inv = null;
+    if (geo) {
+      const pts = polysGeo.flat(2), lat0 = pts.reduce((s, q) => s + q[1], 0) / pts.length, lon0 = pts.reduce((s, q) => s + q[0], 0) / pts.length, kx = RAD * EARTH_R * Math.cos(lat0 * RAD), ky = RAD * EARTH_R;
+      polys = polysGeo.map(pl => pl.map(r => r.map(q => [(q[0] - lon0) * kx, (q[1] - lat0) * ky]))); inv = { lon0, lat0, kx, ky };
+    }
+    return covResult(unionGrid(polys, 0.1), inv); // projizierte Shapefiles: Fläche ja, Grenze nur mit Längen/Breiten
   }
   if (!dbfN || !files[dbfN]) return null;
-  return pointsHa(recs, files[dbfN]);
+  return covResult(pointsGrid(recs, files[dbfN]));
+}
+function coverageHa(zipBuf) { const r = coverageCalc(zipBuf); return r ? r.ha : null; }
+// Ergebnis einer Bedeckungskarte: Fläche ohne Überlappungen (jede Rasterzelle einmal) + virtuelle Feldgrenze
+function covResult(G, inv) {
+  if (!G || !G.filled) return null;
+  const a = G.filled * G.cell * G.cell / 10000, ha = a > 0 ? Math.round(a * 10000) / 10000 : null;
+  if (!ha) return null;
+  let grz = null; const P = inv || (G.kx ? G : null);
+  if (P) { try { grz = gridBoundary(G, P); } catch (e) { log('Virtuelle Feldgrenze: ' + e.message); } }
+  return { ha, grz };
+}
+/* Virtuelle Feldgrenze aus dem Bedeckungsraster:
+   1. auf ein Raster von ca. 1 m vergröbern (Zelle belegt, wenn darin etwas bearbeitet wurde) – schmale Lücken zwischen den Spuren verschwinden
+   2. einmal schliessen (ausdehnen + schrumpfen um 1 Zelle) und Löcher unter 50 m² füllen
+   3. Umriss verfolgen, vereinfachen (Toleranz 0.5 m), Teile unter 20 m² weglassen → MultiPolygon in Längen/Breitengraden (GeoJSON-Reihenfolge) */
+function gridBoundary(G, P) {
+  const f = Math.max(1, Math.round(1 / G.cell)), cs = G.cell * f, nx = Math.ceil(G.nx / f) + 2, ny = Math.ceil(G.ny / f) + 2;
+  if (nx * ny > 4e6) return null;
+  let b = new Uint8Array(nx * ny);
+  for (let r = 0; r < G.ny; r++) { const rb = (Math.floor(r / f) + 1) * nx, base = r * G.nx; for (let c = 0; c < G.nx; c++) if (G.grid[base + c]) b[rb + Math.floor(c / f) + 1] = 1; }
+  const morph = (src, val) => { const o = new Uint8Array(src.length); for (let r = 1; r < ny - 1; r++) for (let c = 1; c < nx - 1; c++) { const i = r * nx + c; let v = !val; for (let dr = -1; dr <= 1 && v !== val; dr++) for (let dc = -1; dc <= 1; dc++) if (!!src[i + dr * nx + dc] === val) { v = val; break; } o[i] = v ? 1 : 0; } return o; };
+  b = morph(morph(b, true), false); // schliessen
+  // Löcher (leere Flächen ohne Verbindung zum Rand) unter 50 m² füllen
+  const seen = new Uint8Array(nx * ny), maxHole = Math.max(1, Math.round(50 / (cs * cs))), stack = [];
+  for (let s0 = 0; s0 < nx * ny; s0++) {
+    if (b[s0] || seen[s0]) continue;
+    const comp = []; let edge = false; stack.push(s0); seen[s0] = 1;
+    while (stack.length) { const i = stack.pop(), r = (i / nx) | 0, c = i - r * nx; comp.push(i); if (r === 0 || c === 0 || r === ny - 1 || c === nx - 1) edge = true;
+      for (const j of [i - 1, i + 1, i - nx, i + nx]) if (j >= 0 && j < nx * ny && !b[j] && !seen[j] && Math.abs((j % nx) - c) <= 1) { seen[j] = 1; stack.push(j); } }
+    if (!edge && comp.length <= maxHole) for (const i of comp) b[i] = 1;
+  }
+  // Umriss: gerichtete Kanten (belegte Zelle links), zu Ringen verbinden
+  const nxt = new Map(), key = (x, y) => y * (nx + 1) + x;
+  const add = (x1, y1, x2, y2) => { const k = key(x1, y1); const l = nxt.get(k); if (l) l.push(key(x2, y2)); else nxt.set(k, [key(x2, y2)]); };
+  for (let r = 0; r < ny; r++) for (let c = 0; c < nx; c++) {
+    if (!b[r * nx + c]) continue;
+    if (r === 0 || !b[(r - 1) * nx + c]) add(c, r, c + 1, r);           // unten: nach rechts
+    if (c === nx - 1 || !b[r * nx + c + 1]) add(c + 1, r, c + 1, r + 1); // rechts: nach oben
+    if (r === ny - 1 || !b[(r + 1) * nx + c]) add(c + 1, r + 1, c, r + 1); // oben: nach links
+    if (c === 0 || !b[r * nx + c - 1]) add(c, r + 1, c, r);             // links: nach unten
+  }
+  const rings = [];
+  for (const [k0, l0] of nxt) {
+    while (l0.length) {
+      const ring = []; let k = k0;
+      do { const l = nxt.get(k); if (!l || !l.length) break; ring.push(k); k = l.pop(); } while (k !== k0 && ring.length < 1e6);
+      if (ring.length >= 4) rings.push(ring.map(q => [q % (nx + 1), Math.floor(q / (nx + 1))]));
+    }
+  }
+  // in Meter, vereinfachen, Fläche mit Vorzeichen (positiv = Aussenrand)
+  const toM = ([x, y]) => [G.x0 + (x - 1) * cs, G.y0 + (y - 1) * cs];
+  const simp = (pts, tol) => { if (pts.length < 4) return pts; const keep = new Uint8Array(pts.length); keep[0] = keep[pts.length - 1] = 1; const st2 = [[0, pts.length - 1]];
+    while (st2.length) { const [i0, i1] = st2.pop(); const [ax, ay] = pts[i0], [bx, by] = pts[i1], dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1; let dm = 0, im = -1;
+      for (let i = i0 + 1; i < i1; i++) { const d = Math.abs((pts[i][0] - ax) * dy - (pts[i][1] - ay) * dx) / L; if (d > dm) { dm = d; im = i; } }
+      if (dm > tol && im > 0) { keep[im] = 1; st2.push([i0, im], [im, i1]); } }
+    return pts.filter((_, i) => keep[i]); };
+  const sarea = pts => { let a = 0; for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p[0] * q[1] - q[0] * p[1]; } return a / 2; };
+  const outer = [], holes = [];
+  for (const r of rings) {
+    // geschlossener Ring: am weitest entfernten Punkt teilen, beide Hälften vereinfachen
+    const m = r.map(toM); let im = 0, dm = -1; for (let i = 1; i < m.length; i++) { const d = Math.hypot(m[i][0] - m[0][0], m[i][1] - m[0][1]); if (d > dm) { dm = d; im = i; } }
+    const s2 = simp(m.slice(0, im + 1), 0.5).concat(simp(m.slice(im).concat([m[0]]), 0.5).slice(1, -1)); if (s2.length < 3) continue;
+    const a = sarea(s2); if (Math.abs(a) < 20) continue;
+    (a > 0 ? outer : holes).push({ pts: s2, a });
+  }
+  if (!outer.length) return null;
+  const inside = (pt, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) c = !c; } return c; };
+  outer.sort((p, q) => p.a - q.a); // kleinste zuerst: Loch gehört zum kleinsten umschliessenden Aussenrand
+  const polys = outer.map(o => ({ o, h: [] }));
+  for (const h of holes) { const pl = polys.find(p => inside(h.pts[0], p.o.pts)); if (pl) pl.h.push(h.pts); }
+  const ll = ([x, y]) => [Math.round((P.lon0 + x / P.kx) * 1e7) / 1e7, Math.round((P.lat0 + y / P.ky) * 1e7) / 1e7];
+  const ring = pts => { const r = pts.map(ll); r.push(r[0]); return r; };
+  return polys.sort((p, q) => q.o.a - p.o.a).map(p => [ring(p.o.pts), ...p.h.map(h => ring(h.slice().reverse()))]);
 }
 // nur die benötigten Zahlenspalten aus der dBase-Datei (speichersparend, auch bei Hunderttausenden Punkten)
 function dbfCols(b, want) {
@@ -395,7 +471,7 @@ function dbfCols(b, want) {
   return out;
 }
 // Punkt-Export: je Messpunkt ein Rechteck (Länge DISTANCE in Fahrtrichtung HEADING, Breite SWATHWIDTH) → Vereinigung über ein Raster
-function pointsHa(recs, dbfBuf) {
+function pointsGrid(recs, dbfBuf) {
   const A = dbfCols(dbfBuf, ['SWATHWIDTH', 'DISTANCE', 'HEADING']);
   let n = 0;
   for (let i = 0; i < recs.length; i++) { const c = recs[i], t = c.length >= 4 ? c.readInt32LE(0) : 0; if ([1, 11, 21].includes(t)) n++; else if ([8, 18, 28].includes(t) && c.length >= 40) n += c.readInt32LE(36); }
@@ -438,7 +514,7 @@ function pointsHa(recs, dbfBuf) {
       for (let c = c0; c <= c1; c++) if (!grid[base + c]) { grid[base + c] = 1; filled++; }
     }
   }
-  const a = filled * cell * cell / 10000; return a > 0 ? Math.round(a * 10000) / 10000 : null;
+  return { grid, nx, ny, cell, x0, y0, filled, lon0, lat0, kx, ky };
 }
 // Bedeckungskarte anfordern: Buffer = fertig, 'wait' = wird erstellt, { none: Status } = für diesen Arbeitsgang keine Karte
 // Ein einzelner Arbeitsgang ohne Karte (404 …) stoppt die übrigen NICHT; abgebrochen wird nur bei wiederholt fehlender Berechtigung.
@@ -484,11 +560,17 @@ async function coverageRequest(o) {
   return { none: r.status };
 }
 const COV_RETRY_MS = 14 * 864e5; // Arbeitsgänge ohne Karte erst nach 14 Tagen erneut fragen
-const covDone = o => o.cov && o.cov.mod === o.modified && (o.cov.ha || (o.cov.at && Date.now() - Date.parse(o.cov.at) < COV_RETRY_MS));
+// COV_G: Stand der Berechnung – Karten aus älteren Versionen (ohne virtuelle Feldgrenze) werden einmal neu geholt
+const COV_G = 2;
+const covDone = o => o.cov && o.cov.mod === o.modified && (o.cov.ha ? o.cov.g === COV_G : (o.cov.at && Date.now() - Date.parse(o.cov.at) < COV_RETRY_MS));
+// virtuelle Feldgrenzen (aus der Bedeckungskarte) getrennt gespeichert und als eigene Datei in die Dropbox – hält jd-arbeiten.json klein
+let grenzen = load('bedeckung-grenzen.json', {});
+const arbCache = () => { try { return (load('arbeiten.json', null) || {}).ops; } catch { return null; } };
 async function coverageAreas(list, maxWaitMs = 20 * 60 * 1000) {
   covCombo = st.covCombo; covDead = false; covStat = {}; covErr = {}; cov403 = 0; covParamFail = 0;
-  let pending = list.slice().sort((a, b) => String(b.start || '').localeCompare(String(a.start || ''))), first = true, ok = 0, none = 0; const end = Date.now() + maxWaitMs;
-  if (pending.length) log(`Bedeckungskarte: ${pending.length} Arbeitsgänge ohne Maschinenfläche werden abgefragt`);
+  // zuerst Arbeitsgänge ohne Maschinenfläche, dann die neuesten
+  let pending = list.slice().sort((a, b) => ((areaFromMeas(a.measurements) == null ? 0 : 1) - (areaFromMeas(b.measurements) == null ? 0 : 1)) || String(b.start || '').localeCompare(String(a.start || ''))), first = true, ok = 0, none = 0; const end = Date.now() + maxWaitMs;
+  if (pending.length) log(`Bedeckungskarte: ${pending.length} Arbeitsgänge werden abgefragt (Fläche ohne Überlappungen, virtuelle Feldgrenze)`);
   while (pending.length && Date.now() < end && !covDead) {
     if (!first) await sleep(5000); first = false;
     const still = [];
@@ -497,10 +579,11 @@ async function coverageAreas(list, maxWaitMs = 20 * 60 * 1000) {
       if (st.arbProgress) st.arbProgress.done++;
       let res = null; try { res = await coverageRequest(o); } catch (e) { covErr.netz = covErr.netz || `${o.fieldName}: ${e.message}`; res = { none: 'netz' }; }
       if (res === 'wait') { still.push(o); continue; }
-      let ha = null; if (Buffer.isBuffer(res)) { try { ha = coverageHa(res); } catch (e) { covErr.lesen = covErr.lesen || `${o.fieldName}: ${e.message}`; } }
+      let ha = null, grz = null; if (Buffer.isBuffer(res)) { try { const c = coverageCalc(res); if (c) { ha = c.ha; grz = c.grz; } } catch (e) { covErr.lesen = covErr.lesen || `${o.fieldName}: ${e.message}`; } }
+      if (grz) grenzen[o.id] = { mod: o.modified, grz }; else delete grenzen[o.id];
       const st0 = Buffer.isBuffer(res) ? (ha ? 'ok' : 'leer') : res && res.none;
       // gemerkt werden Karten und eindeutige «keine Karte»-Antworten; Berechtigungs- und Netzfehler werden beim nächsten Lauf neu versucht
-      if (Buffer.isBuffer(res) || [404, 410, 204, 'json', 'download', 'leer'].includes(st0)) o.cov = { mod: o.modified, ha, at: new Date().toISOString(), st: st0 };
+      if (Buffer.isBuffer(res) || [404, 410, 204, 'json', 'download', 'leer'].includes(st0)) o.cov = { mod: o.modified, ha, at: new Date().toISOString(), st: st0, g: COV_G };
       if (ha) ok++; else none++;
       if ((ok + none) % 25 === 0 && covSave) covSave(ok + none);
     }
@@ -587,16 +670,18 @@ async function readArbeiten(d) {
   let q = flaechen(); save('arbeiten.json', arb);
   log(`Flächen aus Maschinendaten: ${q.Maschine} Arbeitsgänge, ${q['']} ohne – Zwischenstand in die Dropbox`);
   try { await writeArbeiten(arb); } catch (e) { log('Arbeitsdaten Zwischenstand: ' + e.message); }
-  // 2. Fehlende Maschinenfläche → Bedeckungskarte (pro Lauf höchstens 20 Minuten; Rest beim nächsten Abgleich)
-  const ohne = Object.values(arb.ops).filter(o => areaFromMeas(o.measurements) == null && !covDone(o));
+  // 2. Bedeckungskarte für alle Arbeitsgänge: Fläche ohne Überlappungen («ha bedeckt») und virtuelle Feldgrenze; ersetzt auch fehlende Maschinenfläche
+  //    (pro Lauf höchstens 20 Minuten; Rest beim nächsten Abgleich, ohne Maschinenfläche zuerst)
+  const ohne = Object.values(arb.ops).filter(o => !covDone(o));
   st.arbProgress = { phase: 'Bedeckungskarten', done: 0, total: ohne.length, at: new Date().toISOString() }; saveSt();
   let lastUp = Date.now();
-  covSave = async n => { flaechen(); save('arbeiten.json', arb); if (Date.now() - lastUp > 5 * 60 * 1000) { lastUp = Date.now(); log(`Bedeckungskarte: ${n} von ${ohne.length} bearbeitet · Speicher ${Math.round(process.memoryUsage().rss / 1048576)} MB – Zwischenstand in die Dropbox`); try { await writeArbeiten(arb); } catch { } } };
+  covSave = async n => { flaechen(); save('arbeiten.json', arb); save('bedeckung-grenzen.json', grenzen); if (Date.now() - lastUp > 5 * 60 * 1000) { lastUp = Date.now(); log(`Bedeckungskarte: ${n} von ${ohne.length} bearbeitet · Speicher ${Math.round(process.memoryUsage().rss / 1048576)} MB – Zwischenstand in die Dropbox`); try { await writeArbeiten(arb); } catch { } } };
   const nCov = cfg.bedeckung === false ? 0 : await coverageAreas(ohne);
   covSave = null;
   q = flaechen();
   log(`Flächen: ${q.Maschine} Maschine, ${q.Bedeckungskarte} Bedeckungskarte${nCov ? ` (${nCov} neu berechnet)` : ''}, ${q['']} ohne Fläche`);
-  save('arbeiten.json', arb); st.arbProgress = null;
+  for (const id of Object.keys(grenzen)) if (!arb.ops[id] || grenzen[id].mod !== arb.ops[id].modified) delete grenzen[id];
+  save('arbeiten.json', arb); save('bedeckung-grenzen.json', grenzen); st.arbProgress = null;
   return { arb, neu, geaendert, fehler, from, voll, requests: reqCount };
 }
 
@@ -684,7 +769,11 @@ async function runSync(reason) {
   } finally { st.running = false; saveSt(); }
 }
 async function writeArbeiten(arb) {
-  const ops = Object.values(arb.ops).sort((a, b) => String(b.start || '').localeCompare(String(a.start || ''))).map(({ lk, cov, v, ...o }) => o);
+  // haB = Fläche aus der Bedeckungskarte ohne Überlappungen (jede Stelle einmal), unabhängig von der Maschinenfläche
+  const ops = Object.values(arb.ops).sort((a, b) => String(b.start || '').localeCompare(String(a.start || ''))).map(({ lk, cov, v, ...o }) => {
+    if (cov && cov.mod === o.modified && cov.ha) o.haB = cov.ha; if (grenzen[o.id]) o.grzB = 1; return o; });
+  const gz = {}; for (const o of ops) if (grenzen[o.id]) gz[o.id] = grenzen[o.id].grz;
+  try { await dbxUpload(cfg.grenzenPath || '/jd-grenzen.json', JSON.stringify({ format: 'jd-grenzen', v: 1, dienst: VERSION, stand: new Date().toISOString(), info: 'Virtuelle Feldgrenzen aus den Bedeckungskarten (GeoJSON-MultiPolygon-Koordinaten je Arbeitsgang)', ops: gz })); } catch (e) { log('Virtuelle Feldgrenzen hochladen: ' + e.message); }
   await dbxUpload(cfg.arbeitenPath, JSON.stringify({ format: 'jd-arbeiten', v: 2, dienst: VERSION, flaechen: st.flaechen || null, bedeckung: st.covInfo ? { at: st.covInfo.at, gefragt: st.covInfo.gefragt, berechnet: st.covInfo.mitFlaeche, ohneKarte: st.covInfo.ohneKarte, offen: st.covInfo.offen, gestoppt: st.covInfo.gestoppt, antworten: st.covInfo.status, meldungen: st.covInfo.meldungen } : null, stand: new Date().toISOString(), org: { id: cfg.orgId, name: cfg.orgName }, seit: arb.seit, operations: ops }));
   return ops;
 }
@@ -1025,9 +1114,9 @@ ${st.excelLast ? `<p>Letzter Excel-Export: ${esc(new Date(st.excelLast.at).toLoc
 <div class="row"><div><label>Dropbox-Ordner für Excel</label><input name="excelPfad" value="${esc(cfg.excelPfad)}"></div><div><label>Excel-Dateien behalten (Wochen)</label><input name="excelBehalt" type="number" min="1" max="520" value="${esc(cfg.excelBehalt)}"></div></div>
 <button>Speichern</button></form>
 <div class="row" style="flex:0"><form method="post" action="/sicherung/jetzt"><button class="sec" ${st.dbx ? '' : 'disabled'}>Jetzt sichern</button></form><form method="post" action="/excel/jetzt"><button class="sec" ${st.dbx ? '' : 'disabled'}>Excel jetzt erstellen</button></form></div></section>
-<section><h2>Arbeitsdaten (Vorrat)</h2><p><small>Arbeitsgänge aus MyJohnDeere (Säen, Spritzen, Ernten, Bodenbearbeitung …) mit Messwerten werden zusätzlich als <b>${esc(cfg.arbeitenPath)}</b> abgelegt. Der IM-Verwalter liest sie derzeit nicht – sie stehen für spätere Auswertungen bereit.</small></p>
+<section><h2>Arbeitsdaten (Vorrat)</h2><p><small>Arbeitsgänge aus MyJohnDeere (Säen, Spritzen, Ernten, Bodenbearbeitung …) mit Messwerten werden als <b>${esc(cfg.arbeitenPath)}</b> abgelegt (IM-Verwalter › Verwaltung › Bericht und Abrechnung). Aus jeder Bedeckungskarte wird die Fläche <b>ohne Überlappungen</b> («ha bedeckt») berechnet und eine <b>virtuelle Feldgrenze</b> erstellt (<b>${esc(cfg.grenzenPath || '/jd-grenzen.json')}</b>). Bedeckungskarten kommen noch über die bisherige Export-Schnittstelle von John Deere (<code>/fieldOps</code>, läuft laut John Deere bis November 2027 – Umstellung auf die neue «Operations Export API» folgt).</small></p>
 ${!cfg.arbeitenAktiv ? '<p class="no">Ausgeschaltet</p>' : st.arbLast ? `Letzter Lauf: ${esc(new Date(st.arbLast.at).toLocaleString('de-CH'))} ${st.arbLast.ok ? '<span class="ok">ok</span>' : `<span class="no">Fehler</span><br><small>${esc(st.arbLast.error)}</small>`}<br>` : 'Noch nicht gelaufen – startet mit dem nächsten Abgleich.<br>'}
-${st.arbOk ? `${st.arbOk.ops} Arbeitsgänge seit ${esc(st.arbOk.seit)} · ${Object.entries(st.arbOk.types || {}).map(([k, v]) => esc(k) + ' ' + v).join(' · ')}<br>` : ''}${st.arbProgress ? `<b>Läuft gerade: ${esc(st.arbProgress.phase)} – ${st.arbProgress.done} von ${st.arbProgress.total} (seit ${esc(new Date(st.arbProgress.at).toLocaleTimeString('de-CH'))})</b><br>` : ''}${st.flaechen ? `Flächen: ${st.flaechen.maschine} aus Maschine, ${st.flaechen.bedeckung} aus Bedeckungskarte, ${st.flaechen.ohne} ohne Fläche<br>` : ''}${st.covInfo && st.covInfo.gefragt ? `<small>Bedeckungskarte zuletzt ${esc(new Date(st.covInfo.at).toLocaleString('de-CH'))}: ${st.covInfo.gefragt} abgefragt, ${st.covInfo.mitFlaeche} berechnet, ${st.covInfo.ohneKarte} ohne Karte, ${st.covInfo.offen} noch in Arbeit${st.covInfo.gestoppt ? ' · <span class="no">abgebrochen</span>' : ''} · Antworten ${esc(Object.entries(st.covInfo.status || {}).map(([k, v]) => k + '×' + v).join(', '))}${Object.entries(st.covInfo.meldungen || {}).map(([k, v]) => `<br>${esc(k)}: ${esc(v)}`).join('')}</small><br>` : ''}
+${st.arbOk ? `${st.arbOk.ops} Arbeitsgänge seit ${esc(st.arbOk.seit)} · ${Object.entries(st.arbOk.types || {}).map(([k, v]) => esc(k) + ' ' + v).join(' · ')}<br>` : ''}${st.arbProgress ? `<b>Läuft gerade: ${esc(st.arbProgress.phase)} – ${st.arbProgress.done} von ${st.arbProgress.total} (seit ${esc(new Date(st.arbProgress.at).toLocaleTimeString('de-CH'))})</b><br>` : ''}${st.flaechen ? `Flächen: ${st.flaechen.maschine} aus Maschine, ${st.flaechen.bedeckung} aus Bedeckungskarte (Ersatz), ${Object.values(arbCache() || {}).filter(o => o.cov && o.cov.ha && o.cov.mod === o.modified).length} mit «ha bedeckt», ${Object.keys(grenzen).length} virtuelle Feldgrenzen, ${st.flaechen.ohne} ohne Fläche<br>` : ''}${st.covInfo && st.covInfo.gefragt ? `<small>Bedeckungskarte zuletzt ${esc(new Date(st.covInfo.at).toLocaleString('de-CH'))}: ${st.covInfo.gefragt} abgefragt, ${st.covInfo.mitFlaeche} berechnet, ${st.covInfo.ohneKarte} ohne Karte, ${st.covInfo.offen} noch in Arbeit${st.covInfo.gestoppt ? ' · <span class="no">abgebrochen</span>' : ''} · Antworten ${esc(Object.entries(st.covInfo.status || {}).map(([k, v]) => k + '×' + v).join(', '))}${Object.entries(st.covInfo.meldungen || {}).map(([k, v]) => `<br>${esc(k)}: ${esc(v)}`).join('')}</small><br>` : ''}
 ${st.jd && !hasAg2() ? '<p class="no">Die bestehende John-Deere-Anmeldung enthält die Berechtigung für Arbeitsdaten noch nicht – bitte unten in Schritt 2 neu anmelden. Mandanten und Felder laufen bis dahin normal weiter.</p>' : ''}
 <form method="post" action="/arbeiten"><div class="row"><div><label>Arbeitsdaten abholen</label><select name="arbeitenAktiv"><option value="1" ${cfg.arbeitenAktiv ? 'selected' : ''}>Ja</option><option value="0" ${cfg.arbeitenAktiv ? '' : 'selected'}>Nein</option></select></div>
 <div><label>Ab Datum (früher = längere Historie, erster Lauf dauert länger)</label><input name="arbeitenSeit" type="date" value="${esc(cfg.arbeitenSeit)}"></div></div>

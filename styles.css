@@ -1257,3 +1257,9 @@ body.fsmode #selbar { left: 12px; }
 .fld .dngrzbtn { margin-top: 6px; align-self: flex-start; }
 .dngrz { margin: -4px 0 12px; max-height: 40vh; overflow: auto; }
 .genaum { color: var(--s-erledigt, #2f7d32); font-weight: 700; }
+
+/* v121: Fläche aus der Bedeckungskarte (B) und virtuelle Feldgrenze */
+.bedm { display: inline-block; margin-left: 4px; padding: 0 4px; border-radius: 4px; font-size: 10.5px; font-weight: 700; line-height: 15px; color: #fff; background: #1f6fa8; vertical-align: 1px; }
+.bedgrz { margin: 4px 0 8px; }
+.bedsvg { display: block; background: var(--card2, rgba(127,127,127,.06)); border-radius: 8px; }
+.bedsvg path { fill: rgba(47,125,50,.35); stroke: #2f7d32; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
