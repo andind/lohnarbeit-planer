@@ -132,7 +132,7 @@ aside section.collapsed{padding-block:11px}
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>Applikationskarte</h1><span class="ver">v1.12 · by Andreas Indermühle</span></div>
+    <div><h1>Applikationskarte</h1><span class="ver">v1.13 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -355,7 +355,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.12";
+const VERSION = "1.13";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -369,9 +369,9 @@ let drawMode = null;   // 'field' | 'zone'
 let editing = null;    // 'field' | zone id
 
 /* ---------- Karte ---------- */
-const CH_BOUNDS = [[45.80, 5.95], [47.82, 10.50]];
+const START_BOUNDS = [[47.012, 7.335], [47.062, 7.420]];   // Gemeinde Schüpfen
 const map = L.map("map", { zoomControl:true });
-map.fitBounds(CH_BOUNDS);
+map.fitBounds(START_BOUNDS);
 map.createPane("ortho"); map.getPane("ortho").style.zIndex = 250;
 map.createPane("parz"); map.getPane("parz").style.zIndex = 260; map.getPane("parz").style.pointerEvents = "none";
 map.pm.setLang("de");
