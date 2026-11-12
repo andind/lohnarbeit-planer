@@ -80,7 +80,7 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
   **Bericht** (`jdbRow`): `ha` = bedeckt (Spalte «ha bedeckt», Summen), `haM` = Maschinenfläche nur zur Information (Spalte «ha Maschine», grau;
   leer, wenn der NAS nur den Ersatzwert aus der Bedeckungskarte hatte). Arbeitsgänge ohne Bedeckung standardmässig ausgeblendet (Filter «Ohne Bedeckung», `J.bed`, `lp_jdbbed`).
   **Abrechnung** (`abRow`): Spalten «ha Planung» (`haG`), «ha effektiv» (`haE`), «ha Bericht» (`haB` = bedeckt), «ha Maschine» (`haJ`, nur Info), «ha Auftrag» (`ha`) =
-  **1. effektiv, 2. Bericht (bedeckt), 3. Planung**; Markierung **nur** in «ha Auftrag»: ✓ effektiv, B bedeckt, P Planung (`haQ` eff/bed/geplant).
+  **1. effektiv genau (✓), 2. Bericht bedeckt (B), 3. effektiv ohne «genau» (E), 4. Planung (P)** (v123); Markierung **nur** in «ha Auftrag» (`haQ` genau/bed/eff/geplant).
   Einträge «nur JD» ohne Bedeckung standardmässig ausgeblendet (Filter «Bericht ohne Bedeckung», `A.bed`, `lp_abrbed`). Spalten-Einstellungen werden umgestellt
   (`jdbColCfg`: haB→haM). Bericht › Arbeitsgang: Vorschau der virtuellen Feldgrenze (`bedGrz*`) und «In Applikationskarte öffnen» (`karte.html?bedeckung=1`, Übergabe über localStorage `imv.bedeckungGrenze`, Modus «Nur Feldgrenze»).
   **Alle Summen** (Total, Gruppen, Summen pro Kunde/Arbeit, Chips) nutzen «ha Auftrag» (`abHaSum`). `abColCfg` stellt alte Spalten-Einstellungen um. `haAusGrenze` entfernt.
@@ -88,6 +88,6 @@ Früher «Lohnarbeit-Planer». Ab 01.11.2026 wird nur noch in **einem** Chat dar
 - Fertigmeldung (`doneDialog`): Feld änderbar (nur Felder des Kunden, Kunde fix; `setKfeld` leert den Feldtext ausser bei Spritzaufträgen mit Parzelle).
   «Fläche effektiv» standardmässig **leer** (nur eintragen, wenn genau bekannt; leer = Fläche aus dem Bericht), geplante Fläche als Hinweis;
   Knopf «📐 Feldgrenzen anzeigen» klappt die Vermessungen des gewählten Feldes auf (nur Info, keine Übernahme). Häkchen «genaue Fläche» (`flaecheGenau`, auch im Auftragsfenster) **bleibt** (v116 wieder eingesetzt): nur Kennzeichnung –
-  seit v122 nur noch CSV-Spalte «Fläche effektiv genau» (✓ in «ha Auftrag» heisst jetzt: effektive Fläche); ändert die Reihenfolge der Flächen nicht.
+  seit v123 wieder massgebend: genaue effektive Fläche hat Vorrang (✓), effektive ohne «genau» kommt erst nach der bedeckten Fläche (E).
 - Applikationskarten: Knopf «🗺 Applikationskarte» im Auftrag (Spritzen/Säen/Düngen oder vorhandene Karte; speichert den Auftrag und wechselt im selben Fenster – wegen iPhone-App-Speicher), Liste unter Mehr › Einstellungen.
 - Ausdrucke Kunden: Logo mit Adresse; Ausdrucke Eigener Betrieb: Betriebsadresse statt Logo.

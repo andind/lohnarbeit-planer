@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '122', APP_STAND = '12.11.2026';
+const APP_VERSION = '123', APP_STAND = '12.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -4156,8 +4156,8 @@ function abRow(o, j, km) {
   const k = o ? Store.get('kunden', o.kunde) : km.get(abKeyK(j.kunde)) || null;
   const m = o ? maschine(o.maschine) : null, haE = o ? (o.flaecheEff ?? null) : null, haG = o ? (o.flaeche ?? null) : null, haJ = j ? (j.haM ?? null) : null, haB = j ? (j.ha ?? null) : null;
   const genau = !!(o && o.flaecheGenau && haE != null);
-  // Rang (v122): 1. effektiv, 2. Bericht = bedeckte Fläche, 3. Planung; Maschinenfläche (haJ) nur zur Information
-  const haP = haE ?? haG, ha = haE ?? haB ?? haG, haQ = ha == null ? '' : haE != null ? 'eff' : haB != null ? 'bed' : 'geplant';
+  // Rang (v123): 1. effektiv genau (✓), 2. Bericht = bedeckt (B), 3. effektiv ohne «genau» (E), 4. Planung (P); Maschinenfläche (haJ) nur zur Information
+  const haP = haE ?? haG, ha = genau ? haE : haB ?? haE ?? haG, haQ = ha == null ? '' : genau ? 'genau' : haB != null ? 'bed' : haE != null ? 'eff' : 'geplant';
   // Pflanzenschutzmittel (Stammdaten Spritzen): nur Name, keine Gesamtmenge
   const prodP = o ? prodList(o).map(p => `${p.name}${p.menge != null && !isPsm(p.name) ? ` ${fmtNum(p.menge)} ${p.einheit || prodUnit(p.name)}/ha` : ''}`).join(', ') : '';
   const haC = ha, gesP = o && haC ? prodList(o).filter(p => p.menge != null && !isPsm(p.name)).map(p => `${p.name} ${fmtNum(r2(p.menge * haC))} ${p.einheit || prodUnit(p.name)}`).join(', ') : '';
@@ -4216,8 +4216,8 @@ function abSelBar(list) {
 }
 /* ---------- Spalten ---------- */
 const abD = d => d ? fmtDate(d, { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
-const AB_HAQ = { eff: '✓ effektive Fläche aus der Fertigmeldung', bed: 'B = Fläche aus dem Bericht (Bedeckungskarte ohne Überlappungen)', geplant: 'P = geplante Fläche aus dem Auftrag' };
-const EFF_MARK = '<span class="genaum" title="effektive Fläche (Fertigmeldung)"> ✓</span>', PLAN_MARK = '<span class="planm" title="geplante Fläche (Auftrag)">P</span>';
+const AB_HAQ = { genau: '✓ effektive Fläche, als genau markiert', bed: 'B = Fläche aus dem Bericht (Bedeckungskarte ohne Überlappungen)', eff: 'E = effektive Fläche (nicht als genau markiert)', geplant: 'P = geplante Fläche aus dem Auftrag' };
+const EFF_MARK = '<span class="genaum" title="effektive Fläche, als genau markiert"> ✓</span>', E_MARK = '<span class="effm" title="effektive Fläche (nicht als genau markiert)">E</span>', PLAN_MARK = '<span class="planm" title="geplante Fläche (Auftrag)">P</span>';
 const AB_COLS = [
   { id: 'datum', l: 'Datum', w: 80, v: r => abD(r.d), csv: r => r.d },
   { id: 'src', l: 'Herkunft', w: 104, v: r => AB_SRC[r.src], html: r => `<span class="absrc absrc-${r.src}" title="${r.src === 'beide' ? 'Auftrag und Arbeitsgang verbunden' + (r.link ? ' (von Hand)' : ' (automatisch)') : ''}">${r.src === 'beide' ? `Planer + JD${r.link ? ' 🔗' : ''}` : r.src === 'planer' ? 'Planer' : 'JD'}</span>` },
@@ -4233,9 +4233,9 @@ const AB_COLS = [
     html: r => r.haB != null ? `<span title="Bericht: bedeckte Fläche aus der Bedeckungskarte, ohne Überlappungen">${fmtNum(r.haB)}</span>` : '' },
   { id: 'haJ', l: 'ha Maschine', w: 88, n: 1, v: r => r.haJ != null ? fmtNum(r.haJ) : '', csv: r => r.haJ ?? '',
     html: r => r.haJ == null ? '' : `<span class="nr" title="Fläche der Maschine – nur zur Information">${fmtNum(r.haJ)}</span>` },
-  // Fläche Auftrag (v122): 1. effektiv (✓), 2. Bericht = bedeckt (B), 3. Planung (P) – nur hier markiert; diese Fläche zählt für alle Summen
-  { id: 'ha', l: 'ha Auftrag', w: 84, n: 1, v: r => r.ha != null ? fmtNum(r.ha) + ({ eff: ' ✓', bed: ' B', geplant: ' P' }[r.haQ] || '') : '', csv: r => r.ha ?? '',
-    html: r => r.ha == null ? '' : `<b title="${AB_HAQ[r.haQ]}">${fmtNum(r.ha)}</b>${{ eff: EFF_MARK, bed: BED_MARK, geplant: PLAN_MARK }[r.haQ] || ''}` },
+  // Fläche Auftrag (v123): 1. effektiv genau (✓), 2. Bericht = bedeckt (B), 3. effektiv (E), 4. Planung (P) – nur hier markiert; diese Fläche zählt für alle Summen
+  { id: 'ha', l: 'ha Auftrag', w: 84, n: 1, v: r => r.ha != null ? fmtNum(r.ha) + ({ genau: ' ✓', bed: ' B', eff: ' E', geplant: ' P' }[r.haQ] || '') : '', csv: r => r.ha ?? '',
+    html: r => r.ha == null ? '' : `<b title="${AB_HAQ[r.haQ]}">${fmtNum(r.ha)}</b>${{ genau: EFF_MARK, bed: BED_MARK, eff: E_MARK, geplant: PLAN_MARK }[r.haQ] || ''}` },
   { id: 'std', l: 'Std. Auftrag', w: 82, n: 1, v: r => r.std != null ? fmtNum(r2(r.std)) : '', csv: r => r.std != null ? r2(r.std) : '' },
   { id: 'dauer', l: 'Dauer JD', w: 76, n: 1, v: r => r.dauer != null ? hrs(r2(r.dauer)) : '', csv: r => r.dauer != null ? r2(r.dauer) : '' },
   { id: 'maschine', l: 'Maschine', w: 140, v: r => r.maschine },
@@ -4336,7 +4336,7 @@ function abPrint() {
 }
 function abCsv() {
   const rows = [['Datum', 'Herkunft', 'Auftrag-Nr', 'Beginn (JD)', 'Ende (JD)', 'Arbeit', 'Kunde', 'Feld', 'Fläche Planung ha', 'Fläche effektiv ha', 'Fläche effektiv genau', 'Fläche Bericht (bedeckt) ha', 'Fläche Maschine ha', 'Flächen-Quelle JD', 'Fläche Auftrag ha', 'Fläche Auftrag Herkunft', 'Stunden Auftrag', 'Dauer JD h', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Gesamtmenge', 'Bemerkung', 'Abgerechnet', 'Abgerechnet am', 'Auftrag-ID', 'JD-ID']];
-  abList().forEach(r => rows.push([r.d, AB_SRC[r.src], r.nr, jdbDT(r.start), jdbDT(r.end), r.arbeit, r.kunde, r.feld, r.haG ?? '', r.haE ?? '', r.genau ? 'ja' : '', r.haB ?? '', r.haJ ?? '', r.quelle || '', r.ha ?? '', { eff: 'effektiv (✓)', bed: 'Bericht bedeckt (B)', geplant: 'Planung (P)' }[r.haQ] || '', r.std != null ? r2(r.std) : '', r.dauer != null ? r2(r.dauer) : '', r.maschine, r.fahrer, r.kultur, r.produkte, r.gesamt, r.notiz, r.abr ? 'ja' : 'nein', r.am || '', r.oid, r.jid]));
+  abList().forEach(r => rows.push([r.d, AB_SRC[r.src], r.nr, jdbDT(r.start), jdbDT(r.end), r.arbeit, r.kunde, r.feld, r.haG ?? '', r.haE ?? '', r.genau ? 'ja' : '', r.haB ?? '', r.haJ ?? '', r.quelle || '', r.ha ?? '', { genau: 'effektiv genau (✓)', bed: 'Bericht bedeckt (B)', eff: 'effektiv (E)', geplant: 'Planung (P)' }[r.haQ] || '', r.std != null ? r2(r.std) : '', r.dauer != null ? r2(r.dauer) : '', r.maschine, r.fahrer, r.kultur, r.produkte, r.gesamt, r.notiz, r.abr ? 'ja' : 'nein', r.am || '', r.oid, r.jid]));
   const A = App.abr;
   download(`Abrechnung_${A.von || 'alle'}_${A.bis || ''}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }
