@@ -135,7 +135,7 @@ aside section.collapsed{padding-block:11px}
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>Applikationskarte</h1><span class="ver">v1.15 · by Andreas Indermühle</span></div>
+    <div><h1>Applikationskarte</h1><span class="ver">v1.16 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -312,9 +312,10 @@ aside section.collapsed{padding-block:11px}
     <h2>Export John Deere</h2>
     <label class="check" id="koeRow" hidden><input type="checkbox" id="cKoe" checked><span>Saatmenge als Kö/ha exportieren (× 10 000) – das Operations Center kennt keine Kö/m².</span></label>
     <button id="bExport" class="pri big">Für Operations Center (.zip)</button>
-    <button id="bExportUsb" class="big">Für USB-Stick / Data Manager (.zip mit Ordner Rx)</button>
+    <button id="bExportUsb" class="big">Für USB-Stick / Data Manager</button>
+    <label class="check" id="usbDirectRow" hidden><input type="checkbox" id="cUsbDirect" checked><span>Direkt auf den USB-Stick schreiben (Ordner Rx, ohne ZIP)</span></label>
     <div class="hint"><b>Operations Center:</b> ZIP unter <b>Dateien</b> hochladen, als Applikationskarte (Rx) importieren, Spalte <b>RATE</b> und Einheit wählen, dann per Datensynchronisation aufs Terminal.<br>
-    <b>USB-Stick:</b> ZIP direkt im Hauptverzeichnis des Sticks entpacken (es entsteht der Ordner <b>Rx</b>). Am Terminal (Gen4/G5): Menü → System → <b>Data Manager</b> → Import vom USB-Stick → Datentyp «Rx-Verschreibung». Danach in der Arbeitseinrichtung die Spalte <b>RATE</b> und die Einheit wählen.</div>
+    <b>USB-Stick:</b> <span id="usbHowZip">ZIP direkt im Hauptverzeichnis des Sticks entpacken (es entsteht der Ordner <b>Rx</b>).</span><span id="usbHowDir" hidden>Im Dialog den USB-Stick wählen – der Ordner <b>Rx</b> wird angelegt. Lässt der Browser das Hauptverzeichnis nicht zu, auf dem Stick einen Ordner «Rx» anlegen und diesen wählen.</span> Am Terminal (Gen4/G5): Menü → System → <b>Data Manager</b> → Import vom USB-Stick → Datentyp «Rx-Verschreibung». Danach in der Arbeitseinrichtung die Spalte <b>RATE</b> und die Einheit wählen.</div>
   </section>
 </aside>
 
@@ -361,7 +362,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.15";
+const VERSION = "1.16";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -950,12 +951,44 @@ function download(name, blob){
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
   document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
 }
+/* ---------- Speichern: Ort selbst wählen (Chrome/Edge am PC), sonst Download-Ordner ---------- */
+const FS_SAVE = typeof window.showSaveFilePicker === "function";
+const FS_DIR  = typeof window.showDirectoryPicker === "function";
+// Rückgabe: Beschreibung des Speicherorts, null = abgebrochen
+async function saveAs(name, makeBlob, id, desc, mime, ext){
+  if (FS_SAVE){
+    let fh;
+    try { fh = await window.showSaveFilePicker({ id, suggestedName:name, startIn:"downloads", types:[{ description:desc, accept:{ [mime]:[ext] } }] }); }
+    catch(e){ if (e.name==="AbortError") return null; console.warn(e); fh = null; }
+    if (fh){
+      const w = await fh.createWritable(); await w.write(await makeBlob()); await w.close();
+      return fh.name;
+    }
+  }
+  download(name, await makeBlob());
+  return name + " (Download-Ordner)";
+}
+// Shapefile-Teile direkt in einen Ordner schreiben (USB-Stick → Unterordner Rx)
+async function saveToFolder(files, id){
+  let dh;
+  try { dh = await window.showDirectoryPicker({ id, mode:"readwrite", startIn:"desktop" }); }
+  catch(e){ if (e.name==="AbortError") return null; throw e; }
+  const isRx = dh.name.toLowerCase()==="rx";
+  const rx = isRx ? dh : await dh.getDirectoryHandle("Rx", { create:true });
+  for (const f of files){
+    const fh = await rx.getFileHandle(f.name, { create:true });
+    const w = await fh.createWritable(); await w.write(f.data); await w.close();
+  }
+  return isRx ? dh.name : dh.name + "/Rx";
+}
 function fileBase(){
   const raw = `RX_${S.feld||"Feld"}_${S.produkt||S.arbeit}`;
   return ascii(raw).replace(/[^A-Za-z0-9_-]+/g,"_").replace(/_+/g,"_").replace(/_$/,"").slice(0,48);
 }
-$("bJsonOut").addEventListener("click", () => {
-  download(fileBase().replace(/^RX_/,"Karte_")+".json", new Blob([JSON.stringify({ app:"Applikationskarte", version:VERSION, state:S }, null, 1)], { type:"application/json" }));
+$("bJsonOut").addEventListener("click", async () => {
+  const where = await saveAs(fileBase().replace(/^RX_/,"Karte_")+".json", async () => new Blob([JSON.stringify({ app:"Applikationskarte", version:VERSION, state:S }, null, 1)], { type:"application/json" }),
+    "appkarte-json", "Applikationskarte (JSON)", "application/json", ".json");
+  if (where) toast("Gesichert: " + where);
 });
 $("bJsonIn").addEventListener("click", () => $("fJson").click());
 $("fJson").addEventListener("change", async e => {
@@ -1046,8 +1079,8 @@ $("bFieldExport").addEventListener("click", async () => {
   const base = ascii(`Grenze_${S.kunde?S.kunde+"_":""}${S.feld}`).replace(/[^A-Za-z0-9_-]+/g,"_").replace(/_+/g,"_").replace(/_$/,"").slice(0,48);
   const zip = new JSZip();
   zip.file(base+".shp", shp); zip.file(base+".shx", shx); zip.file(base+".dbf", writeDbf(fields, rows)); zip.file(base+".prj", PRJ); zip.file(base+".cpg", "ASCII");
-  download(base+".zip", await zip.generateAsync({ type:"blob" }));
-  toast(`Exportiert: ${base}.zip (${fmt(ha,2)} ha)`);
+  const where = await saveAs(base+".zip", () => zip.generateAsync({ type:"blob" }), "appkarte-grenze", "Feldgrenze (Shapefile-ZIP)", "application/zip", ".zip");
+  if (where) toast(`Exportiert: ${where} (${fmt(ha,2)} ha)`);
 });
 const PRJ = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
 async function exportRx(usb){
@@ -1060,12 +1093,29 @@ async function exportRx(usb){
   const fields = [ {name:"RATE",type:"N",len:14,dec:2}, {name:"ZONE",type:"C",len:30}, {name:"PRODUKT",type:"C",len:40}, {name:"EINHEIT",type:"C",len:10}, {name:"FLAECHE_HA",type:"N",len:12,dec:4} ];
   const rows = parts.map(p => ({ RATE:p.rate*factor, ZONE:p.name, PRODUKT:S.produkt||S.arbeit, EINHEIT:unit, FLAECHE_HA:p.ha }));
   const { shp, shx } = writeShp(parts.map(p=>({ geom:p.geom.geometry || p.geom })));
-  const base = fileBase(), zip = new JSZip(), dir = usb ? "Rx/" : "";
-  zip.file(dir+base+".shp", shp); zip.file(dir+base+".shx", shx); zip.file(dir+base+".dbf", writeDbf(fields, rows)); zip.file(dir+base+".prj", PRJ); zip.file(dir+base+".cpg", "ASCII");
+  const base = fileBase(), dbf = writeDbf(fields, rows);
+  const files = [ { name:base+".shp", data:shp }, { name:base+".shx", data:shx }, { name:base+".dbf", data:dbf }, { name:base+".prj", data:PRJ }, { name:base+".cpg", data:"ASCII" } ];
+  // USB direkt in den Ordner Rx schreiben (ohne ZIP), wo der Browser das kann
+  if (usb && FS_DIR && $("cUsbDirect").checked){
+    try {
+      const where = await saveToFolder(files, "appkarte-usb");
+      if (where) toast(`Gespeichert in ${where}: ${base}.shp/.shx/.dbf/.prj`);
+      return;
+    } catch(e){
+      console.warn(e);
+      toast("In diesen Ordner darf nicht geschrieben werden. Auf dem USB-Stick einen Ordner «Rx» anlegen und diesen wählen.");
+      return;
+    }
+  }
+  const zip = new JSZip(), dir = usb ? "Rx/" : "";
+  files.forEach(f => zip.file(dir+f.name, f.data));
   const name = base + (usb ? "_USB" : "") + ".zip";
-  download(name, await zip.generateAsync({ type:"blob" }));
-  toast(usb ? `Exportiert: ${name} – im Hauptverzeichnis des USB-Sticks entpacken (Ordner Rx)` : `Exportiert: ${name} (${parts.length} Zonen)`);
+  const where = await saveAs(name, () => zip.generateAsync({ type:"blob" }), usb ? "appkarte-usbzip" : "appkarte-oc", "Applikationskarte (Shapefile-ZIP)", "application/zip", ".zip");
+  if (where) toast(usb ? `Exportiert: ${where} – im Hauptverzeichnis des USB-Sticks entpacken (Ordner Rx)` : `Exportiert: ${where} (${parts.length} Zonen)`);
 }
+$("usbDirectRow").hidden = !FS_DIR;
+const usbHow = () => { const d = FS_DIR && $("cUsbDirect").checked; $("usbHowDir").hidden = !d; $("usbHowZip").hidden = d; };
+$("cUsbDirect").addEventListener("change", usbHow); usbHow();
 $("bExport").addEventListener("click", () => exportRx(false));
 $("bExportUsb").addEventListener("click", () => exportRx(true));
 
