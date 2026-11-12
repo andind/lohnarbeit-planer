@@ -1,7 +1,7 @@
-/* Applikationskarte – Service Worker v1.13
+/* Applikationskarte – Service Worker v1.14
    Programm und Bibliotheken werden für den Offline-Start zwischengespeichert.
    Karten, Parzellen, Satelliten- und AV-Daten kommen immer frisch aus dem Netz. */
-const CACHE = "appkarte-v1.13b";
+const CACHE = "appkarte-v1.14";
 const APP = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 const LIBS = [
   "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",

@@ -132,7 +132,7 @@ aside section.collapsed{padding-block:11px}
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>Applikationskarte</h1><span class="ver">v1.13 · by Andreas Indermühle</span></div>
+    <div><h1>Applikationskarte</h1><span class="ver">v1.14 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -307,8 +307,10 @@ aside section.collapsed{padding-block:11px}
   <section class="rx-only">
     <h2>Export John Deere</h2>
     <label class="check" id="koeRow" hidden><input type="checkbox" id="cKoe" checked><span>Saatmenge als Kö/ha exportieren (× 10 000) – das Operations Center kennt keine Kö/m².</span></label>
-    <button id="bExport" class="pri big">Shapefile exportieren (.zip)</button>
-    <div class="hint">ZIP im Operations Center unter <b>Dateien</b> hochladen, als Applikationskarte (Rx) importieren, Spalte <b>RATE</b> und die passende Einheit wählen, dann per Datensynchronisation oder USB aufs Terminal.</div>
+    <button id="bExport" class="pri big">Für Operations Center (.zip)</button>
+    <button id="bExportUsb" class="big">Für USB-Stick / Data Manager (.zip mit Ordner Rx)</button>
+    <div class="hint"><b>Operations Center:</b> ZIP unter <b>Dateien</b> hochladen, als Applikationskarte (Rx) importieren, Spalte <b>RATE</b> und Einheit wählen, dann per Datensynchronisation aufs Terminal.<br>
+    <b>USB-Stick:</b> ZIP direkt im Hauptverzeichnis des Sticks entpacken (es entsteht der Ordner <b>Rx</b>). Am Terminal (Gen4/G5): Menü → System → <b>Data Manager</b> → Import vom USB-Stick → Datentyp «Rx-Verschreibung». Danach in der Arbeitseinrichtung die Spalte <b>RATE</b> und die Einheit wählen.</div>
   </section>
 </aside>
 
@@ -355,7 +357,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.13";
+const VERSION = "1.14";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -1044,7 +1046,7 @@ $("bFieldExport").addEventListener("click", async () => {
   toast(`Exportiert: ${base}.zip (${fmt(ha,2)} ha)`);
 });
 const PRJ = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
-$("bExport").addEventListener("click", async () => {
+async function exportRx(usb){
   stopEdit();
   const c = lastCalc || compute();
   const parts = (c.base?[c.base]:[]).concat(c.zones).filter(p=>p.geom && p.ha>0);
@@ -1054,11 +1056,14 @@ $("bExport").addEventListener("click", async () => {
   const fields = [ {name:"RATE",type:"N",len:14,dec:2}, {name:"ZONE",type:"C",len:30}, {name:"PRODUKT",type:"C",len:40}, {name:"EINHEIT",type:"C",len:10}, {name:"FLAECHE_HA",type:"N",len:12,dec:4} ];
   const rows = parts.map(p => ({ RATE:p.rate*factor, ZONE:p.name, PRODUKT:S.produkt||S.arbeit, EINHEIT:unit, FLAECHE_HA:p.ha }));
   const { shp, shx } = writeShp(parts.map(p=>({ geom:p.geom.geometry || p.geom })));
-  const base = fileBase(), zip = new JSZip();
-  zip.file(base+".shp", shp); zip.file(base+".shx", shx); zip.file(base+".dbf", writeDbf(fields, rows)); zip.file(base+".prj", PRJ); zip.file(base+".cpg", "ASCII");
-  download(base+".zip", await zip.generateAsync({ type:"blob" }));
-  toast(`Exportiert: ${base}.zip (${parts.length} Zonen)`);
-});
+  const base = fileBase(), zip = new JSZip(), dir = usb ? "Rx/" : "";
+  zip.file(dir+base+".shp", shp); zip.file(dir+base+".shx", shx); zip.file(dir+base+".dbf", writeDbf(fields, rows)); zip.file(dir+base+".prj", PRJ); zip.file(dir+base+".cpg", "ASCII");
+  const name = base + (usb ? "_USB" : "") + ".zip";
+  download(name, await zip.generateAsync({ type:"blob" }));
+  toast(usb ? `Exportiert: ${name} – im Hauptverzeichnis des USB-Sticks entpacken (Ordner Rx)` : `Exportiert: ${name} (${parts.length} Zonen)`);
+}
+$("bExport").addEventListener("click", () => exportRx(false));
+$("bExportUsb").addEventListener("click", () => exportRx(true));
 
 /* ---------- Ortssuche (geo.admin.ch) ---------- */
 let sT;
