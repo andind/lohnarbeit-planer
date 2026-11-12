@@ -6,7 +6,7 @@
    Dazu: tägliche Datensicherung der IM-Verwalter-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '53', STAND = '12.11.2026'; // v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
+const VERSION = '54', STAND = '12.11.2026'; // v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -302,6 +302,9 @@ function machinesOf(op, extra) {
   return [...new Set(names)];
 }
 /* --- ZIP, Shapefile, dBase (ohne Zusatzpakete) --- */
+// Meter pro Grad auf dem WGS84-Ellipsoid (wie GPS und Display) – die Kugel (EARTH_R) macht Ost-West-Abstände bei 47° um ~0.3 % zu kurz
+function geoK(lat) { const a = 6378137, e2 = 0.00669437999014, s2 = Math.sin(lat * RAD) ** 2, w = Math.sqrt(1 - e2 * s2);
+  return { kx: RAD * a / w * Math.cos(lat * RAD), ky: RAD * a * (1 - e2) / (w * w * w) }; }
 function unzip(buf) {
   const zlib = require('zlib'), out = {};
   let eocd = -1; for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
@@ -378,7 +381,7 @@ function coverageCalc(zipBuf) {
   if (polysGeo.length) {
     let polys = polysGeo, inv = null;
     if (geo) {
-      const pts = polysGeo.flat(2), lat0 = pts.reduce((s, q) => s + q[1], 0) / pts.length, lon0 = pts.reduce((s, q) => s + q[0], 0) / pts.length, kx = RAD * EARTH_R * Math.cos(lat0 * RAD), ky = RAD * EARTH_R;
+      const pts = polysGeo.flat(2), lat0 = pts.reduce((s, q) => s + q[1], 0) / pts.length, lon0 = pts.reduce((s, q) => s + q[0], 0) / pts.length, { kx, ky } = geoK(lat0);
       polys = polysGeo.map(pl => pl.map(r => r.map(q => [(q[0] - lon0) * kx, (q[1] - lat0) * ky]))); inv = { lon0, lat0, kx, ky };
     }
     return covResult(unionGrid(polys, 0.1), inv); // projizierte Shapefiles: Fläche ja, Grenze nur mit Längen/Breiten
@@ -484,7 +487,7 @@ function pointsGrid(recs, dbfBuf) {
   }
   if (!k) return null;
   let sx = 0, sy = 0; for (let i = 0; i < k; i++) { sx += X[i]; sy += Y[i]; }
-  const lon0 = sx / k, lat0 = sy / k, kx = RAD * EARTH_R * Math.cos(lat0 * RAD), ky = RAD * EARTH_R;
+  const lon0 = sx / k, lat0 = sy / k, { kx, ky } = geoK(lat0);
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, used = 0;
   const ok = new Uint8Array(k);
   for (let i = 0; i < k; i++) {
@@ -613,7 +616,7 @@ async function coverageRequest(o) {
 }
 const COV_RETRY_MS = 14 * 864e5; // Arbeitsgänge ohne Karte erst nach 14 Tagen erneut fragen
 // COV_G: Stand der Berechnung – Karten aus älteren Versionen (ohne virtuelle Feldgrenze) werden einmal neu geholt
-const COV_G = 2;
+const COV_G = 3; // 3 = v54 (Ellipsoid) – Flächen werden einmal neu berechnet
 const covDone = o => o.cov && o.cov.mod === o.modified && (o.cov.ha ? o.cov.g === COV_G : (o.cov.at && Date.now() - Date.parse(o.cov.at) < COV_RETRY_MS));
 // virtuelle Feldgrenzen (aus der Bedeckungskarte) getrennt gespeichert und als eigene Datei in die Dropbox – hält jd-arbeiten.json klein
 let grenzen = load('bedeckung-grenzen.json', {});
