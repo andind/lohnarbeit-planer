@@ -6,7 +6,7 @@
    Dazu: tägliche Datensicherung der IM-Verwalter-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '55', STAND = '12.11.2026'; // v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
+const VERSION = '56', STAND = '12.11.2026'; // v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -395,15 +395,23 @@ function covResult(G, inv) {
   if (!G || !G.filled) return null;
   const a = G.filled * G.cell * G.cell / 10000, ha = a > 0 ? Math.round(a * 10000) / 10000 : null;
   if (!ha) return null;
-  let grz = null; const P = inv || (G.kx ? G : null);
-  if (P) { try { grz = gridBoundary(G, P); } catch (e) { log('Virtuelle Feldgrenze: ' + e.message); } }
-  return { ha, grz };
+  let grz = null, ha2 = ha, luecken = 0; const P = inv || (G.kx ? G : null);
+  try {
+    const M = boundaryMask(G);
+    if (M) {
+      // unbearbeitete Stellen unter 10 m² innerhalb der virtuellen Feldgrenze zählen als bearbeitet (Wunsch Andreas, v56)
+      luecken = fillSmallGaps(G, M, 10);
+      if (luecken) { const a2 = G.filled * G.cell * G.cell / 10000; ha2 = Math.round(a2 * 10000) / 10000; }
+      if (P) grz = gridBoundary(G, P, M);
+    }
+  } catch (e) { log('Virtuelle Feldgrenze: ' + e.message); }
+  return { ha: ha2, grz, luecken: Math.round(luecken * G.cell * G.cell) };
 }
 /* Virtuelle Feldgrenze aus dem Bedeckungsraster:
    1. auf ein Raster von ca. 1 m vergröbern (Zelle belegt, wenn darin etwas bearbeitet wurde) – schmale Lücken zwischen den Spuren verschwinden
    2. einmal schliessen (ausdehnen + schrumpfen um 1 Zelle) und Löcher unter 50 m² füllen
    3. Umriss verfolgen, vereinfachen (Toleranz 0.5 m), Teile unter 20 m² weglassen → MultiPolygon in Längen/Breitengraden (GeoJSON-Reihenfolge) */
-function gridBoundary(G, P) {
+function boundaryMask(G) {
   const f = Math.max(2, Math.round(1 / G.cell)), cs = G.cell * f, nx = Math.ceil(G.nx / f) + 2, ny = Math.ceil(G.ny / f) + 2;
   if (nx * ny > 4e6) return null;
   // grobe Zelle gilt als bearbeitet, wenn mindestens die Hälfte der feinen Zellen bedeckt ist (sonst wird der Rand ~½ Zelle zu weit, v55)
@@ -421,6 +429,32 @@ function gridBoundary(G, P) {
       for (const j of [i - 1, i + 1, i - nx, i + nx]) if (j >= 0 && j < nx * ny && !b[j] && !seen[j] && Math.abs((j % nx) - c) <= 1) { seen[j] = 1; stack.push(j); } }
     if (!edge && comp.length <= maxHole) for (const i of comp) b[i] = 1;
   }
+  return { b, f, cs, nx, ny };
+}
+/* Kleine Lücken im feinen Raster füllen: zusammenhängende unbearbeitete Stellen, die ganz innerhalb der virtuellen Feldgrenze liegen
+   (keine Zelle ausserhalb der Grenze oder am Rand) und kleiner als maxM2 sind, gelten als bearbeitet. Gibt die Anzahl gefüllter Zellen zurück. */
+function fillSmallGaps(G, M, maxM2) {
+  const { b, f, nx: bnx } = M, N = G.nx * G.ny, grid = G.grid, maxCells = Math.floor(maxM2 / (G.cell * G.cell));
+  const inside = (r, c) => b[(Math.floor(r / f) + 1) * bnx + Math.floor(c / f) + 1] === 1;
+  const seen = new Uint8Array(N), stack = new Int32Array(N), comp = new Int32Array(maxCells + 1); let added = 0;
+  for (let s0 = 0; s0 < N; s0++) {
+    if (grid[s0] || seen[s0]) continue;
+    let sp = 0, n = 0, out = false; stack[sp++] = s0; seen[s0] = 1;
+    while (sp) {
+      const i = stack[--sp], r = (i / G.nx) | 0, c = i - r * G.nx;
+      if (n <= maxCells) comp[n] = i; n++;
+      if (!out && (r === 0 || c === 0 || r === G.ny - 1 || c === G.nx - 1 || !inside(r, c))) out = true;
+      if (c > 0 && !grid[i - 1] && !seen[i - 1]) { seen[i - 1] = 1; stack[sp++] = i - 1; }
+      if (c < G.nx - 1 && !grid[i + 1] && !seen[i + 1]) { seen[i + 1] = 1; stack[sp++] = i + 1; }
+      if (r > 0 && !grid[i - G.nx] && !seen[i - G.nx]) { seen[i - G.nx] = 1; stack[sp++] = i - G.nx; }
+      if (r < G.ny - 1 && !grid[i + G.nx] && !seen[i + G.nx]) { seen[i + G.nx] = 1; stack[sp++] = i + G.nx; }
+    }
+    if (!out && n <= maxCells) { for (let q = 0; q < n; q++) grid[comp[q]] = 1; added += n; }
+  }
+  G.filled += added; return added;
+}
+function gridBoundary(G, P, M) {
+  const { b, f, cs, nx, ny } = M;
   // Umriss: gerichtete Kanten (belegte Zelle links), zu Ringen verbinden
   const nxt = new Map(), key = (x, y) => y * (nx + 1) + x;
   const add = (x1, y1, x2, y2) => { const k = key(x1, y1); const l = nxt.get(k); if (l) l.push(key(x2, y2)); else nxt.set(k, [key(x2, y2)]); };
@@ -618,7 +652,7 @@ async function coverageRequest(o) {
 }
 const COV_RETRY_MS = 14 * 864e5; // Arbeitsgänge ohne Karte erst nach 14 Tagen erneut fragen
 // COV_G: Stand der Berechnung – Karten aus älteren Versionen (ohne virtuelle Feldgrenze) werden einmal neu geholt
-const COV_G = 4; // 3 = v54 (Ellipsoid), 4 = v55 (Grenze genauer) – Karten werden einmal neu berechnet
+const COV_G = 5; // 3 = v54 (Ellipsoid), 4 = v55 (Grenze genauer), 5 = v56 (kleine Lücken) – Karten werden einmal neu berechnet
 const covDone = o => o.cov && o.cov.mod === o.modified && (o.cov.ha ? o.cov.g === COV_G : (o.cov.at && Date.now() - Date.parse(o.cov.at) < COV_RETRY_MS));
 // virtuelle Feldgrenzen (aus der Bedeckungskarte) getrennt gespeichert und als eigene Datei in die Dropbox – hält jd-arbeiten.json klein
 let grenzen = load('bedeckung-grenzen.json', {});
