@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '125', APP_STAND = '12.11.2026';
+const APP_VERSION = '126', APP_STAND = '13.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -4212,7 +4212,10 @@ function abMarkSel(on) {
 function abSelBar(list) {
   const S = App.abrSel || (App.abrSel = new Set()), ids = new Set(list.map(r => r.id)); [...S].forEach(id => { if (!ids.has(id)) S.delete(id); });
   if (!S.size) return `<p class="nr" style="margin:0 0 8px">Einträge links ankreuzen, um mehrere gleichzeitig als abgerechnet zu markieren (Aufträge werden «verrechnet»). Spalten: Kopf ziehen = verschieben, Rand ziehen = Breite.</p>`;
-  return `<div class="panel alselbar"><b>${S.size} ausgewählt</b>
+  // Zwischensumme der ausgewählten Einträge (v126): Fläche «ha Auftrag» wie in den Summen, dazu Aufteilung nach Herkunft ✓/B/E/P
+  const sl = list.filter(r => S.has(r.id)), q = {}; sl.forEach(r => { if (r.ha != null) q[r.haQ] = r2((q[r.haQ] || 0) + r.ha); });
+  const qTxt = [['genau', '✓'], ['bed', 'B'], ['eff', 'E'], ['geplant', 'P']].filter(([k]) => q[k]).map(([k, m]) => `${m} ${fmtNum(q[k])}`).join(' · ');
+  return `<div class="panel alselbar"><b>${S.size} ausgewählt · ${fmtNum(abHaSum(sl))} ha</b>${qTxt ? ` <span class="nr">(${qTxt})</span>` : ''}
     <button type="button" class="btn mini primary" data-ab="mark" data-v="1">✓ Als abgerechnet markieren</button>
     <button type="button" class="btn mini" data-ab="mark" data-v="0">Wieder offen</button>
     ${S.size < list.length ? `<button type="button" class="btn mini" data-ab="selAllList">Alle ${list.length} auswählen</button>` : ''}
