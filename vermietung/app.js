@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.3', APP_STAND = '13.11.2026';
+const APP_VERSION = '1.4', APP_STAND = '13.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -251,16 +251,16 @@ function sumUp(list) { // stornierte Einsätze zählen nicht
 const qtyTxt = s => [s.ha ? fmtQty(s.ha) + ' ha' : '', s.h ? fmtQty(s.h) + ' h' : ''].filter(Boolean).join(' · ') || '–';
 
 /* ---------- Filter (Zeitraum, Kunde, Maschine, Status, Suche) ---------- */
-function defFilter() { return { von: '', bis: '', kunde: '', maschine: '', status: '', q: '' }; }
-function applyFilter(list, f, mitStorno = false) { // stornierte nur in der Einsatzliste (oder mit Filter «Storniert»)
+function defFilter() { return { von: '', bis: '', kunde: '', maschine: '', status: '', q: '', storno: false }; }
+function applyFilter(list, f) { // stornierte nur mit Haken «Stornierte anzeigen» (f.storno) oder Filter «Storniert»
   const q = fold(f.q);
   return list.filter(e => (!f.von || (e.datum && e.datum >= f.von)) && (!f.bis || (e.datum && e.datum <= f.bis)) &&
     (!f.kunde || e.kunde === f.kunde) && (!f.maschine || e.maschine === f.maschine) &&
-    (f.status ? statusOf(e) === f.status : (mitStorno || !isStorno(e))) &&
+    ((f.storno && isStorno(e)) || (f.status ? statusOf(e) === f.status : !isStorno(e))) &&
     (!q || fold([e.datum, fmtDate(e.datum), kName(e.kunde), kNr(e.kunde), masch(e.maschine)?.name, masch(e.maschine)?.artNr, e.bem, e.quelle].join(' ')).includes(q)));
 }
 function yearsOf() { const s = new Set(Store.all('einsaetze').map(e => (e.datum || '').slice(0, 4)).filter(Boolean)); s.add(String(new Date().getFullYear())); return [...s].sort().reverse(); }
-function filterBar(key, { status = true, kunde = true, maschine = true, search = true } = {}) {
+function filterBar(key, { status = true, kunde = true, maschine = true, search = true, storno = false } = {}) {
   const f = App.f[key], yr = (f.von && f.bis && f.von.slice(5) === '01-01' && f.bis.slice(5) === '12-31' && f.von.slice(0, 4) === f.bis.slice(0, 4)) ? f.von.slice(0, 4) : (f.von || f.bis ? 'eig' : '');
   return `<div class="filters">
     <select class="input" data-in="fYear" data-k="${key}" title="Zeitraum"><option value="">Alle Jahre</option>${yearsOf().map(y => `<option ${yr === y ? 'selected' : ''}>${y}</option>`).join('')}<option value="eig" ${yr === 'eig' ? 'selected' : ''}>Zeitraum wählen…</option></select>
@@ -269,6 +269,7 @@ function filterBar(key, { status = true, kunde = true, maschine = true, search =
     ${maschine ? `<select class="input" data-in="fMasch" data-k="${key}" style="max-width:240px"><option value="">Alle Maschinen</option>${maschSorted().map(m => `<option value="${m.id}" ${f.maschine === m.id ? 'selected' : ''}>${esc(mLabel(m))}</option>`).join('')}</select>` : ''}
     ${status ? `<select class="input" data-in="fStatus" data-k="${key}"><option value="">Alle</option><option value="offen" ${f.status === 'offen' ? 'selected' : ''}>Offen</option><option value="abgerechnet" ${f.status === 'abgerechnet' ? 'selected' : ''}>Abgerechnet</option><option value="storniert" ${f.status === 'storniert' ? 'selected' : ''}>Storniert</option></select>` : ''}
     ${search ? `<input class="input search" type="search" placeholder="Suchen…" value="${esc(f.q)}" data-in="fQ" data-k="${key}">` : ''}
+    ${storno ? `<label class="tog"><input type="checkbox" data-in="fStorno" data-k="${key}" ${f.storno ? 'checked' : ''}> Stornierte anzeigen</label>` : ''}
     ${(f.von || f.bis || f.kunde || f.maschine || (status && f.status && !(key === 'abr' && f.status === 'offen')) || f.q) ? `<button class="btn small" data-act="fReset" data-k="${key}">Filter löschen</button>` : ''}
   </div>`;
 }
@@ -278,7 +279,7 @@ const App = {
   view: 'einsaetze',
   f: {}, sel: new Set(), sort: { key: 'datum', dir: -1 },
   sub: { ausw: 'maschinen', stamm: 'kunden' },
-  abr: { sel: [] }, // Abrechnung: anfangs kein Kunde angekreuzt
+  abr: { rows: new Set() }, // Abrechnung: ausgewählte Zeilen (anfangs keine)
   imp: null, // Prüfliste des laufenden Imports
   busy() { return $('#dlg').open; },
   init() {
@@ -299,6 +300,7 @@ const App = {
     const { tb, html } = V();
     $('#toolbar').innerHTML = tb; $('#content').innerHTML = html;
     if (sc && $('.dscroll')) $('.dscroll').scrollTop = sc;
+    $$('[data-ind]').forEach(x => { x.indeterminate = true; });
     selBar();
   }
 };
@@ -308,7 +310,7 @@ function einsatzList() {
   const f = App.f.einsaetze, s = App.sort;
   const key = { datum: e => e.datum || '', kunde: e => kName(e.kunde), nr: e => +kNr(e.kunde) || 0, art: e => +masch(e.maschine)?.artNr || 0, maschine: e => masch(e.maschine)?.name || '',
     menge: e => e.menge || 0, betrag: e => betragOf(e) ?? -1, quelle: e => e.quelle || '', status: e => e.status || '' }[s.key] || (e => e.datum || '');
-  return applyFilter(Store.all('einsaetze'), f, true).sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * s.dir || (b.datum || '').localeCompare(a.datum || ''); });
+  return applyFilter(Store.all('einsaetze'), f).sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * s.dir || (b.datum || '').localeCompare(a.datum || ''); });
 }
 function viewEinsaetze() {
   const list = einsatzList(), s = sumUp(list), S = App.sort;
@@ -325,7 +327,7 @@ function viewEinsaetze() {
   }).join('');
   return {
     tb: `<h1>Einsätze</h1><button class="btn" data-act="exportEinsaetze">⬇ Excel</button><button class="btn primary" data-act="newEinsatz">＋ Einsatz</button>`,
-    html: filterBar('einsaetze') + (list.length ? `<div class="mlist">${list.slice(0, App.mMore || 150).map(e => { const m = masch(e.maschine); return `<div class="mcard ${App.sel.has(e.id) ? 'sel' : ''} ${isDone(e) ? 'done' : ''} ${isStorno(e) ? 'storno' : ''}" data-act="editEinsatz" data-id="${e.id}">
+    html: filterBar('einsaetze', { storno: true }) + (list.length ? `<div class="mlist">${list.slice(0, App.mMore || 150).map(e => { const m = masch(e.maschine); return `<div class="mcard ${App.sel.has(e.id) ? 'sel' : ''} ${isDone(e) ? 'done' : ''} ${isStorno(e) ? 'storno' : ''}" data-act="editEinsatz" data-id="${e.id}">
         <label class="cb"><input type="checkbox" data-act="selOne" data-id="${e.id}" ${App.sel.has(e.id) ? 'checked' : ''}></label>
         <div class="grow"><div class="t">${esc(kName(e.kunde))} <span class="nr">${esc(kNr(e.kunde) || 'neu')}</span></div><div class="s">${e.datum ? fmtDate(e.datum) : 'ohne Datum'} · ${esc(m?.name || '?')}${e.bem ? ' · ' + esc(e.bem) : ''}</div></div>
         <div class="q">${fmtQty(e.menge)} ${esc(einhOf(e))}${isOffen(e) ? '' : '<div>' + statusChip(e) + '</div>'}</div></div>`; }).join('')}
@@ -634,17 +636,19 @@ function parseDatum(v) {
 }
 // Prüfung einer Importzeile: schon vorhanden? (gleicher Kunde, gleiche Maschine, gleiches Datum)
 function impCheck(r, i, rows) {
-  r.status = 'neu'; r.dupInfo = '';
+  r.status = 'neu'; r.dupInfo = ''; r.dupId = '';
   const E = Store.all('einsaetze');
-  if (r.sig && E.some(e => e.orig?.sig === r.sig)) { r.status = 'dup'; r.dupInfo = 'bereits importiert'; return; }
+  const sigHit = r.sig && E.find(e => e.orig?.sig === r.sig);
+  if (sigHit) { r.status = 'dup'; r.dupInfo = 'bereits importiert'; r.dupId = sigHit.id; return; }
   if (!r.kId || r.kId === '__new') return;
   if (!r.mId) { // Maschine noch nicht zugeordnet: gleicher Kunde, gleiches Datum, gleiche Menge?
     const hit = E.find(e => e.kunde === r.kId && (e.datum || '') === (r.datum || '') && r.menge != null && Math.abs((e.menge || 0) - r.menge) < 0.005);
-    if (hit) { r.status = 'dup'; r.dupInfo = `gleicher Einsatz vorhanden (${masch(hit.maschine)?.name || '?'})`; }
+    if (hit) { r.status = 'dup'; r.dupInfo = `gleicher Einsatz vorhanden (${masch(hit.maschine)?.name || '?'})`; r.dupId = hit.id; }
     return;
   }
   const same = E.filter(e => e.kunde === r.kId && e.maschine === r.mId && (e.datum || '') === (r.datum || ''));
-  if (same.some(e => r.menge != null && Math.abs((e.menge || 0) - r.menge) < 0.005)) { r.status = 'dup'; r.dupInfo = 'gleicher Einsatz vorhanden'; return; }
+  const hit2 = same.find(e => r.menge != null && Math.abs((e.menge || 0) - r.menge) < 0.005);
+  if (hit2) { r.status = 'dup'; r.dupInfo = 'gleicher Einsatz vorhanden'; r.dupId = hit2.id; return; }
   if (same.length) { r.status = 'aehnlich'; r.dupInfo = `am gleichen Tag schon ${same.map(e => fmtQty(e.menge) + ' ' + einhOf(e)).join(', ')} erfasst`; return; }
   if (rows.slice(0, i).some(o => o.kId === r.kId && o.mId === r.mId && o.datum === r.datum && o.menge === r.menge)) { r.status = 'dup'; r.dupInfo = 'doppelt in dieser Datei'; }
 }
@@ -654,43 +658,48 @@ function impRow(o) {
   const mm = masch(m.id), pm = parseMenge(o.menge, o.einheit || mm?.einheit || 'ha');
   const notes = [o.note, pm.note].filter(Boolean);
   return { kText: o.kText || '', kId: k.id || (o.kText ? '__new' : ''), kQ: k.q, newName: o.kText || '', mText: o.mText || '', mId: m.id, mQ: m.q,
-    datum: o.datum || '', menge: pm.menge, einheit: pm.einheit, bem: o.bem || '', raw: o.raw ?? o.menge ?? '', sig: o.sig || '', unsicher: !!o.unsicher, note: notes.join('; '), page: o.page ?? null, sel: true };
+    datum: o.datum || '', menge: pm.menge, einheit: pm.einheit, bem: o.bem || '', raw: o.raw ?? o.menge ?? '', sig: o.sig || '', unsicher: !!o.unsicher, note: notes.join('; '), page: o.page ?? null, abg: !!o.abg, sel: true };
 }
 function impStart(src, file, objs) {
   const rows = objs.map(impRow);
   rows.forEach((r, i) => { impCheck(r, i, rows); if (r.status === 'dup') r.sel = false; if (r.status === 'aehnlich') r.sel = false; });
-  App.imp = { src, file, am: todayIso(), rows }; lsJson('mv_imp', App.imp);
+  App.imp = { src, file, am: todayIso(), rows, abgNeu: true, abgVorh: false }; lsJson('mv_imp', App.imp);
   App.go('import');
   const n = rows.filter(r => r.status === 'dup').length;
   toast(`${rows.length} Zeilen gelesen${n ? `, ${n} schon vorhanden` : ''}`, 4000);
 }
 
 /* ---------- Online-Formular: Excel-Datei einlesen, Spalten zuordnen ---------- */
-const FORM_FIELDS = [['kunde', 'Kunde / Name'], ['maschine', 'Maschine'], ['datum', 'Datum des Einsatzes'], ['menge', 'Menge'], ['bem', 'Bemerkung'], ['id', 'Antwort-ID (optional)']];
+const FORM_FIELDS = [['kunde', 'Kunde / Name Mieter'], ['maschine', 'Maschine'], ['datum', 'Datum des Einsatzes'], ['menge', 'Menge (Fläche oder Stunden)'], ['bem', 'Bemerkung'], ['abg', 'Abgerechnet (optional)'], ['id', 'Antwort-ID (optional)']];
+const truthy = v => /^(1|true|wahr|ja|yes|x|✓)$/i.test(String(v ?? '').trim());
+// Excel-Export des Online-Formulars (Microsoft Forms) direkt einlesen; Spalten werden erkannt, sonst Zuordnungsdialog
 async function impForm(file) {
   let rows;
   try { rows = /\.csv$/i.test(file.name) ? readCsv(await file.text()) : await readXlsx(await file.arrayBuffer(), /form|antwort|response/i); } catch (e) { toast('Datei nicht lesbar: ' + e.message, 6000); return; }
   rows = rows.filter(r => r.some(c => String(c ?? '').trim()));
   if (!rows.length) { toast('Die Datei ist leer'); return; }
   const w = Math.max(...rows.map(r => r.length));
-  const kw = /name|kunde|maschine|datum|menge|bemerk|zeit|id|e-mail|fläche|stunden/i;
+  const kw = /name|kunde|mieter|maschine|datum|menge|bemerk|zeit|id|e-mail|fläche|stunden/i;
   const hasHead = rows[0].filter(c => String(c).trim() && num(c) == null && kw.test(String(c))).length >= 2;
-  const head = hasHead ? rows[0].map(String) : [], data = hasHead ? rows.slice(1) : rows;
-  const colName = i => `Spalte ${xCol(i)}${head[i] ? ': ' + head[i] : ''}`;
-  // Zuordnung erraten: zuerst Überschriften, sonst Inhalt der Spalten
-  const map = {}, used = new Set(), sample = i => data.slice(0, 60).map(r => r[i]).filter(v => String(v ?? '').trim());
-  const byHead = (re, not) => { const i = head.findIndex((h, j) => !used.has(j) && re.test(h) && !(not && not.test(h))); return i; };
+  const head = hasHead ? rows[0].map(x => String(x).replace(/ /g, ' ').trim()) : [], data = hasHead ? rows.slice(1) : rows;
+  const map = {}, used = new Set(), sample = i => data.slice(0, 80).map(r => r[i]).filter(v => String(v ?? '').trim());
+  const filled = i => i >= 0 && sample(i).length >= Math.min(3, data.length) * 0.5;
+  const byHead = (re, not, need = true) => head.findIndex((h, j) => !used.has(j) && re.test(h) && !(not && not.test(h)) && (!need || filled(j)));
   const take = (f, i) => { if (i >= 0 && !used.has(i)) { map[f] = i; used.add(i); } };
-  const saved = (Store.cfg().formMap || {})[head.join('|')];
-  if (saved) Object.assign(map, saved), Object.values(saved).forEach(i => used.add(i));
+  const saved = head.length ? (Store.cfg().formMap || {})[head.join('|')] : null;
+  let sicher = !!saved;
+  if (saved) { Object.assign(map, saved); Object.values(saved).forEach(i => used.add(i)); }
   else {
     if (head.length) {
-      take('id', head.findIndex(h => /^id$/i.test(h.trim())));
+      take('id', head.findIndex(h => /^id$/i.test(h)));
+      take('abg', byHead(/abgerechnet|verrechnet|bezahlt|erledigt/i, null, false));
       take('maschine', byHead(/maschine|gerät|geraet/i));
-      take('datum', byHead(/datum|einsatztag|wann/i, /start|fertig|änderung|aenderung|abschluss/i));
+      take('datum', byHead(/mietdatum|datum|einsatztag|wann/i, /start|fertig|änderung|aenderung|abschluss/i));
       take('menge', byHead(/menge|fläche|flaeche|hektar|\bha\b|stunden|anzahl/i));
-      take('bem', byHead(/bemerk|notiz|kommentar|mitteilung/i));
-      take('kunde', byHead(/kunde|name|betrieb/i, /e-?mail|maschine/i));
+      take('bem', byHead(/bemerk|notiz|kommentar|mitteilung/i, null, false));
+      take('kunde', byHead(/mieter|kunde/i, /e-?mail|maschine/i));
+      take('kunde', byHead(/name|betrieb/i, /e-?mail|maschine/i));
+      sicher = ['kunde', 'maschine', 'menge', 'datum'].every(f => map[f] != null);
     }
     const score = (i, fn) => { const s = sample(i); return s.length ? s.filter(fn).length / s.length : 0; };
     const free = () => Array.from({ length: w }, (_, i) => i).filter(i => !used.has(i));
@@ -701,9 +710,15 @@ async function impForm(file) {
     if (map.kunde == null) { const [i, s] = best(v => num(v) == null && /[a-zäöü]{2,}/i.test(String(v)) && !/^(true|false|wahr|falsch)$/i.test(String(v))); if (s >= 0.5) take('kunde', i); }
     if (map.bem == null) { const [i, s] = best(v => num(v) == null && String(v).length > 2 && !/^(true|false|wahr|falsch)$/i.test(String(v))); if (s > 0) take('bem', i); }
   }
+  App.formRaw = { name: file.name, head, data, w, map };
+  if (sicher) formBuild(map); else formMapDialog();
+}
+function formMapDialog() {
+  const F = App.formRaw; if (!F) return;
+  const { head, data, w, map } = F, colName = i => `Spalte ${xCol(i)}${head[i] ? ': ' + head[i] : ''}`;
   const opts = val => `<option value="">– keine –</option>` + Array.from({ length: w }, (_, i) => `<option value="${i}" ${val === i ? 'selected' : ''}>${esc(colName(i))}</option>`).join('');
   const prev = data.slice(0, 3).map(r => `<tr>${Array.from({ length: w }, (_, i) => `<td class="small">${esc(String(r[i] ?? '').slice(0, 40))}</td>`).join('')}</tr>`).join('');
-  openDlg('Online-Formular: Spalten zuordnen', `<p class="muted small">«${esc(file.name)}» – ${data.length} Antworten. Bitte prüfen, welche Spalte was enthält. Die Zuordnung wird für die nächste Datei gemerkt.</p>
+  openDlg('Online-Formular: Spalten zuordnen', `<p class="muted small">«${esc(F.name)}» – ${data.length} Antworten. Bitte prüfen, welche Spalte was enthält. Die Zuordnung wird für die nächste Datei gemerkt.</p>
     ${FORM_FIELDS.map(([f, l]) => `<label class="fld"><span>${l}</span><select class="input" name="${f}">${opts(map[f])}</select></label>`).join('')}
     <div class="dscroll" style="max-height:200px"><table class="dtab"><thead><tr>${Array.from({ length: w }, (_, i) => `<th>${esc(xCol(i))}${head[i] ? ' ' + esc(head[i].slice(0, 20)) : ''}</th>`).join('')}</tr></thead><tbody>${prev}</tbody></table></div>`,
     `<span class="spacer"></span><button class="btn primary" value="ok">Weiter zur Prüfliste</button>`,
@@ -711,12 +726,16 @@ async function impForm(file) {
       const mp = {}; FORM_FIELDS.forEach(([f]) => { const v = fd.get(f); if (v !== '' && v != null) mp[f] = +v; });
       if (mp.kunde == null || mp.maschine == null || mp.menge == null) { toast('Kunde, Maschine und Menge zuordnen'); return false; }
       if (head.length) { const fm = Object.assign({}, Store.cfg().formMap || {}); fm[head.join('|')] = mp; Store.setCfg({ formMap: fm }); }
-      const g = (r, f) => mp[f] != null ? r[mp[f]] ?? '' : '';
-      const objs = data.map(r => ({ kText: String(g(r, 'kunde')).replace(/\s+/g, ' ').trim(), mText: String(g(r, 'maschine')).replace(/ /g, ' ').replace(/:\s*$/, '').trim(),
-        datum: parseDatum(g(r, 'datum')), menge: g(r, 'menge'), raw: g(r, 'menge'), bem: String(g(r, 'bem')).trim(),
-        sig: mp.id != null && String(g(r, 'id')).trim() ? 'F' + String(g(r, 'id')).trim() : 'F:' + fold(r.join(' ')) })).filter(o => o.kText || o.mText);
-      setTimeout(() => impStart('Formular', file.name, objs), 0);
+      setTimeout(() => formBuild(mp), 0);
     } });
+}
+function formBuild(mp) {
+  const F = App.formRaw; F.map = mp;
+  const g = (r, f) => mp[f] != null ? r[mp[f]] ?? '' : '';
+  const objs = F.data.map(r => ({ kText: String(g(r, 'kunde')).replace(/\s+/g, ' ').trim(), mText: String(g(r, 'maschine')).replace(/ /g, ' ').replace(/:\s*$/, '').trim(),
+    datum: parseDatum(g(r, 'datum')), menge: g(r, 'menge'), raw: g(r, 'menge'), bem: String(g(r, 'bem')).replace(/\s+/g, ' ').trim(), abg: mp.abg != null ? truthy(g(r, 'abg')) : false,
+    sig: mp.id != null && String(g(r, 'id')).trim() ? 'F' + String(g(r, 'id')).trim() : 'F:' + fold(r.join(' ')) })).filter(o => o.kText || o.mText);
+  impStart('Formular', F.name, objs);
 }
 
 /* ---------- Papierrapport scannen (übernommen aus dem Programm ScanListe 3) ----------
@@ -913,7 +932,7 @@ function viewPruef() {
     const bad = r.sel && (!r.kId || !r.mId || r.menge == null || (r.kId === '__new' && !r.newName.trim()));
     return `<tr class="${r.status === 'dup' ? 'off' : ''} ${bad ? 'dup' : ''}">
       <td class="cb"><input type="checkbox" data-in="impSel" data-i="${i}" ${r.sel ? 'checked' : ''}></td>
-      <td style="min-width:170px">${st}${r.unsicher ? ' <span class="chip warn">unsicher</span>' : ''}${r.page != null && pages[r.page] ? ` <button type="button" class="btn small ${App.pageSel === r.page ? 'primary' : ''}" data-act="pageSel" data-p="${r.page}" title="Seite anzeigen">📄 ${r.page + 1}</button>` : ''}${r.dupInfo ? `<div class="small muted">${esc(r.dupInfo)}</div>` : ''}${r.note ? `<div class="small muted">${esc(r.note)}</div>` : ''}</td>
+      <td style="min-width:170px">${st}${r.unsicher ? ' <span class="chip warn">unsicher</span>' : ''}${r.abg ? ' <span class="chip done" title="im Formular als abgerechnet markiert">abgerechnet</span>' : ''}${r.page != null && pages[r.page] ? ` <button type="button" class="btn small ${App.pageSel === r.page ? 'primary' : ''}" data-act="pageSel" data-p="${r.page}" title="Seite anzeigen">📄 ${r.page + 1}</button>` : ''}${r.dupInfo ? `<div class="small muted">${esc(r.dupInfo)}</div>` : ''}${r.note ? `<div class="small muted">${esc(r.note)}</div>` : ''}</td>
       <td><input class="input" type="date" value="${esc(r.datum)}" data-in="impF" data-i="${i}" data-f="datum" style="width:150px"></td>
       <td style="min-width:220px"><div class="small muted">«${esc(r.kText)}» ${kq[r.kQ] || ''}</div><select class="input" data-in="impF" data-i="${i}" data-f="kId">${kOpt}</select>
         ${r.kId === '__new' ? `<input class="input" value="${esc(r.newName)}" data-in="impF" data-i="${i}" data-f="newName" placeholder="Name Neukunde" style="margin-top:4px">` : ''}</td>
@@ -922,10 +941,13 @@ function viewPruef() {
       <td><select class="input" data-in="impF" data-i="${i}" data-f="einheit" style="min-width:72px">${optList(EINHEITEN.map(u => [u, u]), r.einheit)}</select></td>
       <td><input class="input" value="${esc(r.bem)}" data-in="impF" data-i="${i}" data-f="bem" style="min-width:140px"></td></tr>`;
   }).join('');
-  return { tb: `<h1>Prüfliste ${esc(I.src)}</h1><button class="btn" data-act="impCancel">Verwerfen</button><button class="btn primary" data-act="impSave" ${nSel ? '' : 'disabled'}>${nSel} Einsätze übernehmen</button>`,
+  return { tb: `<h1>Prüfliste ${esc(I.src)}</h1><button class="btn" data-act="impCancel">Verwerfen</button><button class="btn primary" data-act="impSave" ${nSel || I.abgVorh ? '' : 'disabled'}>${nSel} Einsätze übernehmen</button>`,
     html: `<div class="box small">«${esc(I.file)}» · ${rows.length} Zeilen: ${cnt('neu')} neu${cnt('aehnlich') ? `, ${cnt('aehnlich')} ähnlich (nicht angekreuzt – bitte prüfen)` : ''}${cnt('dup') ? `, ${cnt('dup')} schon vorhanden (nicht angekreuzt)` : ''}.
       Kunde und Maschine werden über Namen und Namensvarianten erkannt. Was du hier zuordnest, merkt sich das Programm als neue Namensvariante.</div>
-    <div class="filters"><button class="btn small" data-act="impAll" data-v="1">Alle neuen ankreuzen</button><button class="btn small" data-act="impAll" data-v="0">Keine</button></div>
+    ${(() => { const nA = rows.filter(r => r.abg && r.status !== 'dup').length, vA = rows.filter(r => r.abg && r.status === 'dup' && r.dupId && isOffen(Store.get('einsaetze', r.dupId) || {})).length;
+      return nA || vA ? `<div class="box small">${nA ? `<label class="tog"><input type="checkbox" data-in="impOpt" data-k="abgNeu" ${I.abgNeu !== false ? 'checked' : ''}> ${nA} neue Einsätze sind im Formular als «abgerechnet» markiert – so übernehmen</label><br>` : ''}
+        ${vA ? `<label class="tog"><input type="checkbox" data-in="impOpt" data-k="abgVorh" ${I.abgVorh ? 'checked' : ''}> ${vA} schon vorhandene, hier noch offene Einsätze sind im Formular abgerechnet – in der App ebenfalls als abgerechnet markieren</label>` : ''}</div>` : ''; })()}
+    <div class="filters"><button class="btn small" data-act="impAll" data-v="1">Alle neuen ankreuzen</button><button class="btn small" data-act="impAll" data-v="0">Keine</button>${I.src === 'Formular' && App.formRaw ? '<button class="btn small" data-act="formRemap">Spalten neu zuordnen…</button>' : ''}</div>
     <div class="${pv ? 'scanwrap' : ''}">${pv ? `<div class="pview"><div class="small muted">${esc(pv.name)} – Seite ${pages.indexOf(pv) + 1} von ${pages.length}</div><img src="${pv.url}" alt="Scan" data-act="pageBig"></div>` : ''}
     <div class="dscroll"><table class="dtab"><thead><tr><th class="cb"></th><th>Status</th><th>Datum</th><th>Kunde</th><th>Maschine</th><th>Menge</th><th>Einh.</th><th>Bemerkung</th></tr></thead><tbody>${body}</tbody></table></div></div>` };
 }
@@ -948,57 +970,67 @@ function impSave() {
   if (mUpd.size) Store.putMany('maschinen', [...mUpd.values()], { silent: true });
   const quelle = I.src === 'Scan' ? 'Scan' : 'Formular';
   Store.putMany('einsaetze', rows.map(r => ({ id: 'e' + uid() + Math.random().toString(36).slice(2, 5), datum: r.datum, kunde: r._k || r.kId, maschine: r.mId, menge: r.menge, einheit: r.einheit, bem: r.bem,
-    quelle, status: 'offen', importAm: todayIso(), orig: { name: r.kText, maschine: r.mText, menge: r.raw, sig: r.sig || '' } })), { silent: true });
+    quelle, status: r.abg && I.abgNeu !== false ? 'abgerechnet' : 'offen', abgerechnetAm: r.abg && I.abgNeu !== false ? todayIso() : '', importAm: todayIso(), orig: { name: r.kText, maschine: r.mText, menge: r.raw, sig: r.sig || '' } })), { silent: true });
+  let nV = 0;
+  if (I.abgVorh) { const ids = I.rows.filter(r => r.abg && r.status === 'dup' && r.dupId && isOffen(Store.get('einsaetze', r.dupId) || {})).map(r => r.dupId); nV = ids.length; if (nV) setStatus(ids, 'abgerechnet'); }
   App.imp = null; ls('mv_imp', null);
-  toast(`${rows.length} Einsätze übernommen${newK.size ? `, ${newK.size} Neukunden angelegt` : ''}`, 5000);
+  toast(`${rows.length} Einsätze übernommen${nV ? `, ${nV} vorhandene als abgerechnet markiert` : ''}${newK.size ? `, ${newK.size} Neukunden angelegt` : ''}`, 5000);
   App.f.einsaetze = Object.assign(defFilter(), { q: '' }); App.sort = { key: 'datum', dir: -1 }; App.go('einsaetze');
 }
 
 /* ================= Ansicht Abrechnung: Kundenrapporte, Abrechnungsliste ================= */
-function abrGroups() { // L = alle Einsätze im Filter, R = nur die für Rapport/Abrechnungsliste (ohne «nicht im Rapport»)
-  const list = applyFilter(Store.all('einsaetze'), App.f.abr, true), g = new Map();
+/* Auswahl: einzelne Zeilen (App.abr.rows, anfangs leer). Kunde ankreuzen = alle seine Zeilen (ohne stornierte und ohne «nicht im Rapport»).
+   Nur ausgewählte Zeilen kommen in Rapport und Abrechnungsliste. */
+function abrGroups() { // L = Einsätze im Filter, R = davon ausgewählt (nie stornierte)
+  const list = applyFilter(Store.all('einsaetze'), App.f.abr), g = new Map(), S = App.abr.rows;
   list.forEach(e => { if (!g.has(e.kunde)) g.set(e.kunde, []); g.get(e.kunde).push(e); });
-  return [...g.entries()].map(([id, L]) => { L.sort((a, b) => (a.datum || '').localeCompare(b.datum || '')); return { k: kunde(id) || { id, name: '(unbekannt)', nr: '' }, L, R: L.filter(e => !e.ohneRapport && !isStorno(e)) }; })
+  return [...g.entries()].map(([id, L]) => { L.sort((a, b) => (a.datum || '').localeCompare(b.datum || '')); return { k: kunde(id) || { id, name: '(unbekannt)', nr: '' }, L, R: L.filter(e => S.has(e.id) && !isStorno(e)) }; })
     .sort((a, b) => a.k.name.localeCompare(b.k.name, 'de'));
 }
-const abrIsSel = id => !App.abr.sel || App.abr.sel.includes(id);
-const abrAus = g => g.L.filter(e => e.ohneRapport && !isStorno(e)).length;
+const abrWahl = g => g.L.filter(e => !isStorno(e) && !e.ohneRapport); // Standardauswahl beim Ankreuzen des Kunden
+const abrIsSel = id => { const g = abrGroups().find(x => x.k.id === id); return !!(g && g.R.length); };
 const abrOpen = () => (App.abr.open = App.abr.open || new Set());
+function abrToggleKunde(id) {
+  const g = abrGroups().find(x => x.k.id === id); if (!g) return;
+  const S = App.abr.rows, all = g.R.length && g.R.length >= abrWahl(g).length;
+  if (g.R.length) g.L.forEach(e => S.delete(e.id)); else abrWahl(g).forEach(e => S.add(e.id));
+  if (!all && g.R.length) { /* teilweise ausgewählt → alle abwählen */ }
+}
 function viewAbrechnung() {
-  const G = abrGroups(), sel = G.filter(g => abrIsSel(g.k.id)), selR = sel.filter(g => g.R.length), all = sumUp(sel.flatMap(g => g.R)), preise = Store.cfg().rapportPreise, anyPreis = Store.all('maschinen').some(m => m.preis != null);
-  const nAus = sel.reduce((a, g) => a + abrAus(g), 0), open = abrOpen();
-  const rows = G.map(g => { const s = sumUp(g.R), hints = [], aus = abrAus(g), nSt = g.L.filter(isStorno).length, isOpen = open.has(g.k.id);
+  const G = abrGroups(), sel = G.filter(g => g.R.length), all = sumUp(sel.flatMap(g => g.R)), preise = Store.cfg().rapportPreise, anyPreis = Store.all('maschinen').some(m => m.preis != null);
+  const open = abrOpen();
+  const rows = G.map(g => { const s = sumUp(g.R.length ? g.R : abrWahl(g)), hints = [], aus = g.L.filter(e => e.ohneRapport && !isStorno(e)).length, nSt = g.L.filter(isStorno).length, isOpen = open.has(g.k.id);
+    const nW = g.L.filter(e => !isStorno(e)).length, full = g.R.length && g.R.length === nW, part = g.R.length && !full;
     if (!g.k.nr) hints.push('<span class="chip warn">Neukunde</span>');
-    if (aus) hints.push(`<span class="chip warn" title="nicht im Rapport und nicht in der Abrechnungsliste">${aus} ausgeschlossen</span>`);
+    if (aus) hints.push(`<span class="chip warn" title="im Einsatz als «nicht im Rapport» markiert">${aus} nicht im Rapport</span>`);
     if (s.ohnePreis && anyPreis) hints.push(`<span class="chip warn">${s.ohnePreis} ohne Preis</span>`);
     if (g.L.some(e => !e.datum)) hints.push('<span class="chip warn">ohne Datum</span>');
     if (nSt) hints.push(`<span class="chip storno">${nSt} storniert</span>`);
     if (g.L.some(isDone)) hints.push(`<span class="chip done">${g.L.filter(isDone).length} abgerechnet</span>`);
-    const head = `<tr class="click ${abrIsSel(g.k.id) ? 'sel' : ''}" data-act="abrToggle" data-id="${g.k.id}"><td class="cb"><input type="checkbox" ${abrIsSel(g.k.id) ? 'checked' : ''} tabindex="-1"></td>
-      <td><button type="button" class="btn small" data-act="abrExp" data-id="${g.k.id}" title="Einträge anzeigen und einzeln für den Rapport wählen">${isOpen ? '▾' : '▸'} ${g.R.length}${g.L.length !== g.R.length ? ' / ' + g.L.length : ''}</button></td>
+    const head = `<tr class="click ${g.R.length ? 'sel' : ''}" data-act="abrToggle" data-id="${g.k.id}"><td class="cb"><input type="checkbox" ${g.R.length ? 'checked' : ''} ${part ? 'data-ind="1"' : ''} tabindex="-1"></td>
+      <td><button type="button" class="btn small" data-act="abrExp" data-id="${g.k.id}" title="Zeilen anzeigen und einzeln auswählen">${isOpen ? '▾' : '▸'} ${g.R.length ? g.R.length + ' / ' : ''}${nW}${nSt ? ' +' + nSt : ''}</button></td>
       <td class="n">${esc(g.k.nr || '')}</td><td><b>${esc(g.k.name)}</b></td><td class="n">${s.ha ? fmtQty(s.ha) : ''}</td><td class="n">${s.h ? fmtQty(s.h) : ''}</td><td class="n">${s.chf ? chf(s.chf) : ''}</td><td>${hints.join(' ')}</td>
-      <td><button class="btn small" data-act="abrOne" data-id="${g.k.id}" title="Rapport nur für diesen Kunden" ${g.R.length ? '' : 'disabled'}>Rapport</button></td></tr>`;
-    const sub = isOpen ? g.L.map(e => { const m = masch(e.maschine) || {}, b = betragOf(e), st = isStorno(e);
-      return `<tr class="sub click ${e.ohneRapport || st ? 'off' : ''} ${isDone(e) ? 'done' : ''} ${st ? 'storno' : ''}" data-act="abrEntry" data-id="${e.id}" title="Anklicken zum Bearbeiten"><td></td>
-        <td><label class="tog" title="${st ? 'storniert – nie im Rapport' : 'im Rapport und in der Abrechnungsliste'}"><input type="checkbox" data-act="abrIncl" data-id="${e.id}" ${e.ohneRapport || st ? '' : 'checked'} ${st ? 'disabled' : ''}> im Rapport</label></td>
+      <td><button class="btn small" data-act="abrOne" data-id="${g.k.id}" title="Rapport nur für diesen Kunden (ausgewählte Zeilen, sonst alle)" ${nW ? '' : 'disabled'}>Rapport</button></td></tr>`;
+    const sub = isOpen ? g.L.map(e => { const m = masch(e.maschine) || {}, b = betragOf(e), st = isStorno(e), on = App.abr.rows.has(e.id) && !st;
+      return `<tr class="sub click ${on ? 'sel' : ''} ${st ? 'off storno' : ''} ${isDone(e) ? 'done' : ''}" data-act="abrEntry" data-id="${e.id}" title="Anklicken = Details"><td></td>
+        <td class="cb" style="text-align:left"><input type="checkbox" data-act="abrRow" data-id="${e.id}" ${on ? 'checked' : ''} ${st ? 'disabled' : ''} title="${st ? 'storniert – nie im Rapport' : 'Zeile auswählen (Rapport, Abrechnungsliste, abrechnen)'}">${e.ohneRapport ? ' <span class="chip warn small">nicht im Rapport</span>' : ''}</td>
         <td class="small">${e.datum ? fmtDate(e.datum) : 'ohne Datum'}</td><td class="small">${esc(m.artNr || '')} ${esc(m.name || '?')}${e.bem ? ' · ' + esc(e.bem) : ''}</td>
         <td class="n small">${einhOf(e) === 'ha' ? fmtQty(e.menge) : ''}</td><td class="n small">${einhOf(e) === 'h' ? fmtQty(e.menge) : ''}</td><td class="n small">${b != null && !st ? chf(b) : ''}</td>
-        <td class="small">${statusChip(e)}</td>
-        <td class="small muted">Details ›</td></tr>`; }).join('') : '';
+        <td class="small">${statusChip(e)}</td><td class="small muted">Details ›</td></tr>`; }).join('') : '';
     return head + sub; }).join('');
-  const allSel = G.length && G.every(g => abrIsSel(g.k.id)), nOffen = sel.reduce((a, g) => a + g.L.filter(isOffen).length, 0), nHak = sel.reduce((a, g) => a + g.R.filter(isOffen).length, 0);
+  const allSel = G.length && G.every(g => g.R.length), nOffen = sel.reduce((a, g) => a + g.L.filter(isOffen).length, 0), nHak = sel.reduce((a, g) => a + g.R.filter(isOffen).length, 0);
+  const nZ = sel.reduce((a, g) => a + g.R.length, 0);
   return { tb: `<h1>Abrechnung</h1>`,
-    html: filterBar('abr', { search: false, maschine: false, kunde: false }) +
-    `<div class="filters"><button class="btn primary" data-act="abrPrint" ${selR.length ? '' : 'disabled'}>🖨 Rapporte (${selR.length})</button><button class="btn" data-act="abrList" ${selR.length ? '' : 'disabled'}>🖨 Abrechnungsliste</button>
-      <button class="btn" data-act="abrXlsx" ${selR.length ? '' : 'disabled'}>⬇ Abrechnungsliste Excel</button><button class="btn" data-act="abrDoneSel" ${nHak ? '' : 'disabled'} title="nur die angehakten offenen Zeilen («im Rapport») der angekreuzten Kunden">✓ Angehakte Zeilen abgerechnet (${nHak})</button>
-      <button class="btn" data-act="abrDone" ${nOffen ? '' : 'disabled'} title="alle offenen Einsätze der angekreuzten Kunden – auch die nicht im Rapport">✓ Alle Einsätze der Kunden abgerechnet (${nOffen})</button>
-      <label class="tog"><input type="checkbox" data-in="abrPreise" ${preise ? 'checked' : ''}> Preise im Rapport</label>
-      ${G.length ? `<button class="btn small" data-act="abrExpAll">${G.every(g => open.has(g.k.id)) ? 'Alle zuklappen' : 'Alle Einträge zeigen'}</button>` : ''}</div>
+    html: filterBar('abr', { search: false, maschine: false, kunde: false, storno: true }) +
+    `<div class="filters"><button class="btn primary" data-act="abrPrint" ${sel.length ? '' : 'disabled'}>🖨 Rapporte (${sel.length})</button><button class="btn" data-act="abrList" ${sel.length ? '' : 'disabled'}>🖨 Abrechnungsliste</button>
+      <button class="btn" data-act="abrXlsx" ${sel.length ? '' : 'disabled'}>⬇ Abrechnungsliste Excel</button><button class="btn" data-act="abrDoneSel" ${nHak ? '' : 'disabled'} title="nur die ausgewählten offenen Zeilen">✓ Ausgewählte Zeilen abgerechnet (${nHak})</button>
+      <button class="btn" data-act="abrDone" ${nOffen ? '' : 'disabled'} title="alle offenen Einsätze der Kunden mit ausgewählten Zeilen – auch die nicht ausgewählten">✓ Alle Einsätze dieser Kunden abgerechnet (${nOffen})</button>
+      ${G.length ? `<button class="btn small" data-act="abrExpAll">${G.every(g => open.has(g.k.id)) ? 'Alle zuklappen' : 'Alle Zeilen zeigen'}</button>` : ''}</div>
     ${anyPreis ? '' : '<div class="box warn small">Noch keine Preise erfasst – Rapporte und Abrechnungsliste zeigen nur Mengen. Preise unter <a href="#" data-act="goMasch">Stammdaten › Maschinen</a> eintragen.</div>'}
-    <p class="muted small">Rapport: eine Seite pro Kunde mit Briefkopf, ohne Seitenzahlen – im Druckfenster «Als PDF speichern» wählen. Kunden ankreuzen, mit ▸ die Einträge aufklappen: Häkchen = im Rapport, Zeile anklicken = Details (dort bearbeiten, stornieren oder als abgerechnet markieren). Vor dem Drucken lassen sich die Artikelpreise nur für diesen Ausdruck anpassen;
-      «Angehakte Zeilen abgerechnet» erfasst nur die Zeilen mit Häkchen, «Alle Einsätze der Kunden abgerechnet» alle offenen Einsätze der angekreuzten Kunden${nAus ? ` (auch die ${nAus} ausgeschlossenen)` : ''}.</p>
-    ${G.length ? `<div class="dscroll"><table class="dtab"><thead><tr><th class="cb"><input type="checkbox" data-act="abrAll" ${allSel ? 'checked' : ''}></th><th>Einträge</th><th class="n">Kd-Nr.</th><th>Kunde</th><th class="n">ha</th><th class="n">h</th><th class="n">CHF</th><th>Hinweise</th><th></th></tr></thead>
-      <tbody>${rows}</tbody><tfoot><tr><td></td><td>${all.n}</td><td colspan="2">${sel.length} von ${G.length} Kunden</td><td class="n">${fmtQty(all.ha)}</td><td class="n">${fmtQty(all.h)}</td><td class="n">${all.chf ? chf(all.chf) : ''}</td><td colspan="2"></td></tr></tfoot></table></div>`
+    <p class="muted small">Kunde ankreuzen = alle seine Zeilen auswählen; mit ▸ aufklappen und Zeilen einzeln an- oder abwählen. Nur ausgewählte Zeilen kommen in Rapport und Abrechnungsliste.
+      Zeile anklicken = Details (bearbeiten, stornieren, als abgerechnet markieren). Rapport: eine Seite pro Kunde, ohne Seitenzahlen; vor dem Drucken lassen sich die Artikelpreise nur für diesen Ausdruck anpassen.</p>
+    ${G.length ? `<div class="dscroll"><table class="dtab"><thead><tr><th class="cb"><input type="checkbox" data-act="abrAll" ${allSel ? 'checked' : ''} title="alle Kunden auswählen / keine"></th><th>Zeilen</th><th class="n">Kd-Nr.</th><th>Kunde</th><th class="n">ha</th><th class="n">h</th><th class="n">CHF</th><th>Hinweise</th><th></th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td></td><td>${nZ}</td><td colspan="2">${sel.length} von ${G.length} Kunden ausgewählt</td><td class="n">${fmtQty(all.ha)}</td><td class="n">${fmtQty(all.h)}</td><td class="n">${all.chf ? chf(all.chf) : ''}</td><td colspan="2"></td></tr></tfoot></table></div>`
       : '<div class="empty">Keine Einsätze für diesen Zeitraum.</div>'}` };
 }
 function zeitraum(L) { const ds = L.map(e => e.datum).filter(Boolean).sort(); return ds.length ? `${fmtDate(ds[0])} – ${fmtDate(ds[ds.length - 1])}` : ''; }
@@ -1010,10 +1042,8 @@ function sumByArt(L) { // pro Artikel (Maschine), Einheit und Preis zusammenfass
   return [...m.values()].map(x => Object.assign(x, { betrag: x.preis != null ? r2(x.preis * x.menge) : null })).sort((a, b) => String(a.art).localeCompare(String(b.art), 'de', { numeric: true }));
 }
 function rapportHtml(k, L, preise) {
-  const adr = [k.name, k.zusatz, k.strasse, [k.plz, k.ort].filter(Boolean).join(' ')].filter(Boolean);
   const S = sumByArt(L), s = sumUp(L), pc = preise ? 2 : 0;
   return `<div class="bill"><img class="lhead" src="logo.jpg" alt="Indermühle Lohnarbeiten · Maschinenvermietung">
-    ${k.strasse || k.ort ? `<div class="addr">${adr.map(esc).join('<br>')}</div>` : ''}
     <h2>Rapport Maschineneinsätze</h2>
     <div class="meta"><b>${esc(k.name)}</b> · ${k.nr ? 'Kunden-Nr. ' + esc(k.nr) : 'Neukunde'}${zeitraum(L) ? ' · Zeitraum ' + zeitraum(L) : ''} · ${L.length} Einsätze · Stand ${fmtDate(todayIso())}</div>
     <table class="btab"><thead><tr><th>Datum</th><th class="n">Art.-Nr.</th><th>Maschine</th><th class="n">Menge</th><th>Einheit</th><th>Bemerkung</th>${preise ? '<th class="n">Preis</th><th class="n">Betrag CHF</th>' : ''}</tr></thead><tbody>
@@ -1048,7 +1078,7 @@ function printHtml(html) {
 }
 // Vor dem Druck: Artikelpreise nur für diesen Ausdruck anpassen (Stammdaten bleiben unverändert)
 function prePrint(kind, ids) {
-  const G = abrGroups().filter(g => (ids ? ids.includes(g.k.id) : abrIsSel(g.k.id)) && g.R.length);
+  const G = abrGroups().filter(g => ids ? ids.includes(g.k.id) : g.R.length).map(g => (ids && !g.R.length) ? Object.assign({}, g, { R: abrWahl(g) }) : g).filter(g => g.R.length);
   if (!G.length) { toast('Keine Einträge für den Rapport – Kunden ankreuzen'); return; }
   const arts = new Map(); let eigen = 0;
   G.flatMap(g => g.R).forEach(e => { if (e.preis != null) { eigen++; return; }
@@ -1084,14 +1114,14 @@ function abrXlsx(G) {
   download(`Abrechnungsliste_${todayIso()}.xlsx`, xlsxBlob([{ name: 'Abrechnungsliste', rows }, { name: 'Einsätze', rows: einsatzRows(G.flatMap(g => g.L)) }]));
 }
 function abrDoneSel() { // nur angehakte Zeilen («im Rapport») der angekreuzten Kunden
-  const L = abrGroups().filter(g => abrIsSel(g.k.id)).flatMap(g => g.R).filter(isOffen);
-  if (!L.length || !confirm(`${L.length} angehakte Einsätze als abgerechnet markieren (Datum heute)?`)) return;
+  const L = abrGroups().flatMap(g => g.R).filter(isOffen);
+  if (!L.length || !confirm(`${L.length} ausgewählte Einsätze als abgerechnet markieren (Datum heute)?`)) return;
   setStatus(L.map(e => e.id), 'abgerechnet'); toast(`${L.length} Einsätze als abgerechnet markiert`);
 }
 function abrDone() {
-  const L = abrGroups().filter(g => abrIsSel(g.k.id)).flatMap(g => g.L).filter(isOffen);
-  const aus = L.filter(e => e.ohneRapport).length;
-  if (!L.length || !confirm(`${L.length} offene Einsätze als abgerechnet markieren (Datum heute)?${aus ? `\nDavon ${aus} nicht im Rapport.` : ''}`)) return;
+  const L = abrGroups().filter(g => g.R.length).flatMap(g => g.L).filter(isOffen);
+  const S = App.abr.rows, aus = L.filter(e => !S.has(e.id)).length;
+  if (!L.length || !confirm(`${L.length} offene Einsätze als abgerechnet markieren (Datum heute)?${aus ? `\nDavon ${aus} nicht ausgewählt.` : ''}`)) return;
   setStatus(L.map(e => e.id), 'abgerechnet'); toast(`${L.length} Einsätze als abgerechnet markiert`);
 }
 
@@ -1298,12 +1328,13 @@ document.addEventListener('click', ev => {
     case 'exportAusw': exportAusw(); break;
     case 'impCancel': if (confirm('Prüfliste verwerfen? Es wird nichts übernommen.')) { App.imp = null; ls('mv_imp', null); App.render(); } break;
     case 'impSave': impSave(); break;
+    case 'formRemap': formMapDialog(); break;
     case 'impAll': App.imp.rows.forEach(r => { r.sel = t.dataset.v === '1' && r.status === 'neu'; }); lsJson('mv_imp', App.imp); App.render(); break;
-    case 'abrToggle': { const G = abrGroups().map(g => g.k.id); const cur = App.abr.sel ? App.abr.sel.slice() : G.slice(); const i = cur.indexOf(id); i >= 0 ? cur.splice(i, 1) : cur.push(id); App.abr.sel = cur; App.render(); break; }
-    case 'abrAll': { const G = abrGroups().map(g => g.k.id); App.abr.sel = G.every(abrIsSel) ? [] : null; App.render(); break; }
+    case 'abrToggle': abrToggleKunde(id); App.render(); break;
+    case 'abrAll': { const G = abrGroups(); if (G.every(g => g.R.length)) G.forEach(g => g.L.forEach(e => App.abr.rows.delete(e.id))); else G.forEach(g => abrWahl(g).forEach(e => App.abr.rows.add(e.id))); App.render(); break; }
+    case 'abrRow': ev.stopPropagation(); t.checked ? App.abr.rows.add(id) : App.abr.rows.delete(id); App.render(); break;
     case 'abrExp': ev.stopPropagation(); { const o = abrOpen(); o.has(id) ? o.delete(id) : o.add(id); App.render(); } break;
     case 'abrExpAll': { const o = abrOpen(), ids = abrGroups().map(g => g.k.id); if (ids.every(x => o.has(x))) o.clear(); else ids.forEach(x => o.add(x)); App.render(); break; }
-    case 'abrIncl': ev.stopPropagation(); { const e = Store.get('einsaetze', id); if (e) { const n = Object.assign({}, e); if (t.checked) delete n.ohneRapport; else n.ohneRapport = true; Store.put('einsaetze', n); } } break;
     case 'scanClear': setScanOpt({ masch: [] }); App.render(); break;
     case 'pageSel': App.pageSel = +t.dataset.p; App.render(); break;
     case 'pageBig': { const p = (App.scanPages || [])[App.pageSel ?? 0]; if (p) openDlg(p.name, `<img class="bigimg" src="${p.url}" alt="Scan">`, '<span class="spacer"></span><button class="btn" value="ok">Schliessen</button>', { wide: true }); break; }
@@ -1312,7 +1343,7 @@ document.addEventListener('click', ev => {
     case 'abrPrint': prePrint('rapport'); break;
     case 'abrList': prePrint('liste'); break;
     case 'abrXlsx': prePrint('xlsx'); break;
-    case 'abrEntry': if (ev.target.closest('label')) return; einsatzDialog(id); break;
+    case 'abrEntry': einsatzDialog(id); break;
     case 'abrDoneSel': abrDoneSel(); break;
     case 'abrDone': abrDone(); break;
     case 'exportAll': exportAll(); break;
@@ -1337,6 +1368,7 @@ function onChange(t, k, v) {
     case 'fKunde': setF(k, { kunde: v }); break;
     case 'fMasch': setF(k, { maschine: v }); break;
     case 'fStatus': setF(k, { status: v }); break;
+    case 'fStorno': setF(k, { storno: t.checked }); break;
     case 'kNeu': App.kNeu = t.checked; App.render(); break;
     case 'einsMasch': { const m = masch(v), u = $('#dlgForm select[name=einheit]'), p = $('#dlgForm input[name=preis]'); if (m && u) u.value = m.einheit; if (p) p.placeholder = m && m.preis != null ? chf(m.preis) + ' (Maschine)' : 'Maschinenpreis'; break; }
     case 'impFormFile': if (t.files[0]) impForm(t.files[0]); t.value = ''; break;
@@ -1345,6 +1377,7 @@ function onChange(t, k, v) {
     case 'scanMulch': { const o = scanOpt(); o.mulch[t.dataset.id] = v; setScanOpt({ mulch: o.mulch }); App.render(); break; }
     case 'scanOpt': setScanOpt({ [t.dataset.k]: v }); App.render(); break;
     case 'scanHalb': setScanOpt({ halbieren: t.checked }); break;
+    case 'impOpt': App.imp[k] = t.checked; lsJson('mv_imp', App.imp); App.render(); break;
     case 'impSel': App.imp.rows[+t.dataset.i].sel = t.checked; lsJson('mv_imp', App.imp); App.render(); break;
     case 'impF': impField(t, v, true); break;
     case 'abrPreise': Store.setCfg({ rapportPreise: t.checked }); break;

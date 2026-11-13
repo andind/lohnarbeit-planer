@@ -1,4 +1,4 @@
-# IM-Vermietung v1.3 – Anleitung
+# IM-Vermietung v1.4 – Anleitung
 
 Eigenständige App für die Maschinenvermietung: Einsätze erfassen und importieren, auswerten, Kundenrapporte und Abrechnungsliste drucken.
 Eigene Kunden, Maschinen und Einsätze in einer eigenen Datei (`vermietung.json`) – unabhängig vom IM-Verwalter.
@@ -20,8 +20,11 @@ aus `startdaten.json`.
 - **Einsätze** – alle Einsätze mit Filter (Jahr/Zeitraum, Kunde, Maschine, offen/abgerechnet, Suche). Antippen = bearbeiten.
   Mehrere ankreuzen → als abgerechnet markieren, ändern, löschen. «＋ Einsatz» oder Ctrl+N für manuelle Erfassung.
 - **Import**
-  - *Online-Formular*: Excel-Export der Antworten wählen, Spalten zuordnen (wird gemerkt). Es darf immer der ganze Export eingelesen
-    werden – schon vorhandene Einsätze werden erkannt und nicht angekreuzt.
+  - *Online-Formular*: Excel-Export von Microsoft Forms («Formular zur Erfassung von Maschinenvermietungen») direkt wählen –
+    die Spalten (Name Mieter, Maschine, Mietdatum, Fläche/Stunden, Bemerkung, Abgerechnet, Id) werden erkannt, die Prüfliste
+    erscheint sofort («Spalten neu zuordnen…» falls nötig). Es darf immer der ganze Export eingelesen werden – schon vorhandene
+    Einsätze werden erkannt und nicht angekreuzt. Ist im Formular «Abgerechnet» gesetzt, werden neue Einsätze als abgerechnet
+    übernommen; optional lassen sich auch vorhandene, noch offene Einsätze so markieren.
   - *Einsatzheft scannen* (aus dem Programm ScanListe übernommen): Maschine(n) der Liste ankreuzen (mehrere = je Eintrag eine Zeile
     pro Maschine; beim Mulcher Einheit h/ha wählbar), Mengen-Einheit der Liste, Ausrichtung («90° rechts» für quer liegende Hefte),
     «Heft-Doppelseite» (jede Hälfte einzeln an Claude), Zahl ohne Einheit = Aren oder ha. Dann Scan (JPG/PNG/PDF) wählen oder
@@ -31,20 +34,18 @@ aus `startdaten.json`.
   - Danach **Prüfliste**: Kunde und Maschine prüfen (Neukunden direkt anlegen), Menge/Datum korrigieren, «übernehmen».
     Abweichende Schreibweisen merkt sich die App als Namensvarianten und erkennt sie beim nächsten Mal selbst.
 - **Auswertung** – pro Maschine, pro Kunde, pro Monat, Kunde × Maschine; Excel-Export.
-- **Abrechnung** – Zeitraum wählen (Standard: nur offene Einsätze). Anfangs ist **kein Kunde angekreuzt** – die gewünschten Kunden ankreuzen.
-  - Mit ▸ die Einträge eines Kunden aufklappen: Häkchen «im Rapport» = erscheint im Rapport und in der Abrechnungsliste,
-    nicht angehakte Einträge werden nicht gedruckt. Zeile anklicken = Details: dort bearbeiten, «Stornieren» oder «✓ Abgerechnet»
-    (jeweils mit Rückfrage – direkt in der Zeile geht das bewusst nicht).
-  - *Angehakte Zeilen abgerechnet*: markiert alle angehakten offenen Zeilen der angekreuzten Kunden auf einmal.
-  - *Rapporte*: eine Seite pro Kunde mit Briefkopf und Adresse, ohne Seitenzahlen. Vor dem Druckfenster erscheinen die Artikel
-    mit ihren Preisen – diese lassen sich **nur für diesen Ausdruck** ändern (Stammdaten bleiben unverändert); dort auch
-    «Preise und Beträge im Rapport anzeigen». Danach im Druckfenster «Als PDF speichern».
-  - *Abrechnungsliste*: pro Kunde Art.-Nr., Bezeichnung, Menge, Preis, Betrag – zum Übertragen in AgroFaktura (auch als Excel),
-    ebenfalls mit Preisanpassung für diesen Ausdruck.
-  - *Alle Einsätze der Kunden abgerechnet*: setzt alle offenen Einsätze der angekreuzten Kunden auf «abgerechnet» (Datum heute) –
-    auch die vom Rapport ausgeschlossenen.
-  - **Storniert**: zählt nirgends mehr (Rapport, Abrechnungsliste, Auswertung), bleibt aber in der Einsatzliste sichtbar
-    (durchgestrichen; Filter «Storniert»).
+- **Abrechnung** – Zeitraum und Status wählen (Standard: offen); «Stornierte anzeigen» blendet stornierte Zeilen ein.
+  Anfangs ist **nichts ausgewählt**.
+  - Kunde ankreuzen = alle seine Zeilen auswählen. Mit ▸ aufklappen und Zeilen einzeln an- oder abwählen.
+    **Nur ausgewählte Zeilen** kommen in Rapport und Abrechnungsliste.
+  - Zeile anklicken = Details: bearbeiten, «Stornieren» oder «✓ Abgerechnet» (mit Rückfrage – direkt in der Zeile geht das bewusst nicht).
+  - *Ausgewählte Zeilen abgerechnet*: markiert alle ausgewählten offenen Zeilen auf einmal.
+  - *Alle Einsätze dieser Kunden abgerechnet*: alle offenen Einsätze der Kunden mit ausgewählten Zeilen, auch die nicht ausgewählten.
+  - *Rapporte*: eine Seite pro Kunde mit Briefkopf, Kundenname und Kunden-Nr. unter dem Titel (ohne Adressblock), ohne Seitenzahlen.
+    Vor dem Druckfenster lassen sich die Artikelpreise **nur für diesen Ausdruck** ändern; dort auch «Preise und Beträge anzeigen».
+    Der Knopf «Rapport» in einer Kundenzeile druckt die ausgewählten Zeilen dieses Kunden, sonst alle.
+  - *Abrechnungsliste*: pro Kunde Art.-Nr., Bezeichnung, Menge, Preis, Betrag – zum Übertragen in AgroFaktura (auch als Excel).
+  - **Storniert**: zählt nirgends mehr (Rapport, Abrechnungsliste, Auswertung); sichtbar mit «Stornierte anzeigen».
 - **Stammdaten** – Kunden (Kd-Nr. leer = Neukunde, Adresse, Namensvarianten, Zusammenführen) und Maschinen (Art.-Nr., Einheit, Preis).
   «Kundenliste importieren» liest z. B. Kunden.xlsx und ergänzt Adressen über die Kunden-Nr.
 - **Mehr** – Dropbox, Scan-Schlüssel, Excel-Export aller Daten, Datensicherung/Wiederherstellen.
