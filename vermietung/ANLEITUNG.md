@@ -1,4 +1,4 @@
-# IM-Vermietung v1.0 – Anleitung
+# IM-Vermietung v1.1 – Anleitung
 
 Eigenständige App für die Maschinenvermietung: Einsätze erfassen und importieren, auswerten, Kundenrapporte und Abrechnungsliste drucken.
 Eigene Kunden, Maschinen und Einsätze in einer eigenen Datei (`vermietung.json`) – unabhängig vom IM-Verwalter.
@@ -22,7 +22,12 @@ aus `startdaten.json`.
 - **Import**
   - *Online-Formular*: Excel-Export der Antworten wählen, Spalten zuordnen (wird gemerkt). Es darf immer der ganze Export eingelesen
     werden – schon vorhandene Einsätze werden erkannt und nicht angekreuzt.
-  - *Papierrapport scannen*: PDF vom Scanner oder Foto. Optional die Maschine(n) des Rapports antippen. Claude liest die Zeilen aus.
+  - *Einsatzheft scannen* (aus dem Programm ScanListe übernommen): Maschine(n) der Liste ankreuzen (mehrere = je Eintrag eine Zeile
+    pro Maschine; beim Mulcher Einheit h/ha wählbar), Mengen-Einheit der Liste, Ausrichtung («90° rechts» für quer liegende Hefte),
+    «Heft-Doppelseite» (jede Hälfte einzeln an Claude), Zahl ohne Einheit = Aren oder ha. Dann Scan (JPG/PNG/PDF) wählen oder
+    mit dem Handy fotografieren. Claude rechnet Aren in ha um, löst Wiederholungszeichen auf und ignoriert durchscheinende Rückseiten.
+    Maschinen mit anderer Einheit als die Liste erhalten keine Menge und sind als «unsicher» markiert. In der Prüfliste zeigt 📄 die Seite.
+    Gescannt wird mit der HP-Software oder «Windows Scan» (300 dpi, Farbe); die App selbst steuert den Scanner nicht an.
   - Danach **Prüfliste**: Kunde und Maschine prüfen (Neukunden direkt anlegen), Menge/Datum korrigieren, «übernehmen».
     Abweichende Schreibweisen merkt sich die App als Namensvarianten und erkennt sie beim nächsten Mal selbst.
 - **Auswertung** – pro Maschine, pro Kunde, pro Monat, Kunde × Maschine; Excel-Export.
@@ -30,7 +35,10 @@ aus `startdaten.json`.
   - *Rapporte*: eine Seite pro Kunde mit Briefkopf und Adresse, ohne Seitenzahlen → im Druckfenster «Als PDF speichern».
     «Preise im Rapport» blendet Preis und Betrag ein.
   - *Abrechnungsliste*: pro Kunde Art.-Nr., Bezeichnung, Menge, Preis, Betrag – zum Übertragen in AgroFaktura (auch als Excel).
-  - *Als abgerechnet markieren*: setzt die Einsätze auf «abgerechnet» (Datum heute).
+  - Mit ▸ die Einträge eines Kunden aufklappen und einzeln «im Rapport» ab- oder anwählen (gilt auch für die Abrechnungsliste;
+    auch im Einsatz-Fenster unter «nicht im Rapport»).
+  - *Als abgerechnet markieren*: setzt alle offenen Einsätze der angekreuzten Kunden auf «abgerechnet» (Datum heute) –
+    auch die vom Rapport ausgeschlossenen.
 - **Stammdaten** – Kunden (Kd-Nr. leer = Neukunde, Adresse, Namensvarianten, Zusammenführen) und Maschinen (Art.-Nr., Einheit, Preis).
   «Kundenliste importieren» liest z. B. Kunden.xlsx und ergänzt Adressen über die Kunden-Nr.
 - **Mehr** – Dropbox, Scan-Schlüssel, Excel-Export aller Daten, Datensicherung/Wiederherstellen.

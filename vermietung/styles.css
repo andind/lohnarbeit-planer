@@ -202,3 +202,17 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
   .dscroll { max-height: none; }
 }
 .alist .btab { table-layout: fixed; }
+
+/* ---------- Scan: Maschinenliste, Seitenvorschau ---------- */
+.slist { display: grid; gap: 4px; }
+.slist .srow { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; font-size: 14px; min-height: 42px; }
+.slist .srow.on { background: var(--accent-soft); border-color: var(--accent); }
+.slist .srow input[type=checkbox] { width: 18px; height: 18px; }
+.slist .grow { flex: 1; min-width: 0; }
+.scanwrap { display: grid; gap: 12px; }
+.pview { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; }
+.pview img { width: 100%; height: auto; display: block; margin-top: 6px; cursor: zoom-in; border-radius: 6px; }
+@media (min-width: 1100px) { .scanwrap { grid-template-columns: minmax(280px, 34%) minmax(0, 1fr); align-items: start; } .pview { position: sticky; top: 76px; max-height: calc(100dvh - 100px); overflow: auto; } }
+.bigimg { width: 100%; height: auto; display: block; }
+.dtab tr.sub td { background: var(--surface-2); border-bottom-style: dashed; }
+.dtab tr.sub.off td { opacity: .55; }

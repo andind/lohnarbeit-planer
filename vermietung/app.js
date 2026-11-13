@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.0', APP_STAND = '13.11.2026';
+const APP_VERSION = '1.1', APP_STAND = '13.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -312,7 +312,7 @@ function viewEinsaetze() {
       <td class="cb"><input type="checkbox" data-act="selOne" data-id="${e.id}" ${App.sel.has(e.id) ? 'checked' : ''}></td>
       <td>${e.datum ? fmtDate(e.datum) : '<span class="chip warn">ohne Datum</span>'}</td><td class="n">${esc(kNr(e.kunde)) || '<span class="nr">neu</span>'}</td><td>${esc(kName(e.kunde))}</td>
       <td class="n">${esc(m?.artNr || '')}</td><td>${esc(m?.name || '?')}</td><td class="n">${fmtQty(e.menge)}</td><td>${esc(einhOf(e))}</td>
-      <td class="n">${b != null ? chf(b) : ''}</td><td class="w">${esc(e.bem || '')}</td><td class="small muted">${esc(e.quelle || '')}</td>
+      <td class="n">${b != null ? chf(b) : ''}</td><td class="w">${esc(e.bem || '')}${e.ohneRapport ? ' <span class="chip warn" title="nicht im Rapport">ohne Rapport</span>' : ''}</td><td class="small muted">${esc(e.quelle || '')}</td>
       <td>${isDone(e) ? `<span class="chip done" title="abgerechnet am ${fmtDate(e.abgerechnetAm)}">abgerechnet</span>` : '<span class="chip info">offen</span>'}</td></tr>`;
   }).join('');
   return {
@@ -365,6 +365,7 @@ function einsatzDialog(id, preset = {}) {
       <label class="fld"><span>Einheit</span><select class="input" name="einheit">${optList(EINHEITEN.map(u => [u, u]), einhOf(e))}</select></label>
       <label class="fld"><span>Preis CHF/Einheit</span><input class="input" name="preis" inputmode="decimal" value="${e.preis ?? ''}" placeholder="${m && m.preis != null ? chf(m.preis) + ' (Maschine)' : 'Maschinenpreis'}"></label></div>
     <label class="fld"><span>Bemerkung</span><input class="input" name="bem" value="${esc(e.bem || '')}"></label>
+    <label class="tog" style="margin-bottom:12px"><input type="checkbox" name="ohneRapport" ${e.ohneRapport ? 'checked' : ''}> nicht im Rapport und nicht in der Abrechnungsliste</label>
     ${id ? `<div class="box small">Quelle: ${esc(e.quelle || '–')}${e.importAm ? ' · importiert ' + fmtDate(e.importAm) : ''}${isDone(e) && e.abgerechnetAm ? ' · abgerechnet am ' + fmtDate(e.abgerechnetAm) : ''}${origTxt ? '<br>Ursprünglich: ' + esc(origTxt) : ''}</div>` : ''}`,
     `${id ? '<button type="button" class="btn danger" data-act="delEinsatz" data-id="' + id + '">Löschen</button>' : ''}<span class="spacer"></span>
      ${id ? '' : '<button class="btn" value="weiter">Speichern + weiter</button>'}<button class="btn primary" value="ok">Speichern</button>`,
@@ -375,6 +376,7 @@ function einsatzDialog(id, preset = {}) {
       const obj = Object.assign({}, e, { id: e.id || 'e' + uid(), datum: fd.get('datum') || '', kunde: fd.get('kunde'), maschine: fd.get('maschine'), menge, einheit: fd.get('einheit'),
         preis: num(fd.get('preis')), bem: fd.get('bem').trim(), status: st, abgerechnetAm: st === 'abgerechnet' ? (e.abgerechnetAm || todayIso()) : '' });
       if (obj.preis == null) delete obj.preis;
+      if (fd.get('ohneRapport')) obj.ohneRapport = true; else delete obj.ohneRapport;
       Store.put('einsaetze', obj, { silent: true });
       if (btn === 'weiter') { toast('Gespeichert'); setTimeout(() => einsatzDialog(null, { datum: obj.datum, kunde: obj.kunde }), 0); return; }
     } });
@@ -641,7 +643,7 @@ function impRow(o) {
   const mm = masch(m.id), pm = parseMenge(o.menge, o.einheit || mm?.einheit || 'ha');
   const notes = [o.note, pm.note].filter(Boolean);
   return { kText: o.kText || '', kId: k.id || (o.kText ? '__new' : ''), kQ: k.q, newName: o.kText || '', mText: o.mText || '', mId: m.id, mQ: m.q,
-    datum: o.datum || '', menge: pm.menge, einheit: pm.einheit, bem: o.bem || '', raw: o.raw ?? o.menge ?? '', sig: o.sig || '', unsicher: !!o.unsicher, note: notes.join('; '), sel: true };
+    datum: o.datum || '', menge: pm.menge, einheit: pm.einheit, bem: o.bem || '', raw: o.raw ?? o.menge ?? '', sig: o.sig || '', unsicher: !!o.unsicher, note: notes.join('; '), page: o.page ?? null, sel: true };
 }
 function impStart(src, file, objs) {
   const rows = objs.map(impRow);
@@ -706,83 +708,191 @@ async function impForm(file) {
     } });
 }
 
-/* ---------- Papierrapport: Scan/Foto mit Claude auslesen ---------- */
+/* ---------- Papierrapport scannen (übernommen aus dem Programm ScanListe 3) ----------
+   Handschriftliche Einsatzlisten im Heft: Datum | Name | Fläche/Menge | Bemerkung, pro Liste eine oder mehrere Maschinen.
+   Wie ScanListe: Maschinen vorher ankreuzen (mehrere = je Eintrag eine Zeile pro Maschine), Mulcher-Einheit h/ha wählbar,
+   Mengen-Einheit der Liste, Drehen («90° rechts» bei quer liegenden Heften), Heft-Doppelseite halbieren, Aren → ha,
+   Zahlen ohne Einheit = Aren (einstellbar), Wiederholungszeichen auflösen, Rückseiten-Durchschlag ignorieren. */
 const apiKey = () => ls('mv_apikey') || '';
-async function fileToBlock(file) {
-  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: await b64(file) } };
-  const bmp = await createImageBitmap(file), k = Math.min(1, 2200 / Math.max(bmp.width, bmp.height));
-  const cv = document.createElement('canvas'); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
-  cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
-  const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.88));
-  return { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: await b64(blob) } };
-}
+const SCAN_MODELLE = [['claude-sonnet-5-5', 'Sonnet (empfohlen)'], ['claude-opus-5-5', 'Opus (beste Handschrift-Erkennung)'], ['claude-haiku-5-5', 'Haiku (schnell und günstig)']];
+const DREHUNGEN = [['0', 'keine'], ['90', '90° rechts'], ['-90', '90° links'], ['180', '180°']];
+const CLAUDE_MAX_EDGE = 1568;
+const isMulcher = m => /mulch/i.test(m?.name || '');
+function scanOpt() { return Object.assign({ drehen: '90', halbieren: true, ohneEinheit: 'a', masch: [], mulch: {}, listEinheit: '' }, lsJson('mv_scanopt') || {}); }
+function setScanOpt(p) { lsJson('mv_scanopt', Object.assign(scanOpt(), p)); }
+const scanUnit = (m, o) => isMulcher(m) ? (o.mulch[m.id] || m.einheit) : m.einheit;
+function listUnit(o) { if (o.listEinheit) return o.listEinheit; const m = o.masch.map(masch).filter(Boolean)[0]; return m ? scanUnit(m, o) : 'ha'; }
 function b64(blob) { return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1]); fr.onerror = rej; fr.readAsDataURL(blob); }); }
-function scanPrompt(vorgabe) {
-  const K = kundenSorted().map(k => `- ${k.name}${(k.aliases || []).length ? ' (auch: ' + k.aliases.join(', ') + ')' : ''}`).join('\n');
-  const M = maschSorted(false).map(m => `- ${m.name} [${m.einheit}]${(m.aliases || []).length ? ' (auch: ' + m.aliases.join(', ') + ')' : ''}`).join('\n');
-  return `Das ist ein gescannter, handschriftlich oder maschinell ausgefüllter Rapport einer landwirtschaftlichen Maschinenvermietung (Schweiz).
-Lies JEDEN Einsatz (jede Zeile) aus. Ein Einsatz = Datum, Kunde, Maschine, Menge.
-${vorgabe.length ? `Auf diesem Rapport geht es um folgende Maschine(n): ${vorgabe.map(m => m.name).join(', ')}. Wenn pro Zeile keine Maschine steht, nimm diese.\n` : ''}
-Bekannte Kunden:
-${K || '(keine)'}
-
-Bekannte Maschinen mit Verrechnungseinheit:
-${M}
-
-Regeln:
-- "kunde_text": Name genau so, wie er auf dem Rapport steht. "kunde": passender bekannter Kunde aus der Liste (exakt so geschrieben) oder "" wenn keiner sicher passt.
-- "maschine_text": wie auf dem Rapport, "maschine": passende bekannte Maschine (exakt so geschrieben) oder "".
-- "datum": YYYY-MM-DD. Fehlt das Jahr, nimm ${new Date().getFullYear()} (bzw. das Jahr, das auf dem Rapport steht).
-- "menge": Zahl in der Einheit der Maschine. Aren durch 100 teilen (ha), Minuten durch 60 (h). "einheit": "ha" oder "h".
-- "bemerkung": zusätzliche Angaben der Zeile (z. B. Ort, Zählerstand), sonst "".
-- "unsicher": true, wenn etwas schlecht lesbar ist; "hinweis": kurz, was unsicher ist.
-- Leere Zeilen, Summenzeilen und Kopfzeilen weglassen.
-Antworte NUR mit JSON in dieser Form, ohne weiteren Text:
-{"eintraege":[{"datum":"","kunde_text":"","kunde":"","maschine_text":"","maschine":"","menge":0,"einheit":"ha","bemerkung":"","unsicher":false,"hinweis":""}]}`;
+const canvasJpeg = (cv, q = 0.9) => new Promise(r => cv.toBlob(r, 'image/jpeg', q));
+// Bild drehen, ggf. halbieren (Heft-Doppelseite) → Teile für Claude + Vorschaubild der ganzen Seite
+async function imageParts(file, o) {
+  const bmp = await createImageBitmap(file), w = bmp.width, h = bmp.height;
+  const crops = !o.halbieren ? [['ganzer Scan', 0, 0, w, h]]
+    : h >= w ? [['obere Hälfte des Scans', 0, 0, w, Math.floor(h / 2)], ['untere Hälfte des Scans', 0, Math.floor(h / 2), w, h - Math.floor(h / 2)]]
+      : [['linke Hälfte des Scans', 0, 0, Math.floor(w / 2), h], ['rechte Hälfte des Scans', Math.floor(w / 2), 0, w - Math.floor(w / 2), h]];
+  const rot = (sx, sy, sw, sh, max) => {
+    const a = +o.drehen, q = Math.abs(a) === 90, k = Math.min(1, max / Math.max(sw, sh));
+    const tw = Math.round(sw * k), th = Math.round(sh * k), cv = document.createElement('canvas');
+    cv.width = q ? th : tw; cv.height = q ? tw : th;
+    const c = cv.getContext('2d'); c.translate(cv.width / 2, cv.height / 2); c.rotate(a * Math.PI / 180); c.drawImage(bmp, sx, sy, sw, sh, -tw / 2, -th / 2, tw, th);
+    return cv;
+  };
+  const parts = [];
+  for (const [label, x, y, cw, ch] of crops) parts.push({ label, data: await b64(await canvasJpeg(rot(x, y, cw, ch, CLAUDE_MAX_EDGE))) });
+  const prev = rot(0, 0, w, h, 1400).toDataURL('image/jpeg', 0.8);
+  return { parts, prev };
 }
-async function scanFiles(files, vorgabeIds) {
-  const key = apiKey(); if (!key) { toast('Zuerst unter Mehr › Scan den Claude-API-Schlüssel eintragen'); App.go('mehr'); return; }
-  const vorgabe = vorgabeIds.map(masch).filter(Boolean), out = [], model = ls('mv_model') || DEF_MODEL;
-  App.scanBusy = `0 / ${files.length}`; App.render();
+const SCAN_TOOL = { name: 'eintraege_erfassen', description: 'Speichert alle Zeilen der handschriftlichen Einsatzliste.',
+  input_schema: { type: 'object', required: ['eintraege'], properties: {
+    eintraege: { type: 'array', description: 'Alle ausgefüllten Tabellenzeilen von oben nach unten.', items: { type: 'object',
+      required: ['datum', 'name', 'menge', 'einheit', 'original', 'bemerkung', 'unsicher', 'hinweis'], properties: {
+        datum: { type: 'string', description: 'Datum als TT.MM.JJJJ' },
+        name: { type: 'string', description: 'Name (Kunde, Hof, Firma) wie geschrieben, Wiederholungszeichen aufgelöst' },
+        kunde: { type: 'string', description: 'Passender bekannter Kunde aus der Liste (genau so geschrieben) oder leer' },
+        menge: { type: ['number', 'null'], description: 'Zahl aus der Flächen-/Mengen-Spalte; null wenn leer' },
+        einheit: { type: 'string', enum: ['a', 'ha', 'h', 'm2', ''], description: 'Einheit wie notiert: a = Aren (a, are, aren, ARE), ha, h = Stunden, m2; leer wenn keine notiert' },
+        original: { type: 'string', description: "Inhalt der Flächen-/Mengen-Zelle genau wie geschrieben, z.B. '235 are'" },
+        bemerkung: { type: 'string', description: 'Echte Bemerkung (ohne die Einheit der Menge)' },
+        unsicher: { type: 'boolean', description: 'true wenn etwas in dieser Zeile schlecht lesbar oder ergänzt ist' },
+        hinweis: { type: 'string', description: 'Kurz, was unsicher oder ergänzt ist; sonst leer' } } } },
+    kommentar: { type: 'string', description: 'Optional: allgemeine Auffälligkeiten der Seite' } } } };
+function scanPrompt(labels, isPdf) {
+  const year = new Date().getFullYear(), today = fmtDate(todayIso());
+  const K = kundenSorted().map(k => k.name + ((k.aliases || []).length ? ' (auch: ' + k.aliases.join(', ') + ')' : '')).join('; ');
+  return 'Die Bilder zeigen eine Seite aus einem handschriftlich geführten Maschinen-Einsatzheft eines Schweizer Landwirtschafts- bzw. Lohnunternehmerbetriebs. ' +
+    'Darauf ist eine Tabelle mit den Spalten Datum | Name | Fläche (bzw. Menge oder Stunden) | Bemerkung; jede Zeile ist ein Einsatz bei einem Kunden.\n' +
+    (isPdf ? 'Die Datei kann mehrere Seiten haben – lies alle Seiten. ' : `Der Scan wurde in ${labels.length} Bildausschnitt(e) geteilt (${labels.join(', ')}). `) +
+    'Ein Ausschnitt kann leer sein oder nur blass durchscheinende, spiegelverkehrte Schrift von der Rückseite zeigen – diese ignorierst du vollständig. Steht die Tabelle trotz Drehung noch quer, lies sie trotzdem korrekt.\n\n' +
+    'Regeln:\n- Jede ausgefüllte Tabellenzeile ist ein Eintrag, in der Reihenfolge von oben nach unten. Leere Zeilen weglassen. Notizen ausserhalb der Tabelle (z.B. Summen am Rand) nicht als Eintrag erfassen.\n' +
+    `- Datum immer als TT.MM.JJJJ. Fehlt das Jahr, nimm das Jahr der Nachbarzeilen, sonst ${year}. Fehlt der Monat, ergänze ihn aus der Zeile darüber und setze unsicher=true.\n` +
+    '- Wiederholungszeichen (" oder ,, oder „ oder dito oder ein Strich) bedeuten: gleicher Wert wie in der Zeile darüber – schreibe den Wert aus und vermerke es im Hinweis.\n' +
+    '- menge ist nur die Zahl; die Einheit gehört in einheit. Aren-Schreibweisen (a, are, aren, ARE) → "a". Steht die Einheit in der Bemerkungsspalte (z.B. \'are\'), gehört sie zur Menge und nicht in die Bemerkung. Ist keine Einheit notiert, bleibt einheit leer.\n' +
+    '- Durchgestrichenes ignorieren; bei Korrekturen den gültigen Wert nehmen.\n' +
+    '- Namen (Personen, Höfe, Firmen, Gemeinden) so genau wie möglich ablesen; bei unsicheren Buchstaben unsicher=true und im Hinweis die Alternative nennen.\n' +
+    (K ? `- Bekannte Kunden (nur als Lesehilfe, nichts erzwingen): ${K}. Passt ein Name sicher zu einem davon, trage ihn in «kunde» ein, sonst bleibt «kunde» leer. In «name» steht immer, was wirklich geschrieben ist.\n` : '') +
+    '- Erfinde nichts. Unleserliches mit [?] kennzeichnen.\n' +
+    `Heute ist der ${today}. Antworte ausschliesslich, indem du das Werkzeug eintraege_erfassen einmal mit allen Zeilen aufrufst (auch wenn die Seite leer ist: dann mit einer leeren Liste).`;
+}
+async function claudeCall(body) {
+  const key = apiKey(); if (!key) throw new Error('Kein API-Schlüssel – unter Mehr › Scan eintragen');
+  let last = '';
+  for (let i = 0; i < 3; i++) {
+    let r;
+    try {
+      r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', body: JSON.stringify(body),
+        headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' } });
+    } catch (e) { last = 'Keine Verbindung zu Claude'; await new Promise(r => setTimeout(r, 2000)); continue; }
+    const j = await r.json().catch(() => ({}));
+    if (r.ok) return j;
+    last = (j.error && j.error.message) || ('Fehler ' + r.status);
+    if (r.status === 401) throw new Error('API-Schlüssel ungültig');
+    if (![429, 500, 502, 503, 529].includes(r.status)) break;
+    await new Promise(r => setTimeout(r, 4000 * (i + 1)));
+  }
+  throw new Error(last);
+}
+function parseEntries(resp) { // Werkzeug-Aufruf, notfalls JSON im Text
+  let data = (resp.content || []).find(b => b.type === 'tool_use' && b.name === 'eintraege_erfassen')?.input;
+  if (!data) { const t = (resp.content || []).filter(b => b.type === 'text').map(b => b.text).join(''); try { data = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1)); } catch { data = null; } }
+  if (!data || !('eintraege' in data)) return null;
+  let e = data.eintraege; if (typeof e === 'string') { try { e = JSON.parse(e); } catch { e = []; } }
+  return { eintraege: (e || []).filter(x => x && typeof x === 'object'), kommentar: String(data.kommentar || '') };
+}
+async function claudeReadPage(content) {
+  const body = { model: ls('mv_model') || DEF_MODEL, max_tokens: 16000, tools: [SCAN_TOOL], tool_choice: { type: 'tool', name: 'eintraege_erfassen' }, messages: [{ role: 'user', content }] };
+  for (let a = 0; a < 2; a++) {
+    const resp = await claudeCall(body), res = parseEntries(resp);
+    if (res) return res;
+    if (resp.stop_reason === 'max_tokens') throw new Error('Die Antwort war zu lang und wurde abgeschnitten.');
+    body.messages = [body.messages[0], { role: 'assistant', content: resp.content || [{ type: 'text', text: '…' }] }, { role: 'user', content: 'Bitte rufe jetzt das Werkzeug eintraege_erfassen mit allen Zeilen auf.' }];
+    delete body.tool_choice;
+  }
+  throw new Error('Claude hat keine auswertbare Antwort geliefert.');
+}
+// Notierte Menge in die Einheit der Liste umrechnen (wie ScanListe convert_menge)
+function convertMenge(menge, einheit, ziel, ohne) {
+  if (menge == null) return { wert: null, hinweis: 'Menge fehlt' };
+  let e = String(einheit || '').trim().toLowerCase(), hinweis = '';
+  if (ziel === 'ha') {
+    if (!e) { e = ohne; if (e === 'a' && menge < 10 && menge !== Math.trunc(menge)) hinweis = 'ohne Einheit, als Aren gewertet – evtl. ha?'; }
+    if (e === 'a') return { wert: Math.round(menge / 100 * 1e4) / 1e4, hinweis };
+    if (e === 'ha') return { wert: menge, hinweis };
+    if (e === 'm2') return { wert: Math.round(menge / 1e4 * 1e4) / 1e4, hinweis };
+    return { wert: menge, hinweis: `Einheit «${e}» passt nicht zu ha` };
+  }
+  if (!e || e === 'h') return { wert: menge, hinweis: '' };
+  return { wert: menge, hinweis: `Einheit «${e}» passt nicht zu h` };
+}
+async function scanFiles(files) {
+  if (!apiKey()) { toast('Zuerst unter Mehr › Scan den Claude-API-Schlüssel eintragen'); App.go('mehr'); return; }
+  const o = scanOpt(), M = o.masch.map(masch).filter(Boolean), ziel = listUnit(o), out = [];
+  App.scanPages = App.scanPages && App.imp ? App.scanPages : [];
   try {
     for (let i = 0; i < files.length; i++) {
-      const f = files[i]; App.scanBusy = `${i + 1} / ${files.length}: ${f.name}`; App.render();
-      const block = await fileToBlock(f);
-      const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model, max_tokens: 8000, messages: [{ role: 'user', content: [block, { type: 'text', text: scanPrompt(vorgabe) }] }] }) });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error((j.error && j.error.message) || ('Fehler ' + r.status));
-      const txt = (j.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
-      let res; try { res = JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1)); } catch { throw new Error('Antwort nicht lesbar (' + f.name + ')'); }
-      (res.eintraege || []).forEach(x => {
-        let mt = x.maschine_text || x.maschine || '', mc = x.maschine || '';
-        if (!mt && vorgabe.length === 1) { mt = vorgabe[0].name; mc = vorgabe[0].name; }
-        out.push({ kText: x.kunde_text || x.kunde || '', kCanon: x.kunde || '', mText: mt, mCanon: mc, datum: parseDatum(x.datum), menge: num(x.menge), einheit: x.einheit === 'h' ? 'h' : x.einheit === 'ha' ? 'ha' : '',
-          raw: x.menge, bem: x.bemerkung || '', unsicher: !!x.unsicher, note: [x.hinweis, files.length > 1 ? f.name : ''].filter(Boolean).join(' · ') });
+      const f = files[i], isPdf = f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+      App.scanBusy = `${i + 1} / ${files.length}: ${f.name}`; App.render();
+      let content, labels = [];
+      if (isPdf) content = [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: await b64(f) } }];
+      else {
+        const { parts, prev } = await imageParts(f, o); labels = parts.map(p => p.label);
+        content = parts.flatMap((p, n) => [{ type: 'text', text: `Bild ${n + 1}: ${p.label}` }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: p.data } }]);
+        App.scanPages.push({ name: f.name, url: prev });
+      }
+      content.push({ type: 'text', text: scanPrompt(labels, isPdf) });
+      const page = isPdf ? null : App.scanPages.length - 1;
+      const { eintraege, kommentar } = await claudeReadPage(content);
+      eintraege.forEach(e => {
+        const m0 = num(e.menge), { wert, hinweis } = convertMenge(m0, e.einheit, ziel, o.ohneEinheit);
+        const original = String(e.original || '').trim() || (m0 != null ? `${fmtNum(m0, 4)} ${e.einheit || ''}`.trim() : '');
+        const base = { kText: String(e.name || '').trim(), kCanon: String(e.kunde || '').trim(), datum: parseDatum(e.datum), raw: original, bem: String(e.bemerkung || '').trim(), page,
+          unsicher: !!e.unsicher || !!hinweis, note: [e.hinweis, hinweis, files.length > 1 ? f.name : ''].filter(Boolean).join(' · ') };
+        if (!M.length) { out.push(Object.assign({}, base, { mText: '', menge: wert, einheit: ziel })); return; }
+        M.forEach(m => { // je Maschine eine Zeile; andere Einheit als die Liste → keine Menge, prüfen
+          const u = scanUnit(m, o), ok = u === ziel;
+          out.push(Object.assign({}, base, { mText: m.name, mCanon: m.name, menge: ok ? wert : null, einheit: u, unsicher: base.unsicher || !ok,
+            note: [base.note, ok ? '' : `Einheit der Liste (${ziel}) passt nicht zu ${m.name} (${u}) – Menge eintragen`].filter(Boolean).join(' · ') }));
+        });
       });
+      if (kommentar) toast(`${f.name}: ${kommentar}`, 6000);
     }
   } catch (e) { App.scanBusy = ''; App.render(); toast('Scan fehlgeschlagen: ' + e.message, 8000); if (!out.length) return; }
   App.scanBusy = '';
-  if (!out.length) { App.render(); toast('Auf dem Rapport wurden keine Einsätze gefunden', 5000); return; }
+  if (!out.length) { App.render(); toast('Auf dem Scan wurden keine Einträge gefunden', 5000); return; }
+  App.pageSel = out.find(r => r.page != null)?.page ?? null;
   impStart('Scan', files.map(f => f.name).join(', '), out);
+}
+async function claudeTest() {
+  try { const r = await claudeCall({ model: ls('mv_model') || DEF_MODEL, max_tokens: 20, messages: [{ role: 'user', content: 'Antworte nur mit: OK' }] });
+    toast('Verbindung OK – Antwort: ' + (r.content || []).map(b => b.text || '').join('').trim(), 5000); } catch (e) { toast('Verbindung fehlgeschlagen: ' + e.message, 7000); }
 }
 
 /* ---------- Ansicht Import (Auswahl der Quelle oder Prüfliste) ---------- */
 function viewImport() {
   if (App.imp) return viewPruef();
-  const vorg = App.scanVorgabe || [];
+  const o = scanOpt(), sel = new Set(o.masch), lu = listUnit(o);
+  const mrow = m => { const on = sel.has(m.id), u = scanUnit(m, o);
+    return `<label class="srow ${on ? 'on' : ''}"><input type="checkbox" data-in="scanM" value="${m.id}" ${on ? 'checked' : ''}><span class="grow">${esc(m.name)}</span>
+      ${isMulcher(m) ? `<select class="input" data-in="scanMulch" data-id="${m.id}" style="width:auto;min-height:32px;padding:3px 8px" title="Einheit für diesen Mulcher">${optList(EINHEITEN.map(x => [x, x]), u)}</select>` : `<span class="nr">${esc(u)}</span>`}
+      ${on && u !== lu ? '<span class="chip warn" title="andere Einheit als die Liste – erhält keine Menge">prüfen</span>' : ''}</label>`; };
   return { tb: `<h1>Import</h1>`, html: `<div class="cols">
+    <div class="panel"><h2>Einsatzheft scannen</h2><p>Handschriftliche Listen (Datum | Name | Fläche | Bemerkung). Claude liest jede Zeile – danach prüfst du alles in der Prüfliste.</p>
+      ${apiKey() ? '' : '<div class="box warn small">Noch kein Claude-API-Schlüssel auf diesem Gerät – unter <a href="#" data-act="go" data-v="mehr">Mehr › Scan</a> eintragen.</div>'}
+      <div class="fld"><span>1. Maschine(n) dieser Liste ankreuzen</span><div class="slist">${maschSorted(false).map(mrow).join('')}</div>
+        <div class="hint">Mehrere angekreuzt = pro Eintrag eine Zeile je Maschine. ${sel.size ? `<a href="#" data-act="scanClear">Auswahl löschen</a>` : ''}</div></div>
+      <div class="three"><label class="fld"><span>Mengen-Einheit der Liste</span><select class="input" data-in="scanOpt" data-k="listEinheit">${optList([['', `automatisch (${listUnit(Object.assign({}, o, { listEinheit: '' }))})`], ['ha', 'ha (Fläche)'], ['h', 'h (Stunden)']], o.listEinheit)}</select></label>
+        <label class="fld"><span>Ausrichtung</span><select class="input" data-in="scanOpt" data-k="drehen">${optList(DREHUNGEN, o.drehen)}</select></label>
+        <label class="fld"><span>Zahl ohne Einheit</span><select class="input" data-in="scanOpt" data-k="ohneEinheit">${optList([['a', 'gilt als Aren'], ['ha', 'gilt als ha']], o.ohneEinheit)}</select></label></div>
+      <label class="tog" style="margin-bottom:12px"><input type="checkbox" data-in="scanHalb" ${o.halbieren ? 'checked' : ''}> Heft-Doppelseite (jede Hälfte einzeln und grösser an Claude)</label>
+      ${App.scanBusy ? `<div class="box"><span class="spin"></span> Lese ${esc(App.scanBusy)} …</div>` : `<div class="btns"><label class="btn primary">2. Scan / Foto wählen…<input type="file" accept="image/*,application/pdf" multiple data-in="impScanFile" hidden></label>
+        <label class="btn">📷 Foto aufnehmen<input type="file" accept="image/*" capture="environment" data-in="impScanFile" hidden></label></div>`}
+      <p class="small">Tipp: Scannen mit 300 dpi in Farbe (blaue Kugelschreiber-Schrift), z. B. mit der HP-Software oder «Windows Scan» als JPG/PNG oder PDF. Drehen und Halbieren gelten für Bilder; PDF wird unverändert gelesen. Wird eine Heftseite später nochmals gescannt, sind die schon übernommenen Zeilen als «vorhanden» markiert.</p></div>
     <div class="panel"><h2>Online-Formular</h2><p>Excel-Export der Formular-Antworten einlesen (.xlsx oder .csv). Es kann immer der ganze Export eingelesen werden – schon importierte Antworten werden erkannt und weggelassen.</p>
       <div class="btns"><label class="btn primary">Excel-Datei wählen…<input type="file" accept=".xlsx,.csv" data-in="impFormFile" hidden></label></div></div>
-    <div class="panel"><h2>Papierrapport scannen</h2><p>PDF vom Scanner oder Foto vom Handy. Claude liest die Einsätze aus, danach prüfst du alles in der Prüfliste.</p>
-      ${apiKey() ? '' : '<div class="box warn small">Noch kein Claude-API-Schlüssel auf diesem Gerät – unter <a href="#" data-act="go" data-v="mehr">Mehr › Scan</a> eintragen.</div>'}
-      <div class="fld"><span>Maschine(n) auf diesem Rapport (optional)</span><div class="chips">${maschSorted(false).map(m => `<label><input type="checkbox" data-in="scanVorg" value="${m.id}" ${vorg.includes(m.id) ? 'checked' : ''}><span>${esc(m.name)}</span></label>`).join('')}</div></div>
-      ${App.scanBusy ? `<div class="box"><span class="spin"></span> Lese ${esc(App.scanBusy)} …</div>` : `<div class="btns"><label class="btn primary">PDF / Foto wählen…<input type="file" accept="application/pdf,image/*" multiple data-in="impScanFile" hidden></label></div>`}</div>
   </div>` };
 }
 function viewPruef() {
-  const I = App.imp, rows = I.rows, nSel = rows.filter(r => r.sel).length;
+  const I = App.imp, rows = I.rows, nSel = rows.filter(r => r.sel).length, pages = App.scanPages || [];
+  const pv = pages.length && rows.some(r => r.page != null) ? (pages[App.pageSel ?? 0] || pages[0]) : null;
   const cnt = s => rows.filter(r => r.status === s).length;
   const kq = { exakt: '', variante: '<span class="chip ok" title="über Namensvariante erkannt">Variante</span>', 'ähnlich': '<span class="chip warn" title="ähnlicher Name – bitte prüfen">ähnlich?</span>' };
   const body = rows.map((r, i) => {
@@ -792,7 +902,7 @@ function viewPruef() {
     const bad = r.sel && (!r.kId || !r.mId || r.menge == null || (r.kId === '__new' && !r.newName.trim()));
     return `<tr class="${r.status === 'dup' ? 'off' : ''} ${bad ? 'dup' : ''}">
       <td class="cb"><input type="checkbox" data-in="impSel" data-i="${i}" ${r.sel ? 'checked' : ''}></td>
-      <td>${st}${r.unsicher ? ' <span class="chip warn">unsicher</span>' : ''}${r.dupInfo ? `<div class="small muted">${esc(r.dupInfo)}</div>` : ''}${r.note ? `<div class="small muted">${esc(r.note)}</div>` : ''}</td>
+      <td style="min-width:170px">${st}${r.unsicher ? ' <span class="chip warn">unsicher</span>' : ''}${r.page != null && pages[r.page] ? ` <button type="button" class="btn small ${App.pageSel === r.page ? 'primary' : ''}" data-act="pageSel" data-p="${r.page}" title="Seite anzeigen">📄 ${r.page + 1}</button>` : ''}${r.dupInfo ? `<div class="small muted">${esc(r.dupInfo)}</div>` : ''}${r.note ? `<div class="small muted">${esc(r.note)}</div>` : ''}</td>
       <td><input class="input" type="date" value="${esc(r.datum)}" data-in="impF" data-i="${i}" data-f="datum" style="width:150px"></td>
       <td style="min-width:220px"><div class="small muted">«${esc(r.kText)}» ${kq[r.kQ] || ''}</div><select class="input" data-in="impF" data-i="${i}" data-f="kId">${kOpt}</select>
         ${r.kId === '__new' ? `<input class="input" value="${esc(r.newName)}" data-in="impF" data-i="${i}" data-f="newName" placeholder="Name Neukunde" style="margin-top:4px">` : ''}</td>
@@ -805,7 +915,8 @@ function viewPruef() {
     html: `<div class="box small">«${esc(I.file)}» · ${rows.length} Zeilen: ${cnt('neu')} neu${cnt('aehnlich') ? `, ${cnt('aehnlich')} ähnlich (nicht angekreuzt – bitte prüfen)` : ''}${cnt('dup') ? `, ${cnt('dup')} schon vorhanden (nicht angekreuzt)` : ''}.
       Kunde und Maschine werden über Namen und Namensvarianten erkannt. Was du hier zuordnest, merkt sich das Programm als neue Namensvariante.</div>
     <div class="filters"><button class="btn small" data-act="impAll" data-v="1">Alle neuen ankreuzen</button><button class="btn small" data-act="impAll" data-v="0">Keine</button></div>
-    <div class="dscroll"><table class="dtab"><thead><tr><th class="cb"></th><th>Status</th><th>Datum</th><th>Kunde</th><th>Maschine</th><th>Menge</th><th>Einh.</th><th>Bemerkung</th></tr></thead><tbody>${body}</tbody></table></div>` };
+    <div class="${pv ? 'scanwrap' : ''}">${pv ? `<div class="pview"><div class="small muted">${esc(pv.name)} – Seite ${pages.indexOf(pv) + 1} von ${pages.length}</div><img src="${pv.url}" alt="Scan" data-act="pageBig"></div>` : ''}
+    <div class="dscroll"><table class="dtab"><thead><tr><th class="cb"></th><th>Status</th><th>Datum</th><th>Kunde</th><th>Maschine</th><th>Menge</th><th>Einh.</th><th>Bemerkung</th></tr></thead><tbody>${body}</tbody></table></div></div>` };
 }
 function impSave() {
   const I = App.imp, rows = I.rows.filter(r => r.sel);
@@ -833,33 +944,45 @@ function impSave() {
 }
 
 /* ================= Ansicht Abrechnung: Kundenrapporte, Abrechnungsliste ================= */
-function abrGroups() {
+function abrGroups() { // L = alle Einsätze im Filter, R = nur die für Rapport/Abrechnungsliste (ohne «nicht im Rapport»)
   const list = applyFilter(Store.all('einsaetze'), App.f.abr), g = new Map();
   list.forEach(e => { if (!g.has(e.kunde)) g.set(e.kunde, []); g.get(e.kunde).push(e); });
-  return [...g.entries()].map(([id, L]) => ({ k: kunde(id) || { id, name: '(unbekannt)', nr: '' }, L: L.sort((a, b) => (a.datum || '').localeCompare(b.datum || '')) }))
+  return [...g.entries()].map(([id, L]) => { L.sort((a, b) => (a.datum || '').localeCompare(b.datum || '')); return { k: kunde(id) || { id, name: '(unbekannt)', nr: '' }, L, R: L.filter(e => !e.ohneRapport) }; })
     .sort((a, b) => a.k.name.localeCompare(b.k.name, 'de'));
 }
 const abrIsSel = id => !App.abr.sel || App.abr.sel.includes(id);
+const abrOpen = () => (App.abr.open = App.abr.open || new Set());
 function viewAbrechnung() {
-  const G = abrGroups(), sel = G.filter(g => abrIsSel(g.k.id)), all = sumUp(sel.flatMap(g => g.L)), preise = Store.cfg().rapportPreise, anyPreis = Store.all('maschinen').some(m => m.preis != null);
-  const rows = G.map(g => { const s = sumUp(g.L), hints = [];
+  const G = abrGroups(), sel = G.filter(g => abrIsSel(g.k.id)), selR = sel.filter(g => g.R.length), all = sumUp(sel.flatMap(g => g.R)), preise = Store.cfg().rapportPreise, anyPreis = Store.all('maschinen').some(m => m.preis != null);
+  const nAus = sel.reduce((a, g) => a + g.L.length - g.R.length, 0), open = abrOpen();
+  const rows = G.map(g => { const s = sumUp(g.R), hints = [], aus = g.L.length - g.R.length, isOpen = open.has(g.k.id);
     if (!g.k.nr) hints.push('<span class="chip warn">Neukunde</span>');
+    if (aus) hints.push(`<span class="chip warn" title="nicht im Rapport und nicht in der Abrechnungsliste">${aus} ausgeschlossen</span>`);
     if (s.ohnePreis && anyPreis) hints.push(`<span class="chip warn">${s.ohnePreis} ohne Preis</span>`);
     if (g.L.some(e => !e.datum)) hints.push('<span class="chip warn">ohne Datum</span>');
     if (g.L.some(isDone)) hints.push(`<span class="chip done">${g.L.filter(isDone).length} abgerechnet</span>`);
-    return `<tr class="click ${abrIsSel(g.k.id) ? 'sel' : ''}" data-act="abrToggle" data-id="${g.k.id}"><td class="cb"><input type="checkbox" ${abrIsSel(g.k.id) ? 'checked' : ''} tabindex="-1"></td>
-      <td class="n">${esc(g.k.nr || '')}</td><td><b>${esc(g.k.name)}</b></td><td class="n">${s.n}</td><td class="n">${s.ha ? fmtQty(s.ha) : ''}</td><td class="n">${s.h ? fmtQty(s.h) : ''}</td><td class="n">${s.chf ? chf(s.chf) : ''}</td><td>${hints.join(' ')}</td>
-      <td><button class="btn small" data-act="abrOne" data-id="${g.k.id}" title="Rapport nur für diesen Kunden">Rapport</button></td></tr>`; }).join('');
-  const allSel = G.length && G.every(g => abrIsSel(g.k.id));
+    const head = `<tr class="click ${abrIsSel(g.k.id) ? 'sel' : ''}" data-act="abrToggle" data-id="${g.k.id}"><td class="cb"><input type="checkbox" ${abrIsSel(g.k.id) ? 'checked' : ''} tabindex="-1"></td>
+      <td><button type="button" class="btn small" data-act="abrExp" data-id="${g.k.id}" title="Einträge anzeigen und einzeln für den Rapport wählen">${isOpen ? '▾' : '▸'} ${g.R.length}${aus ? ' / ' + g.L.length : ''}</button></td>
+      <td class="n">${esc(g.k.nr || '')}</td><td><b>${esc(g.k.name)}</b></td><td class="n">${s.ha ? fmtQty(s.ha) : ''}</td><td class="n">${s.h ? fmtQty(s.h) : ''}</td><td class="n">${s.chf ? chf(s.chf) : ''}</td><td>${hints.join(' ')}</td>
+      <td><button class="btn small" data-act="abrOne" data-id="${g.k.id}" title="Rapport nur für diesen Kunden" ${g.R.length ? '' : 'disabled'}>Rapport</button></td></tr>`;
+    const sub = isOpen ? g.L.map(e => { const m = masch(e.maschine) || {}, b = betragOf(e);
+      return `<tr class="sub ${e.ohneRapport ? 'off' : ''} ${isDone(e) ? 'done' : ''}"><td></td><td><label class="tog" title="im Rapport und in der Abrechnungsliste"><input type="checkbox" data-act="abrIncl" data-id="${e.id}" ${e.ohneRapport ? '' : 'checked'}> im Rapport</label></td>
+        <td class="small">${e.datum ? fmtDate(e.datum) : 'ohne Datum'}</td><td class="small">${esc(m.artNr || '')} ${esc(m.name || '?')}${e.bem ? ' · ' + esc(e.bem) : ''}</td>
+        <td class="n small">${einhOf(e) === 'ha' ? fmtQty(e.menge) : ''}</td><td class="n small">${einhOf(e) === 'h' ? fmtQty(e.menge) : ''}</td><td class="n small">${b != null ? chf(b) : ''}</td>
+        <td class="small">${isDone(e) ? `<span class="chip done">abgerechnet ${fmtDate(e.abgerechnetAm)}</span>` : '<span class="chip info">offen</span>'}</td><td></td></tr>`; }).join('') : '';
+    return head + sub; }).join('');
+  const allSel = G.length && G.every(g => abrIsSel(g.k.id)), nOffen = sel.reduce((a, g) => a + g.L.filter(e => !isDone(e)).length, 0);
   return { tb: `<h1>Abrechnung</h1>`,
     html: filterBar('abr', { search: false, maschine: false, kunde: false }) +
-    `<div class="filters"><button class="btn primary" data-act="abrPrint" ${sel.length ? '' : 'disabled'}>🖨 Rapporte (${sel.length})</button><button class="btn" data-act="abrList" ${sel.length ? '' : 'disabled'}>🖨 Abrechnungsliste</button>
-      <button class="btn" data-act="abrXlsx" ${sel.length ? '' : 'disabled'}>⬇ Abrechnungsliste Excel</button><button class="btn" data-act="abrDone" ${sel.some(g => g.L.some(e => !isDone(e))) ? '' : 'disabled'}>✓ Als abgerechnet markieren</button>
-      <label class="tog"><input type="checkbox" data-in="abrPreise" ${preise ? 'checked' : ''}> Preise im Rapport</label></div>
+    `<div class="filters"><button class="btn primary" data-act="abrPrint" ${selR.length ? '' : 'disabled'}>🖨 Rapporte (${selR.length})</button><button class="btn" data-act="abrList" ${selR.length ? '' : 'disabled'}>🖨 Abrechnungsliste</button>
+      <button class="btn" data-act="abrXlsx" ${selR.length ? '' : 'disabled'}>⬇ Abrechnungsliste Excel</button><button class="btn" data-act="abrDone" ${nOffen ? '' : 'disabled'} title="alle offenen Einsätze der angekreuzten Kunden – auch die nicht im Rapport">✓ Als abgerechnet markieren (${nOffen})</button>
+      <label class="tog"><input type="checkbox" data-in="abrPreise" ${preise ? 'checked' : ''}> Preise im Rapport</label>
+      ${G.length ? `<button class="btn small" data-act="abrExpAll">${G.every(g => open.has(g.k.id)) ? 'Alle zuklappen' : 'Alle Einträge zeigen'}</button>` : ''}</div>
     ${anyPreis ? '' : '<div class="box warn small">Noch keine Preise erfasst – Rapporte und Abrechnungsliste zeigen nur Mengen. Preise unter <a href="#" data-act="goMasch">Stammdaten › Maschinen</a> eintragen.</div>'}
-    <p class="muted small">Rapport: eine Seite pro Kunde mit Briefkopf, ohne Seitenzahlen – im Druckfenster «Als PDF speichern» wählen. Die Abrechnungsliste fasst pro Kunde die Artikel zusammen (zum Übertragen in AgroFaktura).</p>
-    ${G.length ? `<div class="dscroll"><table class="dtab"><thead><tr><th class="cb"><input type="checkbox" data-act="abrAll" ${allSel ? 'checked' : ''}></th><th class="n">Kd-Nr.</th><th>Kunde</th><th class="n">Einsätze</th><th class="n">ha</th><th class="n">h</th><th class="n">CHF</th><th>Hinweise</th><th></th></tr></thead>
-      <tbody>${rows}</tbody><tfoot><tr><td></td><td colspan="2">${sel.length} von ${G.length} Kunden</td><td class="n">${all.n}</td><td class="n">${fmtQty(all.ha)}</td><td class="n">${fmtQty(all.h)}</td><td class="n">${all.chf ? chf(all.chf) : ''}</td><td colspan="2"></td></tr></tfoot></table></div>`
+    <p class="muted small">Rapport: eine Seite pro Kunde mit Briefkopf, ohne Seitenzahlen – im Druckfenster «Als PDF speichern» wählen. Mit ▸ die Einträge eines Kunden aufklappen und einzeln für Rapport und Abrechnungsliste ab- oder anwählen;
+      «Als abgerechnet markieren» erfasst trotzdem alle offenen Einsätze der angekreuzten Kunden${nAus ? ` (auch die ${nAus} ausgeschlossenen)` : ''}.</p>
+    ${G.length ? `<div class="dscroll"><table class="dtab"><thead><tr><th class="cb"><input type="checkbox" data-act="abrAll" ${allSel ? 'checked' : ''}></th><th>Einträge</th><th class="n">Kd-Nr.</th><th>Kunde</th><th class="n">ha</th><th class="n">h</th><th class="n">CHF</th><th>Hinweise</th><th></th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td></td><td>${all.n}</td><td colspan="2">${sel.length} von ${G.length} Kunden</td><td class="n">${fmtQty(all.ha)}</td><td class="n">${fmtQty(all.h)}</td><td class="n">${all.chf ? chf(all.chf) : ''}</td><td colspan="2"></td></tr></tfoot></table></div>`
       : '<div class="empty">Keine Einsätze für diesen Zeitraum.</div>'}` };
 }
 function zeitraum(L) { const ds = L.map(e => e.datum).filter(Boolean).sort(); return ds.length ? `${fmtDate(ds[0])} – ${fmtDate(ds[ds.length - 1])}` : ''; }
@@ -889,6 +1012,7 @@ function rapportHtml(k, L, preise) {
     </tbody></table></div>`;
 }
 function abrListHtml(G) {
+  G = G.filter(g => g.R.length).map(g => Object.assign({}, g, { L: g.R }));
   const tot = sumUp(G.flatMap(g => g.L));
   return `<div class="bill alist"><img class="lhead" src="logo.jpg" alt=""><h2>Abrechnungsliste Maschinenvermietung</h2>
     <div class="meta">${G.length} Kunden${zeitraum(G.flatMap(g => g.L)) ? ' · Zeitraum ' + zeitraum(G.flatMap(g => g.L)) : ''} · Stand ${fmtDate(todayIso())}${tot.chf ? ' · Total CHF ' + chf(tot.chf) : ''}</div>
@@ -907,21 +1031,22 @@ function printHtml(html) {
     .then(() => setTimeout(() => { window.print(); setTimeout(done, 1000); }, 50));
 }
 function abrPrint(ids) {
-  const G = abrGroups().filter(g => ids ? ids.includes(g.k.id) : abrIsSel(g.k.id)); if (!G.length) return;
+  const G = abrGroups().filter(g => (ids ? ids.includes(g.k.id) : abrIsSel(g.k.id)) && g.R.length); if (!G.length) { toast('Keine Einträge für den Rapport'); return; }
   const preise = Store.cfg().rapportPreise;
   document.title = G.length === 1 ? `Rapport ${G[0].k.name}` : `Kundenrapporte ${todayIso()}`;
-  printHtml(G.map(g => rapportHtml(g.k, g.L, preise)).join(''));
+  printHtml(G.map(g => rapportHtml(g.k, g.R, preise)).join(''));
   setTimeout(() => { document.title = 'IM-Vermietung'; }, 3000);
 }
 function abrXlsx() {
-  const G = abrGroups().filter(g => abrIsSel(g.k.id));
+  const G = abrGroups().filter(g => abrIsSel(g.k.id) && g.R.length).map(g => Object.assign({}, g, { L: g.R }));
   const rows = [['Kd-Nr.', 'Kunde', 'Art.-Nr.', 'Bezeichnung', 'Menge', 'Einheit', 'Preis CHF', 'Betrag CHF', 'Einsätze']];
   G.forEach(g => sumByArt(g.L).forEach(x => rows.push([g.k.nr ? +g.k.nr || g.k.nr : 'Neukunde', g.k.name, +x.art || x.art, x.name, x.menge, x.einheit, x.preis ?? '', x.betrag ?? '', x.n])));
   download(`Abrechnungsliste_${todayIso()}.xlsx`, xlsxBlob([{ name: 'Abrechnungsliste', rows }, { name: 'Einsätze', rows: einsatzRows(G.flatMap(g => g.L)) }]));
 }
 function abrDone() {
   const L = abrGroups().filter(g => abrIsSel(g.k.id)).flatMap(g => g.L).filter(e => !isDone(e));
-  if (!L.length || !confirm(`${L.length} offene Einsätze als abgerechnet markieren (Datum heute)?`)) return;
+  const aus = L.filter(e => e.ohneRapport).length;
+  if (!L.length || !confirm(`${L.length} offene Einsätze als abgerechnet markieren (Datum heute)?${aus ? `\nDavon ${aus} nicht im Rapport.` : ''}`)) return;
   setStatus(L.map(e => e.id), true); toast(`${L.length} Einsätze als abgerechnet markiert`);
 }
 
@@ -937,8 +1062,9 @@ function viewMehr() {
     <div class="panel"><h2>Dropbox</h2>${conn}<p style="margin-top:12px">Diese Adresse muss in der Dropbox-App (App Console › Settings › Redirect URIs) eingetragen sein:</p><code class="mono">${esc(Auth.redirectUri())}</code></div>
     <div class="panel"><h2>Scan (Claude)</h2><p>Für das Auslesen von Papierrapporten braucht es einen eigenen API-Schlüssel von console.anthropic.com. Er wird nur auf diesem Gerät gespeichert, nicht in Dropbox.</p>
       <label class="fld"><span>API-Schlüssel</span><input class="input" type="password" autocomplete="off" data-in="apiKey" value="${esc(apiKey())}" placeholder="sk-ant-…"></label>
-      <label class="fld"><span>Modell</span><input class="input" data-in="model" value="${esc(ls('mv_model') || DEF_MODEL)}"></label>
-      <p>${apiKey() ? '✓ Schlüssel gespeichert' : 'Kein Schlüssel gespeichert'}</p></div>
+      <label class="fld"><span>Modell</span><select class="input" data-in="model">${optList(SCAN_MODELLE.some(([v]) => v === (ls('mv_model') || DEF_MODEL)) ? SCAN_MODELLE : [...SCAN_MODELLE, [ls('mv_model'), ls('mv_model')]], ls('mv_model') || DEF_MODEL)}</select></label>
+      <p>${apiKey() ? '✓ Schlüssel gespeichert' : 'Kein Schlüssel gespeichert'} · Die Scans werden zur Auswertung an Anthropic gesendet; Abrechnung pro Scan über console.anthropic.com (getrennt vom Claude-Abo).</p>
+      <div class="btns"><button class="btn" data-act="claudeTest" ${apiKey() ? '' : 'disabled'}>Verbindung testen</button></div></div>
   </div><div>
     <div class="panel"><h2>Daten</h2><p>${n('einsaetze')} Einsätze · ${n('kunden')} Kunden · ${n('maschinen')} Maschinen</p>
       <div class="btns"><button class="btn" data-act="exportAll">⬇ Alles als Excel</button><button class="btn" data-act="backup">⬇ Datensicherung (.json)</button><label class="btn">Wiederherstellen…<input type="file" accept=".json" data-in="restoreFile" hidden></label></div>
@@ -1129,6 +1255,13 @@ document.addEventListener('click', ev => {
     case 'impAll': App.imp.rows.forEach(r => { r.sel = t.dataset.v === '1' && r.status === 'neu'; }); lsJson('mv_imp', App.imp); App.render(); break;
     case 'abrToggle': { const G = abrGroups().map(g => g.k.id); const cur = App.abr.sel ? App.abr.sel.slice() : G.slice(); const i = cur.indexOf(id); i >= 0 ? cur.splice(i, 1) : cur.push(id); App.abr.sel = cur; App.render(); break; }
     case 'abrAll': { const G = abrGroups().map(g => g.k.id); App.abr.sel = G.every(abrIsSel) ? [] : null; App.render(); break; }
+    case 'abrExp': ev.stopPropagation(); { const o = abrOpen(); o.has(id) ? o.delete(id) : o.add(id); App.render(); } break;
+    case 'abrExpAll': { const o = abrOpen(), ids = abrGroups().map(g => g.k.id); if (ids.every(x => o.has(x))) o.clear(); else ids.forEach(x => o.add(x)); App.render(); break; }
+    case 'abrIncl': ev.stopPropagation(); { const e = Store.get('einsaetze', id); if (e) { const n = Object.assign({}, e); if (t.checked) delete n.ohneRapport; else n.ohneRapport = true; Store.put('einsaetze', n); } } break;
+    case 'scanClear': setScanOpt({ masch: [] }); App.render(); break;
+    case 'pageSel': App.pageSel = +t.dataset.p; App.render(); break;
+    case 'pageBig': { const p = (App.scanPages || [])[App.pageSel ?? 0]; if (p) openDlg(p.name, `<img class="bigimg" src="${p.url}" alt="Scan">`, '<span class="spacer"></span><button class="btn" value="ok">Schliessen</button>', { wide: true }); break; }
+    case 'claudeTest': claudeTest(); break;
     case 'abrOne': ev.stopPropagation(); abrPrint([id]); break;
     case 'abrPrint': abrPrint(); break;
     case 'abrList': printHtml(abrListHtml(abrGroups().filter(g => abrIsSel(g.k.id)))); break;
@@ -1159,8 +1292,11 @@ function onChange(t, k, v) {
     case 'kNeu': App.kNeu = t.checked; App.render(); break;
     case 'einsMasch': { const m = masch(v), u = $('#dlgForm select[name=einheit]'), p = $('#dlgForm input[name=preis]'); if (m && u) u.value = m.einheit; if (p) p.placeholder = m && m.preis != null ? chf(m.preis) + ' (Maschine)' : 'Maschinenpreis'; break; }
     case 'impFormFile': if (t.files[0]) impForm(t.files[0]); t.value = ''; break;
-    case 'impScanFile': if (t.files.length) scanFiles([...t.files], App.scanVorgabe || []); t.value = ''; break;
-    case 'scanVorg': App.scanVorgabe = $$('[data-in="scanVorg"]:checked').map(x => x.value); break;
+    case 'impScanFile': if (t.files.length) scanFiles([...t.files]); t.value = ''; break;
+    case 'scanM': { const o = scanOpt(), s = new Set(o.masch); t.checked ? s.add(v) : s.delete(v); setScanOpt({ masch: maschSorted().map(m => m.id).filter(x => s.has(x)) }); App.render(); break; }
+    case 'scanMulch': { const o = scanOpt(); o.mulch[t.dataset.id] = v; setScanOpt({ mulch: o.mulch }); App.render(); break; }
+    case 'scanOpt': setScanOpt({ [t.dataset.k]: v }); App.render(); break;
+    case 'scanHalb': setScanOpt({ halbieren: t.checked }); break;
     case 'impSel': App.imp.rows[+t.dataset.i].sel = t.checked; lsJson('mv_imp', App.imp); App.render(); break;
     case 'impF': impField(t, v, true); break;
     case 'abrPreise': Store.setCfg({ rapportPreise: t.checked }); break;
