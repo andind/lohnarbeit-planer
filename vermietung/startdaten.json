@@ -1,0 +1,3663 @@
+{
+"v": 1,
+"kunden": [
+{
+"id": "k23",
+"upd": 1,
+"nr": "23",
+"name": "Arn Markus",
+"strasse": "Hagen 1",
+"zusatz": "",
+"plz": "3262",
+"ort": "Suberg",
+"tel": "",
+"mail": "",
+"listeName": "Arn Markus",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k14",
+"upd": 1,
+"nr": "14",
+"name": "Baumgartner Daniel",
+"strasse": "Grossfeld 1",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Baumgartner Daniel",
+"aliases": [
+"Baumgartner Dänu"
+],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k20",
+"upd": 1,
+"nr": "20",
+"name": "BG 2000 / Stähli-Dardel",
+"strasse": "Leimerenstr. 2",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "BG 2000 / Stähli-Dardel",
+"aliases": [
+"BG 2000",
+"BG Stähli Dardel"
+],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k112",
+"upd": 1,
+"nr": "112",
+"name": "BG Frauchwil",
+"strasse": "Frauchwil 302",
+"zusatz": "Ch. F. F Bangerter",
+"plz": "3255",
+"ort": "Rapperswil BE",
+"tel": "",
+"mail": "",
+"listeName": "BG Frauchwil",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k115",
+"upd": 1,
+"nr": "115",
+"name": "Blaser Ernst",
+"strasse": "Winterswil 233",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Blaser Ernst",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k136",
+"upd": 1,
+"nr": "136",
+"name": "Bommer Urs",
+"strasse": "Wierezwil 201",
+"zusatz": "",
+"plz": "3255",
+"ort": "Rapperswil BE",
+"tel": "",
+"mail": "",
+"listeName": "Bommer Urs",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k153",
+"upd": 1,
+"nr": "153",
+"name": "Bärtschi Corrine",
+"strasse": "Bundkofen 509",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Bärtschi Corinne",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k135",
+"upd": 1,
+"nr": "135",
+"name": "Gebr. Schneider",
+"strasse": "Leimernstrasse 1",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Gebr. Schneider Walter & Ernst",
+"aliases": [
+"Gbr. Schneider",
+"Gebrüder Schneider",
+"Schneider Gebr."
+],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k21",
+"upd": 1,
+"nr": "21",
+"name": "GG Egger",
+"strasse": "Dorfstrasse 3",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Egger Hans und Michael",
+"aliases": [
+"G.G. Egger",
+"Gg Egger"
+],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "kn-gg-ramseyer",
+"upd": 1,
+"nr": "",
+"name": "GG Ramseyer",
+"strasse": "",
+"zusatz": "",
+"plz": "",
+"ort": "",
+"tel": "",
+"mail": "",
+"aliases": [
+"GG Ramyseyer",
+"Niklaus Ramseyer",
+"Ramseyer Winterswil"
+],
+"aktiv": true,
+"bem": "Neukunde"
+},
+{
+"id": "k183",
+"upd": 1,
+"nr": "183",
+"name": "GG Wälchli",
+"strasse": "Bundkofenstrasse 2",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "GG Wälchli`s Schweinefarm",
+"aliases": [
+"Wälchli",
+"Wälchli GG"
+],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "kn-guggisberg-h-p",
+"upd": 1,
+"nr": "",
+"name": "Guggisberg H.P.",
+"strasse": "",
+"zusatz": "",
+"plz": "",
+"ort": "",
+"tel": "",
+"mail": "",
+"aliases": [
+"Gussisberg H.P."
+],
+"aktiv": true,
+"bem": "Neukunde"
+},
+{
+"id": "kn-gygax-urs",
+"upd": 1,
+"nr": "",
+"name": "Gygax Urs",
+"strasse": "",
+"zusatz": "",
+"plz": "",
+"ort": "",
+"tel": "",
+"mail": "",
+"aliases": [],
+"aktiv": true,
+"bem": "Neukunde"
+},
+{
+"id": "k65",
+"upd": 1,
+"nr": "65",
+"name": "Habegger Christian",
+"strasse": "Neuhaus 591",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Habegger Christian jun.",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k165",
+"upd": 1,
+"nr": "165",
+"name": "Hani Adrian",
+"strasse": "Dorfstrasse 5",
+"zusatz": "",
+"plz": "3257",
+"ort": "Grossaffoltern",
+"tel": "",
+"mail": "",
+"listeName": "Häni Adrian",
+"aliases": [
+"Adrian Hani"
+],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k102",
+"upd": 1,
+"nr": "102",
+"name": "Hirschi Fritz",
+"strasse": "Bütschwil 209",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Hirschi Fritz",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k154",
+"upd": 1,
+"nr": "154",
+"name": "Hofer Thomas",
+"strasse": "Allmend 623",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Hofer Thomas",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "kn-hofmann-alex",
+"upd": 1,
+"nr": "",
+"name": "Hofmann Alex",
+"strasse": "",
+"zusatz": "",
+"plz": "",
+"ort": "",
+"tel": "",
+"mail": "",
+"aliases": [
+"Alex Hofmann",
+"Hofman Alex"
+],
+"aktiv": true,
+"bem": "Neukunde"
+},
+{
+"id": "k128",
+"upd": 1,
+"nr": "128",
+"name": "Hurni Sibylle / Nobs Adrian",
+"strasse": "Stutz 1",
+"zusatz": "",
+"plz": "3267",
+"ort": "Seedorf BE",
+"tel": "079 504 07 76",
+"mail": "",
+"listeName": "Sibylle Hurni & Adrian Nobs",
+"aliases": [
+"Adrian Nobs",
+"Hurin Sibylle",
+"Hurni Sibylle",
+"Hurni Sibylle + Nobs Adrian",
+"Sibylle Hurni"
+],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k150",
+"upd": 1,
+"nr": "150",
+"name": "Häberli Martin",
+"strasse": "Seedorffeldstrasse 33",
+"zusatz": "",
+"plz": "3053",
+"ort": "Münchenbuchsee",
+"tel": "",
+"mail": "",
+"listeName": "Häberli Martin",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "kn-koenig-arlette",
+"upd": 1,
+"nr": "",
+"name": "König Arlette",
+"strasse": "",
+"zusatz": "",
+"plz": "",
+"ort": "",
+"tel": "",
+"mail": "",
+"aliases": [
+"Arlette König"
+],
+"aktiv": true,
+"bem": "Neukunde"
+},
+{
+"id": "k172",
+"upd": 1,
+"nr": "172",
+"name": "Maag Martin",
+"strasse": "Bütschwil 203",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Maag Martin",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k36",
+"upd": 1,
+"nr": "36",
+"name": "Mai Tobias",
+"strasse": "Winterswil 231",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Mai Tobias",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k58",
+"upd": 1,
+"nr": "58",
+"name": "Marbot Ueli",
+"strasse": "Gsteig 111",
+"zusatz": "",
+"plz": "3053",
+"ort": "Münchenbuchsee",
+"tel": "",
+"mail": "",
+"listeName": "Marbot Ueli",
+"aliases": [
+"Ueli Marbot"
+],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "kn-marti-patrik",
+"upd": 1,
+"nr": "",
+"name": "Marti Patrik",
+"strasse": "",
+"zusatz": "",
+"plz": "",
+"ort": "",
+"tel": "",
+"mail": "",
+"aliases": [],
+"aktiv": true,
+"bem": "Neukunde"
+},
+{
+"id": "k30",
+"upd": 1,
+"nr": "30",
+"name": "Marti Simon",
+"strasse": "Oberdorf 10",
+"zusatz": "",
+"plz": "3257",
+"ort": "Ammerzwil BE",
+"tel": "",
+"mail": "",
+"listeName": "Marti Simon",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k33",
+"upd": 1,
+"nr": "33",
+"name": "Mühlemann Urs",
+"strasse": "Aefligenstrasse 15",
+"zusatz": "",
+"plz": "3314",
+"ort": "Schalunen",
+"tel": "",
+"mail": "",
+"listeName": "Mühlemann Urs",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k82",
+"upd": 1,
+"nr": "82",
+"name": "Pfeiffer Rolf",
+"strasse": "Jaussacher 4",
+"zusatz": "",
+"plz": "3257",
+"ort": "Ammerzwil BE",
+"tel": "",
+"mail": "",
+"listeName": "Pfeiffer Rolf",
+"aliases": [
+"Rolf Pfeiffer"
+],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k140",
+"upd": 1,
+"nr": "140",
+"name": "Ruchti Samuel",
+"strasse": "Schwandenstrasse 18",
+"zusatz": "",
+"plz": "3256",
+"ort": "Seewil",
+"tel": "",
+"mail": "",
+"listeName": "Ruchti Samuel",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k97",
+"upd": 1,
+"nr": "97",
+"name": "Ruchti Urs",
+"strasse": "Mattenstrasse 2",
+"zusatz": "",
+"plz": "3256",
+"ort": "Seewil",
+"tel": "",
+"mail": "",
+"listeName": "Ruchti Urs",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k70",
+"upd": 1,
+"nr": "70",
+"name": "Rutsch Thomas",
+"strasse": "Dorfstrasse 24",
+"zusatz": "",
+"plz": "3256",
+"ort": "Dieterswil",
+"tel": "",
+"mail": "",
+"listeName": "Rutsch Thomas",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k130",
+"upd": 1,
+"nr": "130",
+"name": "Räz Kaspar",
+"strasse": "Unterdorfstrasse 10",
+"zusatz": "",
+"plz": "3255",
+"ort": "Rapperswil BE",
+"tel": "",
+"mail": "",
+"listeName": "Räz Kaspar",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k110",
+"upd": 1,
+"nr": "110",
+"name": "Räz Marcel",
+"strasse": "Schwanden 48",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Räz Marcel",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "kn-schlup-christian",
+"upd": 1,
+"nr": "",
+"name": "Schlup Christian",
+"strasse": "",
+"zusatz": "",
+"plz": "",
+"ort": "",
+"tel": "",
+"mail": "",
+"aliases": [],
+"aktiv": true,
+"bem": "Neukunde"
+},
+{
+"id": "k103",
+"upd": 1,
+"nr": "103",
+"name": "Schlup Ulrich",
+"strasse": "Schüpberg 128",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Schlup Ulrich",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k15",
+"upd": 1,
+"nr": "15",
+"name": "Schneider Kilian",
+"strasse": "Schwanden 51",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Schneider Kilian",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "kn-schori-andreas",
+"upd": 1,
+"nr": "",
+"name": "Schori Andreas",
+"strasse": "",
+"zusatz": "",
+"plz": "",
+"ort": "",
+"tel": "",
+"mail": "",
+"aliases": [
+"Andreas Schori, 3053 Diemerswil",
+"Andreas Schori, Diemerswil",
+"Schori Hans"
+],
+"aktiv": true,
+"bem": "Neukunde"
+},
+{
+"id": "k114",
+"upd": 1,
+"nr": "114",
+"name": "Spring Ueli",
+"strasse": "Allmend 619",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Spring Ueli",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k55",
+"upd": 1,
+"nr": "55",
+"name": "Stegmann Ueli",
+"strasse": "Wierezwil 242",
+"zusatz": "",
+"plz": "3255",
+"ort": "Rapperswil BE",
+"tel": "",
+"mail": "",
+"listeName": "Stegmann Ueli",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k99",
+"upd": 1,
+"nr": "99",
+"name": "Stuber Jürg",
+"strasse": "Allenwil 310",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Stuber Jürg",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k177",
+"upd": 1,
+"nr": "177",
+"name": "Stähli Ruedi",
+"strasse": "Sunnsite 4",
+"zusatz": "",
+"plz": "3256",
+"ort": "Seewil",
+"tel": "",
+"mail": "",
+"listeName": "Stähli Rudolf",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k34",
+"upd": 1,
+"nr": "34",
+"name": "Stämpfli Jürg",
+"strasse": "Ziegeleistrasse 5",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Stämpfli Jürg",
+"aliases": [
+"Jürg Stämpfli"
+],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k56",
+"upd": 1,
+"nr": "56",
+"name": "Stämpfli Markus",
+"strasse": "Schwanden 36",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Stämpfli Markus",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "kn-treichel-club",
+"upd": 1,
+"nr": "",
+"name": "Treichel Club",
+"strasse": "",
+"zusatz": "",
+"plz": "",
+"ort": "",
+"tel": "",
+"mail": "",
+"aliases": [],
+"aktiv": true,
+"bem": "Neukunde"
+},
+{
+"id": "k6",
+"upd": 1,
+"nr": "6",
+"name": "Tüscher Christian",
+"strasse": "Ziegelried 349",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Tüscher Christian",
+"aliases": [
+"Christian Tüscher"
+],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "kn-von-aesch-patrick",
+"upd": 1,
+"nr": "",
+"name": "Von Aesch Patrick",
+"strasse": "",
+"zusatz": "",
+"plz": "",
+"ort": "",
+"tel": "",
+"mail": "",
+"aliases": [],
+"aktiv": true,
+"bem": "Neukunde"
+},
+{
+"id": "kn-walther-christian",
+"upd": 1,
+"nr": "",
+"name": "Walther Christian",
+"strasse": "",
+"zusatz": "",
+"plz": "",
+"ort": "",
+"tel": "",
+"mail": "",
+"aliases": [
+"Christian Walther"
+],
+"aktiv": true,
+"bem": "Neukunde"
+},
+{
+"id": "kn-weibel-urs",
+"upd": 1,
+"nr": "",
+"name": "Weibel Urs",
+"strasse": "",
+"zusatz": "",
+"plz": "",
+"ort": "",
+"tel": "",
+"mail": "",
+"aliases": [
+"Urs Weibel"
+],
+"aktiv": true,
+"bem": "Neukunde"
+},
+{
+"id": "k40",
+"upd": 1,
+"nr": "40",
+"name": "Wyss Hans",
+"strasse": "Dorfstrasse 4",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Wyss Hans",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k87",
+"upd": 1,
+"nr": "87",
+"name": "Wyss Res",
+"strasse": "Wengistrasse 11",
+"zusatz": "",
+"plz": "3257",
+"ort": "Grossaffoltern",
+"tel": "",
+"mail": "",
+"listeName": "Wyss Andreas",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k169",
+"upd": 1,
+"nr": "169",
+"name": "Zingg Johann",
+"strasse": "Wierezwil 250",
+"zusatz": "",
+"plz": "3255",
+"ort": "Rapperswil BE",
+"tel": "",
+"mail": "",
+"listeName": "Zingg Johann",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+},
+{
+"id": "k109",
+"upd": 1,
+"nr": "109",
+"name": "Zingg Stefan",
+"strasse": "Ziegelried 332",
+"zusatz": "",
+"plz": "3054",
+"ort": "Schüpfen",
+"tel": "",
+"mail": "",
+"listeName": "Zingg Stefan",
+"aliases": [],
+"aktiv": true,
+"bem": ""
+}
+],
+"maschinen": [
+{
+"id": "m101",
+"upd": 1,
+"artNr": "101",
+"name": "Kompaktlader Gehl",
+"einheit": "h",
+"preis": null,
+"aktiv": true,
+"aliases": [
+"Kompaktlader Gehl"
+]
+},
+{
+"id": "m102",
+"upd": 1,
+"artNr": "102",
+"name": "Kurzscheibenegge Amazone",
+"einheit": "ha",
+"preis": null,
+"aktiv": true,
+"aliases": [
+"Scheibenegge Amazone"
+]
+},
+{
+"id": "m103",
+"upd": 1,
+"artNr": "103",
+"name": "Grubber Ott, 7 Zinken",
+"einheit": "ha",
+"preis": null,
+"aktiv": true,
+"aliases": [
+"Grubber Ott rot"
+]
+},
+{
+"id": "m104",
+"upd": 1,
+"artNr": "104",
+"name": "Grubber Lemken, mit Stabkrümler",
+"einheit": "ha",
+"preis": null,
+"aktiv": true,
+"aliases": [
+"Grubber Lemken blau"
+]
+},
+{
+"id": "m105",
+"upd": 1,
+"artNr": "105",
+"name": "Strohstriegel 6m",
+"einheit": "ha",
+"preis": null,
+"aktiv": true,
+"aliases": [
+"Strohstriegel"
+]
+},
+{
+"id": "m106",
+"upd": 1,
+"artNr": "106",
+"name": "Cambridge Walze 6.3m / 5m",
+"einheit": "ha",
+"preis": null,
+"aktiv": true,
+"aliases": [
+"Cambrigewalze 5 oder 6 Meter, nur Walzen"
+]
+},
+{
+"id": "m107",
+"upd": 1,
+"artNr": "107",
+"name": "Cambridge Walze 5m mit Sägerät",
+"einheit": "ha",
+"preis": null,
+"aktiv": true,
+"aliases": []
+},
+{
+"id": "m108",
+"upd": 1,
+"artNr": "108",
+"name": "Prismenwalze 6m",
+"einheit": "ha",
+"preis": null,
+"aktiv": true,
+"aliases": [
+"Prismenwalze Dalbo"
+]
+},
+{
+"id": "m109",
+"upd": 1,
+"artNr": "109",
+"name": "Mulcher",
+"einheit": "ha",
+"preis": null,
+"aktiv": true,
+"aliases": [
+"Mulcher Fläche"
+]
+},
+{
+"id": "m110",
+"upd": 1,
+"artNr": "110",
+"name": "Mulcher für Wegränder",
+"einheit": "h",
+"preis": null,
+"aktiv": true,
+"aliases": [
+"Mulcher Wegränder"
+]
+},
+{
+"id": "m111",
+"upd": 1,
+"artNr": "111",
+"name": "Flachgrubber AgriFarm, 4.5m",
+"einheit": "ha",
+"preis": null,
+"aktiv": true,
+"aliases": []
+},
+{
+"id": "m112",
+"upd": 1,
+"artNr": "112",
+"name": "Traktor mit Bedienung",
+"einheit": "h",
+"preis": null,
+"aktiv": true,
+"aliases": []
+},
+{
+"id": "m113",
+"upd": 1,
+"artNr": "113",
+"name": "Düngerstreuer",
+"einheit": "ha",
+"preis": null,
+"aktiv": true,
+"aliases": []
+}
+],
+"einsaetze": [
+{
+"id": "e0001",
+"upd": 1,
+"datum": "2025-12-04",
+"kunde": "k58",
+"maschine": "m101",
+"menge": 1.1,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Ueli Marbot",
+"maschine": "Kompaktlader Gehl",
+"menge": null
+}
+},
+{
+"id": "e0002",
+"upd": 1,
+"datum": "2025-12-17",
+"kunde": "k14",
+"maschine": "m109",
+"menge": 2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Baumgartner Daniel",
+"maschine": "Mulcher",
+"menge": "200"
+}
+},
+{
+"id": "e0003",
+"upd": 1,
+"datum": "",
+"kunde": "k34",
+"maschine": "m101",
+"menge": 1.1,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Jürg Stämpfli",
+"maschine": "Kompaktlader Gehl",
+"menge": "1.1"
+}
+},
+{
+"id": "e0004",
+"upd": 1,
+"datum": "2025-12-30",
+"kunde": "kn-guggisberg-h-p",
+"maschine": "m109",
+"menge": 3,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Guggisberg H.P.",
+"maschine": "Mulcher",
+"menge": "300"
+}
+},
+{
+"id": "e0005",
+"upd": 1,
+"datum": "2026-01-06",
+"kunde": "k34",
+"maschine": "m101",
+"menge": 1.3,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Jürg Stämpfli",
+"maschine": "Kompaktlader Gehl",
+"menge": "1.3"
+}
+},
+{
+"id": "e0006",
+"upd": 1,
+"datum": "2026-01-31",
+"kunde": "k34",
+"maschine": "m101",
+"menge": 1.7,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Jürg Stämpfli",
+"maschine": "Kompaktlader Gehl",
+"menge": "1.7"
+}
+},
+{
+"id": "e0007",
+"upd": 1,
+"datum": "2026-02-04",
+"kunde": "k172",
+"maschine": "m104",
+"menge": 2.2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Maag Martin",
+"maschine": "Grubber Lemken, mit Stabkrümler",
+"menge": "220"
+}
+},
+{
+"id": "e0008",
+"upd": 1,
+"datum": "2026-02-04",
+"kunde": "k36",
+"maschine": "m101",
+"menge": 1.1,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Mai Tobias",
+"maschine": "Kompaktlader Gehl",
+"menge": "1.1"
+}
+},
+{
+"id": "e0009",
+"upd": 1,
+"datum": "2026-02-25",
+"kunde": "k58",
+"maschine": "m101",
+"menge": 1,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Ueli Marbot",
+"maschine": "Kompaktlader Gehl",
+"menge": null
+}
+},
+{
+"id": "e0010",
+"upd": 1,
+"datum": "2026-03-02",
+"kunde": "k128",
+"maschine": "m105",
+"menge": 1.3,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan + Formular",
+"status": "offen",
+"orig": {
+"name": "Hurni Sibylle + Nobs Adrian",
+"maschine": "Strohstriegel 6m",
+"menge": "1,3"
+}
+},
+{
+"id": "e0011",
+"upd": 1,
+"datum": "2026-03-02",
+"kunde": "k6",
+"maschine": "m109",
+"menge": 0.1,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Tüscher Christian",
+"maschine": "Mulcher",
+"menge": "10"
+}
+},
+{
+"id": "e0012",
+"upd": 1,
+"datum": "2026-03-03",
+"kunde": "k14",
+"maschine": "m109",
+"menge": 0.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Baumgartner Daniel",
+"maschine": "Mulcher",
+"menge": "50"
+}
+},
+{
+"id": "e0013",
+"upd": 1,
+"datum": "2026-03-03",
+"kunde": "k128",
+"maschine": "m103",
+"menge": 0.05,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Sibylle Hurni",
+"maschine": "Grubber Ott rot",
+"menge": 0.05
+}
+},
+{
+"id": "e0014",
+"upd": 1,
+"datum": "2026-03-04",
+"kunde": "k20",
+"maschine": "m106",
+"menge": 1.35,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "BG Stähli Dardel",
+"maschine": "Cambrigewalze 5 oder 6 Meter, nur Walzen",
+"menge": 1.35
+}
+},
+{
+"id": "e0015",
+"upd": 1,
+"datum": "2026-03-04",
+"kunde": "k135",
+"maschine": "m106",
+"menge": 1.1,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Gebrüder Schneider",
+"maschine": "Cambrigewalze 5 oder 6 Meter, nur Walzen",
+"menge": 1.1
+}
+},
+{
+"id": "e0016",
+"upd": 1,
+"datum": "2026-03-06",
+"kunde": "k128",
+"maschine": "m102",
+"menge": 1.15,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Hurni Sibylle",
+"maschine": "Scheibenegge Amazone",
+"menge": 1.15
+}
+},
+{
+"id": "e0017",
+"upd": 1,
+"datum": "2026-03-06",
+"kunde": "k128",
+"maschine": "m103",
+"menge": 0.05,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Hurin Sibylle",
+"maschine": "Grubber Ott rot",
+"menge": 0.05
+}
+},
+{
+"id": "e0018",
+"upd": 1,
+"datum": "2026-03-06",
+"kunde": "k56",
+"maschine": "m106",
+"menge": 0.25,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Stämpfli Markus",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "25 Aren"
+}
+},
+{
+"id": "e0019",
+"upd": 1,
+"datum": "2026-03-07",
+"kunde": "k34",
+"maschine": "m101",
+"menge": 1.3,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Jürg Stämpfli",
+"maschine": "Kompaktlader Gehl",
+"menge": "1.3"
+}
+},
+{
+"id": "e0020",
+"upd": 1,
+"datum": "2026-03-07",
+"kunde": "k34",
+"maschine": "m112",
+"menge": 1.6,
+"einheit": "h",
+"bem": "JD6400",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Jürg Stämpfli",
+"maschine": "Andere Maschine, Details unter Bemerkungen erfassen",
+"menge": 1.6
+}
+},
+{
+"id": "e0021",
+"upd": 1,
+"datum": "2026-03-07",
+"kunde": "k87",
+"maschine": "m106",
+"menge": 4,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Wyss Res",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "400 a"
+}
+},
+{
+"id": "e0022",
+"upd": 1,
+"datum": "2026-03-08",
+"kunde": "k30",
+"maschine": "m106",
+"menge": 2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Marti Simon",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "200 a"
+}
+},
+{
+"id": "e0023",
+"upd": 1,
+"datum": "2026-03-09",
+"kunde": "k172",
+"maschine": "m106",
+"menge": 2.2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Maag Martin",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "220 a"
+}
+},
+{
+"id": "e0024",
+"upd": 1,
+"datum": "2026-03-10",
+"kunde": "k21",
+"maschine": "m106",
+"menge": 4.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Gg Egger",
+"maschine": "Cambrigewalze 5 oder 6 Meter, nur Walzen",
+"menge": 4.5
+}
+},
+{
+"id": "e0025",
+"upd": 1,
+"datum": "2026-03-10",
+"kunde": "k183",
+"maschine": "m112",
+"menge": 1.7,
+"einheit": "h",
+"bem": "JD 5125R Gülle rühren",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "GG Wälchli",
+"maschine": "Andere Maschine, Details unter Bemerkungen erfassen",
+"menge": 1.7
+}
+},
+{
+"id": "e0026",
+"upd": 1,
+"datum": "2026-03-10",
+"kunde": "k56",
+"maschine": "m106",
+"menge": 1.7,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Stämpfli Markus",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "170 a"
+}
+},
+{
+"id": "e0027",
+"upd": 1,
+"datum": "2026-03-16",
+"kunde": "k15",
+"maschine": "m106",
+"menge": 5.7,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Schneider Kilian",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "570"
+}
+},
+{
+"id": "e0028",
+"upd": 1,
+"datum": "2026-03-18",
+"kunde": "kn-hofmann-alex",
+"maschine": "m106",
+"menge": 4.2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Alex Hofmann",
+"maschine": "Cambrigewalze 5 oder 6 Meter, nur Walzen",
+"menge": 4.2
+}
+},
+{
+"id": "e0029",
+"upd": 1,
+"datum": "2026-03-18",
+"kunde": "k33",
+"maschine": "m104",
+"menge": 2.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Mühlemann Urs",
+"maschine": "Grubber Lemken, mit Stabkrümler",
+"menge": "250"
+}
+},
+{
+"id": "e0030",
+"upd": 1,
+"datum": "2026-03-19",
+"kunde": "k114",
+"maschine": "m106",
+"menge": 4,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Spring Ueli",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "400 a"
+}
+},
+{
+"id": "e0031",
+"upd": 1,
+"datum": "2026-03-20",
+"kunde": "k153",
+"maschine": "m113",
+"menge": 0.7,
+"einheit": "ha",
+"bem": "Düngerstreuen 100 kg Volldünger 100 kg MG Ammonsalpeter",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Bärtschi Corrine",
+"maschine": "Andere Maschine, Details unter Bemerkungen erfassen",
+"menge": 0.7
+}
+},
+{
+"id": "e0032",
+"upd": 1,
+"datum": "2026-03-20",
+"kunde": "k165",
+"maschine": "m106",
+"menge": 1.8,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Adrian Hani",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "180 a"
+}
+},
+{
+"id": "e0033",
+"upd": 1,
+"datum": "2026-03-20",
+"kunde": "kn-marti-patrik",
+"maschine": "m106",
+"menge": 1.5,
+"einheit": "ha",
+"bem": "Haldenweg 31, 3250 Lyss",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Marti Patrik",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "150 Aren"
+}
+},
+{
+"id": "e0034",
+"upd": 1,
+"datum": "2026-03-20",
+"kunde": "kn-weibel-urs",
+"maschine": "m106",
+"menge": 2.2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Urs Weibel",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "220 Aren"
+}
+},
+{
+"id": "e0035",
+"upd": 1,
+"datum": "2026-03-21",
+"kunde": "kn-schori-andreas",
+"maschine": "m106",
+"menge": 5.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Andreas Schori, 3053 Diemerswil",
+"maschine": "Cambrigewalze 5 oder 6 Meter, nur Walzen",
+"menge": 5.5
+}
+},
+{
+"id": "e0036",
+"upd": 1,
+"datum": "2026-04-04",
+"kunde": "k14",
+"maschine": "m103",
+"menge": 0.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Baumgartner Daniel",
+"maschine": "Grubber Ott, 7 Zinken",
+"menge": "0,5"
+}
+},
+{
+"id": "e0037",
+"upd": 1,
+"datum": "2026-04-06",
+"kunde": "k136",
+"maschine": "m104",
+"menge": 1,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Bommer Urs",
+"maschine": "Grubber Lemken, mit Stabkrümler",
+"menge": "100"
+}
+},
+{
+"id": "e0038",
+"upd": 1,
+"datum": "2026-04-07",
+"kunde": "k20",
+"maschine": "m106",
+"menge": 4.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "BG 2000",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "450 are"
+}
+},
+{
+"id": "e0039",
+"upd": 1,
+"datum": "2026-04-11",
+"kunde": "k56",
+"maschine": "m106",
+"menge": 1.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Stämpfli Markus",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "150 a"
+}
+},
+{
+"id": "e0040",
+"upd": 1,
+"datum": "2026-04-16",
+"kunde": "k40",
+"maschine": "m106",
+"menge": 6,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Wyss Hans",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "600 Ares"
+}
+},
+{
+"id": "e0041",
+"upd": 1,
+"datum": "2026-04-17",
+"kunde": "kn-hofmann-alex",
+"maschine": "m108",
+"menge": 5.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Hofman Alex",
+"maschine": "Prismenwalze Dalbo",
+"menge": 5.5
+}
+},
+{
+"id": "e0042",
+"upd": 1,
+"datum": "2026-04-17",
+"kunde": "k140",
+"maschine": "m101",
+"menge": 2.8,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Ruchti Samuel",
+"maschine": "Kompaktlader Gehl",
+"menge": null
+}
+},
+{
+"id": "e0043",
+"upd": 1,
+"datum": "2026-04-20",
+"kunde": "k183",
+"maschine": "m106",
+"menge": 2.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Wälchli",
+"maschine": "Cambrigewalze 5 oder 6 Meter, nur Walzen",
+"menge": 2.5
+}
+},
+{
+"id": "e0044",
+"upd": 1,
+"datum": "2026-04-20",
+"kunde": "k177",
+"maschine": "m104",
+"menge": 4.3,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Stähli Ruedi",
+"maschine": "Grubber Lemken blau",
+"menge": 4.3
+}
+},
+{
+"id": "e0045",
+"upd": 1,
+"datum": "2026-04-21",
+"kunde": "k30",
+"maschine": "m106",
+"menge": 0.4,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Marti Simon",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "40 are"
+}
+},
+{
+"id": "e0046",
+"upd": 1,
+"datum": "2026-04-22",
+"kunde": "k177",
+"maschine": "m106",
+"menge": 4.2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Stähli Ruedi",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "420 are"
+}
+},
+{
+"id": "e0047",
+"upd": 1,
+"datum": "2026-04-23",
+"kunde": "kn-guggisberg-h-p",
+"maschine": "m106",
+"menge": 1.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Gussisberg H.P.",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "150 a"
+}
+},
+{
+"id": "e0048",
+"upd": 1,
+"datum": "2026-04-29",
+"kunde": "k34",
+"maschine": "m101",
+"menge": 1.2,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Jürg Stämpfli",
+"maschine": "Kompaktlader Gehl",
+"menge": "1.2"
+}
+},
+{
+"id": "e0049",
+"upd": 1,
+"datum": "2026-05-01",
+"kunde": "kn-guggisberg-h-p",
+"maschine": "m110",
+"menge": 1.5,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Guggisberg H.P.",
+"maschine": "Mulcher für Wegränder",
+"menge": "1 1/2 h"
+}
+},
+{
+"id": "e0050",
+"upd": 1,
+"datum": "2026-05-04",
+"kunde": "k36",
+"maschine": "m101",
+"menge": 0.9,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Mai Tobias",
+"maschine": "Kompaktlader Gehl",
+"menge": null
+}
+},
+{
+"id": "e0051",
+"upd": 1,
+"datum": "2026-05-05",
+"kunde": "k58",
+"maschine": "m101",
+"menge": 0.7,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Ueli Marbot",
+"maschine": "Kompaktlader Gehl",
+"menge": null
+}
+},
+{
+"id": "e0052",
+"upd": 1,
+"datum": "2026-05-09",
+"kunde": "k21",
+"maschine": "m105",
+"menge": 5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "G.G. Egger",
+"maschine": "Strohstriegel 6m",
+"menge": "5"
+}
+},
+{
+"id": "e0053",
+"upd": 1,
+"datum": "2026-05-10",
+"kunde": "k109",
+"maschine": "m109",
+"menge": 1,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Zingg Stefan",
+"maschine": "Mulcher Fläche",
+"menge": 1
+}
+},
+{
+"id": "e0054",
+"upd": 1,
+"datum": "2026-05-14",
+"kunde": "k14",
+"maschine": "m109",
+"menge": 2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Baumgartner Daniel",
+"maschine": "Mulcher",
+"menge": "2ha + 45min"
+}
+},
+{
+"id": "e0055",
+"upd": 1,
+"datum": "2026-05-14",
+"kunde": "k14",
+"maschine": "m110",
+"menge": 0.75,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Baumgartner Daniel",
+"maschine": "Mulcher für Wegränder",
+"menge": null
+}
+},
+{
+"id": "e0056",
+"upd": 1,
+"datum": "2026-05-23",
+"kunde": "k21",
+"maschine": "m106",
+"menge": 3.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Gg Egger",
+"maschine": "Cambrigewalze 5 oder 6 Meter, nur Walzen",
+"menge": 3.5
+}
+},
+{
+"id": "e0057",
+"upd": 1,
+"datum": "2026-05-26",
+"kunde": "k6",
+"maschine": "m110",
+"menge": 2,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Tüscher Christian",
+"maschine": "Mulcher für Wegränder",
+"menge": "2 h"
+}
+},
+{
+"id": "e0058",
+"upd": 1,
+"datum": "2026-05-27",
+"kunde": "k56",
+"maschine": "m110",
+"menge": 0.5,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Stämpfli Markus",
+"maschine": "Mulcher für Wegränder",
+"menge": "1/2 h"
+}
+},
+{
+"id": "e0059",
+"upd": 1,
+"datum": "2026-06-02",
+"kunde": "k34",
+"maschine": "m110",
+"menge": 0.75,
+"einheit": "h",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Jürg Stämpfli",
+"maschine": "Mulcher Wegränder",
+"menge": 0.75
+}
+},
+{
+"id": "e0060",
+"upd": 1,
+"datum": "2026-06-06",
+"kunde": "k115",
+"maschine": "m101",
+"menge": 2.3,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Blaser Ernst",
+"maschine": "Kompaktlader Gehl",
+"menge": "2,3"
+}
+},
+{
+"id": "e0061",
+"upd": 1,
+"datum": "2026-06-19",
+"kunde": "kn-guggisberg-h-p",
+"maschine": "m110",
+"menge": 2,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Guggisberg H.P.",
+"maschine": "Mulcher für Wegränder",
+"menge": "2 h"
+}
+},
+{
+"id": "e0062",
+"upd": 1,
+"datum": "2026-06-20",
+"kunde": "k109",
+"maschine": "m110",
+"menge": 1,
+"einheit": "h",
+"bem": "1 std",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Zingg Stefan",
+"maschine": "Mulcher Wegränder",
+"menge": 1
+}
+},
+{
+"id": "e0063",
+"upd": 1,
+"datum": "2026-06-24",
+"kunde": "k56",
+"maschine": "m110",
+"menge": 0.5,
+"einheit": "h",
+"bem": "30 a",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Stämpfli Markus",
+"maschine": "Mulcher für Wegränder",
+"menge": "1/2 h | 30A"
+}
+},
+{
+"id": "e0064",
+"upd": 1,
+"datum": "2026-06-25",
+"kunde": "kn-gg-ramseyer",
+"maschine": "m106",
+"menge": 1.2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "GG Ramyseyer",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "120 a"
+}
+},
+{
+"id": "e0065",
+"upd": 1,
+"datum": "2026-06-26",
+"kunde": "k6",
+"maschine": "m110",
+"menge": 1,
+"einheit": "h",
+"bem": "1 Stunde",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Christian Tüscher",
+"maschine": "Mulcher Wegränder",
+"menge": 1
+}
+},
+{
+"id": "e0066",
+"upd": 1,
+"datum": "2026-06-27",
+"kunde": "kn-walther-christian",
+"maschine": "m105",
+"menge": 2.9,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Christian Walther",
+"maschine": "Strohstriegel 6m",
+"menge": "2,9"
+}
+},
+{
+"id": "e0067",
+"upd": 1,
+"datum": "2026-07-01",
+"kunde": "k14",
+"maschine": "m110",
+"menge": 1,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Baumgartner Daniel",
+"maschine": "Mulcher für Wegränder",
+"menge": "1h"
+}
+},
+{
+"id": "e0068",
+"upd": 1,
+"datum": "2026-07-02",
+"kunde": "k128",
+"maschine": "m103",
+"menge": 3.8,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Hurni Sibylle",
+"maschine": "Grubber Ott rot",
+"menge": 3.8
+}
+},
+{
+"id": "e0069",
+"upd": 1,
+"datum": "2026-07-03",
+"kunde": "k56",
+"maschine": "m109",
+"menge": 0.2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Stämpfli Markus",
+"maschine": "Mulcher",
+"menge": "20 Aren."
+}
+},
+{
+"id": "e0070",
+"upd": 1,
+"datum": "2026-07-07",
+"kunde": "k23",
+"maschine": "m105",
+"menge": 6,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Arn Markus",
+"maschine": "Strohstriegel 6m",
+"menge": "6"
+}
+},
+{
+"id": "e0071",
+"upd": 1,
+"datum": "2026-07-14",
+"kunde": "k34",
+"maschine": "m109",
+"menge": 2.1,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Jürg Stämpfli",
+"maschine": "Mulcher Fläche",
+"menge": 2.1
+}
+},
+{
+"id": "e0072",
+"upd": 1,
+"datum": "2026-07-15",
+"kunde": "k14",
+"maschine": "m105",
+"menge": 0.3,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Baumgartner Dänu",
+"maschine": "Strohstriegel",
+"menge": 0.3
+}
+},
+{
+"id": "e0073",
+"upd": 1,
+"datum": "2026-07-15",
+"kunde": "k34",
+"maschine": "m105",
+"menge": 7.7,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Stämpfli Jürg",
+"maschine": "Strohstriegel",
+"menge": 7.7
+}
+},
+{
+"id": "e0074",
+"upd": 1,
+"datum": "2026-07-16",
+"kunde": "k21",
+"maschine": "m110",
+"menge": 0.25,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "GG Egger",
+"maschine": "Mulcher für Wegränder",
+"menge": "15 m? (schlecht lesbar)"
+}
+},
+{
+"id": "e0075",
+"upd": 1,
+"datum": "2026-07-16",
+"kunde": "k128",
+"maschine": "m103",
+"menge": 4.2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Hurni Sibylle",
+"maschine": "Grubber Ott rot",
+"menge": 4.2
+}
+},
+{
+"id": "e0076",
+"upd": 1,
+"datum": "2026-07-17",
+"kunde": "kn-hofmann-alex",
+"maschine": "m106",
+"menge": 10,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Hofmann Alex",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "10 ha"
+}
+},
+{
+"id": "e0077",
+"upd": 1,
+"datum": "2026-07-17",
+"kunde": "k150",
+"maschine": "m105",
+"menge": 9.4,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Häberli Martin",
+"maschine": "Strohstriegel 6m",
+"menge": "9,4"
+}
+},
+{
+"id": "e0078",
+"upd": 1,
+"datum": "2026-07-18",
+"kunde": "k65",
+"maschine": "m109",
+"menge": 2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Habegger Christian",
+"maschine": "Mulcher",
+"menge": "2 ha"
+}
+},
+{
+"id": "e0079",
+"upd": 1,
+"datum": "2026-07-18",
+"kunde": "k128",
+"maschine": "m109",
+"menge": 2.02,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Hurni Sibylle",
+"maschine": "Mulcher Fläche",
+"menge": 2.02
+}
+},
+{
+"id": "e0080",
+"upd": 1,
+"datum": "2026-07-22",
+"kunde": "k36",
+"maschine": "m109",
+"menge": 1,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Mai Tobias",
+"maschine": "Mulcher",
+"menge": "100a"
+}
+},
+{
+"id": "e0081",
+"upd": 1,
+"datum": "2026-07-22",
+"kunde": "k110",
+"maschine": "m106",
+"menge": 7,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Räz Marcel",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "7 ha"
+}
+},
+{
+"id": "e0082",
+"upd": 1,
+"datum": "2026-07-23",
+"kunde": "k103",
+"maschine": "m109",
+"menge": 1.3,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Schlup Ulrich",
+"maschine": "Mulcher",
+"menge": "130 a."
+}
+},
+{
+"id": "e0083",
+"upd": 1,
+"datum": "2026-07-27",
+"kunde": "k177",
+"maschine": "m104",
+"menge": 9,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Stähli Ruedi",
+"maschine": "Grubber Lemken, mit Stabkrümler",
+"menge": "900"
+}
+},
+{
+"id": "e0084",
+"upd": 1,
+"datum": "2026-07-27",
+"kunde": "kn-von-aesch-patrick",
+"maschine": "m105",
+"menge": 3.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Von Aesch Patrick",
+"maschine": "Strohstriegel 6m",
+"menge": "3,5"
+}
+},
+{
+"id": "e0085",
+"upd": 1,
+"datum": "2026-07-28",
+"kunde": "kn-schlup-christian",
+"maschine": "m106",
+"menge": 3.6,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Schlup Christian",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "3,6 ha"
+}
+},
+{
+"id": "e0086",
+"upd": 1,
+"datum": "2026-07-28",
+"kunde": "kn-schori-andreas",
+"maschine": "m102",
+"menge": 4,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Schori Hans",
+"maschine": "Kurzscheibenegge Amazone",
+"menge": "4 ha"
+}
+},
+{
+"id": "e0087",
+"upd": 1,
+"datum": "2026-07-29",
+"kunde": "k97",
+"maschine": "m109",
+"menge": 7,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Ruchti Urs",
+"maschine": "Mulcher",
+"menge": "7 ha"
+}
+},
+{
+"id": "e0088",
+"upd": 1,
+"datum": "2026-08-04",
+"kunde": "k128",
+"maschine": "m108",
+"menge": 3.11,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Adrian Nobs",
+"maschine": "Prismenwalze Dalbo",
+"menge": 3.11
+}
+},
+{
+"id": "e0089",
+"upd": 1,
+"datum": "2026-08-05",
+"kunde": "kn-gg-ramseyer",
+"maschine": "m108",
+"menge": 2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Niklaus Ramseyer",
+"maschine": "Prismenwalze Dalbo",
+"menge": 2
+}
+},
+{
+"id": "e0090",
+"upd": 1,
+"datum": "2026-08-05",
+"kunde": "k36",
+"maschine": "m104",
+"menge": 2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Mai Tobias",
+"maschine": "Grubber Lemken, mit Stabkrümler",
+"menge": "200"
+}
+},
+{
+"id": "e0091",
+"upd": 1,
+"datum": "2026-08-06",
+"kunde": "kn-gygax-urs",
+"maschine": "m106",
+"menge": 2.8,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Gygax Urs",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "2,8 ha"
+}
+},
+{
+"id": "e0092",
+"upd": 1,
+"datum": "2026-08-06",
+"kunde": "k34",
+"maschine": "m105",
+"menge": 3.6,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Jürg Stämpfli",
+"maschine": "Strohstriegel",
+"menge": 3.6
+}
+},
+{
+"id": "e0093",
+"upd": 1,
+"datum": "2026-08-07",
+"kunde": "k112",
+"maschine": "m106",
+"menge": 2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "BG Frauchwil",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "2 ha"
+}
+},
+{
+"id": "e0094",
+"upd": 1,
+"datum": "2026-08-07",
+"kunde": "k30",
+"maschine": "m106",
+"menge": 4,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Marti Simon",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "400 are"
+}
+},
+{
+"id": "e0095",
+"upd": 1,
+"datum": "2026-08-07",
+"kunde": "k110",
+"maschine": "m106",
+"menge": 2.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Räz Marcel",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "2,5 ha"
+}
+},
+{
+"id": "e0096",
+"upd": 1,
+"datum": "2026-08-07",
+"kunde": "k109",
+"maschine": "m109",
+"menge": 2.2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Zingg Stefan",
+"maschine": "Mulcher Fläche",
+"menge": 2.2
+}
+},
+{
+"id": "e0097",
+"upd": 1,
+"datum": "2026-08-08",
+"kunde": "k99",
+"maschine": "m106",
+"menge": 4.2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Stuber Jürg",
+"maschine": "Cambrigewalze 5 oder 6 Meter, nur Walzen",
+"menge": 4.2
+}
+},
+{
+"id": "e0098",
+"upd": 1,
+"datum": "2026-08-12",
+"kunde": "k115",
+"maschine": "m105",
+"menge": 1.55,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Blaser Ernst",
+"maschine": "Strohstriegel 6m",
+"menge": "1,55"
+}
+},
+{
+"id": "e0099",
+"upd": 1,
+"datum": "2026-08-12",
+"kunde": "k136",
+"maschine": "m106",
+"menge": 1,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Bommer Urs",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "1 Ha"
+}
+},
+{
+"id": "e0100",
+"upd": 1,
+"datum": "2026-08-13",
+"kunde": "k20",
+"maschine": "m106",
+"menge": 7.7,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "BG 2000",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "7,7 ha"
+}
+},
+{
+"id": "e0101",
+"upd": 1,
+"datum": "2026-08-13",
+"kunde": "k112",
+"maschine": "m106",
+"menge": 3,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "BG Frauchwil",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "3 ha"
+}
+},
+{
+"id": "e0102",
+"upd": 1,
+"datum": "2026-08-13",
+"kunde": "k82",
+"maschine": "m106",
+"menge": 3.8,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Rolf Pfeiffer",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "38 ha"
+}
+},
+{
+"id": "e0103",
+"upd": 1,
+"datum": "2026-08-14",
+"kunde": "k136",
+"maschine": "m106",
+"menge": 2.4,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Bommer Urs",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "2,4 ha"
+}
+},
+{
+"id": "e0104",
+"upd": 1,
+"datum": "2026-08-14",
+"kunde": "k183",
+"maschine": "m106",
+"menge": 2.4,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Wälchli GG",
+"maschine": "Cambrigewalze 5 oder 6 Meter, nur Walzen",
+"menge": 240
+}
+},
+{
+"id": "e0105",
+"upd": 1,
+"datum": "2026-08-14",
+"kunde": "k130",
+"maschine": "m106",
+"menge": 4.4,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Räz Kaspar",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "4,4 ha"
+}
+},
+{
+"id": "e0106",
+"upd": 1,
+"datum": "2026-08-15",
+"kunde": "k135",
+"maschine": "m106",
+"menge": 2.2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Schneider Gebr.",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "21 ha"
+}
+},
+{
+"id": "e0107",
+"upd": 1,
+"datum": "2026-08-15",
+"kunde": "k87",
+"maschine": "m106",
+"menge": 3,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Wyss Res",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "3 ha"
+}
+},
+{
+"id": "e0108",
+"upd": 1,
+"datum": "2026-08-16",
+"kunde": "k65",
+"maschine": "m106",
+"menge": 3,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Habegger Christian",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "3 Ha"
+}
+},
+{
+"id": "e0109",
+"upd": 1,
+"datum": "2026-08-18",
+"kunde": "k177",
+"maschine": "m106",
+"menge": 3.2,
+"einheit": "ha",
+"bem": "Allenwil",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Stähli Ruedi",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "3,2 ha"
+}
+},
+{
+"id": "e0110",
+"upd": 1,
+"datum": "2026-08-19",
+"kunde": "kn-gg-ramseyer",
+"maschine": "m108",
+"menge": 2.7,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Ramseyer Winterswil",
+"maschine": "Prismenwalze Dalbo",
+"menge": 2.7
+}
+},
+{
+"id": "e0111",
+"upd": 1,
+"datum": "2026-08-19",
+"kunde": "kn-koenig-arlette",
+"maschine": "m106",
+"menge": 2.4,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Arlette König",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "2,4 ha"
+}
+},
+{
+"id": "e0112",
+"upd": 1,
+"datum": "2026-08-19",
+"kunde": "k172",
+"maschine": "m111",
+"menge": 5.2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Maag Martin",
+"maschine": "Flachgrubber AgriFarm, 4.5m",
+"menge": "5,2"
+}
+},
+{
+"id": "e0113",
+"upd": 1,
+"datum": "2026-08-19",
+"kunde": "k40",
+"maschine": "m106",
+"menge": 6,
+"einheit": "ha",
+"bem": "Walze mit Siegqual 3 ha ?, andere Walze; Walze ohne Siegqual 3 ha mit Krummacher",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Wyss Hans",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "3 ha ? andere Walze / 3 ha mit Krummacher"
+}
+},
+{
+"id": "e0114",
+"upd": 1,
+"datum": "2026-08-19",
+"kunde": "k169",
+"maschine": "m106",
+"menge": 2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Zingg Johann",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "2 ha"
+}
+},
+{
+"id": "e0115",
+"upd": 1,
+"datum": "2026-08-20",
+"kunde": "k150",
+"maschine": "m108",
+"menge": 7,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Häberli Martin",
+"maschine": "Prismenwalze Dalbo",
+"menge": 7
+}
+},
+{
+"id": "e0116",
+"upd": 1,
+"datum": "2026-08-27",
+"kunde": "k102",
+"maschine": "m102",
+"menge": 5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Hirschi Fritz",
+"maschine": "Kurzscheibenegge Amazone",
+"menge": "5 ha"
+}
+},
+{
+"id": "e0117",
+"upd": 1,
+"datum": "2026-08-27",
+"kunde": "k97",
+"maschine": "m109",
+"menge": 3,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Ruchti Urs",
+"maschine": "Mulcher",
+"menge": "3 h"
+}
+},
+{
+"id": "e0118",
+"upd": 1,
+"datum": "2026-08-27",
+"kunde": "kn-schori-andreas",
+"maschine": "m108",
+"menge": 2.8,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Andreas Schori, 3053 Diemerswil",
+"maschine": "Prismenwalze Dalbo",
+"menge": 2.8
+}
+},
+{
+"id": "e0119",
+"upd": 1,
+"datum": "2026-08-29",
+"kunde": "k172",
+"maschine": "m104",
+"menge": 3,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Maag Martin",
+"maschine": "Grubber Lemken, mit Stabkrümler",
+"menge": "300"
+}
+},
+{
+"id": "e0120",
+"upd": 1,
+"datum": "2026-08-30",
+"kunde": "k128",
+"maschine": "m109",
+"menge": 1.3,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Hurni Sibylle",
+"maschine": "Mulcher Fläche",
+"menge": 1.3
+}
+},
+{
+"id": "e0121",
+"upd": 1,
+"datum": "2026-08-30",
+"kunde": "kn-schori-andreas",
+"maschine": "m108",
+"menge": 2.7,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Andreas Schori, Diemerswil",
+"maschine": "Prismenwalze Dalbo",
+"menge": 2.7
+}
+},
+{
+"id": "e0122",
+"upd": 1,
+"datum": "2026-09-01",
+"kunde": "kn-guggisberg-h-p",
+"maschine": "m109",
+"menge": 6,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Gussisberg H.P.",
+"maschine": "Mulcher",
+"menge": "6 h"
+}
+},
+{
+"id": "e0123",
+"upd": 1,
+"datum": "2026-09-01",
+"kunde": "k34",
+"maschine": "m109",
+"menge": 1.9,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Jürg Stämpfli",
+"maschine": "Mulcher Fläche",
+"menge": 1.9
+}
+},
+{
+"id": "e0124",
+"upd": 1,
+"datum": "2026-09-01",
+"kunde": "kn-treichel-club",
+"maschine": "m106",
+"menge": 3,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Treichel Club",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "3 ha"
+}
+},
+{
+"id": "e0125",
+"upd": 1,
+"datum": "2026-09-02",
+"kunde": "k65",
+"maschine": "m109",
+"menge": 4,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Habegger Christian",
+"maschine": "Mulcher",
+"menge": "4 h"
+}
+},
+{
+"id": "e0126",
+"upd": 1,
+"datum": "2026-09-02",
+"kunde": "k172",
+"maschine": "m111",
+"menge": 2.6,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Maag Martin",
+"maschine": "Flachgrubber AgriFarm, 4.5m",
+"menge": "2,6"
+}
+},
+{
+"id": "e0127",
+"upd": 1,
+"datum": "2026-09-03",
+"kunde": "k154",
+"maschine": "m102",
+"menge": 5.6,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Hofer Thomas",
+"maschine": "Kurzscheibenegge Amazone",
+"menge": "5 ha"
+}
+},
+{
+"id": "e0128",
+"upd": 1,
+"datum": "2026-09-04",
+"kunde": "k172",
+"maschine": "m107",
+"menge": 1.6,
+"einheit": "ha",
+"bem": "mit So[?]",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Maag Martin",
+"maschine": "Cambridge Walze 5m mit Sägerät",
+"menge": "160a"
+}
+},
+{
+"id": "e0129",
+"upd": 1,
+"datum": "2026-09-04",
+"kunde": "k109",
+"maschine": "m106",
+"menge": 2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Zingg Stefan",
+"maschine": "Cambrigewalze 5 oder 6 Meter, nur Walzen",
+"menge": 2
+}
+},
+{
+"id": "e0130",
+"upd": 1,
+"datum": "2026-09-07",
+"kunde": "k135",
+"maschine": "m109",
+"menge": 1.45,
+"einheit": "ha",
+"bem": "[?]les Wate",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Gbr. Schneider",
+"maschine": "Mulcher",
+"menge": "145 are"
+}
+},
+{
+"id": "e0131",
+"upd": 1,
+"datum": "2026-09-07",
+"kunde": "k154",
+"maschine": "m102",
+"menge": 3.6,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Hofer Thomas",
+"maschine": "Kurzscheibenegge Amazone",
+"menge": "3 ha"
+}
+},
+{
+"id": "e0132",
+"upd": 1,
+"datum": "2026-09-07",
+"kunde": "k30",
+"maschine": "m107",
+"menge": 1.5,
+"einheit": "ha",
+"bem": "m/s[?]",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Marti Simon",
+"maschine": "Cambridge Walze 5m mit Sägerät",
+"menge": "150 g"
+}
+},
+{
+"id": "e0133",
+"upd": 1,
+"datum": "2026-09-08",
+"kunde": "k130",
+"maschine": "m106",
+"menge": 3.85,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Räz Kaspar",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "3,85 ha"
+}
+},
+{
+"id": "e0134",
+"upd": 1,
+"datum": "2026-09-12",
+"kunde": "k136",
+"maschine": "m106",
+"menge": 1,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Bommer Urs",
+"maschine": "Cambridge Walze 6.3m / 5m",
+"menge": "1 ha"
+}
+},
+{
+"id": "e0135",
+"upd": 1,
+"datum": "2026-09-14",
+"kunde": "k14",
+"maschine": "m110",
+"menge": 1,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Baumgartner Daniel",
+"maschine": "Mulcher für Wegränder",
+"menge": "1h"
+}
+},
+{
+"id": "e0136",
+"upd": 1,
+"datum": "2026-09-15",
+"kunde": "k6",
+"maschine": "m109",
+"menge": 1.8,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Christian Tüscher",
+"maschine": "Mulcher Fläche",
+"menge": 1.8
+}
+},
+{
+"id": "e0137",
+"upd": 1,
+"datum": "2026-09-16",
+"kunde": "k56",
+"maschine": "m110",
+"menge": 1,
+"einheit": "h",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Stämpfli Markus",
+"maschine": "Mulcher für Wegränder",
+"menge": "1h"
+}
+},
+{
+"id": "e0138",
+"upd": 1,
+"datum": "2026-09-16",
+"kunde": "k56",
+"maschine": "m109",
+"menge": 3,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Stämpfli Markus",
+"maschine": "Mulcher",
+"menge": "300"
+}
+},
+{
+"id": "e0139",
+"upd": 1,
+"datum": "2026-09-18",
+"kunde": "k70",
+"maschine": "m109",
+"menge": 1.95,
+"einheit": "ha",
+"bem": "[?]ieher-swil",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Rutsch Thomas",
+"maschine": "Mulcher",
+"menge": "195"
+}
+},
+{
+"id": "e0140",
+"upd": 1,
+"datum": "2026-09-19",
+"kunde": "k34",
+"maschine": "m109",
+"menge": 2.1,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Jürg Stämpfli",
+"maschine": "Mulcher Fläche",
+"menge": 2.1
+}
+},
+{
+"id": "e0141",
+"upd": 1,
+"datum": "2026-09-20",
+"kunde": "k128",
+"maschine": "m108",
+"menge": 1.28,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Hurni Sibylle",
+"maschine": "Prismenwalze Dalbo",
+"menge": 1.28
+}
+},
+{
+"id": "e0142",
+"upd": 1,
+"datum": "2026-09-23",
+"kunde": "k34",
+"maschine": "m101",
+"menge": 0.3,
+"einheit": "h",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Jürg Stämpfli",
+"maschine": "Kompaktlader Gehl",
+"menge": 0.3
+}
+},
+{
+"id": "e0143",
+"upd": 1,
+"datum": "2026-09-24",
+"kunde": "k154",
+"maschine": "m109",
+"menge": 1.25,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Hofer Thomas",
+"maschine": "Mulcher",
+"menge": "1,25 h"
+}
+},
+{
+"id": "e0144",
+"upd": 1,
+"datum": "2026-09-24",
+"kunde": "k172",
+"maschine": "m103",
+"menge": 3.4,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Maag Martin",
+"maschine": "Grubber Ott, 7 Zinken",
+"menge": "3,4"
+}
+},
+{
+"id": "e0145",
+"upd": 1,
+"datum": "2026-09-25",
+"kunde": "kn-guggisberg-h-p",
+"maschine": "m109",
+"menge": 1.6,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Gussisberg H.P.",
+"maschine": "Mulcher",
+"menge": "1,6 ha"
+}
+},
+{
+"id": "e0146",
+"upd": 1,
+"datum": "2026-09-26",
+"kunde": "k102",
+"maschine": "m102",
+"menge": 9,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Hirschi Fritz",
+"maschine": "Kurzscheibenegge Amazone",
+"menge": "9 ha"
+}
+},
+{
+"id": "e0147",
+"upd": 1,
+"datum": "2026-09-28",
+"kunde": "k36",
+"maschine": "m104",
+"menge": 1.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Mai Tobias",
+"maschine": "Grubber Lemken, mit Stabkrümler",
+"menge": "150"
+}
+},
+{
+"id": "e0148",
+"upd": 1,
+"datum": "2026-09-29",
+"kunde": "k55",
+"maschine": "m104",
+"menge": 2.3,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Stegmann Ueli",
+"maschine": "Grubber Lemken, mit Stabkrümler",
+"menge": "230"
+}
+},
+{
+"id": "e0149",
+"upd": 1,
+"datum": "2026-09-30",
+"kunde": "k34",
+"maschine": "m109",
+"menge": 0.8,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Jürg Stämpfli",
+"maschine": "Mulcher Fläche",
+"menge": 0.8
+}
+},
+{
+"id": "e0150",
+"upd": 1,
+"datum": "2026-10-01",
+"kunde": "k114",
+"maschine": "m108",
+"menge": 1.4,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Spring Ueli",
+"maschine": "Prismenwalze Dalbo",
+"menge": 1.4
+}
+},
+{
+"id": "e0151",
+"upd": 1,
+"datum": "2026-10-03",
+"kunde": "k14",
+"maschine": "m109",
+"menge": 0.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Baumgartner Daniel",
+"maschine": "Mulcher",
+"menge": "50a"
+}
+},
+{
+"id": "e0152",
+"upd": 1,
+"datum": "2026-10-06",
+"kunde": "k21",
+"maschine": "m104",
+"menge": 3.2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "GG Egger",
+"maschine": "Grubber Lemken, mit Stabkrümler",
+"menge": "320"
+}
+},
+{
+"id": "e0153",
+"upd": 1,
+"datum": "2026-10-12",
+"kunde": "k154",
+"maschine": "m103",
+"menge": 1.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Hofer Thomas",
+"maschine": "Grubber Ott, 7 Zinken",
+"menge": "1,5"
+}
+},
+{
+"id": "e0154",
+"upd": 1,
+"datum": "2026-10-14",
+"kunde": "k154",
+"maschine": "m108",
+"menge": 3.5,
+"einheit": "ha",
+"bem": "",
+"quelle": "Formular",
+"status": "offen",
+"orig": {
+"name": "Hofer Thomas",
+"maschine": "Prismenwalze Dalbo",
+"menge": 3.5
+}
+},
+{
+"id": "e0155",
+"upd": 1,
+"datum": "2026-10-15",
+"kunde": "k36",
+"maschine": "m102",
+"menge": 2.2,
+"einheit": "ha",
+"bem": "",
+"quelle": "Scan",
+"status": "offen",
+"orig": {
+"name": "Mai Tobias",
+"maschine": "Kurzscheibenegge Amazone",
+"menge": "2.2 ha"
+}
+}
+],
+"einstellungen": []
+}
