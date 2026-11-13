@@ -1,4 +1,4 @@
-# IM-Vermietung v1.2 – Anleitung
+# IM-Vermietung v1.3 – Anleitung
 
 Eigenständige App für die Maschinenvermietung: Einsätze erfassen und importieren, auswerten, Kundenrapporte und Abrechnungsliste drucken.
 Eigene Kunden, Maschinen und Einsätze in einer eigenen Datei (`vermietung.json`) – unabhängig vom IM-Verwalter.
@@ -33,14 +33,15 @@ aus `startdaten.json`.
 - **Auswertung** – pro Maschine, pro Kunde, pro Monat, Kunde × Maschine; Excel-Export.
 - **Abrechnung** – Zeitraum wählen (Standard: nur offene Einsätze). Anfangs ist **kein Kunde angekreuzt** – die gewünschten Kunden ankreuzen.
   - Mit ▸ die Einträge eines Kunden aufklappen: Häkchen «im Rapport» = erscheint im Rapport und in der Abrechnungsliste,
-    nicht angehakte Einträge werden nicht gedruckt. Zeile anklicken = Einsatz bearbeiten (dort auch «Stornieren» / «✓ Abgerechnet»).
-    Direkt in der Zeile: ✓ = abgerechnet, Storno = storniert, ↺ = wieder offen.
+    nicht angehakte Einträge werden nicht gedruckt. Zeile anklicken = Details: dort bearbeiten, «Stornieren» oder «✓ Abgerechnet»
+    (jeweils mit Rückfrage – direkt in der Zeile geht das bewusst nicht).
+  - *Angehakte Zeilen abgerechnet*: markiert alle angehakten offenen Zeilen der angekreuzten Kunden auf einmal.
   - *Rapporte*: eine Seite pro Kunde mit Briefkopf und Adresse, ohne Seitenzahlen. Vor dem Druckfenster erscheinen die Artikel
     mit ihren Preisen – diese lassen sich **nur für diesen Ausdruck** ändern (Stammdaten bleiben unverändert); dort auch
     «Preise und Beträge im Rapport anzeigen». Danach im Druckfenster «Als PDF speichern».
   - *Abrechnungsliste*: pro Kunde Art.-Nr., Bezeichnung, Menge, Preis, Betrag – zum Übertragen in AgroFaktura (auch als Excel),
     ebenfalls mit Preisanpassung für diesen Ausdruck.
-  - *Als abgerechnet markieren*: setzt alle offenen Einsätze der angekreuzten Kunden auf «abgerechnet» (Datum heute) –
+  - *Alle Einsätze der Kunden abgerechnet*: setzt alle offenen Einsätze der angekreuzten Kunden auf «abgerechnet» (Datum heute) –
     auch die vom Rapport ausgeschlossenen.
   - **Storniert**: zählt nirgends mehr (Rapport, Abrechnungsliste, Auswertung), bleibt aber in der Einsatzliste sichtbar
     (durchgestrichen; Filter «Storniert»).

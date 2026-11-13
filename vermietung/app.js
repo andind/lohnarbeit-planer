@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.2', APP_STAND = '13.11.2026';
+const APP_VERSION = '1.3', APP_STAND = '13.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -380,6 +380,8 @@ function einsatzDialog(id, preset = {}) {
     { onSubmit: (fd, btn) => {
       const menge = num(fd.get('menge'));
       if (!fd.get('kunde') || !fd.get('maschine') || menge == null) { toast('Kunde, Maschine und Menge angeben'); return false; }
+      if (btn === 'storno' && !confirm('Diesen Einsatz stornieren? Er zählt danach nirgends mehr (bleibt aber sichtbar).')) return false;
+      if (btn === 'done' && !confirm('Diesen Einsatz als abgerechnet markieren?')) return false;
       const st = btn === 'storno' ? 'storniert' : btn === 'done' ? 'abgerechnet' : btn === 'offen' ? 'offen' : fd.get('status');
       const obj = Object.assign({}, e, { id: e.id || 'e' + uid(), datum: fd.get('datum') || '', kunde: fd.get('kunde'), maschine: fd.get('maschine'), menge, einheit: fd.get('einheit'),
         preis: num(fd.get('preis')), bem: fd.get('bem').trim(), status: st, abgerechnetAm: st === 'abgerechnet' ? (e.abgerechnetAm || todayIso()) : '', storniertAm: st === 'storniert' ? (e.storniertAm || todayIso()) : '' });
@@ -982,19 +984,19 @@ function viewAbrechnung() {
         <td class="small">${e.datum ? fmtDate(e.datum) : 'ohne Datum'}</td><td class="small">${esc(m.artNr || '')} ${esc(m.name || '?')}${e.bem ? ' · ' + esc(e.bem) : ''}</td>
         <td class="n small">${einhOf(e) === 'ha' ? fmtQty(e.menge) : ''}</td><td class="n small">${einhOf(e) === 'h' ? fmtQty(e.menge) : ''}</td><td class="n small">${b != null && !st ? chf(b) : ''}</td>
         <td class="small">${statusChip(e)}</td>
-        <td class="small nowrap">${isOffen(e) ? `<button type="button" class="btn small" data-act="abrSt" data-st="abgerechnet" data-id="${e.id}" title="als abgerechnet markieren">✓</button><button type="button" class="btn small" data-act="abrSt" data-st="storniert" data-id="${e.id}" title="stornieren">Storno</button>`
-          : `<button type="button" class="btn small" data-act="abrSt" data-st="offen" data-id="${e.id}" title="wieder auf offen setzen">↺ offen</button>`}</td></tr>`; }).join('') : '';
+        <td class="small muted">Details ›</td></tr>`; }).join('') : '';
     return head + sub; }).join('');
-  const allSel = G.length && G.every(g => abrIsSel(g.k.id)), nOffen = sel.reduce((a, g) => a + g.L.filter(isOffen).length, 0);
+  const allSel = G.length && G.every(g => abrIsSel(g.k.id)), nOffen = sel.reduce((a, g) => a + g.L.filter(isOffen).length, 0), nHak = sel.reduce((a, g) => a + g.R.filter(isOffen).length, 0);
   return { tb: `<h1>Abrechnung</h1>`,
     html: filterBar('abr', { search: false, maschine: false, kunde: false }) +
     `<div class="filters"><button class="btn primary" data-act="abrPrint" ${selR.length ? '' : 'disabled'}>🖨 Rapporte (${selR.length})</button><button class="btn" data-act="abrList" ${selR.length ? '' : 'disabled'}>🖨 Abrechnungsliste</button>
-      <button class="btn" data-act="abrXlsx" ${selR.length ? '' : 'disabled'}>⬇ Abrechnungsliste Excel</button><button class="btn" data-act="abrDone" ${nOffen ? '' : 'disabled'} title="alle offenen Einsätze der angekreuzten Kunden – auch die nicht im Rapport">✓ Als abgerechnet markieren (${nOffen})</button>
+      <button class="btn" data-act="abrXlsx" ${selR.length ? '' : 'disabled'}>⬇ Abrechnungsliste Excel</button><button class="btn" data-act="abrDoneSel" ${nHak ? '' : 'disabled'} title="nur die angehakten offenen Zeilen («im Rapport») der angekreuzten Kunden">✓ Angehakte Zeilen abgerechnet (${nHak})</button>
+      <button class="btn" data-act="abrDone" ${nOffen ? '' : 'disabled'} title="alle offenen Einsätze der angekreuzten Kunden – auch die nicht im Rapport">✓ Alle Einsätze der Kunden abgerechnet (${nOffen})</button>
       <label class="tog"><input type="checkbox" data-in="abrPreise" ${preise ? 'checked' : ''}> Preise im Rapport</label>
       ${G.length ? `<button class="btn small" data-act="abrExpAll">${G.every(g => open.has(g.k.id)) ? 'Alle zuklappen' : 'Alle Einträge zeigen'}</button>` : ''}</div>
     ${anyPreis ? '' : '<div class="box warn small">Noch keine Preise erfasst – Rapporte und Abrechnungsliste zeigen nur Mengen. Preise unter <a href="#" data-act="goMasch">Stammdaten › Maschinen</a> eintragen.</div>'}
-    <p class="muted small">Rapport: eine Seite pro Kunde mit Briefkopf, ohne Seitenzahlen – im Druckfenster «Als PDF speichern» wählen. Kunden ankreuzen, mit ▸ die Einträge aufklappen: Häkchen = im Rapport, Zeile anklicken = bearbeiten, ✓ = abgerechnet, Storno = storniert (nie im Rapport). Vor dem Drucken lassen sich die Artikelpreise nur für diesen Ausdruck anpassen;
-      «Als abgerechnet markieren» erfasst trotzdem alle offenen Einsätze der angekreuzten Kunden${nAus ? ` (auch die ${nAus} ausgeschlossenen)` : ''}.</p>
+    <p class="muted small">Rapport: eine Seite pro Kunde mit Briefkopf, ohne Seitenzahlen – im Druckfenster «Als PDF speichern» wählen. Kunden ankreuzen, mit ▸ die Einträge aufklappen: Häkchen = im Rapport, Zeile anklicken = Details (dort bearbeiten, stornieren oder als abgerechnet markieren). Vor dem Drucken lassen sich die Artikelpreise nur für diesen Ausdruck anpassen;
+      «Angehakte Zeilen abgerechnet» erfasst nur die Zeilen mit Häkchen, «Alle Einsätze der Kunden abgerechnet» alle offenen Einsätze der angekreuzten Kunden${nAus ? ` (auch die ${nAus} ausgeschlossenen)` : ''}.</p>
     ${G.length ? `<div class="dscroll"><table class="dtab"><thead><tr><th class="cb"><input type="checkbox" data-act="abrAll" ${allSel ? 'checked' : ''}></th><th>Einträge</th><th class="n">Kd-Nr.</th><th>Kunde</th><th class="n">ha</th><th class="n">h</th><th class="n">CHF</th><th>Hinweise</th><th></th></tr></thead>
       <tbody>${rows}</tbody><tfoot><tr><td></td><td>${all.n}</td><td colspan="2">${sel.length} von ${G.length} Kunden</td><td class="n">${fmtQty(all.ha)}</td><td class="n">${fmtQty(all.h)}</td><td class="n">${all.chf ? chf(all.chf) : ''}</td><td colspan="2"></td></tr></tfoot></table></div>`
       : '<div class="empty">Keine Einsätze für diesen Zeitraum.</div>'}` };
@@ -1080,6 +1082,11 @@ function abrXlsx(G) {
   const rows = [['Kd-Nr.', 'Kunde', 'Art.-Nr.', 'Bezeichnung', 'Menge', 'Einheit', 'Preis CHF', 'Betrag CHF', 'Einsätze']];
   G.forEach(g => sumByArt(g.L).forEach(x => rows.push([g.k.nr ? +g.k.nr || g.k.nr : 'Neukunde', g.k.name, +x.art || x.art, x.name, x.menge, x.einheit, x.preis ?? '', x.betrag ?? '', x.n])));
   download(`Abrechnungsliste_${todayIso()}.xlsx`, xlsxBlob([{ name: 'Abrechnungsliste', rows }, { name: 'Einsätze', rows: einsatzRows(G.flatMap(g => g.L)) }]));
+}
+function abrDoneSel() { // nur angehakte Zeilen («im Rapport») der angekreuzten Kunden
+  const L = abrGroups().filter(g => abrIsSel(g.k.id)).flatMap(g => g.R).filter(isOffen);
+  if (!L.length || !confirm(`${L.length} angehakte Einsätze als abgerechnet markieren (Datum heute)?`)) return;
+  setStatus(L.map(e => e.id), 'abgerechnet'); toast(`${L.length} Einsätze als abgerechnet markiert`);
 }
 function abrDone() {
   const L = abrGroups().filter(g => abrIsSel(g.k.id)).flatMap(g => g.L).filter(isOffen);
@@ -1306,7 +1313,7 @@ document.addEventListener('click', ev => {
     case 'abrList': prePrint('liste'); break;
     case 'abrXlsx': prePrint('xlsx'); break;
     case 'abrEntry': if (ev.target.closest('label')) return; einsatzDialog(id); break;
-    case 'abrSt': setStatus([id], t.dataset.st); toast({ abgerechnet: 'Als abgerechnet markiert', storniert: 'Storniert', offen: 'Wieder offen' }[t.dataset.st]); break;
+    case 'abrDoneSel': abrDoneSel(); break;
     case 'abrDone': abrDone(); break;
     case 'exportAll': exportAll(); break;
     case 'backup': download(`IM-Vermietung-Sicherung_${todayIso()}.json`, JSON.stringify(Store.data), 'application/json'); break;
