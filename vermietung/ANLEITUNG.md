@@ -1,4 +1,4 @@
-# IM-Vermietung v1.1 – Anleitung
+# IM-Vermietung v1.2 – Anleitung
 
 Eigenständige App für die Maschinenvermietung: Einsätze erfassen und importieren, auswerten, Kundenrapporte und Abrechnungsliste drucken.
 Eigene Kunden, Maschinen und Einsätze in einer eigenen Datei (`vermietung.json`) – unabhängig vom IM-Verwalter.
@@ -31,14 +31,19 @@ aus `startdaten.json`.
   - Danach **Prüfliste**: Kunde und Maschine prüfen (Neukunden direkt anlegen), Menge/Datum korrigieren, «übernehmen».
     Abweichende Schreibweisen merkt sich die App als Namensvarianten und erkennt sie beim nächsten Mal selbst.
 - **Auswertung** – pro Maschine, pro Kunde, pro Monat, Kunde × Maschine; Excel-Export.
-- **Abrechnung** – Zeitraum wählen (Standard: nur offene Einsätze), Kunden ankreuzen:
-  - *Rapporte*: eine Seite pro Kunde mit Briefkopf und Adresse, ohne Seitenzahlen → im Druckfenster «Als PDF speichern».
-    «Preise im Rapport» blendet Preis und Betrag ein.
-  - *Abrechnungsliste*: pro Kunde Art.-Nr., Bezeichnung, Menge, Preis, Betrag – zum Übertragen in AgroFaktura (auch als Excel).
-  - Mit ▸ die Einträge eines Kunden aufklappen und einzeln «im Rapport» ab- oder anwählen (gilt auch für die Abrechnungsliste;
-    auch im Einsatz-Fenster unter «nicht im Rapport»).
+- **Abrechnung** – Zeitraum wählen (Standard: nur offene Einsätze). Anfangs ist **kein Kunde angekreuzt** – die gewünschten Kunden ankreuzen.
+  - Mit ▸ die Einträge eines Kunden aufklappen: Häkchen «im Rapport» = erscheint im Rapport und in der Abrechnungsliste,
+    nicht angehakte Einträge werden nicht gedruckt. Zeile anklicken = Einsatz bearbeiten (dort auch «Stornieren» / «✓ Abgerechnet»).
+    Direkt in der Zeile: ✓ = abgerechnet, Storno = storniert, ↺ = wieder offen.
+  - *Rapporte*: eine Seite pro Kunde mit Briefkopf und Adresse, ohne Seitenzahlen. Vor dem Druckfenster erscheinen die Artikel
+    mit ihren Preisen – diese lassen sich **nur für diesen Ausdruck** ändern (Stammdaten bleiben unverändert); dort auch
+    «Preise und Beträge im Rapport anzeigen». Danach im Druckfenster «Als PDF speichern».
+  - *Abrechnungsliste*: pro Kunde Art.-Nr., Bezeichnung, Menge, Preis, Betrag – zum Übertragen in AgroFaktura (auch als Excel),
+    ebenfalls mit Preisanpassung für diesen Ausdruck.
   - *Als abgerechnet markieren*: setzt alle offenen Einsätze der angekreuzten Kunden auf «abgerechnet» (Datum heute) –
     auch die vom Rapport ausgeschlossenen.
+  - **Storniert**: zählt nirgends mehr (Rapport, Abrechnungsliste, Auswertung), bleibt aber in der Einsatzliste sichtbar
+    (durchgestrichen; Filter «Storniert»).
 - **Stammdaten** – Kunden (Kd-Nr. leer = Neukunde, Adresse, Namensvarianten, Zusammenführen) und Maschinen (Art.-Nr., Einheit, Preis).
   «Kundenliste importieren» liest z. B. Kunden.xlsx und ergänzt Adressen über die Kunden-Nr.
 - **Mehr** – Dropbox, Scan-Schlüssel, Excel-Export aller Daten, Datensicherung/Wiederherstellen.

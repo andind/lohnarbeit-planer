@@ -216,3 +216,8 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .bigimg { width: 100%; height: auto; display: block; }
 .dtab tr.sub td { background: var(--surface-2); border-bottom-style: dashed; }
 .dtab tr.sub.off td { opacity: .55; }
+.chip.storno { background: transparent; color: var(--danger); border-color: var(--danger); }
+.dtab tr.storno td, .mcard.storno .t, .mcard.storno .s { text-decoration: line-through; text-decoration-color: var(--danger); }
+.dtab tr.storno td:last-child, .dtab tr.storno td:nth-last-child(2) { text-decoration: none; }
+.nowrap { white-space: nowrap; }
+.dtab td .btn.small + .btn.small { margin-left: 4px; }

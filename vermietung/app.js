@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.1', APP_STAND = '13.11.2026';
+const APP_VERSION = '1.2', APP_STAND = '13.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -232,10 +232,18 @@ const kundenSorted = () => Store.all('kunden').sort(byName);
 const maschSorted = (all = true) => Store.all('maschinen').filter(m => all || m.aktiv !== false).sort(byArt);
 const einhOf = e => e.einheit || masch(e.maschine)?.einheit || 'ha';
 // Preis: eigener Preis im Einsatz, sonst Maschinenpreis (nur wenn die Einheit gleich ist)
-const preisOf = e => { if (e.preis != null) return e.preis; const m = masch(e.maschine); return m && m.preis != null && (m.einheit || 'ha') === einhOf(e) ? m.preis : null; };
+// PRICE_OV: Preise nur für den gerade gedruckten Rapport (Schlüssel Maschine|Einheit), sonst null
+let PRICE_OV = null;
+const preisOf = e => { if (e.preis != null) return e.preis; const k = e.maschine + '|' + einhOf(e); if (PRICE_OV && PRICE_OV.has(k)) return PRICE_OV.get(k); const m = masch(e.maschine); return m && m.preis != null && (m.einheit || 'ha') === einhOf(e) ? m.preis : null; };
 const betragOf = e => { const p = preisOf(e); return p != null && e.menge != null ? r2(p * e.menge) : null; };
 const isDone = e => e.status === 'abgerechnet';
-function sumUp(list) {
+const isStorno = e => e.status === 'storniert';
+const isOffen = e => !isDone(e) && !isStorno(e);
+const STATUS_TXT = { offen: 'offen', abgerechnet: 'abgerechnet', storniert: 'storniert' };
+const statusOf = e => isDone(e) ? 'abgerechnet' : isStorno(e) ? 'storniert' : 'offen';
+const statusChip = e => isDone(e) ? `<span class="chip done" title="abgerechnet am ${fmtDate(e.abgerechnetAm)}">abgerechnet</span>` : isStorno(e) ? `<span class="chip storno" title="storniert am ${fmtDate(e.storniertAm)}">storniert</span>` : '<span class="chip info">offen</span>';
+function sumUp(list) { // stornierte Einsätze zählen nicht
+  list = list.filter(e => !isStorno(e));
   const s = { n: list.length, ha: 0, h: 0, chf: 0, ohnePreis: 0 };
   list.forEach(e => { const u = einhOf(e); if (u === 'h') s.h += e.menge || 0; else s.ha += e.menge || 0; const b = betragOf(e); if (b == null) s.ohnePreis++; else s.chf += b; });
   s.ha = r2(s.ha); s.h = r2(s.h); s.chf = r2(s.chf); return s;
@@ -244,11 +252,11 @@ const qtyTxt = s => [s.ha ? fmtQty(s.ha) + ' ha' : '', s.h ? fmtQty(s.h) + ' h' 
 
 /* ---------- Filter (Zeitraum, Kunde, Maschine, Status, Suche) ---------- */
 function defFilter() { return { von: '', bis: '', kunde: '', maschine: '', status: '', q: '' }; }
-function applyFilter(list, f) {
+function applyFilter(list, f, mitStorno = false) { // stornierte nur in der Einsatzliste (oder mit Filter «Storniert»)
   const q = fold(f.q);
   return list.filter(e => (!f.von || (e.datum && e.datum >= f.von)) && (!f.bis || (e.datum && e.datum <= f.bis)) &&
     (!f.kunde || e.kunde === f.kunde) && (!f.maschine || e.maschine === f.maschine) &&
-    (!f.status || (f.status === 'offen' ? !isDone(e) : isDone(e))) &&
+    (f.status ? statusOf(e) === f.status : (mitStorno || !isStorno(e))) &&
     (!q || fold([e.datum, fmtDate(e.datum), kName(e.kunde), kNr(e.kunde), masch(e.maschine)?.name, masch(e.maschine)?.artNr, e.bem, e.quelle].join(' ')).includes(q)));
 }
 function yearsOf() { const s = new Set(Store.all('einsaetze').map(e => (e.datum || '').slice(0, 4)).filter(Boolean)); s.add(String(new Date().getFullYear())); return [...s].sort().reverse(); }
@@ -259,7 +267,7 @@ function filterBar(key, { status = true, kunde = true, maschine = true, search =
     ${yr === 'eig' ? `<input class="input" type="date" data-in="fVon" data-k="${key}" value="${esc(f.von)}" title="von"><span class="lbl">bis</span><input class="input" type="date" data-in="fBis" data-k="${key}" value="${esc(f.bis)}" title="bis">` : ''}
     ${kunde ? `<select class="input" data-in="fKunde" data-k="${key}" style="max-width:240px"><option value="">Alle Kunden</option>${kundenSorted().map(k => `<option value="${k.id}" ${f.kunde === k.id ? 'selected' : ''}>${esc(kLabel(k))}</option>`).join('')}</select>` : ''}
     ${maschine ? `<select class="input" data-in="fMasch" data-k="${key}" style="max-width:240px"><option value="">Alle Maschinen</option>${maschSorted().map(m => `<option value="${m.id}" ${f.maschine === m.id ? 'selected' : ''}>${esc(mLabel(m))}</option>`).join('')}</select>` : ''}
-    ${status ? `<select class="input" data-in="fStatus" data-k="${key}"><option value="">Alle</option><option value="offen" ${f.status === 'offen' ? 'selected' : ''}>Offen</option><option value="abgerechnet" ${f.status === 'abgerechnet' ? 'selected' : ''}>Abgerechnet</option></select>` : ''}
+    ${status ? `<select class="input" data-in="fStatus" data-k="${key}"><option value="">Alle</option><option value="offen" ${f.status === 'offen' ? 'selected' : ''}>Offen</option><option value="abgerechnet" ${f.status === 'abgerechnet' ? 'selected' : ''}>Abgerechnet</option><option value="storniert" ${f.status === 'storniert' ? 'selected' : ''}>Storniert</option></select>` : ''}
     ${search ? `<input class="input search" type="search" placeholder="Suchen…" value="${esc(f.q)}" data-in="fQ" data-k="${key}">` : ''}
     ${(f.von || f.bis || f.kunde || f.maschine || (status && f.status && !(key === 'abr' && f.status === 'offen')) || f.q) ? `<button class="btn small" data-act="fReset" data-k="${key}">Filter löschen</button>` : ''}
   </div>`;
@@ -270,7 +278,7 @@ const App = {
   view: 'einsaetze',
   f: {}, sel: new Set(), sort: { key: 'datum', dir: -1 },
   sub: { ausw: 'maschinen', stamm: 'kunden' },
-  abr: { sel: null, preise: null },
+  abr: { sel: [] }, // Abrechnung: anfangs kein Kunde angekreuzt
   imp: null, // Prüfliste des laufenden Imports
   busy() { return $('#dlg').open; },
   init() {
@@ -300,7 +308,7 @@ function einsatzList() {
   const f = App.f.einsaetze, s = App.sort;
   const key = { datum: e => e.datum || '', kunde: e => kName(e.kunde), nr: e => +kNr(e.kunde) || 0, art: e => +masch(e.maschine)?.artNr || 0, maschine: e => masch(e.maschine)?.name || '',
     menge: e => e.menge || 0, betrag: e => betragOf(e) ?? -1, quelle: e => e.quelle || '', status: e => e.status || '' }[s.key] || (e => e.datum || '');
-  return applyFilter(Store.all('einsaetze'), f).sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * s.dir || (b.datum || '').localeCompare(a.datum || ''); });
+  return applyFilter(Store.all('einsaetze'), f, true).sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * s.dir || (b.datum || '').localeCompare(a.datum || ''); });
 }
 function viewEinsaetze() {
   const list = einsatzList(), s = sumUp(list), S = App.sort;
@@ -308,19 +316,19 @@ function viewEinsaetze() {
   const allSel = list.length && list.every(e => App.sel.has(e.id));
   const rows = list.map(e => {
     const m = masch(e.maschine), b = betragOf(e);
-    return `<tr class="click ${App.sel.has(e.id) ? 'sel' : ''} ${isDone(e) ? 'done' : ''}" data-act="editEinsatz" data-id="${e.id}">
+    return `<tr class="click ${App.sel.has(e.id) ? 'sel' : ''} ${isDone(e) ? 'done' : ''} ${isStorno(e) ? 'storno' : ''}" data-act="editEinsatz" data-id="${e.id}">
       <td class="cb"><input type="checkbox" data-act="selOne" data-id="${e.id}" ${App.sel.has(e.id) ? 'checked' : ''}></td>
       <td>${e.datum ? fmtDate(e.datum) : '<span class="chip warn">ohne Datum</span>'}</td><td class="n">${esc(kNr(e.kunde)) || '<span class="nr">neu</span>'}</td><td>${esc(kName(e.kunde))}</td>
       <td class="n">${esc(m?.artNr || '')}</td><td>${esc(m?.name || '?')}</td><td class="n">${fmtQty(e.menge)}</td><td>${esc(einhOf(e))}</td>
       <td class="n">${b != null ? chf(b) : ''}</td><td class="w">${esc(e.bem || '')}${e.ohneRapport ? ' <span class="chip warn" title="nicht im Rapport">ohne Rapport</span>' : ''}</td><td class="small muted">${esc(e.quelle || '')}</td>
-      <td>${isDone(e) ? `<span class="chip done" title="abgerechnet am ${fmtDate(e.abgerechnetAm)}">abgerechnet</span>` : '<span class="chip info">offen</span>'}</td></tr>`;
+      <td>${statusChip(e)}</td></tr>`;
   }).join('');
   return {
     tb: `<h1>Einsätze</h1><button class="btn" data-act="exportEinsaetze">⬇ Excel</button><button class="btn primary" data-act="newEinsatz">＋ Einsatz</button>`,
-    html: filterBar('einsaetze') + (list.length ? `<div class="mlist">${list.slice(0, App.mMore || 150).map(e => { const m = masch(e.maschine); return `<div class="mcard ${App.sel.has(e.id) ? 'sel' : ''} ${isDone(e) ? 'done' : ''}" data-act="editEinsatz" data-id="${e.id}">
+    html: filterBar('einsaetze') + (list.length ? `<div class="mlist">${list.slice(0, App.mMore || 150).map(e => { const m = masch(e.maschine); return `<div class="mcard ${App.sel.has(e.id) ? 'sel' : ''} ${isDone(e) ? 'done' : ''} ${isStorno(e) ? 'storno' : ''}" data-act="editEinsatz" data-id="${e.id}">
         <label class="cb"><input type="checkbox" data-act="selOne" data-id="${e.id}" ${App.sel.has(e.id) ? 'checked' : ''}></label>
         <div class="grow"><div class="t">${esc(kName(e.kunde))} <span class="nr">${esc(kNr(e.kunde) || 'neu')}</span></div><div class="s">${e.datum ? fmtDate(e.datum) : 'ohne Datum'} · ${esc(m?.name || '?')}${e.bem ? ' · ' + esc(e.bem) : ''}</div></div>
-        <div class="q">${fmtQty(e.menge)} ${esc(einhOf(e))}${isDone(e) ? '<div><span class="chip done">abgerechnet</span></div>' : ''}</div></div>`; }).join('')}
+        <div class="q">${fmtQty(e.menge)} ${esc(einhOf(e))}${isOffen(e) ? '' : '<div>' + statusChip(e) + '</div>'}</div></div>`; }).join('')}
         ${list.length > (App.mMore || 150) ? `<button class="btn" data-act="mMore" style="width:100%">Weitere ${list.length - (App.mMore || 150)} anzeigen</button>` : ''}
         <div class="msum">${s.n} Einsätze · ${qtyTxt(s)}${s.chf ? ' · CHF ' + chf(s.chf) : ''}</div></div>
       <div class="dscroll"><table class="dtab"><thead><tr>
@@ -334,7 +342,7 @@ function selBar() {
   if (App.view !== 'einsaetze' || !n) { bar.hidden = true; return; }
   const list = [...App.sel].map(id => Store.get('einsaetze', id)).filter(Boolean), s = sumUp(list);
   bar.hidden = false;
-  bar.innerHTML = `<b>${n} ausgewählt · ${qtyTxt(s)}</b><button class="btn" data-act="selDone">Als abgerechnet</button><button class="btn" data-act="selOpen">Als offen</button><button class="btn" data-act="selEdit">Ändern…</button><button class="btn danger" data-act="selDel">Löschen</button><button class="btn" data-act="selClear">✕</button>`;
+  bar.innerHTML = `<b>${n} ausgewählt · ${qtyTxt(s)}</b><button class="btn" data-act="selDone">Als abgerechnet</button><button class="btn" data-act="selOpen">Als offen</button><button class="btn" data-act="selStorno">Stornieren</button><button class="btn" data-act="selEdit">Ändern…</button><button class="btn danger" data-act="selDel">Löschen</button><button class="btn" data-act="selClear">✕</button>`;
 }
 
 /* ---------- Dialog-Gerüst ---------- */
@@ -358,7 +366,7 @@ function einsatzDialog(id, preset = {}) {
   const origTxt = [o.name && o.name !== kName(e.kunde) ? `Name «${o.name}»` : '', o.maschine && o.maschine !== m?.name ? `Maschine «${o.maschine}»` : '', o.menge != null && o.menge !== '' && num(o.menge) !== e.menge ? `Menge «${o.menge}»` : ''].filter(Boolean).join(', ');
   openDlg(id ? 'Einsatz bearbeiten' : 'Neuer Einsatz', `
     <div class="two"><label class="fld"><span>Datum</span><input class="input" type="date" name="datum" value="${esc(e.datum)}"></label>
-      <label class="fld"><span>Status</span><select class="input" name="status">${optList([['offen', 'Offen'], ['abgerechnet', 'Abgerechnet']], e.status || 'offen')}</select></label></div>
+      <label class="fld"><span>Status</span><select class="input" name="status">${optList([['offen', 'Offen'], ['abgerechnet', 'Abgerechnet'], ['storniert', 'Storniert']], statusOf(e))}</select></label></div>
     <label class="fld"><span>Kunde</span><div style="display:flex;gap:8px"><select class="input" name="kunde" required autofocus>${kundeOpts(e.kunde)}</select><button type="button" class="btn" data-act="quickKunde" title="Neukunde anlegen">＋</button></div></label>
     <label class="fld"><span>Maschine</span><select class="input" name="maschine" required data-in="einsMasch">${maschOpts(e.maschine)}</select></label>
     <div class="three"><label class="fld"><span>Menge</span><input class="input" name="menge" inputmode="decimal" value="${e.menge ?? ''}" required></label>
@@ -366,15 +374,15 @@ function einsatzDialog(id, preset = {}) {
       <label class="fld"><span>Preis CHF/Einheit</span><input class="input" name="preis" inputmode="decimal" value="${e.preis ?? ''}" placeholder="${m && m.preis != null ? chf(m.preis) + ' (Maschine)' : 'Maschinenpreis'}"></label></div>
     <label class="fld"><span>Bemerkung</span><input class="input" name="bem" value="${esc(e.bem || '')}"></label>
     <label class="tog" style="margin-bottom:12px"><input type="checkbox" name="ohneRapport" ${e.ohneRapport ? 'checked' : ''}> nicht im Rapport und nicht in der Abrechnungsliste</label>
-    ${id ? `<div class="box small">Quelle: ${esc(e.quelle || '–')}${e.importAm ? ' · importiert ' + fmtDate(e.importAm) : ''}${isDone(e) && e.abgerechnetAm ? ' · abgerechnet am ' + fmtDate(e.abgerechnetAm) : ''}${origTxt ? '<br>Ursprünglich: ' + esc(origTxt) : ''}</div>` : ''}`,
+    ${id ? `<div class="box small">Quelle: ${esc(e.quelle || '–')}${e.importAm ? ' · importiert ' + fmtDate(e.importAm) : ''}${isDone(e) && e.abgerechnetAm ? ' · abgerechnet am ' + fmtDate(e.abgerechnetAm) : ''}${isStorno(e) && e.storniertAm ? ' · storniert am ' + fmtDate(e.storniertAm) : ''}${origTxt ? '<br>Ursprünglich: ' + esc(origTxt) : ''}</div>` : ''}`,
     `${id ? '<button type="button" class="btn danger" data-act="delEinsatz" data-id="' + id + '">Löschen</button>' : ''}<span class="spacer"></span>
-     ${id ? '' : '<button class="btn" value="weiter">Speichern + weiter</button>'}<button class="btn primary" value="ok">Speichern</button>`,
+     ${id ? `${isStorno(e) ? '' : '<button class="btn" value="storno" title="Speichern und als storniert markieren">Stornieren</button>'}${isDone(e) ? '<button class="btn" value="offen">Wieder offen</button>' : '<button class="btn" value="done" title="Speichern und als abgerechnet markieren">✓ Abgerechnet</button>'}` : '<button class="btn" value="weiter">Speichern + weiter</button>'}<button class="btn primary" value="ok">Speichern</button>`,
     { onSubmit: (fd, btn) => {
       const menge = num(fd.get('menge'));
       if (!fd.get('kunde') || !fd.get('maschine') || menge == null) { toast('Kunde, Maschine und Menge angeben'); return false; }
-      const st = fd.get('status');
+      const st = btn === 'storno' ? 'storniert' : btn === 'done' ? 'abgerechnet' : btn === 'offen' ? 'offen' : fd.get('status');
       const obj = Object.assign({}, e, { id: e.id || 'e' + uid(), datum: fd.get('datum') || '', kunde: fd.get('kunde'), maschine: fd.get('maschine'), menge, einheit: fd.get('einheit'),
-        preis: num(fd.get('preis')), bem: fd.get('bem').trim(), status: st, abgerechnetAm: st === 'abgerechnet' ? (e.abgerechnetAm || todayIso()) : '' });
+        preis: num(fd.get('preis')), bem: fd.get('bem').trim(), status: st, abgerechnetAm: st === 'abgerechnet' ? (e.abgerechnetAm || todayIso()) : '', storniertAm: st === 'storniert' ? (e.storniertAm || todayIso()) : '' });
       if (obj.preis == null) delete obj.preis;
       if (fd.get('ohneRapport')) obj.ohneRapport = true; else delete obj.ohneRapport;
       Store.put('einsaetze', obj, { silent: true });
@@ -399,8 +407,9 @@ function bulkEdit() {
       Store.putMany('einsaetze', ids.map(id => Object.assign({}, Store.get('einsaetze', id), p)), { silent: true }); App.sel.clear(); toast('Geändert');
     } });
 }
-function setStatus(ids, done) {
-  Store.putMany('einsaetze', ids.map(id => Store.get('einsaetze', id)).filter(Boolean).map(e => Object.assign({}, e, { status: done ? 'abgerechnet' : 'offen', abgerechnetAm: done ? (e.abgerechnetAm || todayIso()) : '' })));
+function setStatus(ids, st) { // st: offen | abgerechnet | storniert
+  Store.putMany('einsaetze', ids.map(id => Store.get('einsaetze', id)).filter(Boolean).map(e => Object.assign({}, e, { status: st,
+    abgerechnetAm: st === 'abgerechnet' ? (e.abgerechnetAm || todayIso()) : '', storniertAm: st === 'storniert' ? (e.storniertAm || todayIso()) : '' })));
 }
 
 /* ================= Ansicht Stammdaten: Kunden, Maschinen ================= */
@@ -550,9 +559,9 @@ function auswTables(list) {
   const s = sumUp(list);
   maschinen.foot = ['', 'Total', '', s.n, '', '', new Set(list.map(e => e.kunde)).size, '', '', ...(anyChf ? [s.chf] : [])];
   const kunden = { head: ['Kd-Nr.', 'Kunde', 'Einsätze', 'ha', 'h', 'Erster Einsatz', 'Letzter Einsatz', 'offen', ...(anyChf ? ['Betrag CHF'] : [])],
-    num: [1, 0, 1, 1, 1, 0, 0, 1, 1], fmt: [null, null, null, q, q, d, d, null, c], rows: [], foot: ['', 'Total', s.n, s.ha, s.h, '', '', list.filter(e => !isDone(e)).length, ...(anyChf ? [s.chf] : [])] };
+    num: [1, 0, 1, 1, 1, 0, 0, 1, 1], fmt: [null, null, null, q, q, d, d, null, c], rows: [], foot: ['', 'Total', s.n, s.ha, s.h, '', '', list.filter(isOffen).length, ...(anyChf ? [s.chf] : [])] };
   K.forEach(k => { const L = list.filter(e => e.kunde === k.id), t = sumUp(L), ds = L.map(e => e.datum).filter(Boolean).sort();
-    kunden.rows.push({ click: ['kunde', k.id], cells: [k.nr || 'neu', k.name, t.n, t.ha, t.h, ds[0], ds[ds.length - 1], L.filter(e => !isDone(e)).length, ...(anyChf ? [t.chf] : [])] }); });
+    kunden.rows.push({ click: ['kunde', k.id], cells: [k.nr || 'neu', k.name, t.n, t.ha, t.h, ds[0], ds[ds.length - 1], L.filter(isOffen).length, ...(anyChf ? [t.chf] : [])] }); });
   const months = [...new Set(list.map(e => (e.datum || '').slice(0, 7)).filter(Boolean))].sort();
   const mLab = x => `${MONATE[+x.slice(5) - 1]} ${x.slice(2, 4)}`;
   const monate = { head: ['Art.-Nr.', 'Maschine', 'Einheit', ...months.map(mLab), ...(list.some(e => !e.datum) ? ['ohne Datum'] : []), 'Total'], rows: [], num: [], fmt: [] };
@@ -571,8 +580,8 @@ function exportAusw() {
   download(`Vermietung_Auswertung_${todayIso()}.xlsx`, xlsxBlob([sh('Pro Maschine', T.maschinen), sh('Pro Kunde', T.kunden), sh('Pro Monat', T.monate), sh('Kunde x Maschine', T.matrix), { name: 'Einsätze', rows: einsatzRows(list) }]));
 }
 function einsatzRows(list) {
-  return [['Datum', 'Kd-Nr.', 'Kunde', 'Art.-Nr.', 'Maschine', 'Menge', 'Einheit', 'Preis CHF', 'Betrag CHF', 'Bemerkung', 'Quelle', 'Status', 'Abgerechnet am', 'ID'],
-    ...list.slice().sort((a, b) => (a.datum || '').localeCompare(b.datum || '')).map(e => { const m = masch(e.maschine) || {}; return [e.datum ? fmtDate(e.datum) : '', kNr(e.kunde) ? +kNr(e.kunde) || kNr(e.kunde) : '', kName(e.kunde), +m.artNr || m.artNr || '', m.name || '', e.menge, einhOf(e), preisOf(e) ?? '', betragOf(e) ?? '', e.bem || '', e.quelle || '', isDone(e) ? 'abgerechnet' : 'offen', e.abgerechnetAm ? fmtDate(e.abgerechnetAm) : '', e.id]; })];
+  return [['Datum', 'Kd-Nr.', 'Kunde', 'Art.-Nr.', 'Maschine', 'Menge', 'Einheit', 'Preis CHF', 'Betrag CHF', 'Bemerkung', 'Quelle', 'Status', 'Abgerechnet/storniert am', 'ID'],
+    ...list.slice().sort((a, b) => (a.datum || '').localeCompare(b.datum || '')).map(e => { const m = masch(e.maschine) || {}; return [e.datum ? fmtDate(e.datum) : '', kNr(e.kunde) ? +kNr(e.kunde) || kNr(e.kunde) : '', kName(e.kunde), +m.artNr || m.artNr || '', m.name || '', e.menge, einhOf(e), preisOf(e) ?? '', betragOf(e) ?? '', e.bem || '', e.quelle || '', statusOf(e), e.abgerechnetAm ? fmtDate(e.abgerechnetAm) : (e.storniertAm ? fmtDate(e.storniertAm) : ''), e.id]; })];
 }
 
 /* ================= Import: Online-Formular (Excel) und Papierrapporte (Scan) ================= */
@@ -945,33 +954,38 @@ function impSave() {
 
 /* ================= Ansicht Abrechnung: Kundenrapporte, Abrechnungsliste ================= */
 function abrGroups() { // L = alle Einsätze im Filter, R = nur die für Rapport/Abrechnungsliste (ohne «nicht im Rapport»)
-  const list = applyFilter(Store.all('einsaetze'), App.f.abr), g = new Map();
+  const list = applyFilter(Store.all('einsaetze'), App.f.abr, true), g = new Map();
   list.forEach(e => { if (!g.has(e.kunde)) g.set(e.kunde, []); g.get(e.kunde).push(e); });
-  return [...g.entries()].map(([id, L]) => { L.sort((a, b) => (a.datum || '').localeCompare(b.datum || '')); return { k: kunde(id) || { id, name: '(unbekannt)', nr: '' }, L, R: L.filter(e => !e.ohneRapport) }; })
+  return [...g.entries()].map(([id, L]) => { L.sort((a, b) => (a.datum || '').localeCompare(b.datum || '')); return { k: kunde(id) || { id, name: '(unbekannt)', nr: '' }, L, R: L.filter(e => !e.ohneRapport && !isStorno(e)) }; })
     .sort((a, b) => a.k.name.localeCompare(b.k.name, 'de'));
 }
 const abrIsSel = id => !App.abr.sel || App.abr.sel.includes(id);
+const abrAus = g => g.L.filter(e => e.ohneRapport && !isStorno(e)).length;
 const abrOpen = () => (App.abr.open = App.abr.open || new Set());
 function viewAbrechnung() {
   const G = abrGroups(), sel = G.filter(g => abrIsSel(g.k.id)), selR = sel.filter(g => g.R.length), all = sumUp(sel.flatMap(g => g.R)), preise = Store.cfg().rapportPreise, anyPreis = Store.all('maschinen').some(m => m.preis != null);
-  const nAus = sel.reduce((a, g) => a + g.L.length - g.R.length, 0), open = abrOpen();
-  const rows = G.map(g => { const s = sumUp(g.R), hints = [], aus = g.L.length - g.R.length, isOpen = open.has(g.k.id);
+  const nAus = sel.reduce((a, g) => a + abrAus(g), 0), open = abrOpen();
+  const rows = G.map(g => { const s = sumUp(g.R), hints = [], aus = abrAus(g), nSt = g.L.filter(isStorno).length, isOpen = open.has(g.k.id);
     if (!g.k.nr) hints.push('<span class="chip warn">Neukunde</span>');
     if (aus) hints.push(`<span class="chip warn" title="nicht im Rapport und nicht in der Abrechnungsliste">${aus} ausgeschlossen</span>`);
     if (s.ohnePreis && anyPreis) hints.push(`<span class="chip warn">${s.ohnePreis} ohne Preis</span>`);
     if (g.L.some(e => !e.datum)) hints.push('<span class="chip warn">ohne Datum</span>');
+    if (nSt) hints.push(`<span class="chip storno">${nSt} storniert</span>`);
     if (g.L.some(isDone)) hints.push(`<span class="chip done">${g.L.filter(isDone).length} abgerechnet</span>`);
     const head = `<tr class="click ${abrIsSel(g.k.id) ? 'sel' : ''}" data-act="abrToggle" data-id="${g.k.id}"><td class="cb"><input type="checkbox" ${abrIsSel(g.k.id) ? 'checked' : ''} tabindex="-1"></td>
-      <td><button type="button" class="btn small" data-act="abrExp" data-id="${g.k.id}" title="Einträge anzeigen und einzeln für den Rapport wählen">${isOpen ? '▾' : '▸'} ${g.R.length}${aus ? ' / ' + g.L.length : ''}</button></td>
+      <td><button type="button" class="btn small" data-act="abrExp" data-id="${g.k.id}" title="Einträge anzeigen und einzeln für den Rapport wählen">${isOpen ? '▾' : '▸'} ${g.R.length}${g.L.length !== g.R.length ? ' / ' + g.L.length : ''}</button></td>
       <td class="n">${esc(g.k.nr || '')}</td><td><b>${esc(g.k.name)}</b></td><td class="n">${s.ha ? fmtQty(s.ha) : ''}</td><td class="n">${s.h ? fmtQty(s.h) : ''}</td><td class="n">${s.chf ? chf(s.chf) : ''}</td><td>${hints.join(' ')}</td>
       <td><button class="btn small" data-act="abrOne" data-id="${g.k.id}" title="Rapport nur für diesen Kunden" ${g.R.length ? '' : 'disabled'}>Rapport</button></td></tr>`;
-    const sub = isOpen ? g.L.map(e => { const m = masch(e.maschine) || {}, b = betragOf(e);
-      return `<tr class="sub ${e.ohneRapport ? 'off' : ''} ${isDone(e) ? 'done' : ''}"><td></td><td><label class="tog" title="im Rapport und in der Abrechnungsliste"><input type="checkbox" data-act="abrIncl" data-id="${e.id}" ${e.ohneRapport ? '' : 'checked'}> im Rapport</label></td>
+    const sub = isOpen ? g.L.map(e => { const m = masch(e.maschine) || {}, b = betragOf(e), st = isStorno(e);
+      return `<tr class="sub click ${e.ohneRapport || st ? 'off' : ''} ${isDone(e) ? 'done' : ''} ${st ? 'storno' : ''}" data-act="abrEntry" data-id="${e.id}" title="Anklicken zum Bearbeiten"><td></td>
+        <td><label class="tog" title="${st ? 'storniert – nie im Rapport' : 'im Rapport und in der Abrechnungsliste'}"><input type="checkbox" data-act="abrIncl" data-id="${e.id}" ${e.ohneRapport || st ? '' : 'checked'} ${st ? 'disabled' : ''}> im Rapport</label></td>
         <td class="small">${e.datum ? fmtDate(e.datum) : 'ohne Datum'}</td><td class="small">${esc(m.artNr || '')} ${esc(m.name || '?')}${e.bem ? ' · ' + esc(e.bem) : ''}</td>
-        <td class="n small">${einhOf(e) === 'ha' ? fmtQty(e.menge) : ''}</td><td class="n small">${einhOf(e) === 'h' ? fmtQty(e.menge) : ''}</td><td class="n small">${b != null ? chf(b) : ''}</td>
-        <td class="small">${isDone(e) ? `<span class="chip done">abgerechnet ${fmtDate(e.abgerechnetAm)}</span>` : '<span class="chip info">offen</span>'}</td><td></td></tr>`; }).join('') : '';
+        <td class="n small">${einhOf(e) === 'ha' ? fmtQty(e.menge) : ''}</td><td class="n small">${einhOf(e) === 'h' ? fmtQty(e.menge) : ''}</td><td class="n small">${b != null && !st ? chf(b) : ''}</td>
+        <td class="small">${statusChip(e)}</td>
+        <td class="small nowrap">${isOffen(e) ? `<button type="button" class="btn small" data-act="abrSt" data-st="abgerechnet" data-id="${e.id}" title="als abgerechnet markieren">✓</button><button type="button" class="btn small" data-act="abrSt" data-st="storniert" data-id="${e.id}" title="stornieren">Storno</button>`
+          : `<button type="button" class="btn small" data-act="abrSt" data-st="offen" data-id="${e.id}" title="wieder auf offen setzen">↺ offen</button>`}</td></tr>`; }).join('') : '';
     return head + sub; }).join('');
-  const allSel = G.length && G.every(g => abrIsSel(g.k.id)), nOffen = sel.reduce((a, g) => a + g.L.filter(e => !isDone(e)).length, 0);
+  const allSel = G.length && G.every(g => abrIsSel(g.k.id)), nOffen = sel.reduce((a, g) => a + g.L.filter(isOffen).length, 0);
   return { tb: `<h1>Abrechnung</h1>`,
     html: filterBar('abr', { search: false, maschine: false, kunde: false }) +
     `<div class="filters"><button class="btn primary" data-act="abrPrint" ${selR.length ? '' : 'disabled'}>🖨 Rapporte (${selR.length})</button><button class="btn" data-act="abrList" ${selR.length ? '' : 'disabled'}>🖨 Abrechnungsliste</button>
@@ -979,7 +993,7 @@ function viewAbrechnung() {
       <label class="tog"><input type="checkbox" data-in="abrPreise" ${preise ? 'checked' : ''}> Preise im Rapport</label>
       ${G.length ? `<button class="btn small" data-act="abrExpAll">${G.every(g => open.has(g.k.id)) ? 'Alle zuklappen' : 'Alle Einträge zeigen'}</button>` : ''}</div>
     ${anyPreis ? '' : '<div class="box warn small">Noch keine Preise erfasst – Rapporte und Abrechnungsliste zeigen nur Mengen. Preise unter <a href="#" data-act="goMasch">Stammdaten › Maschinen</a> eintragen.</div>'}
-    <p class="muted small">Rapport: eine Seite pro Kunde mit Briefkopf, ohne Seitenzahlen – im Druckfenster «Als PDF speichern» wählen. Mit ▸ die Einträge eines Kunden aufklappen und einzeln für Rapport und Abrechnungsliste ab- oder anwählen;
+    <p class="muted small">Rapport: eine Seite pro Kunde mit Briefkopf, ohne Seitenzahlen – im Druckfenster «Als PDF speichern» wählen. Kunden ankreuzen, mit ▸ die Einträge aufklappen: Häkchen = im Rapport, Zeile anklicken = bearbeiten, ✓ = abgerechnet, Storno = storniert (nie im Rapport). Vor dem Drucken lassen sich die Artikelpreise nur für diesen Ausdruck anpassen;
       «Als abgerechnet markieren» erfasst trotzdem alle offenen Einsätze der angekreuzten Kunden${nAus ? ` (auch die ${nAus} ausgeschlossenen)` : ''}.</p>
     ${G.length ? `<div class="dscroll"><table class="dtab"><thead><tr><th class="cb"><input type="checkbox" data-act="abrAll" ${allSel ? 'checked' : ''}></th><th>Einträge</th><th class="n">Kd-Nr.</th><th>Kunde</th><th class="n">ha</th><th class="n">h</th><th class="n">CHF</th><th>Hinweise</th><th></th></tr></thead>
       <tbody>${rows}</tbody><tfoot><tr><td></td><td>${all.n}</td><td colspan="2">${sel.length} von ${G.length} Kunden</td><td class="n">${fmtQty(all.ha)}</td><td class="n">${fmtQty(all.h)}</td><td class="n">${all.chf ? chf(all.chf) : ''}</td><td colspan="2"></td></tr></tfoot></table></div>`
@@ -1030,24 +1044,48 @@ function printHtml(html) {
   Promise.race([Promise.all(imgs.map(i => new Promise(r => { i.onload = i.onerror = r; }))), new Promise(r => setTimeout(r, 3000))])
     .then(() => setTimeout(() => { window.print(); setTimeout(done, 1000); }, 50));
 }
-function abrPrint(ids) {
-  const G = abrGroups().filter(g => (ids ? ids.includes(g.k.id) : abrIsSel(g.k.id)) && g.R.length); if (!G.length) { toast('Keine Einträge für den Rapport'); return; }
-  const preise = Store.cfg().rapportPreise;
-  document.title = G.length === 1 ? `Rapport ${G[0].k.name}` : `Kundenrapporte ${todayIso()}`;
-  printHtml(G.map(g => rapportHtml(g.k, g.R, preise)).join(''));
-  setTimeout(() => { document.title = 'IM-Vermietung'; }, 3000);
+// Vor dem Druck: Artikelpreise nur für diesen Ausdruck anpassen (Stammdaten bleiben unverändert)
+function prePrint(kind, ids) {
+  const G = abrGroups().filter(g => (ids ? ids.includes(g.k.id) : abrIsSel(g.k.id)) && g.R.length);
+  if (!G.length) { toast('Keine Einträge für den Rapport – Kunden ankreuzen'); return; }
+  const arts = new Map(); let eigen = 0;
+  G.flatMap(g => g.R).forEach(e => { if (e.preis != null) { eigen++; return; }
+    const k = e.maschine + '|' + einhOf(e), m = masch(e.maschine) || {};
+    if (!arts.has(k)) arts.set(k, { k, art: m.artNr || '', name: m.name || '?', einheit: einhOf(e), std: m.preis != null && (m.einheit || 'ha') === einhOf(e) ? m.preis : null, menge: 0, n: 0 });
+    const x = arts.get(k); x.menge = r2(x.menge + (e.menge || 0)); x.n++; });
+  const A = [...arts.values()].sort((a, b) => String(a.art).localeCompare(String(b.art), 'de', { numeric: true }));
+  const title = { rapport: G.length === 1 ? `Rapport ${G[0].k.name}` : `${G.length} Kundenrapporte`, liste: 'Abrechnungsliste', xlsx: 'Abrechnungsliste Excel' }[kind];
+  openDlg(title + ' – Preise', `<p class="muted small">Preise gelten <b>nur für diesen Ausdruck</b> – die Maschinenpreise in den Stammdaten bleiben unverändert. Leer = ohne Preis.</p>
+    ${kind === 'rapport' ? `<label class="tog" style="margin-bottom:10px"><input type="checkbox" name="preise" ${Store.cfg().rapportPreise ? 'checked' : ''}> Preise und Beträge im Rapport anzeigen</label>` : ''}
+    <div class="dscroll" style="max-height:none"><table class="dtab"><thead><tr><th class="n">Art.-Nr.</th><th>Maschine</th><th class="n">Menge</th><th class="n">Standard</th><th class="n">Preis CHF</th></tr></thead><tbody>
+    ${A.map((x, i) => `<tr><td class="n">${esc(x.art)}</td><td>${esc(x.name)}<div class="small muted">${x.n} Einsätze</div></td><td class="n">${fmtQty(x.menge)} ${esc(x.einheit)}</td>
+      <td class="n">${x.std != null ? chf(x.std) : '–'}</td><td class="n"><input class="input" name="p${i}" inputmode="decimal" value="${x.std ?? ''}" style="width:110px;text-align:right"> <span class="small">/ ${esc(x.einheit)}</span></td></tr>`).join('')}
+    </tbody></table></div>${eigen ? `<p class="small muted">${eigen} Einsätze haben einen eigenen Preis im Einsatz – dieser bleibt.</p>` : ''}`,
+    `<span class="spacer"></span><button class="btn primary" value="ok">${kind === 'xlsx' ? '⬇ Excel erstellen' : '🖨 Drucken'}</button>`,
+    { wide: true, onSubmit: fd => {
+      PRICE_OV = new Map(A.map((x, i) => [x.k, num(fd.get('p' + i))]));
+      try {
+        if (kind === 'rapport') {
+          const preise = !!fd.get('preise'); if (preise !== !!Store.cfg().rapportPreise) Store.setCfg({ rapportPreise: preise });
+          document.title = G.length === 1 ? `Rapport ${G[0].k.name}` : `Kundenrapporte ${todayIso()}`;
+          printHtml(G.map(g => rapportHtml(g.k, g.R, preise)).join(''));
+          setTimeout(() => { document.title = 'IM-Vermietung'; }, 3000);
+        } else if (kind === 'liste') printHtml(abrListHtml(G));
+        else abrXlsx(G);
+      } finally { PRICE_OV = null; }
+    } });
 }
-function abrXlsx() {
-  const G = abrGroups().filter(g => abrIsSel(g.k.id) && g.R.length).map(g => Object.assign({}, g, { L: g.R }));
+function abrXlsx(G) {
+  G = G.map(g => Object.assign({}, g, { L: g.R }));
   const rows = [['Kd-Nr.', 'Kunde', 'Art.-Nr.', 'Bezeichnung', 'Menge', 'Einheit', 'Preis CHF', 'Betrag CHF', 'Einsätze']];
   G.forEach(g => sumByArt(g.L).forEach(x => rows.push([g.k.nr ? +g.k.nr || g.k.nr : 'Neukunde', g.k.name, +x.art || x.art, x.name, x.menge, x.einheit, x.preis ?? '', x.betrag ?? '', x.n])));
   download(`Abrechnungsliste_${todayIso()}.xlsx`, xlsxBlob([{ name: 'Abrechnungsliste', rows }, { name: 'Einsätze', rows: einsatzRows(G.flatMap(g => g.L)) }]));
 }
 function abrDone() {
-  const L = abrGroups().filter(g => abrIsSel(g.k.id)).flatMap(g => g.L).filter(e => !isDone(e));
+  const L = abrGroups().filter(g => abrIsSel(g.k.id)).flatMap(g => g.L).filter(isOffen);
   const aus = L.filter(e => e.ohneRapport).length;
   if (!L.length || !confirm(`${L.length} offene Einsätze als abgerechnet markieren (Datum heute)?${aus ? `\nDavon ${aus} nicht im Rapport.` : ''}`)) return;
-  setStatus(L.map(e => e.id), true); toast(`${L.length} Einsätze als abgerechnet markiert`);
+  setStatus(L.map(e => e.id), 'abgerechnet'); toast(`${L.length} Einsätze als abgerechnet markiert`);
 }
 
 /* ================= Ansicht Mehr: Dropbox, Scan, Datensicherung ================= */
@@ -1231,8 +1269,9 @@ document.addEventListener('click', ev => {
     case 'selOne': ev.stopPropagation(); App.sel.has(id) ? App.sel.delete(id) : App.sel.add(id); App.render(); break;
     case 'selAll': { const L = einsatzList(), all = L.every(e => App.sel.has(e.id)); L.forEach(e => all ? App.sel.delete(e.id) : App.sel.add(e.id)); App.render(); break; }
     case 'selClear': App.sel.clear(); App.render(); break;
-    case 'selDone': setStatus([...App.sel], true); App.sel.clear(); App.render(); break;
-    case 'selOpen': setStatus([...App.sel], false); App.sel.clear(); App.render(); break;
+    case 'selDone': setStatus([...App.sel], 'abgerechnet'); App.sel.clear(); App.render(); break;
+    case 'selOpen': setStatus([...App.sel], 'offen'); App.sel.clear(); App.render(); break;
+    case 'selStorno': if (confirm(`${App.sel.size} Einsätze stornieren?`)) { setStatus([...App.sel], 'storniert'); App.sel.clear(); App.render(); } break;
     case 'selEdit': bulkEdit(); break;
     case 'selDel': if (confirm(`${App.sel.size} Einsätze löschen?`)) { Store.remove('einsaetze', [...App.sel]); App.sel.clear(); App.render(); } break;
     case 'sort': { const k = t.dataset.k; App.sort = App.sort.key === k ? { key: k, dir: -App.sort.dir } : { key: k, dir: k === 'datum' ? -1 : 1 }; App.saveUi(); App.render(); break; }
@@ -1262,10 +1301,12 @@ document.addEventListener('click', ev => {
     case 'pageSel': App.pageSel = +t.dataset.p; App.render(); break;
     case 'pageBig': { const p = (App.scanPages || [])[App.pageSel ?? 0]; if (p) openDlg(p.name, `<img class="bigimg" src="${p.url}" alt="Scan">`, '<span class="spacer"></span><button class="btn" value="ok">Schliessen</button>', { wide: true }); break; }
     case 'claudeTest': claudeTest(); break;
-    case 'abrOne': ev.stopPropagation(); abrPrint([id]); break;
-    case 'abrPrint': abrPrint(); break;
-    case 'abrList': printHtml(abrListHtml(abrGroups().filter(g => abrIsSel(g.k.id)))); break;
-    case 'abrXlsx': abrXlsx(); break;
+    case 'abrOne': prePrint('rapport', [id]); break;
+    case 'abrPrint': prePrint('rapport'); break;
+    case 'abrList': prePrint('liste'); break;
+    case 'abrXlsx': prePrint('xlsx'); break;
+    case 'abrEntry': if (ev.target.closest('label')) return; einsatzDialog(id); break;
+    case 'abrSt': setStatus([id], t.dataset.st); toast({ abgerechnet: 'Als abgerechnet markiert', storniert: 'Storniert', offen: 'Wieder offen' }[t.dataset.st]); break;
     case 'abrDone': abrDone(); break;
     case 'exportAll': exportAll(); break;
     case 'backup': download(`IM-Vermietung-Sicherung_${todayIso()}.json`, JSON.stringify(Store.data), 'application/json'); break;
