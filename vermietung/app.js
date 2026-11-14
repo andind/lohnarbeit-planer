@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.7', APP_STAND = '14.11.2026';
+const APP_VERSION = '1.8', APP_STAND = '14.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -795,13 +795,23 @@ const MS = {
   async download(link) { // Freigabelink → Graph driveItem → downloadUrl (CORS-fähig) → Datei
     const tok = await this.token(); if (!tok) { await this.login('formFetch'); return null; }
     const enc = 'u!' + btoa(unescape(encodeURIComponent(link.trim()))).replace(/=+$/, '').replace(/\//g, '_').replace(/\+/g, '-');
-    const r = await fetch(`https://graph.microsoft.com/v1.0/shares/${enc}/driveItem?$select=name,@microsoft.graph.downloadUrl`, { headers: { Authorization: 'Bearer ' + tok, Prefer: 'redeemSharingLink' } });
-    const j = await r.json().catch(() => ({}));
-    if (r.status === 401) { ls('mv_mstok', null); await this.login('formFetch'); return null; }
-    if (!r.ok) throw new Error((j.error && j.error.message) || ('Microsoft Graph Fehler ' + r.status));
-    const url = j['@microsoft.graph.downloadUrl']; if (!url) throw new Error('Keine Download-Adresse erhalten');
-    const d = await fetch(url); if (!d.ok) throw new Error('Download fehlgeschlagen (' + d.status + ')');
-    return d.arrayBuffer();
+    const G = 'https://graph.microsoft.com/v1.0', H = { Authorization: 'Bearer ' + tok };
+    const get = async url => { const r = await fetch(url, { headers: Object.assign({ Prefer: 'redeemSharingLink' }, H) }); const j = await r.json().catch(() => ({}));
+      if (r.status === 401) { ls('mv_mstok', null); const e = new Error('auth'); e.auth = true; throw e; }
+      if (!r.ok) throw new Error((j.error && j.error.message) || ('Microsoft Graph Fehler ' + r.status)); return j; };
+    const DL = '@microsoft.graph.downloadUrl';
+    try {
+      // 1. Datei über den Freigabelink suchen (ohne $select – bei persönlichem OneDrive fehlt sonst die Download-Adresse)
+      let it = await get(`${G}/shares/${enc}/driveItem`), url = it[DL];
+      // 2. Datei direkt über Laufwerk und ID nachladen
+      if (!url) { const ri = it.remoteItem || it, drv = ri.parentReference?.driveId, id = ri.id;
+        if (drv && id) { const it2 = await get(`${G}/drives/${drv}/items/${id}`); url = it2[DL]; } }
+      if (url) { const d = await fetch(url); if (!d.ok) throw new Error('Download fehlgeschlagen (' + d.status + ')'); return d.arrayBuffer(); }
+      // 3. Inhalt direkt anfordern
+      const c = await fetch(`${G}/shares/${enc}/driveItem/content`, { headers: H });
+      if (c.ok) { const b = await c.arrayBuffer(), h = new Uint8Array(b, 0, 2); if (h[0] === 0x50 && h[1] === 0x4b) return b; }
+      throw new Error('Microsoft liefert die Datei nicht aus (' + c.status + ')');
+    } catch (e) { if (e.auth) { await this.login('formFetch'); return null; } throw e; }
   }
 };
 function shareDownloadUrls(link) {
