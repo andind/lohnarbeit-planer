@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Applikationskarte</title>
+<title>IM-Applikationskarten</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#2f6b3f">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Applikationskarte">
+<meta name="apple-mobile-web-app-title" content="IM-Applikationskarten">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap">
@@ -135,7 +135,7 @@ aside section.collapsed{padding-block:11px}
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>Applikationskarte</h1><span class="ver">v1.16 · by Andreas Indermühle</span></div>
+    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.17 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -337,7 +337,7 @@ aside section.collapsed{padding-block:11px}
 /* ---------- Als App installieren (PWA) ---------- */
 let installEvt = null;
 window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; document.getElementById("bInstall").hidden = false; });
-window.addEventListener("appinstalled", () => { installEvt = null; document.getElementById("bInstall").hidden = true; if (window.toast) toast("Applikationskarte als App installiert"); });
+window.addEventListener("appinstalled", () => { installEvt = null; document.getElementById("bInstall").hidden = true; if (window.toast) toast("IM-Applikationskarten als App installiert"); });
 document.getElementById("bInstall").addEventListener("click", async () => {
   if (!installEvt) return;
   installEvt.prompt();
@@ -362,7 +362,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.16";
+const VERSION = "1.17";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -987,7 +987,7 @@ function fileBase(){
 }
 $("bJsonOut").addEventListener("click", async () => {
   const where = await saveAs(fileBase().replace(/^RX_/,"Karte_")+".json", async () => new Blob([JSON.stringify({ app:"Applikationskarte", version:VERSION, state:S }, null, 1)], { type:"application/json" }),
-    "appkarte-json", "Applikationskarte (JSON)", "application/json", ".json");
+    "appkarte-json", "IM-Applikationskarten (JSON)", "application/json", ".json");
   if (where) toast("Gesichert: " + where);
 });
 $("bJsonIn").addEventListener("click", () => $("fJson").click());
