@@ -246,3 +246,4 @@ details.help summary { cursor: pointer; width: max-content; }
   html, body, body.printing { height: auto !important; overflow: visible !important; display: block !important; zoom: 1 !important; }
 }
 @media (max-width: 599px) { #content > .dscroll { flex: none; overflow: visible; border-radius: var(--radius); } }
+#toolbar:empty { display: none; }

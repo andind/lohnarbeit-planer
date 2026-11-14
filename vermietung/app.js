@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.9', APP_STAND = '14.11.2026';
+const APP_VERSION = '1.10', APP_STAND = '14.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -1149,20 +1149,23 @@ function viewAbrechnung() {
         <td class="n small">${einhOf(e) === 'ha' ? fmtQty(e.menge) : ''}</td><td class="n small">${einhOf(e) === 'h' ? fmtQty(e.menge) : ''}</td><td class="n small">${b != null && !st ? chf(b) : ''}</td>
         <td class="small">${statusChip(e)}</td><td class="small muted">Details ›</td></tr>`; }).join('') : '';
     return head + sub; }).join('');
-  const allSel = G.length && G.every(g => g.R.length), nOffen = sel.reduce((a, g) => a + g.L.filter(isOffen).length, 0), nHak = sel.reduce((a, g) => a + g.R.filter(isOffen).length, 0);
+  const allSel = G.length && G.every(g => g.R.length), nHak = sel.reduce((a, g) => a + g.R.filter(isOffen).length, 0);
   const nZ = sel.reduce((a, g) => a + g.R.length, 0);
+  const doneBtn = `<button class="btn" data-act="abrDoneSel" ${nHak ? '' : 'disabled'} title="nur die ausgewählten offenen Zeilen">✓ Ausgewählte Zeilen abgerechnet (${nHak})</button>`;
+  const table = G.length ? `<div class="dscroll"><table class="dtab"><thead><tr><th class="cb"><input type="checkbox" data-act="abrAll" ${allSel ? 'checked' : ''} title="alle Kunden auswählen / keine"></th><th>Zeilen</th><th class="n">Kd-Nr.</th><th>Kunde</th><th class="n">ha</th><th class="n">h</th><th class="n">CHF</th><th>Hinweise</th><th></th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><td></td><td>${nZ}</td><td colspan="2">${sel.length} von ${G.length} Kunden ausgewählt</td><td class="n">${fmtQty(all.ha)}</td><td class="n">${fmtQty(all.h)}</td><td class="n">${all.chf ? chf(all.chf) : ''}</td><td colspan="2"></td></tr></tfoot></table></div>`
+      : '<div class="empty">Keine Einsätze für diesen Zeitraum.</div>';
+  if (App.sub.abrKompakt) return { tb: '', html: `<div class="filters">${doneBtn}<button class="btn small" data-act="abrKompakt" title="Titel und Filterleiste wieder anzeigen">▼ Leiste einblenden</button></div>${table}` };
   return { tb: `<h1>Abrechnung</h1>`,
     html: filterBar('abr', { search: false, maschine: false, kunde: false, storno: true }) +
     `<div class="filters"><button class="btn primary" data-act="abrPrint" ${sel.length ? '' : 'disabled'}>🖨 Rapporte (${sel.length})</button><button class="btn" data-act="abrList" ${sel.length ? '' : 'disabled'}>🖨 Abrechnungsliste</button>
-      <button class="btn" data-act="abrXlsx" ${sel.length ? '' : 'disabled'}>⬇ Abrechnungsliste Excel</button><button class="btn" data-act="abrDoneSel" ${nHak ? '' : 'disabled'} title="nur die ausgewählten offenen Zeilen">✓ Ausgewählte Zeilen abgerechnet (${nHak})</button>
-      <button class="btn" data-act="abrDone" ${nOffen ? '' : 'disabled'} title="alle offenen Einsätze der Kunden mit ausgewählten Zeilen – auch die nicht ausgewählten">✓ Alle Einsätze dieser Kunden abgerechnet (${nOffen})</button>
-      ${G.length ? `<button class="btn small" data-act="abrExpAll">${G.every(g => open.has(g.k.id)) ? 'Alle zuklappen' : 'Alle Zeilen zeigen'}</button>` : ''}</div>
+      <button class="btn" data-act="abrXlsx" ${sel.length ? '' : 'disabled'}>⬇ Abrechnungsliste Excel</button>${doneBtn}
+      ${G.length ? `<button class="btn small" data-act="abrExpAll">${G.every(g => open.has(g.k.id)) ? 'Alle zuklappen' : 'Alle Zeilen zeigen'}</button>` : ''}
+      <button class="btn small" data-act="abrKompakt" title="Titel und Filterleiste ausblenden">▲ Leiste ausblenden</button></div>
     ${anyPreis ? '' : '<div class="box warn small">Noch keine Preise erfasst – Rapporte und Abrechnungsliste zeigen nur Mengen. Preise unter <a href="#" data-act="goMasch">Stammdaten › Maschinen</a> eintragen.</div>'}
     <details class="help"><summary>ℹ Bedienung</summary>Kunde ankreuzen = alle seine Zeilen auswählen; mit ▸ aufklappen und Zeilen einzeln an- oder abwählen. Nur ausgewählte Zeilen kommen in Rapport und Abrechnungsliste.
       Zeile anklicken = Details (bearbeiten, stornieren, als abgerechnet markieren). Rapport: eine Seite pro Kunde, ohne Seitenzahlen; vor dem Drucken lassen sich die Artikelpreise nur für diesen Ausdruck anpassen.</details>
-    ${G.length ? `<div class="dscroll"><table class="dtab"><thead><tr><th class="cb"><input type="checkbox" data-act="abrAll" ${allSel ? 'checked' : ''} title="alle Kunden auswählen / keine"></th><th>Zeilen</th><th class="n">Kd-Nr.</th><th>Kunde</th><th class="n">ha</th><th class="n">h</th><th class="n">CHF</th><th>Hinweise</th><th></th></tr></thead>
-      <tbody>${rows}</tbody><tfoot><tr><td></td><td>${nZ}</td><td colspan="2">${sel.length} von ${G.length} Kunden ausgewählt</td><td class="n">${fmtQty(all.ha)}</td><td class="n">${fmtQty(all.h)}</td><td class="n">${all.chf ? chf(all.chf) : ''}</td><td colspan="2"></td></tr></tfoot></table></div>`
-      : '<div class="empty">Keine Einsätze für diesen Zeitraum.</div>'}` };
+    ${table}` };
 }
 function zeitraum(L) { const ds = L.map(e => e.datum).filter(Boolean).sort(); return ds.length ? `${fmtDate(ds[0])} – ${fmtDate(ds[ds.length - 1])}` : ''; }
 function sumByArt(L) { // pro Artikel (Maschine), Einheit und Preis zusammenfassen
@@ -1247,12 +1250,6 @@ function abrXlsx(G) {
 function abrDoneSel() { // nur angehakte Zeilen («im Rapport») der angekreuzten Kunden
   const L = abrGroups().flatMap(g => g.R).filter(isOffen);
   if (!L.length || !confirm(`${L.length} ausgewählte Einsätze als abgerechnet markieren (Datum heute)?`)) return;
-  setStatus(L.map(e => e.id), 'abgerechnet'); toast(`${L.length} Einsätze als abgerechnet markiert`);
-}
-function abrDone() {
-  const L = abrGroups().filter(g => g.R.length).flatMap(g => g.L).filter(isOffen);
-  const S = App.abr.rows, aus = L.filter(e => !S.has(e.id)).length;
-  if (!L.length || !confirm(`${L.length} offene Einsätze als abgerechnet markieren (Datum heute)?${aus ? `\nDavon ${aus} nicht ausgewählt.` : ''}`)) return;
   setStatus(L.map(e => e.id), 'abgerechnet'); toast(`${L.length} Einsätze als abgerechnet markiert`);
 }
 
@@ -1495,7 +1492,7 @@ document.addEventListener('click', ev => {
     case 'abrXlsx': prePrint('xlsx'); break;
     case 'abrEntry': einsatzDialog(id); break;
     case 'abrDoneSel': abrDoneSel(); break;
-    case 'abrDone': abrDone(); break;
+    case 'abrKompakt': App.sub.abrKompakt = !App.sub.abrKompakt; App.saveUi(); App.render(); break;
     case 'exportAll': exportAll(); break;
     case 'backup': download(`IM-Vermietung-Sicherung_${todayIso()}.json`, JSON.stringify(Store.data), 'application/json'); break;
   }

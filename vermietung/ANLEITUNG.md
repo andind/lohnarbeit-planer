@@ -1,4 +1,4 @@
-# IM-Vermietung v1.9 – Anleitung
+# IM-Vermietung v1.10 – Anleitung
 
 Eigenständige App für die Maschinenvermietung: Einsätze erfassen und importieren, auswerten, Kundenrapporte und Abrechnungsliste drucken.
 Eigene Kunden, Maschinen und Einsätze in einer eigenen Datei (`vermietung.json`) – unabhängig vom IM-Verwalter.
@@ -48,6 +48,8 @@ aus `startdaten.json`.
     **Nur ausgewählte Zeilen** kommen in Rapport und Abrechnungsliste.
   - Zeile anklicken = Details: bearbeiten, «Stornieren» oder «✓ Abgerechnet» (mit Rückfrage – direkt in der Zeile geht das bewusst nicht).
   - *Ausgewählte Zeilen abgerechnet*: markiert alle ausgewählten offenen Zeilen auf einmal.
+  - «▲ Leiste ausblenden» blendet Titel, Filter und die übrigen Knöpfe aus – es bleiben nur «Ausgewählte Zeilen abgerechnet»
+    und die Tabelle (wird gemerkt; «▼ Leiste einblenden» holt alles zurück).
   - *Alle Einsätze dieser Kunden abgerechnet*: alle offenen Einsätze der Kunden mit ausgewählten Zeilen, auch die nicht ausgewählten.
   - *Rapporte*: Titel «Rapport Maschinenmiete», eine Seite pro Kunde mit Briefkopf, Kundenname und Kunden-Nr. unter dem Titel (ohne Adressblock), ohne Seitenzahlen.
     Vor dem Druckfenster lassen sich die Artikelpreise **nur für diesen Ausdruck** ändern; dort auch «Preise und Beträge anzeigen».
