@@ -97,7 +97,8 @@ Abschnitt **Datensicherung** (Standard: täglich um 00:00):
 - sichert `planung.json` als `planung_JJJJ-MM-TT_HHMM.json` auf dem NAS (Ordner `docker/jd-sync/sicherungen`) und in der Dropbox (`Apps/<Planer-App>/Sicherungen`)
 - behält die letzten 30 Tage und je eine Sicherung pro Monat für 24 Monate (einstellbar), ältere werden gelöscht
 - **wöchentlicher Excel-Export** aller Daten als `IM-Verwalter-Daten_<Datum>.xlsx` (gleiche Blätter wie «Alles als Excel» im IM-Verwalter, ab Version 52 auch Vermessungen, Spritzprogramme, Vorbestellung, Rübensamen, Rübensamen Sorten, JD-Abrechnung, Einstellungen und Eigener Betrieb (Parzellen, Kulturen, Fruchtfolge, Düngung, Dünger, Zwischenfrüchte, Bodenproben); ältere Dateien «Lohnarbeit-Daten_…» werden weiterhin aufgeräumt) nach `Apps/<Planer-App>/Sicherungen/Excel`, Standard: in der Nacht auf Montag; 26 Wochen werden behalten
-- *Jetzt sichern* und *Excel jetzt erstellen* für sofort
+- **IM-Vermietung (ab Version 57):** gleich gesichert wie der IM-Verwalter – `vermietung.json` täglich als `vermietung_JJJJ-MM-TT_HHMM.json` (NAS `docker/jd-sync/sicherungen/vermietung`, Dropbox `Apps/<Planer-App>/Sicherungen/Vermietung`, gleiche Aufbewahrung) und am Excel-Tag zusätzlich `IM-Vermietung-Daten_<Datum>.xlsx` (Einsätze, Kunden, Maschinen) im Excel-Ordner. Ein/aus und Pfade unter «IM-Vermietung mitsichern». Zurückspielen in der IM-Vermietung unter *Mehr › Wiederherstellen…*.
+- *Jetzt sichern* und *Excel jetzt erstellen* für sofort (beide inkl. IM-Vermietung)
 - **Zurückspielen:** Sicherungsdatei herunterladen, im Planer *Mehr › Sicherung einlesen*
 - Liegt die Datendatei nicht unter `/planung.json`, den Pfad bei «Datendatei des Planers» anpassen (wie `dataPath` in `config.js`).
 

@@ -6,7 +6,7 @@
    Dazu: tägliche Datensicherung der IM-Verwalter-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '56', STAND = '12.11.2026'; // v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
+const VERSION = '57', STAND = '14.11.2026'; // v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -31,7 +31,8 @@ const save = (n, v) => { fs.mkdirSync(DATA, { recursive: true }); fs.writeFileSy
 const cfgFile = load('config.json', {});
 let cfg = Object.assign({ syncMode: 'zeiten', syncZeiten: '05:00', syncIntervall: 3, syncVon: '06:00', syncBis: '20:00',
   sicherungAktiv: true, sicherungZeit: '00:00', sicherungNas: true, sicherungDbx: true, sicherungDbxPfad: '/Sicherungen', datenPfad: '/planung.json', behaltTage: 30, behaltMonate: 24,
-  excelAktiv: true, excelTag: 1, excelPfad: '/Sicherungen/Excel', excelBehalt: 26, apiBase: 'https://partnerapi.deere.com/platform', redirectUri: 'http://localhost:9090/callback', syncHour: 5, pollMinutes: 5, clientId: '', clientSecret: '', dbxAppKey: '', orgId: '', orgName: '', kundenEbene: 'auto', syncPath: '/jd-sync.json', requestPath: '/jd-sync-request.json', arbeitenAktiv: true, arbeitenSeit: (new Date().getFullYear() - 1) + '-01-01', arbeitenPath: '/jd-arbeiten.json' }, load('config.json', {}));
+  excelAktiv: true, excelTag: 1, excelPfad: '/Sicherungen/Excel', excelBehalt: 26,
+  vmAktiv: true, vmDatenPfad: '/vermietung.json', vmDbxPfad: '/Sicherungen/Vermietung', apiBase: 'https://partnerapi.deere.com/platform', redirectUri: 'http://localhost:9090/callback', syncHour: 5, pollMinutes: 5, clientId: '', clientSecret: '', dbxAppKey: '', orgId: '', orgName: '', kundenEbene: 'auto', syncPath: '/jd-sync.json', requestPath: '/jd-sync-request.json', arbeitenAktiv: true, arbeitenSeit: (new Date().getFullYear() - 1) + '-01-01', arbeitenPath: '/jd-arbeiten.json' }, load('config.json', {}));
 // frühere Einstellung «täglich um Stunde» übernehmen
 if (cfgFile.syncZeiten === undefined && cfgFile.syncHour != null) cfg.syncZeiten = String(cfgFile.syncHour).padStart(2, '0') + ':00';
 let st = Object.assign({ jd: null, dbx: null, last: null, lastOk: null, running: false, log: [], orgs: [], pending: {} }, load('state.json', {}));
@@ -905,6 +906,7 @@ function pruneList(names, re, keepDays, keepMonths) {
   return items.filter(it => !keep.has(it.n)).map(it => it.n);
 }
 const RE_JSON = /^planung_(\d{4}-\d{2}-\d{2})_\d{4}\.json$/, RE_XLSX = /^(?:Lohnarbeit|IM-Verwalter)-Daten_(\d{4}-\d{2}-\d{2})\.xlsx$/;
+const RE_VM_JSON = /^vermietung_(\d{4}-\d{2}-\d{2})_\d{4}\.json$/, RE_VM_XLSX = /^IM-Vermietung-Daten_(\d{4}-\d{2}-\d{2})\.xlsx$/;
 async function runBackup(reason, { excel } = {}) {
   if (st.backupRunning) return; st.backupRunning = true;
   const { day, hm, wd } = tzNow(), out = [];
@@ -929,7 +931,65 @@ async function runBackup(reason, { excel } = {}) {
     if (excel || (cfg.excelAktiv && wd === +cfg.excelTag && st.excelLastDay !== day)) await runExcel(data, reason);
   } catch (e) {
     st.backupLast = { at: new Date().toISOString(), ok: false, error: e.message }; log('Sicherung FEHLER: ' + e.message);
-  } finally { st.backupRunning = false; saveSt(); }
+  }
+  try { if (cfg.vmAktiv && st.dbx) await runVmBackup(reason, { excel: excel || (cfg.excelAktiv && wd === +cfg.excelTag && st.vmExcelLastDay !== day) }); }
+  finally { st.backupRunning = false; saveSt(); }
+}
+/* ---------- IM-Vermietung (eigenständige App, Datei /vermietung.json): gleiche Sicherung + wöchentliches Excel ---------- */
+async function runVmBackup(reason, { excel } = {}) {
+  const { day, hm } = tzNow(), out = [];
+  try {
+    const text = await dbxDownload(cfg.vmDatenPfad);
+    if (text == null) { st.vmLast = { at: new Date().toISOString(), ok: false, error: `${cfg.vmDatenPfad} nicht gefunden (IM-Vermietung noch nicht mit Dropbox verbunden?)` }; log('Sicherung IM-Vermietung: ' + st.vmLast.error); return; }
+    let data; try { data = JSON.parse(text); } catch { throw new Error('Datendatei der IM-Vermietung ist kein gültiges JSON'); }
+    const name = `vermietung_${day}_${hm}.json`;
+    if (cfg.sicherungNas) {
+      const nd = path.join(BACKUP_DIR, 'vermietung'); fs.mkdirSync(nd, { recursive: true }); fs.writeFileSync(path.join(nd, name), text); out.push('NAS');
+      pruneList(fs.readdirSync(nd), RE_VM_JSON, +cfg.behaltTage, +cfg.behaltMonate).forEach(n => { try { fs.unlinkSync(path.join(nd, n)); } catch { } });
+    }
+    if (cfg.sicherungDbx) {
+      const dir = cfg.vmDbxPfad.replace(/\/+$/, '');
+      await dbxUpload(`${dir}/${name}`, text); out.push('Dropbox');
+      for (const n of pruneList(await dbxList(dir).catch(() => []), RE_VM_JSON, +cfg.behaltTage, +cfg.behaltMonate)) await dbxDelete(`${dir}/${n}`);
+    }
+    const n = k => (data[k] || []).filter(x => x && !x.del).length;
+    st.vmLast = { at: new Date().toISOString(), ok: true, name, wo: out, kb: Math.round(text.length / 1024), counts: `${n('einsaetze')} Einsätze · ${n('kunden')} Kunden · ${n('maschinen')} Maschinen` };
+    log(`Sicherung IM-Vermietung (${reason}): ${name} · ${st.vmLast.kb} KB · ${out.join(' + ')}`);
+    if (excel) await runVmExcel(data, reason);
+  } catch (e) { st.vmLast = { at: new Date().toISOString(), ok: false, error: e.message }; log('Sicherung IM-Vermietung FEHLER: ' + e.message); }
+  saveSt();
+}
+async function runVmExcel(data, reason) {
+  const { day } = tzNow();
+  try {
+    if (!data) { const t = await dbxDownload(cfg.vmDatenPfad); if (t == null) throw new Error(`${cfg.vmDatenPfad} nicht gefunden`); data = JSON.parse(t); }
+    const sheets = vmSheets(data), buf = xlsxBuffer(sheets), name = `IM-Vermietung-Daten_${day}.xlsx`, dir = cfg.excelPfad.replace(/\/+$/, '');
+    await dbxUpload(`${dir}/${name}`, buf);
+    for (const n of pruneList(await dbxList(dir).catch(() => []), RE_VM_XLSX, 7 * +cfg.excelBehalt, 0)) await dbxDelete(`${dir}/${n}`);
+    if (cfg.sicherungNas) { const nd = path.join(BACKUP_DIR, 'excel'); fs.mkdirSync(nd, { recursive: true }); fs.writeFileSync(path.join(nd, name), buf); pruneList(fs.readdirSync(nd), RE_VM_XLSX, 7 * +cfg.excelBehalt, 0).forEach(n => { try { fs.unlinkSync(path.join(nd, n)); } catch { } }); }
+    st.vmExcelLastDay = day; st.vmExcelLast = { at: new Date().toISOString(), ok: true, name, info: sheets.map(s => `${s.name} ${s.rows.length - 1}`).join(' · ') };
+    log(`Excel-Export IM-Vermietung (${reason}): ${dir}/${name} · ${st.vmExcelLast.info}`);
+  } catch (e) { st.vmExcelLast = { at: new Date().toISOString(), ok: false, error: e.message }; log('Excel-Export IM-Vermietung FEHLER: ' + e.message); }
+  saveSt();
+}
+// gleiche Blätter wie «Alles als Excel» in der IM-Vermietung (Einsätze, Kunden, Maschinen)
+function vmSheets(D) {
+  const all = k => (D[k] || []).filter(x => x && !x.del), K = new Map(all('kunden').map(x => [x.id, x])), M = new Map(all('maschinen').map(x => [x.id, x]));
+  const r2 = x => Math.round(x * 100) / 100, dt = s => { if (!s) return ''; const [y, m, d] = String(s).slice(0, 10).split('-'); return `${d}.${m}.${y}`; };
+  const numOr = v => v === '' || v == null ? '' : (isFinite(+v) ? +v : v);
+  const einh = e => e.einheit || (M.get(e.maschine) || {}).einheit || 'ha';
+  const preis = e => { if (e.preis != null) return e.preis; const m = M.get(e.maschine); return m && m.preis != null && (m.einheit || 'ha') === einh(e) ? m.preis : null; };
+  const status = e => e.status === 'abgerechnet' ? 'abgerechnet' : e.status === 'storniert' ? 'storniert' : 'offen';
+  const cnt = f => { const m = new Map(); all('einsaetze').forEach(e => m.set(e[f], (m.get(e[f]) || 0) + 1)); return m; }, uK = cnt('kunde'), uM = cnt('maschine');
+  const E = all('einsaetze').sort((a, b) => String(a.datum || '').localeCompare(String(b.datum || '')));
+  return [
+    { name: 'Einsätze', rows: [['Datum', 'Kd-Nr.', 'Kunde', 'Art.-Nr.', 'Maschine', 'Menge', 'Einheit', 'Preis CHF', 'Betrag CHF', 'Bemerkung', 'Quelle', 'Status', 'Abgerechnet/storniert am', 'Nicht im Rapport', 'ID'],
+      ...E.map(e => { const k = K.get(e.kunde) || {}, m = M.get(e.maschine) || {}, p = preis(e); return [dt(e.datum), numOr(k.nr), k.name || '', numOr(m.artNr), m.name || '', e.menge ?? '', einh(e), p ?? '', p != null && e.menge != null ? r2(p * e.menge) : '', e.bem || '', e.quelle || '', status(e), dt(e.abgerechnetAm || e.storniertAm), e.ohneRapport ? 'ja' : '', e.id]; })] },
+    { name: 'Kunden', rows: [['Kd-Nr.', 'Name', 'Strasse', 'Zusatz', 'PLZ', 'Ort', 'Telefon', 'E-Mail', 'Einsätze', 'Namensvarianten', 'Bemerkung', 'Aktiv', 'ID'],
+      ...all('kunden').sort((a, b) => String(a.name).localeCompare(String(b.name), 'de')).map(k => [numOr(k.nr), k.name || '', k.strasse || '', k.zusatz || '', k.plz || '', k.ort || '', k.tel || '', k.mail || '', uK.get(k.id) || 0, (k.aliases || []).join('; '), k.bem || '', k.aktiv === false ? 'nein' : 'ja', k.id])] },
+    { name: 'Maschinen', rows: [['Art.-Nr.', 'Bezeichnung', 'Einheit', 'Preis CHF', 'Einsätze', 'Namensvarianten', 'Aktiv', 'ID'],
+      ...all('maschinen').sort((a, b) => String(a.artNr).localeCompare(String(b.artNr), 'de', { numeric: true })).map(m => [numOr(m.artNr), m.name || '', m.einheit || '', m.preis ?? '', uM.get(m.id) || 0, (m.aliases || []).join('; '), m.aktiv === false ? 'nein' : 'ja', m.id])] }
+  ];
 }
 async function runExcel(data, reason) {
   const { day } = tzNow();
@@ -1195,9 +1255,11 @@ ${st.jdStruktur ? `<p><small>MyJohnDeere: ${st.jdStruktur.mandanten} Mandanten (
 <div><label>Von – bis (bei «regelmässig»)</label><div class="row" style="gap:6px"><input name="syncVon" type="time" value="${esc(cfg.syncVon)}" style="min-width:0"><input name="syncBis" type="time" value="${esc(cfg.syncBis)}" style="min-width:0"></div></div></div>
 <div class="row"><div><label>Anfragen aus dem IM-Verwalter prüfen alle … Minuten</label><select name="pollMinutes">${[1, 2, 5, 10, 15, 30].map(m => `<option ${+cfg.pollMinutes === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div><div><label>Aktuell</label><p style="margin:6px 0 0">${esc(rhythmText())} · nächster Abgleich ${esc(nextSync())}</p></div></div>
 <button>Speichern</button></form></section>
-<section><h2>Datensicherung</h2><p><small>Sichert die IM-Verwalter-Daten (<b>${esc(cfg.datenPfad)}</b>) täglich mit Datum. Behalten werden die letzten ${esc(cfg.behaltTage)} Tage und je eine pro Monat für ${esc(cfg.behaltMonate)} Monate. Zusätzlich einmal pro Woche eine Excel-Datei mit allen Daten. Zurückspielen im IM-Verwalter unter <i>Mehr › Sicherung einlesen</i>.</small></p>
+<section><h2>Datensicherung</h2><p><small>Sichert die IM-Verwalter-Daten (<b>${esc(cfg.datenPfad)}</b>)${cfg.vmAktiv ? ` und die Daten der IM-Vermietung (<b>${esc(cfg.vmDatenPfad)}</b>, Ordner ${esc(cfg.vmDbxPfad)})` : ''} täglich mit Datum. Behalten werden die letzten ${esc(cfg.behaltTage)} Tage und je eine pro Monat für ${esc(cfg.behaltMonate)} Monate. Zusätzlich einmal pro Woche eine Excel-Datei mit allen Daten. Zurückspielen im IM-Verwalter unter <i>Mehr › Sicherung einlesen</i>.</small></p>
 ${st.backupLast ? `<p>Letzte Sicherung: ${esc(new Date(st.backupLast.at).toLocaleString('de-CH'))} ${st.backupLast.ok ? `<span class="ok">ok</span> · ${esc(st.backupLast.name)} · ${esc(st.backupLast.kb)} KB · ${esc((st.backupLast.wo || []).join(' + '))} · ${esc(st.backupLast.counts || '')}` : `<span class="no">Fehler</span><br><small>${esc(st.backupLast.error)}</small>`}</p>` : '<p>Noch keine Sicherung.</p>'}
 ${st.excelLast ? `<p>Letzter Excel-Export: ${esc(new Date(st.excelLast.at).toLocaleString('de-CH'))} ${st.excelLast.ok ? `<span class="ok">ok</span> · ${esc(cfg.excelPfad)}/${esc(st.excelLast.name)}<br><small>${esc(st.excelLast.info)}</small>` : `<span class="no">Fehler</span><br><small>${esc(st.excelLast.error)}</small>`}</p>` : ''}
+${cfg.vmAktiv && st.vmLast ? `<p>IM-Vermietung – letzte Sicherung: ${esc(new Date(st.vmLast.at).toLocaleString('de-CH'))} ${st.vmLast.ok ? `<span class="ok">ok</span> · ${esc(st.vmLast.name)} · ${esc(st.vmLast.kb)} KB · ${esc((st.vmLast.wo || []).join(' + '))} · ${esc(st.vmLast.counts || '')}` : `<span class="no">Fehler</span><br><small>${esc(st.vmLast.error)}</small>`}</p>` : ''}
+${cfg.vmAktiv && st.vmExcelLast ? `<p>IM-Vermietung – letzter Excel-Export: ${esc(new Date(st.vmExcelLast.at).toLocaleString('de-CH'))} ${st.vmExcelLast.ok ? `<span class="ok">ok</span> · ${esc(cfg.excelPfad)}/${esc(st.vmExcelLast.name)}<br><small>${esc(st.vmExcelLast.info)}</small>` : `<span class="no">Fehler</span><br><small>${esc(st.vmExcelLast.error)}</small>`}</p>` : ''}
 <form method="post" action="/sicherung"><div class="row"><div><label>Tägliche Sicherung</label><select name="sicherungAktiv"><option value="1" ${cfg.sicherungAktiv ? 'selected' : ''}>Ein</option><option value="0" ${cfg.sicherungAktiv ? '' : 'selected'}>Aus</option></select></div>
 <div><label>Uhrzeit (00:00 = um Mitternacht)</label><input name="sicherungZeit" type="time" value="${esc(cfg.sicherungZeit)}"></div></div>
 <div class="row"><div><label>Ablage auf dem NAS</label><select name="sicherungNas"><option value="1" ${cfg.sicherungNas ? 'selected' : ''}>Ja – ${esc(BACKUP_DIR === '/backup' ? 'Ordner docker/jd-sync/sicherungen' : BACKUP_DIR.startsWith(DATA) ? 'Ordner data/sicherungen' : BACKUP_DIR)}</option><option value="0" ${cfg.sicherungNas ? '' : 'selected'}>Nein</option></select></div>
@@ -1207,6 +1269,9 @@ ${st.excelLast ? `<p>Letzter Excel-Export: ${esc(new Date(st.excelLast.at).toLoc
 <div class="row"><div><label>Wöchentlicher Excel-Export</label><select name="excelAktiv"><option value="1" ${cfg.excelAktiv ? 'selected' : ''}>Ein</option><option value="0" ${cfg.excelAktiv ? '' : 'selected'}>Aus</option></select></div>
 <div><label>Excel bei der Sicherung am (Montag 00:00 = Ende der Woche)</label><select name="excelTag">${WOCHENTAGE.map((t, i) => `<option value="${i}" ${+cfg.excelTag === i ? 'selected' : ''}>${t}</option>`).join('')}</select></div></div>
 <div class="row"><div><label>Dropbox-Ordner für Excel</label><input name="excelPfad" value="${esc(cfg.excelPfad)}"></div><div><label>Excel-Dateien behalten (Wochen)</label><input name="excelBehalt" type="number" min="1" max="520" value="${esc(cfg.excelBehalt)}"></div></div>
+<div class="row"><div><label>IM-Vermietung mitsichern (inkl. Excel)</label><select name="vmAktiv"><option value="1" ${cfg.vmAktiv ? 'selected' : ''}>Ja</option><option value="0" ${cfg.vmAktiv ? '' : 'selected'}>Nein</option></select></div>
+<div><label>Datendatei der IM-Vermietung</label><input name="vmDatenPfad" value="${esc(cfg.vmDatenPfad)}"></div></div>
+<div class="row"><div><label>Dropbox-Ordner der Vermietungs-Sicherungen</label><input name="vmDbxPfad" value="${esc(cfg.vmDbxPfad)}"></div><div></div></div>
 <button>Speichern</button></form>
 <div class="row" style="flex:0"><form method="post" action="/sicherung/jetzt"><button class="sec" ${st.dbx ? '' : 'disabled'}>Jetzt sichern</button></form><form method="post" action="/excel/jetzt"><button class="sec" ${st.dbx ? '' : 'disabled'}>Excel jetzt erstellen</button></form></div></section>
 <section><h2>Arbeitsdaten (Vorrat)</h2><p><small>Arbeitsgänge aus MyJohnDeere (Säen, Spritzen, Ernten, Bodenbearbeitung …) mit Messwerten werden als <b>${esc(cfg.arbeitenPath)}</b> abgelegt (IM-Verwalter › Verwaltung › Bericht und Abrechnung). Aus jeder Bedeckungskarte wird die Fläche <b>ohne Überlappungen</b> («ha bedeckt») berechnet und eine <b>virtuelle Feldgrenze</b> erstellt (<b>${esc(cfg.grenzenPath || '/jd-grenzen.json')}</b>). Bedeckungskarten kommen über die neue <b>Operations Data Export</b>-Schnittstelle von John Deere (<code>/isg/operations/…/operationsExportRequests</code>); wo sie nicht klappt, über die alte (<code>/fieldOps</code>, läuft laut John Deere bis November 2027)${st.covInfo && st.covInfo.neueApi ? ` · letzter Lauf neue API: ${esc(Object.entries(st.covInfo.neueApi.antworten || {}).map(([k, v]) => k + '×' + v).join(', ') || '–')}${st.covInfo.neueApi.gestoppt ? ' <span class="no">kein Zugriff – Freischaltung prüfen</span>' : ''}` : ''}.</small></p>
@@ -1289,16 +1354,16 @@ http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && u.pathname === '/sicherung') {
       const f = await body(req), yes = k => f.get(k) === '1', clamp = (v, a, b, d) => Math.max(a, Math.min(b, Number.isFinite(+v) && v !== '' ? +v : d));
-      Object.assign(cfg, { sicherungAktiv: yes('sicherungAktiv'), sicherungNas: yes('sicherungNas'), sicherungDbx: yes('sicherungDbx'), excelAktiv: yes('excelAktiv'),
+      Object.assign(cfg, { sicherungAktiv: yes('sicherungAktiv'), sicherungNas: yes('sicherungNas'), sicherungDbx: yes('sicherungDbx'), excelAktiv: yes('excelAktiv'), vmAktiv: f.has('vmAktiv') ? yes('vmAktiv') : cfg.vmAktiv,
         excelTag: clamp(f.get('excelTag'), 0, 6, 1), behaltTage: clamp(f.get('behaltTage'), 1, 365, 30), behaltMonate: clamp(f.get('behaltMonate'), 0, 120, 24), excelBehalt: clamp(f.get('excelBehalt'), 1, 520, 26) });
       if (toMinutes(f.get('sicherungZeit')) != null) { const nz = hmOf(toMinutes(f.get('sicherungZeit'))); if (nz !== cfg.sicherungZeit) { cfg.sicherungZeit = nz; const { day, min } = tzNow(); if (min >= toMinutes(nz) && st.lastBackupDay !== day) { st.lastBackupDay = day; saveSt(); } } }
       const pth = k => { const v = String(f.get(k) || '').trim(); return v ? '/' + v.replace(/^\/+/, '').replace(/\/+$/, '') : null; };
-      cfg.sicherungDbxPfad = pth('sicherungDbxPfad') || cfg.sicherungDbxPfad; cfg.excelPfad = pth('excelPfad') || cfg.excelPfad; cfg.datenPfad = pth('datenPfad') || cfg.datenPfad;
+      cfg.sicherungDbxPfad = pth('sicherungDbxPfad') || cfg.sicherungDbxPfad; cfg.excelPfad = pth('excelPfad') || cfg.excelPfad; cfg.datenPfad = pth('datenPfad') || cfg.datenPfad; cfg.vmDatenPfad = pth('vmDatenPfad') || cfg.vmDatenPfad; cfg.vmDbxPfad = pth('vmDbxPfad') || cfg.vmDbxPfad;
       if (!cfg.sicherungNas && !cfg.sicherungDbx) return send(res, 200, page('Bitte mindestens eine Ablage (NAS oder Dropbox) wählen.', true));
       saveCfg(); return send(res, 200, page('Datensicherung gespeichert.'));
     }
     if (req.method === 'POST' && u.pathname === '/sicherung/jetzt') { runBackup('manuell'); await sleep(1500); return send(res, 200, page('Sicherung gestartet – Ergebnis siehe Datensicherung bzw. Protokoll.')); }
-    if (req.method === 'POST' && u.pathname === '/excel/jetzt') { runExcel(null, 'manuell'); await sleep(2000); return send(res, 200, page('Excel-Export gestartet – Ergebnis siehe Datensicherung bzw. Protokoll.')); }
+    if (req.method === 'POST' && u.pathname === '/excel/jetzt') { runExcel(null, 'manuell').then(() => cfg.vmAktiv ? runVmExcel(null, 'manuell') : null); await sleep(2000); return send(res, 200, page('Excel-Export gestartet – Ergebnis siehe Datensicherung bzw. Protokoll.')); }
     if (req.method === 'POST' && u.pathname === '/run') { runSync('manuell'); await sleep(300); return send(res, 200, page('Abgleich gestartet – Seite in ein paar Sekunden neu laden.')); }
     return send(res, 404, 'Nicht gefunden');
   } catch (e) { log('Fehler: ' + e.message); return send(res, 200, page(e.message, true)); }

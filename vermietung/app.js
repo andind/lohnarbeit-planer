@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.11', APP_STAND = '14.11.2026';
+const APP_VERSION = '1.12', APP_STAND = '14.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -1294,7 +1294,9 @@ function viewMehr() {
   </div><div>
     <div class="panel"><h2>Daten</h2><p>${n('einsaetze')} Einsätze · ${n('kunden')} Kunden · ${n('maschinen')} Maschinen</p>
       <div class="btns"><button class="btn" data-act="exportAll">⬇ Alles als Excel</button><button class="btn" data-act="backup">⬇ Datensicherung (.json)</button><label class="btn">Wiederherstellen…<input type="file" accept=".json" data-in="restoreFile" hidden></label></div>
-      <p class="small">Dropbox führt zusätzlich einen Versionsverlauf der Datei vermietung.json.</p></div>
+      <p class="small"><b>Automatische Sicherung</b> (wie beim IM-Verwalter, durch den NAS-Dienst jd-sync ab Version 57): täglich eine Sicherung von vermietung.json
+        (Dropbox › Sicherungen/Vermietung und NAS, 30 Tage + je eine pro Monat) und einmal pro Woche eine Excel-Datei «IM-Vermietung-Daten_Datum.xlsx» mit Einsätzen, Kunden und Maschinen
+        (Dropbox › Sicherungen/Excel). Zurückspielen mit «Wiederherstellen…». Dropbox führt zusätzlich einen Versionsverlauf der Datei.</p></div>
     <div class="panel"><h2>Über</h2><p>IM-Vermietung v${APP_VERSION} (${APP_STAND}) – eigenständige App für die Maschinenvermietung von Indermühle Lohnarbeiten · Maschinenvermietung, Schüpfen. Eigene Kunden, Maschinen und Einsätze, unabhängig vom IM-Verwalter.</p>
       <div class="btns"><button class="btn" data-act="reload">App neu laden</button></div></div>
   </div></div>` };

@@ -1,4 +1,4 @@
-# IM-Vermietung v1.11 – Anleitung
+# IM-Vermietung v1.12 – Anleitung
 
 Eigenständige App für die Maschinenvermietung: Einsätze erfassen und importieren, auswerten, Kundenrapporte und Abrechnungsliste drucken.
 Eigene Kunden, Maschinen und Einsätze in einer eigenen Datei (`vermietung.json`) – unabhängig vom IM-Verwalter.
@@ -59,6 +59,8 @@ aus `startdaten.json`.
 - **Stammdaten** – Kunden (Kd-Nr. leer = Neukunde, Adresse, Namensvarianten, Zusammenführen) und Maschinen (Art.-Nr., Einheit, Preis).
   «Kundenliste importieren» liest z. B. Kunden.xlsx und ergänzt Adressen über die Kunden-Nr.
 - **Mehr** – Dropbox, Scan-Schlüssel, Excel-Export aller Daten, Datensicherung/Wiederherstellen.
+  Automatische Sicherung durch den NAS-Dienst jd-sync (ab Version 57): täglich vermietung.json (Dropbox › Sicherungen/Vermietung + NAS)
+  und wöchentlich «IM-Vermietung-Daten_Datum.xlsx» (Dropbox › Sicherungen/Excel).
 
 ## Bei Updates
 `config.js` nicht überschreiben. Version in `app.js` (`APP_VERSION`, `APP_STAND`) und `CACHE` in `sw.js` gleich erhöhen.
