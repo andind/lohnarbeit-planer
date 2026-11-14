@@ -50,7 +50,6 @@ aus `startdaten.json`.
   - *Ausgewählte Zeilen abgerechnet*: markiert alle ausgewählten offenen Zeilen auf einmal.
   - «▲ Leiste ausblenden» blendet Titel, Filter und die übrigen Knöpfe aus – es bleiben nur «Ausgewählte Zeilen abgerechnet»
     und die Tabelle (wird gemerkt; «▼ Leiste einblenden» holt alles zurück).
-  - *Alle Einsätze dieser Kunden abgerechnet*: alle offenen Einsätze der Kunden mit ausgewählten Zeilen, auch die nicht ausgewählten.
   - *Rapporte*: Titel «Rapport Maschinenmiete», eine Seite pro Kunde mit Briefkopf, Kundenname und Kunden-Nr. unter dem Titel (ohne Adressblock), ohne Seitenzahlen.
     Vor dem Druckfenster lassen sich die Artikelpreise **nur für diesen Ausdruck** ändern; dort auch «Preise und Beträge anzeigen».
     Der Knopf «Rapport» in einer Kundenzeile druckt die ausgewählten Zeilen dieses Kunden, sonst alle.
