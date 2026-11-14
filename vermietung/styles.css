@@ -221,3 +221,28 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .dtab tr.storno td:last-child, .dtab tr.storno td:nth-last-child(2) { text-decoration: none; }
 .nowrap { white-space: nowrap; }
 .dtab td .btn.small + .btn.small { margin-left: 4px; }
+
+/* ---------- Bildschirm-Aufteilung (v1.9): Seite fest, nur Tabellen/Inhalt scrollen; Zoom per body.style.zoom ---------- */
+html, body { height: 100%; }
+body { height: var(--appH, 100dvh); display: flex; flex-direction: column; overflow: hidden; }
+.top { position: relative; flex: none; }
+main { flex: 1 1 auto; min-height: 0; width: 100%; display: flex; flex-direction: column; overflow: hidden; }
+#toolbar { flex: none; }
+#content { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; overscroll-behavior: contain; }
+#content > * { flex: none; }
+#content > .dscroll, #content > .scanwrap { flex: 1 1 auto; min-height: 180px; max-height: none; }
+.scanwrap > .dscroll { max-height: none; min-height: 0; height: 100%; }
+@media (min-width: 1100px) { .scanwrap { min-height: 0; } .scanwrap .pview { position: static; max-height: 100%; } }
+@media (min-width: 600px) { main { margin-left: 96px; width: calc(100% - 96px); max-width: none; padding-bottom: 16px; } .tabs { top: var(--toph, 57px); } }
+@media (max-width: 599px) { #content > .dscroll { min-height: 0; } }
+.zoom { display: none; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 999px; padding: 2px; background: var(--surface-2); }
+.zoom button { border: 0; background: none; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 18px; color: var(--muted); }
+.zoom button:hover { background: var(--line); }
+.zoom span { font-size: 12px; color: var(--muted); min-width: 38px; text-align: center; cursor: pointer; }
+@media (min-width: 700px) { .zoom { display: inline-flex; } }
+details.help { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+details.help summary { cursor: pointer; width: max-content; }
+@media print {
+  html, body, body.printing { height: auto !important; overflow: visible !important; display: block !important; zoom: 1 !important; }
+}
+@media (max-width: 599px) { #content > .dscroll { flex: none; overflow: visible; border-radius: var(--radius); } }

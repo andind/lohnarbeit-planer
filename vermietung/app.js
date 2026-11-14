@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.8', APP_STAND = '14.11.2026';
+const APP_VERSION = '1.9', APP_STAND = '14.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -1158,8 +1158,8 @@ function viewAbrechnung() {
       <button class="btn" data-act="abrDone" ${nOffen ? '' : 'disabled'} title="alle offenen Einsätze der Kunden mit ausgewählten Zeilen – auch die nicht ausgewählten">✓ Alle Einsätze dieser Kunden abgerechnet (${nOffen})</button>
       ${G.length ? `<button class="btn small" data-act="abrExpAll">${G.every(g => open.has(g.k.id)) ? 'Alle zuklappen' : 'Alle Zeilen zeigen'}</button>` : ''}</div>
     ${anyPreis ? '' : '<div class="box warn small">Noch keine Preise erfasst – Rapporte und Abrechnungsliste zeigen nur Mengen. Preise unter <a href="#" data-act="goMasch">Stammdaten › Maschinen</a> eintragen.</div>'}
-    <p class="muted small">Kunde ankreuzen = alle seine Zeilen auswählen; mit ▸ aufklappen und Zeilen einzeln an- oder abwählen. Nur ausgewählte Zeilen kommen in Rapport und Abrechnungsliste.
-      Zeile anklicken = Details (bearbeiten, stornieren, als abgerechnet markieren). Rapport: eine Seite pro Kunde, ohne Seitenzahlen; vor dem Drucken lassen sich die Artikelpreise nur für diesen Ausdruck anpassen.</p>
+    <details class="help"><summary>ℹ Bedienung</summary>Kunde ankreuzen = alle seine Zeilen auswählen; mit ▸ aufklappen und Zeilen einzeln an- oder abwählen. Nur ausgewählte Zeilen kommen in Rapport und Abrechnungsliste.
+      Zeile anklicken = Details (bearbeiten, stornieren, als abgerechnet markieren). Rapport: eine Seite pro Kunde, ohne Seitenzahlen; vor dem Drucken lassen sich die Artikelpreise nur für diesen Ausdruck anpassen.</details>
     ${G.length ? `<div class="dscroll"><table class="dtab"><thead><tr><th class="cb"><input type="checkbox" data-act="abrAll" ${allSel ? 'checked' : ''} title="alle Kunden auswählen / keine"></th><th>Zeilen</th><th class="n">Kd-Nr.</th><th>Kunde</th><th class="n">ha</th><th class="n">h</th><th class="n">CHF</th><th>Hinweise</th><th></th></tr></thead>
       <tbody>${rows}</tbody><tfoot><tr><td></td><td>${nZ}</td><td colspan="2">${sel.length} von ${G.length} Kunden ausgewählt</td><td class="n">${fmtQty(all.ha)}</td><td class="n">${fmtQty(all.h)}</td><td class="n">${all.chf ? chf(all.chf) : ''}</td><td colspan="2"></td></tr></tfoot></table></div>`
       : '<div class="empty">Keine Einsätze für diesen Zeitraum.</div>'}` };
@@ -1442,6 +1442,9 @@ document.addEventListener('click', ev => {
     case 'login': Auth.login(); break;
     case 'logout': if (confirm('Von Dropbox abmelden? Die Daten bleiben auf diesem Gerät.')) Auth.logout(); break;
     case 'reload': location.reload(); break;
+    case 'zoomIn': Zoom.set(Zoom.get() + 0.05); break;
+    case 'zoomOut': Zoom.set(Zoom.get() - 0.05); break;
+    case 'zoomReset': Zoom.set(Zoom.def()); break;
     case 'goMasch': App.sub.stamm = 'maschinen'; App.go('stamm'); break;
     case 'mMore': App.mMore = (App.mMore || 150) + 300; App.render(); break;
     case 'newEinsatz': einsatzDialog(null); break;
@@ -1553,9 +1556,25 @@ window.addEventListener('offline', () => Sync.setState('offline'));
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') Sync.run(); });
 window.addEventListener('storage', ev => { if (ev.key === 'mv_data') { Store.load(); if (!App.busy()) App.render(); } });
 
+/* ================= Zoom und Bildschirmhöhe ================= */
+// Standard 125 % auf grossen Bildschirmen (PC/Tablet quer), 100 % auf dem Handy; pro Gerät gemerkt (mv_zoom)
+const Zoom = {
+  def() { return innerWidth >= 1000 ? 1.25 : 1; },
+  get() { const z = parseFloat(ls('mv_zoom')); return z >= 0.5 && z <= 2 ? z : this.def(); },
+  set(z) { z = Math.round(Math.min(2, Math.max(0.6, z)) * 20) / 20; if (Math.abs(z - this.def()) < 0.001) ls('mv_zoom', null); else ls('mv_zoom', String(z)); this.apply(); },
+  apply() {
+    const z = this.get(); document.body.style.zoom = z;
+    // Höhe in «gezoomten» Pixeln, damit Seite genau ins Fenster passt und nur der Inhalt scrollt
+    document.documentElement.style.setProperty('--appH', (innerHeight / z) + 'px');
+    const t = $('.top'); if (t) document.documentElement.style.setProperty('--toph', t.offsetHeight + 'px');
+    const zt = $('#zoomTxt'); if (zt) zt.textContent = Math.round(z * 100) + '%';
+  }
+};
+window.addEventListener('resize', () => Zoom.apply());
+
 /* ================= Start ================= */
 (async function boot() {
-  $('#appVer').textContent = 'v' + APP_VERSION;
+  $('#appVer').textContent = 'v' + APP_VERSION; Zoom.apply();
   Store.load(); App.init();
   try { await Auth.handleRedirect(); } catch (e) { toast('Anmeldung fehlgeschlagen: ' + e.message, 6000); }
   await Store.seed();

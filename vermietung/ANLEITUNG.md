@@ -1,4 +1,4 @@
-# IM-Vermietung v1.6 – Anleitung
+# IM-Vermietung v1.9 – Anleitung
 
 Eigenständige App für die Maschinenvermietung: Einsätze erfassen und importieren, auswerten, Kundenrapporte und Abrechnungsliste drucken.
 Eigene Kunden, Maschinen und Einsätze in einer eigenen Datei (`vermietung.json`) – unabhängig vom IM-Verwalter.
@@ -17,6 +17,8 @@ Beim ersten Start übernimmt die App die bereinigten Einsätze 2025/26 (155 Eins
 aus `startdaten.json`.
 
 ## Bedienung
+- **Ansicht**: Die Seite bleibt fest, nur Tabellen bzw. der Inhalt scrollen. Zoom oben rechts (− 125 % +); Standard 125 % am PC/Tablet,
+  100 % am Handy; Klick auf die Prozentzahl = zurück zum Standard. Browser-Zoom dafür auf 100 % lassen (Ctrl+0).
 - **Einsätze** – alle Einsätze mit Filter (Jahr/Zeitraum, Kunde, Maschine, offen/abgerechnet, Suche). Antippen = bearbeiten.
   Mehrere ankreuzen → als abgerechnet markieren, ändern, löschen. «＋ Einsatz» oder Ctrl+N für manuelle Erfassung.
 - **Import**
