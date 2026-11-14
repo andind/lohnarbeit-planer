@@ -1,4 +1,4 @@
-# IM-Vermietung v1.4 – Anleitung
+# IM-Vermietung v1.5 – Anleitung
 
 Eigenständige App für die Maschinenvermietung: Einsätze erfassen und importieren, auswerten, Kundenrapporte und Abrechnungsliste drucken.
 Eigene Kunden, Maschinen und Einsätze in einer eigenen Datei (`vermietung.json`) – unabhängig vom IM-Verwalter.
@@ -20,6 +20,10 @@ aus `startdaten.json`.
 - **Einsätze** – alle Einsätze mit Filter (Jahr/Zeitraum, Kunde, Maschine, offen/abgerechnet, Suche). Antippen = bearbeiten.
   Mehrere ankreuzen → als abgerechnet markieren, ändern, löschen. «＋ Einsatz» oder Ctrl+N für manuelle Erfassung.
 - **Import**
+  - *Online-Formular per Freigabelink*: einmalig in Excel (OneDrive) bei der Formular-Datei *Freigeben › Link kopieren*
+    («Jeder mit dem Link», nur anzeigen) und unter Import › «Freigabelink eintragen» einfügen. Danach: «1. Formular-Excel öffnen»
+    (Excel im Browser holt die neuesten Antworten in die Datei) und «2. Abrufen und importieren». Lässt Microsoft das direkte
+    Abrufen nicht zu, zeigt die App den Weg über «Datei › Speichern unter › Kopie herunterladen».
   - *Online-Formular*: Excel-Export von Microsoft Forms («Formular zur Erfassung von Maschinenvermietungen») direkt wählen –
     die Spalten (Name Mieter, Maschine, Mietdatum, Fläche/Stunden, Bemerkung, Abgerechnet, Id) werden erkannt, die Prüfliste
     erscheint sofort («Spalten neu zuordnen…» falls nötig). Es darf immer der ganze Export eingelesen werden – schon vorhandene

@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.4', APP_STAND = '13.11.2026';
+const APP_VERSION = '1.5', APP_STAND = '14.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -738,6 +738,47 @@ function formBuild(mp) {
   impStart('Formular', F.name, objs);
 }
 
+/* ---------- Formular-Excel per Freigabelink (OneDrive/SharePoint): öffnen und direkt abrufen ----------
+   Der Link wird in den App-Einstellungen gespeichert (cfg.formLink, nur in der eigenen Dropbox-Datei).
+   Öffnen in Excel im Browser holt dort die neuesten Formular-Antworten in die Datei; danach «Abrufen» lädt sie ohne Herunterladen. */
+const formLink = () => Store.cfg().formLink || '';
+function shareDownloadUrls(link) {
+  const u = link.trim(), out = [];
+  if (/sharepoint\.com/i.test(u)) { const base = u.split('#')[0]; out.push(base + (base.includes('?') ? '&' : '?') + 'download=1'); }
+  if (/1drv\.ms|onedrive\.live\.com|sharepoint\.com/i.test(u)) {
+    const enc = 'u!' + btoa(unescape(encodeURIComponent(u))).replace(/=+$/, '').replace(/\//g, '_').replace(/\+/g, '-');
+    out.push(`https://api.onedrive.com/v1.0/shares/${enc}/root/content`);
+    if (!/sharepoint/i.test(u)) out.push(`https://api.onedrive.com/v1.0/shares/${enc}/driveItem/content`);
+  }
+  if (!out.length) out.push(u);
+  return out;
+}
+async function formFetch() {
+  const link = formLink(); if (!link) { toast('Zuerst den Freigabelink eintragen'); return; }
+  App.formBusy = true; App.render();
+  let buf = null, err = '';
+  for (const url of shareDownloadUrls(link)) {
+    try {
+      const r = await fetch(url, { cache: 'no-store', redirect: 'follow' });
+      if (!r.ok) { err = 'Fehler ' + r.status; continue; }
+      const b = await r.arrayBuffer(), h = new Uint8Array(b, 0, 2);
+      if (h[0] === 0x50 && h[1] === 0x4b) { buf = b; break; } // «PK» = xlsx
+      err = 'Der Link liefert keine Excel-Datei (Anmeldung nötig?)';
+    } catch (e) { err = 'Zugriff vom Browser aus nicht möglich'; }
+  }
+  App.formBusy = false; App.render();
+  if (!buf) { App.formFail = err || 'unbekannter Fehler'; App.render(); toast('Abrufen fehlgeschlagen: ' + App.formFail, 7000); return; }
+  App.formFail = '';
+  await impForm(new File([buf], 'Formular (Freigabelink).xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+}
+function formLinkDialog() {
+  openDlg('Freigabelink des Formular-Excels', `<p class="muted small">In Excel (OneDrive) die Datei mit den Formular-Antworten öffnen › <b>Freigeben</b> › <b>Link kopieren</b> – am besten «Jeder mit dem Link» und <b>nur anzeigen</b> (nicht bearbeiten). Den Link hier einfügen.</p>
+    <label class="fld"><span>Freigabelink</span><input class="input" name="link" value="${esc(formLink())}" placeholder="https://1drv.ms/x/… oder https://…sharepoint.com/…" autofocus></label>
+    <p class="small muted">Der Link wird nur in deinen App-Daten (Dropbox) gespeichert, nicht im öffentlichen Programmcode. Wer den Link hat, kann die Antworten lesen.</p>`,
+    `${formLink() ? '<button class="btn danger" value="del">Link entfernen</button>' : ''}<span class="spacer"></span><button class="btn primary" value="ok">Speichern</button>`,
+    { onSubmit: (fd, btn) => { Store.setCfg({ formLink: btn === 'del' ? '' : String(fd.get('link') || '').trim() }); App.formFail = ''; toast(btn === 'del' ? 'Link entfernt' : 'Link gespeichert'); } });
+}
+
 /* ---------- Papierrapport scannen (übernommen aus dem Programm ScanListe 3) ----------
    Handschriftliche Einsatzlisten im Heft: Datum | Name | Fläche/Menge | Bemerkung, pro Liste eine oder mehrere Maschinen.
    Wie ScanListe: Maschinen vorher ankreuzen (mehrere = je Eintrag eine Zeile pro Maschine), Mulcher-Einheit h/ha wählbar,
@@ -916,8 +957,17 @@ function viewImport() {
       ${App.scanBusy ? `<div class="box"><span class="spin"></span> Lese ${esc(App.scanBusy)} …</div>` : `<div class="btns"><label class="btn primary">2. Scan / Foto wählen…<input type="file" accept="image/*,application/pdf" multiple data-in="impScanFile" hidden></label>
         <label class="btn">📷 Foto aufnehmen<input type="file" accept="image/*" capture="environment" data-in="impScanFile" hidden></label></div>`}
       <p class="small">Tipp: Scannen mit 300 dpi in Farbe (blaue Kugelschreiber-Schrift), z. B. mit der HP-Software oder «Windows Scan» als JPG/PNG oder PDF. Drehen und Halbieren gelten für Bilder; PDF wird unverändert gelesen. Wird eine Heftseite später nochmals gescannt, sind die schon übernommenen Zeilen als «vorhanden» markiert.</p></div>
-    <div class="panel"><h2>Online-Formular</h2><p>Excel-Export der Formular-Antworten einlesen (.xlsx oder .csv). Es kann immer der ganze Export eingelesen werden – schon importierte Antworten werden erkannt und weggelassen.</p>
-      <div class="btns"><label class="btn primary">Excel-Datei wählen…<input type="file" accept=".xlsx,.csv" data-in="impFormFile" hidden></label></div></div>
+    <div class="panel"><h2>Online-Formular</h2>
+      ${formLink() ? `<p>Formular-Excel verknüpft. <b>1.</b> Öffnen – Excel im Browser holt dabei die neuesten Antworten in die Datei. <b>2.</b> Abrufen – die App liest die Datei direkt und zeigt die Prüfliste.</p>
+        <div class="btns"><a class="btn" href="${esc(formLink())}" target="_blank" rel="noopener">📄 1. Formular-Excel öffnen</a>
+          ${App.formBusy ? '<span class="btn" disabled><span class="spin"></span> Lade…</span>' : '<button class="btn primary" data-act="formFetch">⬇ 2. Abrufen und importieren</button>'}
+          <button class="btn small" data-act="formLink">Link ändern</button></div>
+        ${App.formFail ? `<div class="box warn small" style="margin-top:10px">Direktes Abrufen hat nicht geklappt (${esc(App.formFail)}). Microsoft lässt den Zugriff über diesen Link vom Browser aus nicht zu.
+          So geht es trotzdem: Formular-Excel öffnen › <b>Datei › Speichern unter › Kopie herunterladen</b> und die Datei hier unten wählen.</div>` : ''}`
+      : `<p>Die Excel-Datei mit den Formular-Antworten kann per Freigabelink verknüpft werden – dann lässt sie sich von hier öffnen und direkt importieren.</p>
+        <div class="btns"><button class="btn primary" data-act="formLink">🔗 Freigabelink eintragen…</button></div>`}
+      <p class="small" style="margin-top:12px">Oder eine heruntergeladene Datei einlesen (.xlsx/.csv). Es kann immer der ganze Export eingelesen werden – schon importierte Antworten werden erkannt und weggelassen.</p>
+      <div class="btns"><label class="btn">Excel-Datei wählen…<input type="file" accept=".xlsx,.csv" data-in="impFormFile" hidden></label></div></div>
   </div>` };
 }
 function viewPruef() {
@@ -1329,6 +1379,8 @@ document.addEventListener('click', ev => {
     case 'impCancel': if (confirm('Prüfliste verwerfen? Es wird nichts übernommen.')) { App.imp = null; ls('mv_imp', null); App.render(); } break;
     case 'impSave': impSave(); break;
     case 'formRemap': formMapDialog(); break;
+    case 'formFetch': formFetch(); break;
+    case 'formLink': formLinkDialog(); break;
     case 'impAll': App.imp.rows.forEach(r => { r.sel = t.dataset.v === '1' && r.status === 'neu'; }); lsJson('mv_imp', App.imp); App.render(); break;
     case 'abrToggle': abrToggleKunde(id); App.render(); break;
     case 'abrAll': { const G = abrGroups(); if (G.every(g => g.R.length)) G.forEach(g => g.L.forEach(e => App.abr.rows.delete(e.id))); else G.forEach(g => abrWahl(g).forEach(e => App.abr.rows.add(e.id))); App.render(); break; }
