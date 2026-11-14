@@ -24,6 +24,7 @@
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; margin: 14px 0; }
   h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
   h2 { font-size: 18px; margin: 0 0 8px; color: var(--accent); }
+  h3 { font-size: 15px; margin: 14px 0 6px; }
   p { margin: 0 0 10px; }
   ul { margin: 6px 0 4px; padding-left: 20px; }
   li { margin: 3px 0; }
@@ -63,20 +64,29 @@
         <li><b>Pflanzenschutz:</b> Spritzaufträge, Mittel, Journal und ÖLN-Nachweis für die Kunden.</li>
         <li><b>Bericht und Abrechnung:</b> Die tatsächlich ausgeführten Arbeiten aus dem John Deere Operations Center mit den Aufträgen abgleichen und die bearbeitete Fläche korrekt abrechnen.</li>
         <li><b>Eigener Betrieb:</b> Fruchtfolge, Düngung und Bodenproben der eigenen Parzellen.</li>
+        <li><b>Applikationskarten und Feldgrenzen</b> (Zusatzprogramm «IM-Applikationskarten»): Applikationskarten für Saat, Düngung und Pflanzenschutz sowie Feldgrenzen erstellen – auf Grundlage amtlicher Parzellendaten, Sentinel-2-Satellitenbildern und eigener Drohnenbilder – und für die Terminals ins Operations Center übertragen.</li>
       </ul>
     </section>
 
     <section class="card">
-      <h2>Welche John-Deere-Daten genutzt werden <span class="pill">nur lesend</span></h2>
-      <p>Ein kleiner Dienst auf dem eigenen NAS-Server des Betriebs holt nach der Anmeldung (OAuth&nbsp;2) die folgenden Daten aus der <b>eigenen Organisation</b> im John Deere Operations Center. Es werden <b>keine Daten verändert, gelöscht oder an John Deere gesendet</b>.</p>
+      <h2>Welche John-Deere-Daten genutzt werden</h2>
+      <p>Ein kleiner Dienst auf dem eigenen NAS-Server des Betriebs greift nach der Anmeldung (OAuth&nbsp;2) auf die <b>eigene Organisation</b> im John Deere Operations Center zu (die Kunden des Betriebs sind darin als Mandanten geführt).</p>
+      <h3>Gelesen</h3>
       <table>
         <tr><th>Kunden, Betriebe, Felder</th><td>Namen und Zuordnung (Mandant › Betrieb › Feld), damit Aufträge dem richtigen Feld zugeordnet werden. <span class="muted">Clients, Farms, Fields</span></td></tr>
         <tr><th>Feldgrenzen</th><td>Fläche und Grenzen der Felder zur Information. <span class="muted">Boundaries</span></td></tr>
         <tr><th>Arbeitsgänge</th><td>Art, Datum, Kultur, Produkte, Maschine und Messwerte der ausgeführten Arbeiten. <span class="muted">Field Operations, Measurement Types</span></td></tr>
         <tr><th>Bedeckungskarten</th><td>Daraus wird die tatsächlich bearbeitete Fläche ohne Überlappungen berechnet. <span class="muted">Operations Data Export</span></td></tr>
         <tr><th>Maschinenliste</th><td>Nur die Namen der Maschinen und Geräte, zur Anzeige im Bericht. <span class="muted">Equipment</span></td></tr>
+        <tr><th>Status hochgeladener Dateien</th><td>Ob eine hochgeladene Applikationskarte verarbeitet wurde (in Bearbeitung, fertig, ungültig). <span class="muted">Files</span></td></tr>
       </table>
-      <p class="muted" style="margin-top:10px">Berechtigungen (Scopes): <code>ag1</code> Felder/Organisation lesen · <code>ag2</code> Arbeitsdaten lesen · <code>eq1</code> Maschinen lesen · <code>offline_access</code> für den automatischen Abgleich.</p>
+      <h3>Geschrieben <span class="pill">nur auf ausdrücklichen Befehl</span></h3>
+      <table>
+        <tr><th>Applikationskarten</th><td>Im Zusatzprogramm erstellte Applikationskarten (Shapefile als ZIP) werden als Datei in die Organisation hochgeladen, damit sie an die Terminals gesendet werden können. <span class="muted">Files</span></td></tr>
+        <tr><th>Feldgrenzen</th><td>Im Zusatzprogramm erstellte oder korrigierte Feldgrenzen werden beim gewählten Feld gespeichert. <span class="muted">Boundaries</span></td></tr>
+      </table>
+      <p>Geschrieben wird nur, wenn der Benutzer das ausdrücklich auslöst. Es werden <b>keine Daten gelöscht</b>; das Programm hat keine Löschrechte.</p>
+      <p class="muted" style="margin-top:10px">Berechtigungen (Scopes): <code>ag1</code> Felder/Organisation lesen · <code>ag2</code> Arbeitsdaten lesen · <code>ag3</code> Feldgrenzen speichern · <code>eq1</code> Maschinen lesen · <code>files</code> Dateien hochladen und deren Status lesen · <code>offline_access</code> für den automatischen Abgleich.</p>
     </section>
 
     <section class="card">
@@ -111,20 +121,29 @@
         <li><b>Crop protection:</b> spraying jobs, products, spray journal and compliance records (ÖLN) for our customers.</li>
         <li><b>Work report and billing:</b> match the operations actually performed (from John Deere Operations Center) with our jobs and bill the correct worked area.</li>
         <li><b>Own farm:</b> crop rotation, fertilization and soil samples of our own fields.</li>
+        <li><b>Prescription maps and field boundaries</b> (companion app "IM-Applikationskarten"): create variable-rate prescription maps for seeding, fertilizing and crop protection and field boundaries – based on official parcel data, Sentinel-2 imagery and our own drone images – and transfer them to Operations Center for the displays.</li>
       </ul>
     </section>
 
     <section class="card">
-      <h2>John Deere data used <span class="pill">read-only</span></h2>
-      <p>A small service running on the business's own NAS server signs in via OAuth&nbsp;2 and reads the following data from <b>our own organization</b> in John Deere Operations Center. <b>No data is created, changed, deleted or sent to John Deere.</b></p>
+      <h2>John Deere data used</h2>
+      <p>A small service running on the business's own NAS server signs in via OAuth&nbsp;2 and accesses <b>our own organization</b> in John Deere Operations Center (our customers are managed as clients in it).</p>
+      <h3>Read</h3>
       <table>
         <tr><th>Clients, farms, fields</th><td>Names and hierarchy (client › farm › field) to assign jobs to the correct field. <span class="muted">Clients, Farms, Fields</span></td></tr>
         <tr><th>Field boundaries</th><td>Field areas and boundaries for information. <span class="muted">Boundaries</span></td></tr>
         <tr><th>Field operations</th><td>Type, date, crop, products, machine and measurements of the work performed. <span class="muted">Field Operations, Measurement Types</span></td></tr>
         <tr><th>Coverage maps</th><td>Used to calculate the actually worked area without overlaps. <span class="muted">Operations Data Export</span></td></tr>
         <tr><th>Equipment list</th><td>Machine and implement names only, for display in the work report. <span class="muted">Equipment</span></td></tr>
+        <tr><th>Status of uploaded files</th><td>Whether an uploaded prescription file was processed (processing, complete, invalid). <span class="muted">Files</span></td></tr>
       </table>
-      <p class="muted" style="margin-top:10px">OAuth scopes: <code>ag1</code> read organization/fields · <code>ag2</code> read work data · <code>eq1</code> read equipment · <code>offline_access</code> for the scheduled synchronization.</p>
+      <h3>Written <span class="pill">only on explicit user action</span></h3>
+      <table>
+        <tr><th>Prescription maps</th><td>Prescription maps created in the companion app (zipped shapefile) are uploaded as a file to our organization so they can be sent to the displays. <span class="muted">Files</span></td></tr>
+        <tr><th>Field boundaries</th><td>Field boundaries created or corrected in the companion app are saved to the selected field. <span class="muted">Boundaries</span></td></tr>
+      </table>
+      <p>Data is written only when the user explicitly triggers it. <b>No data is deleted</b>; the application has no delete permissions.</p>
+      <p class="muted" style="margin-top:10px">OAuth scopes: <code>ag1</code> read organization/fields · <code>ag2</code> read work data · <code>ag3</code> save field boundaries · <code>eq1</code> read equipment · <code>files</code> upload files and read their status · <code>offline_access</code> for the scheduled synchronization.</p>
     </section>
 
     <section class="card">
