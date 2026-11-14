@@ -4,6 +4,10 @@
 aus MyJohnDeere und legt sie als `jd-sync.json` in den Dropbox-Ordner des IM-Verwalters.
 Der Planer übernimmt die Datei beim nächsten Öffnen automatisch.
 
+Seit v59 legt jd-sync zusätzlich die **Feldgrenzen mit Geometrie** (alle Vermessungen je Feld) als `jd-feldgrenzen.json`
+daneben ab. Diese Datei liest **IM-Applikationskarten** (Kunde/Feld wählen → Feldgrenze laden). Beim ersten Abgleich nach dem
+Update werden die Grenzen aller Felder einmal neu bei John Deere abgefragt (danach wie bisher höchstens alle 3 Tage).
+
 Zusätzlich holt jd-sync die **Arbeitsdaten** (Arbeitsgänge wie Säen, Spritzen, Ernten, Bodenbearbeitung mit Messwerten)
 und legt sie als `jd-arbeiten.json` daneben ab – als Vorrat für später. Der Planer liest diese Datei derzeit nicht.
 Klappt das Abholen der Arbeitsdaten einmal nicht, läuft der Abgleich von Mandanten und Feldern trotzdem normal.

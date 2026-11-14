@@ -135,7 +135,7 @@ aside section.collapsed{padding-block:11px}
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.17 · by Andreas Indermühle</span></div>
+    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.18 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -146,6 +146,18 @@ aside section.collapsed{padding-block:11px}
     <button data-m="rx">Applikationskarte</button><button data-m="grenze">Nur Feldgrenze</button>
   </div>
   <div class="modehint grenze-only" hidden><span>Modus <b>Nur Feldgrenze</b>: Zonen, Raten und Export der Applikationskarte sind ausgeblendet.</span><button id="bToRx" class="pri">Zur Applikationskarte wechseln</button></div>
+
+  <section id="jdSec">
+    <h2>MyJohnDeere <span id="jdHead" class="status"></span></h2>
+    <div class="status" id="jdInfo"></div>
+    <div class="row">
+      <button id="bJdLogin" class="pri" hidden>Mit Dropbox anmelden</button>
+      <button id="bJdLoad" hidden>Neu laden</button>
+      <button id="bJdReq" hidden title="Fordert beim NAS-Dienst einen Abgleich mit MyJohnDeere an">⟳ Abgleich anfordern</button>
+      <button id="bJdLogout" class="ghost" hidden>Abmelden</button>
+    </div>
+    <div class="hint">Kunden, Betriebe, Felder und Feldgrenzen kommen vom NAS-Dienst (Dateien <b>jd-sync.json</b> und <b>jd-feldgrenzen.json</b> im Dropbox-Ordner) und werden auf diesem Gerät gespeichert – auch ohne Netz verfügbar. Die App ändert in MyJohnDeere nichts. Einmalig in der Dropbox App Console › Redirect URIs eintragen: <code id="jdRedirect" style="word-break:break-all"></code></div>
+  </section>
 
   <section>
     <h2>Gespeicherte Karten</h2>
@@ -167,6 +179,12 @@ aside section.collapsed{padding-block:11px}
       <label class="f">Kunde<input id="iKunde" placeholder="z. B. Andreas Indermühle"></label>
       <label class="f">Betrieb<input id="iBetrieb" placeholder="optional"></label>
       <label class="f">Feld<input id="iFeld" placeholder="z. B. Hofmatt"></label>
+    </div>
+    <datalist id="dlKunden"></datalist><datalist id="dlBetriebe"></datalist><datalist id="dlFelder"></datalist>
+    <div id="jdFeldRow" hidden style="display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid var(--line);border-radius:4px;background:var(--bg)">
+      <div class="status" id="jdFeldInfo"></div>
+      <div class="row"><select id="jdGrzSel" style="flex:1;min-width:0" aria-label="Feldgrenze aus MyJohnDeere"></select><button id="bJdGrz">Als Feldgrenze laden</button></div>
+      <div class="status" id="jdGrzNote"></div>
     </div>
     <div class="seg rx-only" id="segArbeit">
       <button data-a="Saat">Saat</button><button data-a="Duengung">Düngung</button><button data-a="PS">Pflanzenschutz</button>
@@ -353,6 +371,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
   }).catch(e => console.warn("Service Worker:", e));
 }
 </script>
+<script src="config.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.17.0/dist/leaflet-geoman.min.js"></script>
 <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
@@ -362,7 +381,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.17";
+const VERSION = "1.18";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -662,6 +681,7 @@ function syncForm(){
   $("iKunde").value = S.kunde; $("iFeld").value = S.feld; $("iProdukt").value = S.produkt; $("iGrund").value = S.grundrate;
   document.querySelectorAll("#segArbeit button").forEach(b => b.classList.toggle("on", b.dataset.a===S.arbeit));
   fillUnits();
+  if (window.jdOnForm) window.jdOnForm();
 }
 document.querySelectorAll("#segArbeit button").forEach(b => b.addEventListener("click", () => {
   if (S.arbeit===b.dataset.a) return;
@@ -1805,6 +1825,225 @@ document.querySelectorAll("aside section").forEach(sec => {
   h.addEventListener("click", e => { if (e.target.closest("button,input,select,a,label")) return; flip(); });
   h.addEventListener("keydown", e => { if ((e.key==="Enter" || e.key===" ") && e.target===h){ e.preventDefault(); flip(); } });
 });
+/* ---------- Stammdaten aus MyJohnDeere (über den NAS-Dienst jd-sync, Dateien in Dropbox) ---------- */
+// jd-sync.json      : { format:'jd-sync', stand, kundenEbene, clients:[{id,name,archived,mandant?}], farms:[{id,name,client}], fields:[{id,name,client,farm,flaeche,archived,grenzen:[…ohne Geometrie]}] }
+// jd-feldgrenzen.json (NAS-Dienst ab v59): { format:'jd-feldgrenzen', stand, fields:{ [feldId]: [{ name, aktiv, archiviert, ha, geaendert, geo:[MultiPolygon-Koordinaten] }] } }
+const DBX_KEY = ((window.APP_CONFIG || {}).appKey || "").trim();
+const DBX = {
+  configured(){ return /^[a-z0-9]{8,30}$/i.test(DBX_KEY); },
+  redirectUri(){ return location.origin + location.pathname.replace(/index\.html$/, ""); },
+  tokens(){ return lsGet("appkarte.dbx.tok"); },
+  hasSession(){ const t = this.tokens(); return !!(t && (t.refresh || t.access)); },
+  b64url(buf){ return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); },
+  async login(){
+    if (!this.configured()){ toast("Dropbox ist nicht eingerichtet (App-Key fehlt in config.js)."); return; }
+    if (!window.crypto || !crypto.subtle){ toast("Anmeldung nur über https möglich – die App über ihre Internetadresse öffnen."); return; }
+    const verifier = this.b64url(crypto.getRandomValues(new Uint8Array(48)));
+    const challenge = this.b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+    const state = this.b64url(crypto.getRandomValues(new Uint8Array(16)));
+    lsSet("appkarte.dbx.pkce", { verifier, state });
+    saveDraft();
+    const p = new URLSearchParams({ client_id:DBX_KEY, response_type:"code", redirect_uri:this.redirectUri(), state, code_challenge:challenge, code_challenge_method:"S256", token_access_type:"offline" });
+    location.assign("https://www.dropbox.com/oauth2/authorize?" + p);
+  },
+  async handleRedirect(){
+    const q = new URLSearchParams(location.search);
+    if (!q.has("code") && !q.has("error")) return false;
+    history.replaceState(null, "", this.redirectUri());
+    if (q.has("error")){ toast("Dropbox-Anmeldung abgebrochen: " + (q.get("error_description") || q.get("error"))); return false; }
+    const pk = lsGet("appkarte.dbx.pkce"); try { localStorage.removeItem("appkarte.dbx.pkce"); } catch(e){}
+    if (!pk || pk.state !== q.get("state")){ toast("Dropbox-Anmeldung ungültig – bitte nochmals versuchen."); return false; }
+    const r = await fetch("https://api.dropboxapi.com/oauth2/token", { method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" },
+      body:new URLSearchParams({ client_id:DBX_KEY, grant_type:"authorization_code", code:q.get("code"), redirect_uri:this.redirectUri(), code_verifier:pk.verifier }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok){ toast("Dropbox-Anmeldung fehlgeschlagen: " + (j.error_description || j.error || r.status)); return false; }
+    this.store(j);
+    toast("Mit Dropbox verbunden");
+    return true;
+  },
+  store(j){ const t = this.tokens() || {}; lsSet("appkarte.dbx.tok", { access:j.access_token, refresh:j.refresh_token || t.refresh, exp:Date.now() + (j.expires_in || 3600)*1000 }); },
+  async token(){
+    const t = this.tokens(); if (!t) return null;
+    if (t.access && t.exp - 120000 > Date.now()) return t.access;
+    if (!t.refresh) return null;
+    const r = await fetch("https://api.dropboxapi.com/oauth2/token", { method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" },
+      body:new URLSearchParams({ client_id:DBX_KEY, grant_type:"refresh_token", refresh_token:t.refresh }) });
+    if (r.status===400 || r.status===401){ try { localStorage.removeItem("appkarte.dbx.tok"); } catch(e){} return null; }
+    if (!r.ok) throw new Error("Dropbox nicht erreichbar (" + r.status + ")");
+    const j = await r.json(); this.store(j); return j.access_token;
+  },
+  logout(){ try { localStorage.removeItem("appkarte.dbx.tok"); } catch(e){} jdUI(); toast("Von Dropbox abgemeldet – die geladenen Stammdaten bleiben auf diesem Gerät."); },
+  arg(o){ return JSON.stringify(o).replace(/[\u007f-￿]/g, c => "\\u" + c.charCodeAt(0).toString(16).padStart(4,"0")); },
+  async req(url, opt){
+    const t = await this.token(); if (!t){ const e = new Error("Bitte bei Dropbox anmelden"); e.auth = true; throw e; }
+    opt = Object.assign({ method:"POST", cache:"no-store" }, opt); opt.headers = Object.assign({}, opt.headers, { Authorization:"Bearer " + t });
+    const r = await fetch(url, opt);
+    if (r.status===401){ try { localStorage.removeItem("appkarte.dbx.tok"); } catch(e){} const e = new Error("Bitte bei Dropbox anmelden"); e.auth = true; throw e; }
+    return r;
+  },
+  async rev(path){   // null = Datei fehlt
+    const r = await this.req("https://api.dropboxapi.com/2/files/get_metadata", { headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ path }) });
+    if (r.status===409) return null;
+    if (!r.ok) throw new Error("Dropbox " + r.status);
+    return (await r.json()).rev;
+  },
+  async readJson(path, rev){
+    const r = await this.req("https://content.dropboxapi.com/2/files/download", { headers:{ "Dropbox-API-Arg":this.arg({ path: rev ? "rev:" + rev : path }) } });
+    if (r.status===409) return null;
+    if (!r.ok) throw new Error("Dropbox: Herunterladen fehlgeschlagen (" + r.status + ")");
+    return JSON.parse(await r.text() || "null");
+  },
+  async writeJson(path, data){
+    const r = await this.req("https://content.dropboxapi.com/2/files/upload", { headers:{ "Content-Type":"application/octet-stream", "Dropbox-API-Arg":this.arg({ path, mode:"overwrite", mute:true }) }, body:JSON.stringify(data) });
+    if (!r.ok) throw new Error("Dropbox: Speichern fehlgeschlagen (" + r.status + ")");
+  }
+};
+// grössere Daten (Grenzen) in IndexedDB statt localStorage – localStorage teilt sich die App mit dem IM-Verwalter
+const IDB = {
+  db:null,
+  open(){ return this.db || (this.db = new Promise((res, rej) => { const r = indexedDB.open("im-applikationskarten", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); })); },
+  async get(k){ try { const db = await this.open(); return await new Promise((res, rej) => { const q = db.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); } catch(e){ return null; } },
+  async set(k, v){ try { const db = await this.open(); await new Promise((res, rej) => { const t = db.transaction("kv", "readwrite"); t.objectStore("kv").put(v, k); t.oncomplete = res; t.onerror = () => rej(t.error); }); } catch(e){ console.warn(e); } }
+};
+const JD = { stamm:null, rev:null, geo:null, geoRev:null, busy:false, field:null };
+const jdNorm = s => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+const jdEsc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+function jdClients(){ return ((JD.stamm && JD.stamm.clients) || []).filter(c => !c.archived); }
+function jdClientOf(name){ const n = jdNorm(name); return n ? jdClients().find(c => jdNorm(c.name)===n) || null : null; }
+function jdFarmName(id){ const f = ((JD.stamm && JD.stamm.farms) || []).find(x => x.id===id); return f ? f.name : ""; }
+function jdFields(clientId, farmName){
+  let fs = ((JD.stamm && JD.stamm.fields) || []).filter(f => !f.archived);
+  if (clientId) fs = fs.filter(f => f.client===clientId);
+  if (farmName){ const n = jdNorm(farmName); const fx = fs.filter(f => jdNorm(jdFarmName(f.farm))===n); if (fx.length) fs = fx; }
+  return fs;
+}
+function jdFieldOf(name){
+  const n = jdNorm(name); if (!n) return null;
+  const c = jdClientOf(S.kunde);
+  const hits = jdFields(c ? c.id : null, S.betrieb).filter(f => jdNorm(f.name)===n);
+  return hits.length===1 ? hits[0] : (hits.length>1 && !c ? null : hits[0] || null);
+}
+function jdFill(){
+  const has = !!(JD.stamm && JD.stamm.fields);
+  ["iKunde","iBetrieb","iFeld"].forEach(id => { if (has) $(id).setAttribute("list", { iKunde:"dlKunden", iBetrieb:"dlBetriebe", iFeld:"dlFelder" }[id]); else $(id).removeAttribute("list"); });
+  if (!has) return;
+  const opt = (v, l) => `<option value="${jdEsc(v)}"${l ? ` label="${jdEsc(l)}"` : ""}></option>`;
+  const cs = jdClients().slice().sort((a,b) => a.name.localeCompare(b.name, "de"));
+  $("dlKunden").innerHTML = cs.map(c => opt(c.name, c.mandant ? "Mandant " + c.mandant : "")).join("");
+  const c = jdClientOf(S.kunde);
+  const farms = ((JD.stamm.farms) || []).filter(f => !c || f.client===c.id).sort((a,b) => a.name.localeCompare(b.name, "de"));
+  $("dlBetriebe").innerHTML = farms.map(f => opt(f.name)).join("");
+  const cName = id => (jdClients().find(x => x.id===id) || {}).name || "";
+  $("dlFelder").innerHTML = jdFields(c ? c.id : null, S.betrieb).slice().sort((a,b) => a.name.localeCompare(b.name, "de"))
+    .map(f => opt(f.name, [f.flaeche!=null ? fmt(f.flaeche,2) + " ha" : "", jdFarmName(f.farm), c ? "" : cName(f.client)].filter(Boolean).join(" · "))).join("");
+}
+function jdGrenzen(fieldId){
+  const l = ((JD.geo && JD.geo.fields) || {})[fieldId] || [];
+  return l.filter(g => g.geo).slice().sort((a,b) => (b.aktiv - a.aktiv) || (a.archiviert - b.archiviert) || String(b.geaendert).localeCompare(String(a.geaendert)));
+}
+function jdFieldCheck(auto){
+  const f = jdFieldOf(S.feld); JD.field = f;
+  const row = $("jdFeldRow");
+  if (!f){ row.hidden = true; return; }
+  // Kunde/Betrieb aus MyJohnDeere ergänzen, wenn leer
+  if (!S.kunde){ const c = jdClients().find(x => x.id===f.client); if (c){ S.kunde = c.name; $("iKunde").value = c.name; } }
+  if (!S.betrieb && f.farm){ S.betrieb = jdFarmName(f.farm); $("iBetrieb").value = S.betrieb; }
+  const gs = jdGrenzen(f.id);
+  row.hidden = false;
+  $("jdFeldInfo").textContent = `MyJohnDeere: ${f.name}${f.flaeche!=null ? " · " + fmt(f.flaeche,2) + " ha" : ""}`;
+  if (!gs.length){
+    $("jdGrzSel").hidden = true; $("bJdGrz").hidden = true;
+    $("jdGrzNote").textContent = JD.geo ? "Zu diesem Feld liefert MyJohnDeere keine Grenze." : "Grenzen fehlen: jd-feldgrenzen.json gibt es erst ab NAS-Dienst v59.";
+    return;
+  }
+  $("jdGrzNote").textContent = "";
+  $("jdGrzSel").hidden = false; $("bJdGrz").hidden = false;
+  // Auswahl behalten, solange es dasselbe Feld mit denselben Grenzen ist (sonst springt sie z. B. beim Verlassen des Eingabefelds zurück)
+  const key = f.id + ":" + gs.length, keep = JD.selKey===key ? $("jdGrzSel").value : null;
+  $("jdGrzSel").innerHTML = gs.map((g,i) => `<option value="${i}">${jdEsc(g.name || "Grenze")}${g.ha!=null ? " · " + fmt(g.ha,2) + " ha" : ""}${g.aktiv ? " · aktiv" : ""}${g.archiviert ? " (archiviert)" : ""}</option>`).join("");
+  if (keep!=null) $("jdGrzSel").value = keep;
+  JD.selKey = key;
+  if (auto && !S.field) jdGrzLoad(true);
+}
+function jdGrzLoad(auto){
+  const f = JD.field; if (!f) return;
+  const g = jdGrenzen(f.id)[+$("jdGrzSel").value || 0]; if (!g) return;
+  stopEdit();
+  const geom = g.geo.length===1 ? { type:"Polygon", coordinates:g.geo[0] } : { type:"MultiPolygon", coordinates:g.geo };
+  setField({ type:"Feature", properties:{}, geometry:geom });
+  toast(`${auto ? "Feldgrenze automatisch geladen" : "Feldgrenze geladen"}: ${f.name} – ${g.name || "Grenze"}${g.ha!=null ? " (" + fmt(g.ha,2) + " ha laut MyJohnDeere)" : ""}`);
+}
+function jdUI(){
+  const ok = DBX.configured(), on = DBX.hasSession(), st = JD.stamm;
+  $("bJdLogin").hidden = !ok || on; $("bJdLoad").hidden = !on; $("bJdReq").hidden = !on; $("bJdLogout").hidden = !on;
+  let info;
+  if (!ok) info = "Dropbox ist nicht eingerichtet (config.js fehlt).";
+  else if (st) info = `<b>${jdClients().length}</b> Kunden · <b>${(st.fields || []).filter(f => !f.archived).length}</b> Felder · Stand ${new Date(st.stand).toLocaleString("de-CH", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" })}`
+    + (JD.geo ? ` · Grenzen zu <b>${Object.keys(JD.geo.fields || {}).length}</b> Feldern` : ` · <span class="warn">ohne Grenzen (NAS-Dienst ab v59)</span>`) + (on ? "" : " · nicht angemeldet");
+  else info = on ? "Noch nichts geladen." : "Mit Dropbox anmelden, um Kunden, Felder und Feldgrenzen aus MyJohnDeere zu übernehmen.";
+  $("jdInfo").innerHTML = info;
+  $("jdHead").textContent = st ? `${jdClients().length} Kunden` : "";
+}
+async function jdFromCache(){
+  const s = await IDB.get("jd.stamm"), g = await IDB.get("jd.geo");
+  if (s){ JD.stamm = s.data; JD.rev = s.rev; }
+  if (g){ JD.geo = g.data; JD.geoRev = g.rev; }
+}
+async function jdLoad(manual){
+  if (JD.busy || !DBX.hasSession()) return;
+  if (!navigator.onLine){ if (manual) toast("Keine Internetverbindung – es werden die zuletzt geladenen Stammdaten verwendet."); return; }
+  JD.busy = true; $("bJdLoad").disabled = true; $("jdInfo").textContent = "Stammdaten werden geladen …";
+  let neu = false;
+  try {
+    const rev = await DBX.rev("/jd-sync.json");
+    if (!rev) { if (manual) toast("Im Dropbox-Ordner gibt es keine jd-sync.json – läuft der NAS-Dienst?"); }
+    else if (rev !== JD.rev){
+      const d = await DBX.readJson("/jd-sync.json", rev);
+      if (d && d.format==="jd-sync" && Array.isArray(d.clients)){
+        const data = { stand:d.stand, kundenEbene:d.kundenEbene, org:d.org, clients:d.clients, farms:d.farms || [],
+          fields:(d.fields || []).map(f => ({ id:f.id, name:f.name, client:f.client, farm:f.farm, flaeche:f.flaeche, archived:!!f.archived })) };
+        JD.stamm = data; JD.rev = rev; await IDB.set("jd.stamm", { rev, data }); neu = true;
+      }
+    }
+    const grev = await DBX.rev("/jd-feldgrenzen.json");
+    if (grev && grev !== JD.geoRev){
+      const g = await DBX.readJson("/jd-feldgrenzen.json", grev);
+      if (g && g.format==="jd-feldgrenzen"){ JD.geo = { stand:g.stand, fields:g.fields || {} }; JD.geoRev = grev; await IDB.set("jd.geo", { rev:grev, data:JD.geo }); neu = true; }
+    }
+    if (manual) toast(neu ? "Stammdaten aus MyJohnDeere aktualisiert" : "Stammdaten sind aktuell");
+  } catch(e){
+    console.warn(e);
+    if (e.auth) toast("Dropbox-Anmeldung abgelaufen – bitte neu anmelden.");
+    else if (manual) toast("Stammdaten konnten nicht geladen werden: " + e.message);
+  } finally {
+    JD.busy = false; $("bJdLoad").disabled = false; jdUI(); jdFill(); jdFieldCheck(false);
+  }
+}
+async function jdRequest(){
+  try {
+    await DBX.writeJson("/jd-sync-request.json", { at:new Date().toISOString(), von:"IM-Applikationskarten" });
+    toast("Abgleich angefordert – der NAS-Dienst holt die Daten in den nächsten Minuten. Die App lädt danach automatisch nach.");
+    let n = 0; const before = JD.rev;
+    const poll = async () => { await jdLoad(false); if (JD.rev !== before || ++n > 10) { if (JD.rev !== before) toast("Neue Stammdaten aus MyJohnDeere geladen"); return; } setTimeout(poll, 60000); };
+    setTimeout(poll, 90000);
+  } catch(e){ toast(e.auth ? "Bitte zuerst bei Dropbox anmelden." : "Anfrage nicht möglich: " + e.message); }
+}
+window.jdOnForm = () => { jdFill(); jdFieldCheck(false); };
+$("bJdLogin").addEventListener("click", () => DBX.login());
+$("bJdLoad").addEventListener("click", () => jdLoad(true));
+$("bJdReq").addEventListener("click", jdRequest);
+$("bJdLogout").addEventListener("click", () => DBX.logout());
+$("bJdGrz").addEventListener("click", () => jdGrzLoad(false));
+$("jdRedirect").textContent = DBX.redirectUri();
+["iKunde","iBetrieb"].forEach(id => $(id).addEventListener("change", () => { jdFill(); jdFieldCheck(false); }));
+$("iFeld").addEventListener("change", () => { jdFill(); jdFieldCheck(true); });
+(async () => {
+  await DBX.handleRedirect();
+  await jdFromCache();
+  jdUI(); jdFill(); jdFieldCheck(false);
+  if (DBX.hasSession()) jdLoad(false);
+})();
+
 /* ---------- Start ---------- */
 fillProj();
 let draft = lsGet(LS_D);
