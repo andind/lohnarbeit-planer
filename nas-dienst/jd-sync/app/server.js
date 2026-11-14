@@ -6,7 +6,7 @@
    Dazu: tägliche Datensicherung der IM-Verwalter-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '57', STAND = '14.11.2026'; // v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
+const VERSION = '58', STAND = '14.11.2026'; // v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -110,6 +110,51 @@ async function jdAll(url, quiet400) { // alle Seiten einer Liste
   while (next && guard++ < 500) { const j = await jdGet(next, 0, quiet400); out.push(...(j.values || [])); next = link(j, 'nextPage'); }
   return out;
 }
+/* ---------- eTags (v58): nur Änderungen abholen ----------
+   John Deere: Header x-deere-signature (erster Abruf leer) → Antwort enthält einen Stempel. Mit dem Stempel: 304 = nichts geändert,
+   sonst nur die geänderten Einträge (ohne Seiten) + neuer Stempel. Stempel gelten 45 Tage; unbekannter Stempel = ganze Liste.
+   Pro Liste werden Stempel und Einträge in data/etags.json gemerkt. Alle 7 Tage ganz neu (gelöschte Einträge verschwinden),
+   bei Fehlern mit Stempel Rückfall auf den normalen Abruf. cfg.etags = false schaltet es ab. */
+let ETAGS = load('etags.json', {}), etagStat = { neu: 0, gleich: 0, geaendert: 0, fehler: 0 };
+const ETAG_VOLL_MS = 7 * 864e5;
+async function jdGetSig(url, sig) {
+  const full = /^https?:/.test(url) ? url : cfg.apiBase.replace(/\/$/, '') + url;
+  for (let t = 0; t < 6; t++) {
+    const r = await fetch(full, { headers: { Authorization: 'Bearer ' + await jdAccess(), Accept: ACCEPT, 'x-deere-signature': sig || '' } });
+    reqCount++;
+    if (r.status === 401 && t === 0) { st.jd.exp = 0; continue; }
+    if ((r.status === 429 || r.status >= 500) && t < 5) { await sleep((+r.headers.get('retry-after') || 3 * (t + 1)) * 1000); continue; }
+    if (r.status === 304) return { status: 304, sig: r.headers.get('x-deere-signature') || sig };
+    if (r.status === 403) { const tx = await r.text(); throw Object.assign(new Error('Kein Zugriff (403) auf ' + full + ' – Organisation freigegeben? ' + tx.slice(0, 200)), { status: 403 }); }
+    if (!r.ok) throw Object.assign(new Error(`John Deere ${r.status} bei ${full}`), { status: r.status });
+    return { status: r.status, sig: r.headers.get('x-deere-signature') || '', json: await r.json() };
+  }
+  throw Object.assign(new Error('John Deere: keine Antwort bei ' + full), { status: 0 });
+}
+// Liste mit eTag: liefert alle bekannten Einträge (gemerkte + geänderte); key = eindeutiger Name der Liste
+async function jdAllE(key, url, quiet400) {
+  if (cfg.etags === false) return jdAll(url, quiet400);
+  const e = ETAGS[key], voll = !e || !e.sig || !e.full || Date.now() - Date.parse(e.full) > ETAG_VOLL_MS;
+  try {
+    const r = await jdGetSig(url, voll ? '' : e.sig);
+    if (r.status === 304) { etagStat.gleich++; e.at = new Date().toISOString(); return Object.values(e.items); }
+    let vals = (r.json && r.json.values) || [], next = link(r.json, 'nextPage'), guard = 0;
+    while (next && guard++ < 500) { const j = await jdGet(next, 0, quiet400); vals.push(...(j.values || [])); next = link(j, 'nextPage'); } // falls doch Seiten kommen
+    const items = voll ? {} : { ...e.items };
+    for (const v of vals) { const id = idOf(v.id) || JSON.stringify(v).slice(0, 80); items[id] = v; }
+    const now = new Date().toISOString();
+    if (r.sig) ETAGS[key] = { sig: r.sig, at: now, full: voll ? now : e.full, items }; else delete ETAGS[key]; // ohne Stempel: nächstes Mal wieder ganz
+    voll ? etagStat.neu++ : etagStat.geaendert++;
+    return Object.values(items);
+  } catch (err) {
+    if (err.status === 403) throw err;
+    if (quiet400 && err.status === 400) throw err;
+    etagStat.fehler++; delete ETAGS[key];
+    return jdAll(url, quiet400);
+  }
+}
+const etagSave = () => { try { const alt = Date.now() - 60 * 864e5; for (const k of Object.keys(ETAGS)) if (!ETAGS[k].at || Date.parse(ETAGS[k].at) < alt) delete ETAGS[k]; save('etags.json', ETAGS); } catch (e) { log('eTags speichern: ' + e.message); } };
+const etagTxt = () => { const s = etagStat; return `eTags: ${s.gleich} unverändert, ${s.geaendert} mit Änderungen, ${s.neu} ganz geholt${s.fehler ? `, ${s.fehler} Rückfall` : ''}`; };
 async function loadOrgs() {
   const orgs = await jdAll('/organizations');
   st.orgs = orgs.map(o => ({ id: String(o.id), name: o.name, connect: link(o, 'connections') || '' }));
@@ -134,25 +179,25 @@ async function pool(items, n, fn) { let i = 0; await Promise.all(Array.from({ le
 const sample = o => o && JSON.parse(JSON.stringify(o, (k, v) => k === 'links' && Array.isArray(v) ? v.map(l => `${l.rel} → ${l.uri}`) : v));
 async function readJohnDeere() {
   const org = cfg.orgId; if (!org) throw new Error('Keine Organisation gewählt');
-  reqCount = 0;
+  reqCount = 0; etagStat = { neu: 0, gleich: 0, geaendert: 0, fehler: 0 };
   const diag = { at: new Date().toISOString(), org };
   // 1) Mandanten
-  const rawClients = await jdAll(`/organizations/${org}/clients`);
+  const rawClients = await jdAllE(`clients:${org}`, `/organizations/${org}/clients`);
   diag.clients = { count: rawClients.length, sample: rawClients.slice(0, 3).map(sample) };
   const clientsById = new Map(rawClients.map(c => [idOf(c.id), { id: idOf(c.id), name: (c.name || '').trim(), archived: !!c.archived, raw: c }]));
   // 2) Betriebe je Mandant (Mandant › Betrieb › Feld)
   const farmsById = new Map();
   const addFarm = (fa, client) => { const id = idOf(fa.id); if (!id) return; const old = farmsById.get(id); farmsById.set(id, { id, name: (fa.name || '').trim() || old?.name || '', client: client || old?.client || '', archived: !!fa.archived, raw: fa }); };
   await pool([...clientsById.values()], 4, async c => {
-    try { (await jdAll(link(c.raw, 'farms') || `/organizations/${org}/clients/${encodeURIComponent(c.id)}/farms`)).forEach(fa => addFarm(fa, c.id)); }
+    try { (await jdAllE(`farms:${org}:${c.id}`, link(c.raw, 'farms') || `/organizations/${org}/clients/${encodeURIComponent(c.id)}/farms`)).forEach(fa => addFarm(fa, c.id)); }
     catch (e) { if (e.status === 403) throw e; log(`Betriebe von «${c.name}»: ${e.message}`); }
   });
   try { // Betriebe der Organisation (erfasst auch Betriebe, die oben fehlen)
-    for (const fa of await jdAll(`/organizations/${org}/farms`)) { const cl = embedded(fa, 'clients')[0] || embedded(fa, 'client')[0]; addFarm(fa, idOf(cl)); }
+    for (const fa of await jdAllE(`farms:${org}`, `/organizations/${org}/farms`)) { const cl = embedded(fa, 'clients')[0] || embedded(fa, 'client')[0]; addFarm(fa, idOf(cl)); }
   } catch (e) { if (e.status === 403) throw e; log('Betriebe der Organisation: ' + e.message); }
   diag.farms = { count: farmsById.size, sample: [...farmsById.values()].slice(0, 3).map(f => sample(f.raw)) };
   // 3) Felder der Organisation (Name, Archiv, Grenzen)
-  const raw = await jdAll(`/organizations/${org}/fields?embed=clients,farms`);
+  const raw = await jdAllE(`fields:${org}`, `/organizations/${org}/fields?embed=clients,farms`);
   diag.fields = { count: raw.length, sample: raw.slice(0, 3).map(sample) };
   const fields = raw.map(f => {
     const cl = embedded(f, 'clients')[0], fa = embedded(f, 'farms')[0];
@@ -711,7 +756,7 @@ async function readArbeiten(d) {
   const fieldInfo = new Map(d.fields.map(f => [f.id, f]));
   const clientName = new Map(d.clients.map(c => [c.id, c.name]));
   let neu = 0, geaendert = 0, fehler = 0, first403 = null, dateParams = st.arbDateParams !== false;
-  reqCount = 0;
+  reqCount = 0; etagStat = { neu: 0, gleich: 0, geaendert: 0, fehler: 0 };
   const nEq = await loadEquipment(org); if (nEq) log(`Maschinenliste: ${nEq} Maschinen/Geräte`);
   let fDone = 0; st.arbProgress = { phase: 'Arbeitsgänge holen', done: 0, total: d.fields.length, at: new Date().toISOString() };
   await pool(d.fields, 4, async f => {
@@ -719,7 +764,8 @@ async function readArbeiten(d) {
     const base = `/organizations/${org}/fields/${encodeURIComponent(f.id)}/fieldOperations`;
     let list;
     try {
-      if (dateParams) {
+      if (cfg.etags !== false) list = await jdAllE(`ops:${org}:${f.id}`, base);
+      else if (dateParams) {
         try { list = await jdAll(`${base}?startDate=${from}T00:00:00.000Z&endDate=${to}T00:00:00.000Z`, true); }
         catch (e) { if (e.status !== 400) throw e; dateParams = st.arbDateParams = false; log('Arbeitsdaten: Datumsfilter nicht unterstützt – filtere selbst'); }
       }
@@ -757,6 +803,7 @@ async function readArbeiten(d) {
   });
   if (first403 && fehler === d.fields.length) throw Object.assign(new Error('Keine Berechtigung für Arbeitsdaten (403). In der John-Deere-App die Arbeitsdaten-Schnittstelle (ag2) freischalten und in jd-sync neu bei John Deere anmelden.'), { status: 403 });
   if (first403) log(`Arbeitsdaten: bei ${fehler} Feldern kein Zugriff (403)`);
+  etagSave(); st.etagArb = etagTxt(); log(`Arbeitsgänge ${st.etagArb} · ${reqCount} Abfragen`);
   // Felder/Mandanten-Namen nachführen (Umbenennungen in MyJohnDeere)
   for (const o of Object.values(arb.ops)) { const fi = fieldInfo.get(o.field); if (fi) { o.fieldName = fi.name; o.client = fi.client; o.clientName = clientName.get(fi.client) || o.clientName; } }
   if (voll) for (const o of Object.values(arb.ops)) o.v = 2; // nicht mehr gelieferte Arbeitsgänge lösen keinen Volllauf mehr aus
@@ -856,6 +903,7 @@ async function runSync(reason) {
     await dbxUpload(cfg.syncPath, JSON.stringify(d));
     st.lastOk = { at: new Date().toISOString(), ebene: d.kundenEbene, clients: d.clients.length, fields: d.fields.length, withArea: d.fields.filter(f => f.flaeche != null).length };
     log(`Abgleich fertig: ${d.clients.length} Kunden (${d.kundenEbene === 'farms' ? 'Betriebe' : 'Mandanten'}), ${d.fields.length} Felder (${st.lastOk.withArea} mit Fläche) · ${n} Abfragen · ${Math.round((Date.now() - t0) / 1000)} s`);
+    etagSave(); st.etagStamm = etagTxt(); log(`Kunden/Felder ${st.etagStamm}`);
     st.last = { at: new Date().toISOString(), ok: true };
     // Arbeitsdaten separat – ein Fehler hier stört den Abgleich von Mandanten/Feldern nicht
     if (cfg.arbeitenAktiv) await runArbeiten(d);
@@ -1276,7 +1324,7 @@ ${cfg.vmAktiv && st.vmExcelLast ? `<p>IM-Vermietung – letzter Excel-Export: ${
 <div class="row" style="flex:0"><form method="post" action="/sicherung/jetzt"><button class="sec" ${st.dbx ? '' : 'disabled'}>Jetzt sichern</button></form><form method="post" action="/excel/jetzt"><button class="sec" ${st.dbx ? '' : 'disabled'}>Excel jetzt erstellen</button></form></div></section>
 <section><h2>Arbeitsdaten (Vorrat)</h2><p><small>Arbeitsgänge aus MyJohnDeere (Säen, Spritzen, Ernten, Bodenbearbeitung …) mit Messwerten werden als <b>${esc(cfg.arbeitenPath)}</b> abgelegt (IM-Verwalter › Verwaltung › Bericht und Abrechnung). Aus jeder Bedeckungskarte wird die Fläche <b>ohne Überlappungen</b> («ha bedeckt») berechnet und eine <b>virtuelle Feldgrenze</b> erstellt (<b>${esc(cfg.grenzenPath || '/jd-grenzen.json')}</b>). Bedeckungskarten kommen über die neue <b>Operations Data Export</b>-Schnittstelle von John Deere (<code>/isg/operations/…/operationsExportRequests</code>); wo sie nicht klappt, über die alte (<code>/fieldOps</code>, läuft laut John Deere bis November 2027)${st.covInfo && st.covInfo.neueApi ? ` · letzter Lauf neue API: ${esc(Object.entries(st.covInfo.neueApi.antworten || {}).map(([k, v]) => k + '×' + v).join(', ') || '–')}${st.covInfo.neueApi.gestoppt ? ' <span class="no">kein Zugriff – Freischaltung prüfen</span>' : ''}` : ''}.</small></p>
 ${!cfg.arbeitenAktiv ? '<p class="no">Ausgeschaltet</p>' : st.arbLast ? `Letzter Lauf: ${esc(new Date(st.arbLast.at).toLocaleString('de-CH'))} ${st.arbLast.ok ? '<span class="ok">ok</span>' : `<span class="no">Fehler</span><br><small>${esc(st.arbLast.error)}</small>`}<br>` : 'Noch nicht gelaufen – startet mit dem nächsten Abgleich.<br>'}
-${st.arbOk ? `${st.arbOk.ops} Arbeitsgänge seit ${esc(st.arbOk.seit)} · ${Object.entries(st.arbOk.types || {}).map(([k, v]) => esc(k) + ' ' + v).join(' · ')}<br>` : ''}${st.arbProgress ? `<b>Läuft gerade: ${esc(st.arbProgress.phase)} – ${st.arbProgress.done} von ${st.arbProgress.total} (seit ${esc(new Date(st.arbProgress.at).toLocaleTimeString('de-CH'))})</b><br>` : ''}${st.flaechen ? `Flächen: ${st.flaechen.maschine} aus Maschine, ${st.flaechen.bedeckung} aus Bedeckungskarte (Ersatz), ${Object.values(arbCache() || {}).filter(o => o.cov && o.cov.ha && o.cov.mod === o.modified).length} mit «ha bedeckt», ${Object.keys(grenzen).length} virtuelle Feldgrenzen, ${st.flaechen.ohne} ohne Fläche<br>` : ''}${st.covInfo && st.covInfo.gefragt ? `<small>Bedeckungskarte zuletzt ${esc(new Date(st.covInfo.at).toLocaleString('de-CH'))}: ${st.covInfo.gefragt} abgefragt, ${st.covInfo.mitFlaeche} berechnet, ${st.covInfo.ohneKarte} ohne Karte, ${st.covInfo.offen} noch in Arbeit${st.covInfo.gestoppt ? ' · <span class="no">abgebrochen</span>' : ''} · Antworten ${esc(Object.entries(st.covInfo.status || {}).map(([k, v]) => k + '×' + v).join(', '))}${Object.entries(st.covInfo.meldungen || {}).map(([k, v]) => `<br>${esc(k)}: ${esc(v)}`).join('')}</small><br>` : ''}
+${st.arbOk ? `${st.arbOk.ops} Arbeitsgänge seit ${esc(st.arbOk.seit)} · ${Object.entries(st.arbOk.types || {}).map(([k, v]) => esc(k) + ' ' + v).join(' · ')}<br>` : ''}${st.etagStamm || st.etagArb ? `<small>${cfg.etags === false ? 'eTags ausgeschaltet' : `Letzter Abgleich – Kunden/Felder: ${esc(st.etagStamm || '–')} · Arbeitsgänge: ${esc(st.etagArb || '–')}`}</small><br>` : ''}${st.arbProgress ? `<b>Läuft gerade: ${esc(st.arbProgress.phase)} – ${st.arbProgress.done} von ${st.arbProgress.total} (seit ${esc(new Date(st.arbProgress.at).toLocaleTimeString('de-CH'))})</b><br>` : ''}${st.flaechen ? `Flächen: ${st.flaechen.maschine} aus Maschine, ${st.flaechen.bedeckung} aus Bedeckungskarte (Ersatz), ${Object.values(arbCache() || {}).filter(o => o.cov && o.cov.ha && o.cov.mod === o.modified).length} mit «ha bedeckt», ${Object.keys(grenzen).length} virtuelle Feldgrenzen, ${st.flaechen.ohne} ohne Fläche<br>` : ''}${st.covInfo && st.covInfo.gefragt ? `<small>Bedeckungskarte zuletzt ${esc(new Date(st.covInfo.at).toLocaleString('de-CH'))}: ${st.covInfo.gefragt} abgefragt, ${st.covInfo.mitFlaeche} berechnet, ${st.covInfo.ohneKarte} ohne Karte, ${st.covInfo.offen} noch in Arbeit${st.covInfo.gestoppt ? ' · <span class="no">abgebrochen</span>' : ''} · Antworten ${esc(Object.entries(st.covInfo.status || {}).map(([k, v]) => k + '×' + v).join(', '))}${Object.entries(st.covInfo.meldungen || {}).map(([k, v]) => `<br>${esc(k)}: ${esc(v)}`).join('')}</small><br>` : ''}
 ${st.jd && !hasAg2() ? '<p class="no">Die bestehende John-Deere-Anmeldung enthält die Berechtigung für Arbeitsdaten noch nicht – bitte unten in Schritt 2 neu anmelden. Mandanten und Felder laufen bis dahin normal weiter.</p>' : ''}
 <form method="post" action="/arbeiten"><div class="row"><div><label>Arbeitsdaten abholen</label><select name="arbeitenAktiv"><option value="1" ${cfg.arbeitenAktiv ? 'selected' : ''}>Ja</option><option value="0" ${cfg.arbeitenAktiv ? '' : 'selected'}>Nein</option></select></div>
 <div><label>Ab Datum (früher = längere Historie, erster Lauf dauert länger)</label><input name="arbeitenSeit" type="date" value="${esc(cfg.arbeitenSeit)}"></div></div>
