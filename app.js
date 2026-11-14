@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '127', APP_STAND = '14.11.2026';
+const APP_VERSION = '128', APP_STAND = '14.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -644,7 +644,7 @@ const App = {
   jdb: { minHa: ls('lp_jdbmin') || '', bed: ls('lp_jdbbed') || '', rows: null, meta: null, von: null, bis: null, k: [], a: [], f: [], m: [], c: [], q: '', grp: '', sort: 'desc', limit: 300, open: null },
   plan: { ua: '', um: '', us: ls('lp_pus') || 'wunsch', axW: ls('lp_axW') || 'tage', axT: ls('lp_axT') || 'senkrecht', side: ls('lp_pside') !== '0', upos: ls('lp_upos') || 'neben', mode: ls('lp_pmode') || 'woche', date: new Date(), aa: '', nurBelegt: false },
   lastView: null, tlScroll: null, resetScroll: false, sel: new Set(), selMode: false, fs: false,
-  spray: { von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jsort: 'desc', jf: null, jfOpen: false, jlimit: 200,
+  spray: { ao: !!ls('lp_spao'), von: todayIso(), bis: isoDate(addDays(new Date(), 6)), off: new Set(), tab: 'plan', stamm: 'produkte', jq: '', jy: '', jsort: 'desc', jf: null, jfOpen: false, jlimit: 200,
     ak: '', av: `${new Date().getFullYear()}-01-01`, ab: todayIso(), ag: false, ny: 0, nk: '', nc: '', ngep: false, pk: '', pall: false, prq: '', prall: false },
   alimit: 150,
   go(v) { if (v === 'verwaltung') v = VERW.includes(ls('lp_verw')) ? ls('lp_verw') : 'jdbericht'; this.view = v; ls('lp_view', v); this.lastView = null; this.tlScroll = null; window.scrollTo(0, 0); this.render(); },
@@ -2458,6 +2458,9 @@ function kundenMitSpritz(filter) {
   const ids = new Set(sprayOrders().filter(a => dOf(a) && (!filter || filter(a))).map(a => a.kunde));
   return Store.all('kunden').filter(k => ids.has(k.id)).sort(byName);
 }
+// Kunden der Spritz-Abrechnung; mit «nur offene» (S.ao, v128) nur Kunden mit mindestens einem noch nicht verrechneten Auftrag im Zeitraum
+const billKunden = (S = App.spray) => kundenMitSpritz(S.ao ? (a => billFilter(S)(a) && statusOf(a) !== 'verrechnet') : billFilter(S));
+const billOffen = b => b.rows.filter(r => statusOf(r.a) !== 'verrechnet').length;
 const billFilter = (S = App.spray) => a => dOf(a) >= S.av && dOf(a) <= S.ab && (['erledigt', 'verrechnet'].includes(statusOf(a)) || (S.ag && statusOf(a) === 'geplant'));
 // Nachweis: nicht ÖLN-konforme Aufträge und Produkte erscheinen nur in der Abrechnung
 const nwProds = a => prodList(a).filter(p => !p.nichtOeln);
@@ -2597,21 +2600,22 @@ function billingHtml(b, von, bis) {
       <tr class="tot"><td colspan="6">Total CHF</td><td class="n">${chf(b.total)}</td></tr></tbody></table></div></div>`;
 }
 function abrechnungContent() {
-  const S = App.spray, ks = kundenMitSpritz(billFilter(S));
+  const S = App.spray, ks = billKunden(S);
   if (S.ak && !ks.some(k => k.id === S.ak)) S.ak = '';
   const head = `<div class="filters">
       <label class="fld inl"><span>Von</span><input class="input" type="date" value="${S.av}" data-in="spAv"></label>
       <label class="fld inl"><span>Bis</span><input class="input" type="date" value="${S.ab}" data-in="spAb"></label>
       <label class="tog"><input type="checkbox" data-in="spAg" ${S.ag ? 'checked' : ''}> auch geplante</label>
-      <select class="input" data-combo data-in="spAk" style="width:auto;min-width:200px"><option value="">Alle Kunden (Übersicht, ${ks.length})</option>${ks.map(k => `<option value="${k.id}" ${k.id === S.ak ? 'selected' : ''}>${esc(kundeLabel(k))}</option>`).join('')}</select></div>`;
+      <label class="tog" title="Nur Kunden anzeigen, die im Zeitraum noch nicht verrechnete Aufträge haben"><input type="checkbox" data-in="spAo" ${S.ao ? 'checked' : ''}> nur Kunden mit offenen Aufträgen</label>
+      <select class="input" data-combo data-in="spAk" style="width:auto;min-width:200px"><option value="">${S.ao ? 'Kunden mit offenen Aufträgen' : 'Alle Kunden'} (Übersicht, ${ks.length})</option>${ks.map(k => `<option value="${k.id}" ${k.id === S.ak ? 'selected' : ''}>${esc(kundeLabel(k))}</option>`).join('')}</select></div>`;
   if (!S.ak) {
     const sums = ks.map(k => ({ k, b: billing(k.id, S.av, S.ab, S.ag) })).filter(x => x.b.rows.length);
     const tot = sums.reduce((s, x) => s + x.b.total, 0);
-    return head + (sums.length ? `<div class="tscroll"><table class="need"><thead><tr><th>Kunde</th><th>Aufträge</th><th>Fläche ha</th><th>Arbeit</th><th>Mittel</th><th>Total CHF</th><th></th></tr></thead><tbody>
-      ${sums.map(x => `<tr class="click" data-act="spAkSel" data-id="${x.k.id}"><td>${esc(x.k.name)}</td><td>${x.b.rows.length}</td><td>${fmtNum(r2(x.b.rows.reduce((s, r) => s + r.fl, 0)))}</td><td>${chf(x.b.tA)}</td><td>${chf(x.b.tM)}</td><td><b>${chf(x.b.total)}</b></td><td></td></tr>`).join('')}
-      <tr class="area"><td>Total</td><td></td><td></td><td></td><td></td><td><b>${chf(tot)}</b></td><td></td></tr></tbody></table></div>
+    return head + (sums.length ? `<div class="tscroll"><table class="need"><thead><tr><th>Kunde</th><th>Aufträge</th><th>offen</th><th>Fläche ha</th><th>Arbeit</th><th>Mittel</th><th>Total CHF</th><th></th></tr></thead><tbody>
+      ${sums.map(x => `<tr class="click" data-act="spAkSel" data-id="${x.k.id}"><td>${esc(x.k.name)}</td><td>${x.b.rows.length}</td><td>${billOffen(x.b) || '<span class="nr">–</span>'}</td><td>${fmtNum(r2(x.b.rows.reduce((s, r) => s + r.fl, 0)))}</td><td>${chf(x.b.tA)}</td><td>${chf(x.b.tM)}</td><td><b>${chf(x.b.total)}</b></td><td></td></tr>`).join('')}
+      <tr class="area"><td>Total</td><td></td><td></td><td></td><td></td><td></td><td><b>${chf(tot)}</b></td><td></td></tr></tbody></table></div>
       <div class="btns"><button class="btn" data-act="spBillCsv">CSV (alle)</button><button class="btn" data-act="spBillPrintAll">Alle drucken / PDF</button></div>`
-      : '<div class="empty">Keine erledigten Spritzaufträge in diesem Zeitraum.</div>');
+      : `<div class="empty">${S.ao ? 'Keine Kunden mit offenen Spritzaufträgen in diesem Zeitraum.' : 'Keine erledigten Spritzaufträge in diesem Zeitraum.'}</div>`);
   }
   const b = billing(S.ak, S.av, S.ab, S.ag);
   const offen = b.rows.filter(r => statusOf(r.a) === 'erledigt').length;
@@ -2634,7 +2638,7 @@ function spBillAsk(bs) {
       if (ch.length) { Store.putMany('auftraege', ch); toast(`${ch.length} ${ch.length === 1 ? 'Auftrag' : 'Aufträge'} als verrechnet markiert`); App.render(); } return true; });
 }
 function billingCsv() {
-  const S = App.spray, ids = S.ak ? [S.ak] : kundenMitSpritz(billFilter(S)).map(k => k.id);
+  const S = App.spray, ids = S.ak ? [S.ak] : billKunden(S).map(k => k.id);
   const rows = [['Kunde', 'Erntejahr', 'Kultur', 'Parzelle', 'Datum', 'Fläche ha', 'Position', 'Zulassung', 'Menge/ha', 'Menge', 'Einheit', 'Ansatz CHF', 'Betrag CHF', 'Auftrag']];
   ids.forEach(id => { const b = billing(id, S.av, S.ab, S.ag); b.rows.forEach(r => {
     const d = dOf(r.a);
@@ -5831,7 +5835,7 @@ document.addEventListener('click', async e => {
     case 'spAkSel': App.spray.ak = id; App.render(); window.scrollTo(0, 0); break;
     case 'spBillCsv': billingCsv(); break;
     case 'spBillPrint': { const S = App.spray, b = billing(S.ak, S.av, S.ab, S.ag); printHtml('Abrechnung Spritzarbeiten', billingHtml(b, S.av, S.ab), { noTitle: true, after: () => spBillAsk([b]) }); break; }
-    case 'spBillPrintAll': { const S = App.spray, bs = kundenMitSpritz(billFilter(S)).map(k => billing(k.id, S.av, S.ab, S.ag)).filter(b => b.rows.length); printHtml('Abrechnung Spritzarbeiten', bs.map(b => billingHtml(b, S.av, S.ab)).join(''), { noTitle: true, after: () => spBillAsk(bs) }); break; }
+    case 'spBillPrintAll': { const S = App.spray, bs = billKunden(S).map(k => billing(k.id, S.av, S.ab, S.ag)).filter(b => b.rows.length); printHtml('Abrechnung Spritzarbeiten', bs.map(b => billingHtml(b, S.av, S.ab)).join(''), { noTitle: true, after: () => spBillAsk(bs) }); break; }
     case 'spBillMark': {
       const S = App.spray, b = billing(S.ak, S.av, S.ab, S.ag), ch = b.rows.filter(r => statusOf(r.a) === 'erledigt').map(r => ({ ...r.a, status: 'verrechnet' }));
       if (ch.length && confirm(`${ch.length} Spritzaufträge als verrechnet markieren?`)) { Store.putMany('auftraege', ch); toast('Als verrechnet markiert'); } break;
@@ -5970,6 +5974,7 @@ document.addEventListener('change', e => {
   if (k === 'spJf') { const S = App.spray, fk = e.target.dataset.k; S.jf[fk] = e.target.value; if (fk === 'k') { S.jf.p = ''; S.jf.f = ''; } S.jlimit = 200; App.render(); return; }
   const SP = { spAk: 'ak', spAv: 'av', spAb: 'ab', spNy: 'ny', spNk: 'nk', spNc: 'nc', spJy: 'jy', spPk: 'pk', spJsort: 'jsort', spPrs: 'prs', spInvs: 'invs' };
   if (SP[k]) { App.spray[SP[k]] = e.target.value; if (k === 'spJy') App.spray.jlimit = 200; App.render(); return; }
+  if (k === 'spAo') { App.spray.ao = e.target.checked; ls('lp_spao', e.target.checked ? '1' : ''); App.render(); return; }
   const SPB = { spAg: 'ag', spNgep: 'ngep', spPall: 'pall', spPrall: 'prall' };
   if (SPB[k]) { App.spray[SPB[k]] = e.target.checked; App.render(); return; }
   if (k === 'spVon' && e.target.value) { App.spray.von = e.target.value; if (App.spray.bis < App.spray.von) App.spray.bis = App.spray.von; App.render(); return; }
