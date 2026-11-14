@@ -1,4 +1,4 @@
-# IM-Vermietung v1.10 – Anleitung
+# IM-Vermietung v1.11 – Anleitung
 
 Eigenständige App für die Maschinenvermietung: Einsätze erfassen und importieren, auswerten, Kundenrapporte und Abrechnungsliste drucken.
 Eigene Kunden, Maschinen und Einsätze in einer eigenen Datei (`vermietung.json`) – unabhängig vom IM-Verwalter.
@@ -53,6 +53,7 @@ aus `startdaten.json`.
   - *Rapporte*: Titel «Rapport Maschinenmiete», eine Seite pro Kunde mit Briefkopf, Kundenname und Kunden-Nr. unter dem Titel (ohne Adressblock), ohne Seitenzahlen.
     Vor dem Druckfenster lassen sich die Artikelpreise **nur für diesen Ausdruck** ändern; dort auch «Preise und Beträge anzeigen».
     Der Knopf «Rapport» in einer Kundenzeile druckt die ausgewählten Zeilen dieses Kunden, sonst alle.
+  - Nach dem Druckfenster fragt die App, ob die rapportierten (offenen) Zeilen als abgerechnet markiert werden sollen.
   - *Abrechnungsliste*: pro Kunde Art.-Nr., Bezeichnung, Menge, Preis, Betrag – zum Übertragen in AgroFaktura (auch als Excel).
   - **Storniert**: zählt nirgends mehr (Rapport, Abrechnungsliste, Auswertung); sichtbar mit «Stornierte anzeigen».
 - **Stammdaten** – Kunden (Kd-Nr. leer = Neukunde, Adresse, Namensvarianten, Zusammenführen) und Maschinen (Art.-Nr., Einheit, Preis).

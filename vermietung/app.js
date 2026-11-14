@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.10', APP_STAND = '14.11.2026';
+const APP_VERSION = '1.11', APP_STAND = '14.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -1201,10 +1201,11 @@ function abrListHtml(G) {
       ${S.map(x => `<tr><td class="n">${esc(x.art)}</td><td>${esc(x.name)}</td><td class="n">${fmtQty(x.menge)}</td><td>${esc(x.einheit)}</td><td class="n">${x.preis != null ? chf(x.preis) : ''}</td><td class="n">${x.betrag != null ? chf(x.betrag) : ''}</td></tr>`).join('')}
       ${s.chf ? `<tr class="tot"><td></td><td>Total</td><td></td><td></td><td></td><td class="n">${chf(s.chf)}</td></tr>` : ''}</tbody></table></div>`; }).join('')}</div>`;
 }
-function printHtml(html) {
+function printHtml(html, after) { // after: wird nach dem Druckfenster einmal aufgerufen
   const pa = $('#printArea'); pa.innerHTML = html;
   document.body.classList.add('printing');
-  const done = () => { document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); };
+  let fertig = false;
+  const done = () => { document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); if (!fertig) { fertig = true; if (after) setTimeout(after, 200); } };
   window.addEventListener('afterprint', done);
   const imgs = [...pa.querySelectorAll('img')].filter(i => !i.complete);
   Promise.race([Promise.all(imgs.map(i => new Promise(r => { i.onload = i.onerror = r; }))), new Promise(r => setTimeout(r, 3000))])
@@ -1234,7 +1235,8 @@ function prePrint(kind, ids) {
         if (kind === 'rapport') {
           const preise = !!fd.get('preise'); if (preise !== !!Store.cfg().rapportPreise) Store.setCfg({ rapportPreise: preise });
           document.title = G.length === 1 ? `Rapport ${G[0].k.name}` : `Kundenrapporte ${todayIso()}`;
-          printHtml(G.map(g => rapportHtml(g.k, g.R, preise)).join(''));
+          const offen = G.flatMap(g => g.R).filter(isOffen).map(e => e.id);
+          printHtml(G.map(g => rapportHtml(g.k, g.R, preise)).join(''), offen.length ? () => abrNachRapport(offen, G.length) : null);
           setTimeout(() => { document.title = 'IM-Vermietung'; }, 3000);
         } else if (kind === 'liste') printHtml(abrListHtml(G));
         else abrXlsx(G);
@@ -1246,6 +1248,15 @@ function abrXlsx(G) {
   const rows = [['Kd-Nr.', 'Kunde', 'Art.-Nr.', 'Bezeichnung', 'Menge', 'Einheit', 'Preis CHF', 'Betrag CHF', 'Einsätze']];
   G.forEach(g => sumByArt(g.L).forEach(x => rows.push([g.k.nr ? +g.k.nr || g.k.nr : 'Neukunde', g.k.name, +x.art || x.art, x.name, x.menge, x.einheit, x.preis ?? '', x.betrag ?? '', x.n])));
   download(`Abrechnungsliste_${todayIso()}.xlsx`, xlsxBlob([{ name: 'Abrechnungsliste', rows }, { name: 'Einsätze', rows: einsatzRows(G.flatMap(g => g.L)) }]));
+}
+// Nach dem Rapport: rapportierte (offene) Zeilen als abgerechnet markieren?
+function abrNachRapport(ids, nK) {
+  const L = ids.map(id => Store.get('einsaetze', id)).filter(e => e && isOffen(e)); if (!L.length) return;
+  const s = sumUp(L);
+  openDlg('Rapport erstellt', `<p>Sollen die <b>${L.length} rapportierten Zeilen</b>${nK > 1 ? ` von ${nK} Kunden` : ''} (${qtyTxt(s)}) jetzt als <b>abgerechnet</b> markiert werden?</p>
+    <p class="muted small">Nur wenn der Rapport wirklich erstellt bzw. als PDF gespeichert wurde. Später geht es auch mit «Ausgewählte Zeilen abgerechnet» oder einzeln in den Details.</p>`,
+    `<span class="spacer"></span><button class="btn" value="nein">Nein, offen lassen</button><button class="btn primary" value="ja">✓ Ja, als abgerechnet markieren</button>`,
+    { onSubmit: (fd, btn) => { if (btn !== 'ja') return; setStatus(L.map(e => e.id), 'abgerechnet'); L.forEach(e => App.abr.rows.delete(e.id)); toast(`${L.length} Einsätze als abgerechnet markiert`); } });
 }
 function abrDoneSel() { // nur angehakte Zeilen («im Rapport») der angekreuzten Kunden
   const L = abrGroups().flatMap(g => g.R).filter(isOffen);
