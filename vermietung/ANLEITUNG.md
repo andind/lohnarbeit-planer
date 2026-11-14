@@ -1,4 +1,4 @@
-# IM-Vermietung v1.5 – Anleitung
+# IM-Vermietung v1.6 – Anleitung
 
 Eigenständige App für die Maschinenvermietung: Einsätze erfassen und importieren, auswerten, Kundenrapporte und Abrechnungsliste drucken.
 Eigene Kunden, Maschinen und Einsätze in einer eigenen Datei (`vermietung.json`) – unabhängig vom IM-Verwalter.
@@ -23,7 +23,9 @@ aus `startdaten.json`.
   - *Online-Formular per Freigabelink*: einmalig in Excel (OneDrive) bei der Formular-Datei *Freigeben › Link kopieren*
     («Jeder mit dem Link», nur anzeigen) und unter Import › «Freigabelink eintragen» einfügen. Danach: «1. Formular-Excel öffnen»
     (Excel im Browser holt die neuesten Antworten in die Datei) und «2. Abrufen und importieren». Lässt Microsoft das direkte
-    Abrufen nicht zu, zeigt die App den Weg über «Datei › Speichern unter › Kopie herunterladen».
+    Abrufen nicht zu (Fehler 401), unter *Mehr › Microsoft* einmalig eine App-Registrierung anlegen und die Client-ID eintragen –
+    dann ruft die App die Datei mit deiner Microsoft-Anmeldung ab (Anmeldung hält bei Browser-Apps ca. 24 h, danach kurz neu anmelden).
+    Notlösung: «Datei › Speichern unter › Kopie herunterladen» und die Datei wählen.
   - *Online-Formular*: Excel-Export von Microsoft Forms («Formular zur Erfassung von Maschinenvermietungen») direkt wählen –
     die Spalten (Name Mieter, Maschine, Mietdatum, Fläche/Stunden, Bemerkung, Abgerechnet, Id) werden erkannt, die Prüfliste
     erscheint sofort («Spalten neu zuordnen…» falls nötig). Es darf immer der ganze Export eingelesen werden – schon vorhandene
@@ -45,7 +47,7 @@ aus `startdaten.json`.
   - Zeile anklicken = Details: bearbeiten, «Stornieren» oder «✓ Abgerechnet» (mit Rückfrage – direkt in der Zeile geht das bewusst nicht).
   - *Ausgewählte Zeilen abgerechnet*: markiert alle ausgewählten offenen Zeilen auf einmal.
   - *Alle Einsätze dieser Kunden abgerechnet*: alle offenen Einsätze der Kunden mit ausgewählten Zeilen, auch die nicht ausgewählten.
-  - *Rapporte*: eine Seite pro Kunde mit Briefkopf, Kundenname und Kunden-Nr. unter dem Titel (ohne Adressblock), ohne Seitenzahlen.
+  - *Rapporte*: Titel «Rapport Maschinenmiete», eine Seite pro Kunde mit Briefkopf, Kundenname und Kunden-Nr. unter dem Titel (ohne Adressblock), ohne Seitenzahlen.
     Vor dem Druckfenster lassen sich die Artikelpreise **nur für diesen Ausdruck** ändern; dort auch «Preise und Beträge anzeigen».
     Der Knopf «Rapport» in einer Kundenzeile druckt die ausgewählten Zeilen dieses Kunden, sonst alle.
   - *Abrechnungsliste*: pro Kunde Art.-Nr., Bezeichnung, Menge, Preis, Betrag – zum Übertragen in AgroFaktura (auch als Excel).

@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.5', APP_STAND = '14.11.2026';
+const APP_VERSION = '1.6', APP_STAND = '14.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -124,6 +124,7 @@ const Auth = {
     const q = new URLSearchParams(location.search);
     if (!q.has('code') && !q.has('error')) return;
     history.replaceState(null, '', this.redirectUri());
+    const msp = lsJson('mv_mspkce'); if (msp && msp.state === q.get('state')) return MS.handleRedirect(q, msp); // Microsoft-Anmeldung
     if (q.has('error')) { toast('Anmeldung abgebrochen: ' + (q.get('error_description') || q.get('error')), 6000); return; }
     const pk = lsJson('mv_pkce'); ls('mv_pkce', null);
     if (!pk || pk.state !== q.get('state')) { toast('Anmeldung ungültig – bitte nochmals versuchen.'); return; }
@@ -742,6 +743,57 @@ function formBuild(mp) {
    Der Link wird in den App-Einstellungen gespeichert (cfg.formLink, nur in der eigenen Dropbox-Datei).
    Öffnen in Excel im Browser holt dort die neuesten Formular-Antworten in die Datei; danach «Abrufen» lädt sie ohne Herunterladen. */
 const formLink = () => Store.cfg().formLink || '';
+/* Microsoft-Anmeldung (OAuth 2.0 + PKCE, ohne Server) – damit lässt sich die Formular-Datei über Microsoft Graph sicher abrufen,
+   auch wenn Microsoft den anonymen Zugriff über den Freigabelink sperrt (Fehler 401). Client-ID aus der App-Registrierung (Azure/Entra). */
+const MS = {
+  clientId() { return Store.cfg().msClientId || ''; },
+  configured() { return /^[0-9a-f-]{36}$/i.test(this.clientId()); },
+  tokens() { return lsJson('mv_mstok'); },
+  hasSession() { const t = this.tokens(); return !!(t && (t.refresh || (t.access && t.exp > Date.now()))); },
+  scope: 'openid offline_access Files.Read.All',
+  base: 'https://login.microsoftonline.com/common/oauth2/v2.0',
+  async login(after) {
+    if (!this.configured()) { toast('Zuerst unter Mehr › Microsoft die Client-ID eintragen'); App.go('mehr'); return; }
+    const verifier = Auth.b64url(crypto.getRandomValues(new Uint8Array(48)));
+    const challenge = Auth.b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+    const state = 'ms' + Auth.b64url(crypto.getRandomValues(new Uint8Array(16)));
+    lsJson('mv_mspkce', { verifier, state, after: after || '' });
+    const p = new URLSearchParams({ client_id: this.clientId(), response_type: 'code', redirect_uri: Auth.redirectUri(), scope: this.scope, state, code_challenge: challenge, code_challenge_method: 'S256', response_mode: 'query' });
+    location.assign(`${this.base}/authorize?${p}`);
+  },
+  async handleRedirect(q, pk) {
+    ls('mv_mspkce', null);
+    if (q.has('error')) { toast('Microsoft-Anmeldung abgebrochen: ' + (q.get('error_description') || q.get('error')).slice(0, 200), 8000); return; }
+    const r = await fetch(`${this.base}/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: this.clientId(), grant_type: 'authorization_code', code: q.get('code'), redirect_uri: Auth.redirectUri(), code_verifier: pk.verifier, scope: this.scope }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { toast('Microsoft-Anmeldung fehlgeschlagen: ' + (j.error_description || j.error || r.status).toString().slice(0, 200), 9000); return; }
+    this.store(j); toast('Mit Microsoft verbunden');
+    if (pk.after === 'formFetch') App.afterBoot = () => { App.go('import'); formFetch(); };
+  },
+  store(j) { lsJson('mv_mstok', { access: j.access_token, refresh: j.refresh_token || this.tokens()?.refresh, exp: Date.now() + (j.expires_in || 3600) * 1000 }); },
+  async token() {
+    const t = this.tokens(); if (!t) return null;
+    if (t.access && t.exp - 120000 > Date.now()) return t.access;
+    if (!t.refresh) return null;
+    const r = await fetch(`${this.base}/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: this.clientId(), grant_type: 'refresh_token', refresh_token: t.refresh, scope: this.scope }) });
+    if (!r.ok) { ls('mv_mstok', null); return null; } // Refresh-Token abgelaufen (bei Browser-Apps nach 24 h) → neu anmelden
+    const j = await r.json(); this.store(j); return j.access_token;
+  },
+  logout() { ls('mv_mstok', null); App.render(); toast('Von Microsoft abgemeldet'); },
+  async download(link) { // Freigabelink → Graph driveItem → downloadUrl (CORS-fähig) → Datei
+    const tok = await this.token(); if (!tok) { await this.login('formFetch'); return null; }
+    const enc = 'u!' + btoa(unescape(encodeURIComponent(link.trim()))).replace(/=+$/, '').replace(/\//g, '_').replace(/\+/g, '-');
+    const r = await fetch(`https://graph.microsoft.com/v1.0/shares/${enc}/driveItem?$select=name,@microsoft.graph.downloadUrl`, { headers: { Authorization: 'Bearer ' + tok, Prefer: 'redeemSharingLink' } });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 401) { ls('mv_mstok', null); await this.login('formFetch'); return null; }
+    if (!r.ok) throw new Error((j.error && j.error.message) || ('Microsoft Graph Fehler ' + r.status));
+    const url = j['@microsoft.graph.downloadUrl']; if (!url) throw new Error('Keine Download-Adresse erhalten');
+    const d = await fetch(url); if (!d.ok) throw new Error('Download fehlgeschlagen (' + d.status + ')');
+    return d.arrayBuffer();
+  }
+};
 function shareDownloadUrls(link) {
   const u = link.trim(), out = [];
   if (/sharepoint\.com/i.test(u)) { const base = u.split('#')[0]; out.push(base + (base.includes('?') ? '&' : '?') + 'download=1'); }
@@ -757,6 +809,13 @@ async function formFetch() {
   const link = formLink(); if (!link) { toast('Zuerst den Freigabelink eintragen'); return; }
   App.formBusy = true; App.render();
   let buf = null, err = '';
+  if (MS.configured()) { // mit Microsoft-Anmeldung über Graph
+    try { buf = await MS.download(link); if (!buf) return; } catch (e) { err = e.message; }
+    App.formBusy = false;
+    if (!buf) { App.formFail = err; App.render(); toast('Abrufen fehlgeschlagen: ' + err, 8000); return; }
+    App.formFail = ''; App.render();
+    return impForm(new File([buf], 'Formular (OneDrive).xlsx'));
+  }
   for (const url of shareDownloadUrls(link)) {
     try {
       const r = await fetch(url, { cache: 'no-store', redirect: 'follow' });
@@ -962,8 +1021,10 @@ function viewImport() {
         <div class="btns"><a class="btn" href="${esc(formLink())}" target="_blank" rel="noopener">📄 1. Formular-Excel öffnen</a>
           ${App.formBusy ? '<span class="btn" disabled><span class="spin"></span> Lade…</span>' : '<button class="btn primary" data-act="formFetch">⬇ 2. Abrufen und importieren</button>'}
           <button class="btn small" data-act="formLink">Link ändern</button></div>
-        ${App.formFail ? `<div class="box warn small" style="margin-top:10px">Direktes Abrufen hat nicht geklappt (${esc(App.formFail)}). Microsoft lässt den Zugriff über diesen Link vom Browser aus nicht zu.
-          So geht es trotzdem: Formular-Excel öffnen › <b>Datei › Speichern unter › Kopie herunterladen</b> und die Datei hier unten wählen.</div>` : ''}`
+        ${App.formFail ? `<div class="box warn small" style="margin-top:10px">Direktes Abrufen hat nicht geklappt (${esc(App.formFail)}).
+          ${MS.configured() ? '' : 'Microsoft lässt den anonymen Zugriff über diesen Link nicht zu. Abhilfe: <a href="#" data-act="go" data-v="mehr">Mehr › Microsoft</a> einrichten – dann ruft die App die Datei mit deiner Microsoft-Anmeldung ab. '}
+          Sofort geht es so: Formular-Excel öffnen › <b>Datei › Speichern unter › Kopie herunterladen</b> und die Datei hier unten wählen.</div>` : ''}
+        ${MS.configured() ? `<p class="small muted" style="margin-top:8px">Abruf mit Microsoft-Anmeldung${MS.hasSession() ? ' (angemeldet)' : ' – beim ersten Abrufen erscheint die Microsoft-Anmeldung'}.</p>` : ''}`
       : `<p>Die Excel-Datei mit den Formular-Antworten kann per Freigabelink verknüpft werden – dann lässt sie sich von hier öffnen und direkt importieren.</p>
         <div class="btns"><button class="btn primary" data-act="formLink">🔗 Freigabelink eintragen…</button></div>`}
       <p class="small" style="margin-top:12px">Oder eine heruntergeladene Datei einlesen (.xlsx/.csv). Es kann immer der ganze Export eingelesen werden – schon importierte Antworten werden erkannt und weggelassen.</p>
@@ -1094,7 +1155,7 @@ function sumByArt(L) { // pro Artikel (Maschine), Einheit und Preis zusammenfass
 function rapportHtml(k, L, preise) {
   const S = sumByArt(L), s = sumUp(L), pc = preise ? 2 : 0;
   return `<div class="bill"><img class="lhead" src="logo.jpg" alt="Indermühle Lohnarbeiten · Maschinenvermietung">
-    <h2>Rapport Maschineneinsätze</h2>
+    <h2>Rapport Maschinenmiete</h2>
     <div class="meta"><b>${esc(k.name)}</b> · ${k.nr ? 'Kunden-Nr. ' + esc(k.nr) : 'Neukunde'}${zeitraum(L) ? ' · Zeitraum ' + zeitraum(L) : ''} · ${L.length} Einsätze · Stand ${fmtDate(todayIso())}</div>
     <table class="btab"><thead><tr><th>Datum</th><th class="n">Art.-Nr.</th><th>Maschine</th><th class="n">Menge</th><th>Einheit</th><th>Bemerkung</th>${preise ? '<th class="n">Preis</th><th class="n">Betrag CHF</th>' : ''}</tr></thead><tbody>
     ${L.map(e => { const m = masch(e.maschine) || {}, p = preisOf(e), b = betragOf(e); return `<tr><td>${e.datum ? fmtDate(e.datum) : 'ohne Datum'}</td><td class="n">${esc(m.artNr || '')}</td><td>${esc(m.name || '')}</td><td class="n">${fmtQty(e.menge)}</td><td>${esc(einhOf(e))}</td><td>${esc(e.bem || '')}</td>${preise ? `<td class="n">${p != null ? chf(p) : ''}</td><td class="n">${b != null ? chf(b) : ''}</td>` : ''}</tr>`; }).join('')}
@@ -1185,6 +1246,17 @@ function viewMehr() {
   const n = c => Store.all(c).length;
   return { tb: '<h1>Mehr</h1>', html: `<div class="cols"><div>
     <div class="panel"><h2>Dropbox</h2>${conn}<p style="margin-top:12px">Diese Adresse muss in der Dropbox-App (App Console › Settings › Redirect URIs) eingetragen sein:</p><code class="mono">${esc(Auth.redirectUri())}</code></div>
+    <div class="panel"><h2>Microsoft (Formular-Excel)</h2>
+      <p>Damit «Abrufen und importieren» die Formular-Datei direkt aus OneDrive lesen kann, braucht es eine kostenlose App-Registrierung bei Microsoft (einmalig):</p>
+      <ol class="small" style="margin:6px 0 10px;padding-left:20px;color:var(--muted)">
+        <li><b>entra.microsoft.com</b> (oder portal.azure.com) › <b>App-Registrierungen › Neue Registrierung</b></li>
+        <li>Name «IM-Vermietung», Kontotypen: <b>Konten in einem beliebigen Organisationsverzeichnis und persönliche Microsoft-Konten</b></li>
+        <li>Umleitungs-URI: Plattform <b>Single-Page-Anwendung (SPA)</b>, Adresse siehe unten → Registrieren</li>
+        <li>Die <b>Anwendungs-ID (Client-ID)</b> kopieren und hier eintragen</li></ol>
+      <code class="mono">${esc(Auth.redirectUri())}</code>
+      <label class="fld" style="margin-top:10px"><span>Anwendungs-ID (Client-ID)</span><input class="input" data-in="msClient" value="${esc(MS.clientId())}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></label>
+      <p>${MS.configured() ? (MS.hasSession() ? '✓ Mit Microsoft angemeldet' : 'Noch nicht angemeldet – die Anmeldung erscheint beim ersten Abrufen.') : 'Noch keine Client-ID eingetragen.'}</p>
+      <div class="btns">${MS.configured() ? (MS.hasSession() ? '<button class="btn danger" data-act="msLogout">Abmelden</button>' : '<button class="btn" data-act="msLogin">Mit Microsoft anmelden</button>') : ''}</div></div>
     <div class="panel"><h2>Scan (Claude)</h2><p>Für das Auslesen von Papierrapporten braucht es einen eigenen API-Schlüssel von console.anthropic.com. Er wird nur auf diesem Gerät gespeichert, nicht in Dropbox.</p>
       <label class="fld"><span>API-Schlüssel</span><input class="input" type="password" autocomplete="off" data-in="apiKey" value="${esc(apiKey())}" placeholder="sk-ant-…"></label>
       <label class="fld"><span>Modell</span><select class="input" data-in="model">${optList(SCAN_MODELLE.some(([v]) => v === (ls('mv_model') || DEF_MODEL)) ? SCAN_MODELLE : [...SCAN_MODELLE, [ls('mv_model'), ls('mv_model')]], ls('mv_model') || DEF_MODEL)}</select></label>
@@ -1381,6 +1453,8 @@ document.addEventListener('click', ev => {
     case 'formRemap': formMapDialog(); break;
     case 'formFetch': formFetch(); break;
     case 'formLink': formLinkDialog(); break;
+    case 'msLogin': MS.login(); break;
+    case 'msLogout': MS.logout(); break;
     case 'impAll': App.imp.rows.forEach(r => { r.sel = t.dataset.v === '1' && r.status === 'neu'; }); lsJson('mv_imp', App.imp); App.render(); break;
     case 'abrToggle': abrToggleKunde(id); App.render(); break;
     case 'abrAll': { const G = abrGroups(); if (G.every(g => g.R.length)) G.forEach(g => g.L.forEach(e => App.abr.rows.delete(e.id))); else G.forEach(g => abrWahl(g).forEach(e => App.abr.rows.add(e.id))); App.render(); break; }
@@ -1435,6 +1509,7 @@ function onChange(t, k, v) {
     case 'abrPreise': Store.setCfg({ rapportPreise: t.checked }); break;
     case 'apiKey': ls('mv_apikey', v.trim() || null); App.render(); toast(v.trim() ? 'API-Schlüssel gespeichert' : 'API-Schlüssel entfernt'); break;
     case 'model': ls('mv_model', v.trim() || null); break;
+    case 'msClient': Store.setCfg({ msClientId: v.trim() }); App.render(); toast(v.trim() ? 'Client-ID gespeichert' : 'Client-ID entfernt'); break;
     case 'restoreFile': if (t.files[0]) restore(t.files[0]); t.value = ''; break;
   }
 }
@@ -1463,6 +1538,7 @@ window.addEventListener('storage', ev => { if (ev.key === 'mv_data') { Store.loa
   try { await Auth.handleRedirect(); } catch (e) { toast('Anmeldung fehlgeschlagen: ' + e.message, 6000); }
   await Store.seed();
   App.render(); Sync.setState(); Sync.run();
+  if (App.afterBoot) { const f = App.afterBoot; App.afterBoot = null; setTimeout(f, 300); }
   setInterval(() => { if (document.visibilityState === 'visible') Sync.run(); }, 5 * 60 * 1000);
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
