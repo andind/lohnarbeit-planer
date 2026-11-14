@@ -1,4 +1,4 @@
-IM-Applikationskarten v1.18 als App – by Andreas Indermühle
+IM-Applikationskarten v1.19 als App – by Andreas Indermühle
 =======================================================
 
 Eine Webseite lässt sich nur als App installieren, wenn sie über https aus dem
@@ -27,8 +27,9 @@ Internet kommt. Als Datei vom PC (Doppelklick) läuft sie weiterhin, aber ohne
 Hinweise
    - Das Programm startet auch ohne Internet. Luftbild, Parzellen, Bodenbedeckung,
      Ortssuche und Sentinel-2 brauchen aber eine Verbindung.
-   - Gespeicherte Karten liegen im Speicher des jeweiligen Geräts bzw. Browsers.
-     Zum Übertragen auf ein anderes Gerät «Als Datei sichern (.json)» verwenden.
+   - Gespeicherte Karten werden nach der Dropbox-Anmeldung (Abschnitt MyJohnDeere)
+     in Dropbox › Apps › (Dropbox-App) › applikationskarten.json abgelegt und auf
+     allen Geräten abgeglichen. Ohne Anmeldung bleiben sie nur auf dem Gerät.
    - Achtung: Beim Wechsel vom Datei-Doppelklick zur installierten App sind die
      bisher im Browser gespeicherten Karten nicht automatisch dabei. Vorher mit
      «Als Datei sichern (.json)» sichern und in der App mit «Datei laden» öffnen.

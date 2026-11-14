@@ -135,7 +135,7 @@ aside section.collapsed{padding-block:11px}
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.18 · by Andreas Indermühle</span></div>
+    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.19 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -156,11 +156,12 @@ aside section.collapsed{padding-block:11px}
       <button id="bJdReq" hidden title="Fordert beim NAS-Dienst einen Abgleich mit MyJohnDeere an">⟳ Abgleich anfordern</button>
       <button id="bJdLogout" class="ghost" hidden>Abmelden</button>
     </div>
-    <div class="hint">Kunden, Betriebe, Felder und Feldgrenzen kommen vom NAS-Dienst (Dateien <b>jd-sync.json</b> und <b>jd-feldgrenzen.json</b> im Dropbox-Ordner) und werden auf diesem Gerät gespeichert – auch ohne Netz verfügbar. Die App ändert in MyJohnDeere nichts. Einmalig in der Dropbox App Console › Redirect URIs eintragen: <code id="jdRedirect" style="word-break:break-all"></code></div>
+    <div class="hint">Kunden, Betriebe, Felder und Feldgrenzen kommen vom NAS-Dienst (Dateien <b>jd-sync.json</b> und <b>jd-feldgrenzen.json</b> im Dropbox-Ordner) und werden auf diesem Gerät gespeichert – auch ohne Netz verfügbar. Die App ändert in MyJohnDeere nichts. Mit der Anmeldung werden auch die <b>gespeicherten Karten</b> über Dropbox (<b>applikationskarten.json</b>) zwischen PC, iPhone und Tablet abgeglichen. Einmalig in der Dropbox App Console › Redirect URIs eintragen: <code id="jdRedirect" style="word-break:break-all"></code></div>
   </section>
 
   <section>
-    <h2>Gespeicherte Karten</h2>
+    <h2>Gespeicherte Karten <span id="projHead" class="status"></span></h2>
+    <div class="status" id="projCloud"></div>
     <div class="row">
       <select id="projSel" style="flex:1"><option value="">– Karte öffnen –</option></select>
       <button id="bDelProj" class="ghost" title="Gewählte gespeicherte Karte löschen">Löschen</button>
@@ -381,14 +382,15 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.18";
+const VERSION = "1.19";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
 const $ = id => document.getElementById(id);
 
 /* ---------- Zustand ---------- */
-function blank(){ return { id:null, kunde:"", feld:"", arbeit:"Duengung", produkt:"", einheit:"kg/ha", grundrate:DEF_RATE.Duengung, field:null, zones:[], nextNo:1, vgShow:false, vgBreite:12, vgRunden:2, modus:"rx", betrieb:"" }; }
+const BETRIEB_STD = "Indermuehle Andreas";   // Vorgabe für das Feld «Betrieb»
+function blank(){ return { id:null, kunde:"", feld:"", arbeit:"Duengung", produkt:"", einheit:"kg/ha", grundrate:DEF_RATE.Duengung, field:null, zones:[], nextNo:1, vgShow:false, vgBreite:12, vgRunden:2, modus:"rx", betrieb:BETRIEB_STD }; }
 let S = blank();
 let selId = null;
 let drawMode = null;   // 'field' | 'zone'
@@ -929,6 +931,7 @@ function loadState(st, fit=true){
   zoneLayers.forEach(l=>map.removeLayer(l)); zoneLayers.clear();
   if (fieldLayer){ map.removeLayer(fieldLayer); fieldLayer=null; }
   S = Object.assign(blank(), st); selId = null;
+  if (!S.betrieb) S.betrieb = BETRIEB_STD;
   syncForm();
   S.zones.forEach(addZoneLayer);
   applyModus();
@@ -940,8 +943,10 @@ const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch(e
 const lsSet = (k,v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch(e){ return false; } };
 function saveDraft(){ lsSet(LS_D, S); }
 function projName(s){ return [s.feld||"Ohne Feldname", s.modus==="grenze" ? "Feldgrenze" : s.produkt||({Saat:"Saat",Duengung:"Düngung",PS:"Pflanzenschutz"})[s.arbeit], s.kunde].filter(Boolean).join(" · "); }
+function projAll(){ return lsGet(LS_P) || []; }
 function fillProj(){
-  const list = lsGet(LS_P) || []; const sel = $("projSel");
+  const list = projAll().filter(p => !p.del && p.state); const sel = $("projSel");
+  $("projHead").textContent = list.length ? list.length + " Karten" : "";
   sel.innerHTML = `<option value="">– Karte öffnen (${list.length}) –</option>`;
   list.sort((a,b)=>b.saved.localeCompare(a.saved)).forEach(p => {
     const o=document.createElement("option"); o.value=p.id;
@@ -951,19 +956,22 @@ function fillProj(){
 }
 $("bSave").addEventListener("click", () => {
   if (!S.id) S.id = "p"+Date.now().toString(36);
-  const list = (lsGet(LS_P)||[]).filter(p=>p.id!==S.id);
+  const list = projAll().filter(p=>p.id!==S.id);
   list.push({ id:S.id, saved:new Date().toISOString(), state:S });
-  if (lsSet(LS_P, list)){ fillProj(); toast("Gespeichert: "+projName(S)); }
+  if (lsSet(LS_P, list)){ fillProj(); toast("Gespeichert: "+projName(S) + (window.projSync && DBX.hasSession() ? " – wird in Dropbox abgelegt" : "")); if (window.projSync) projSync(false); }
   else toast("Speichern im Browser nicht möglich. Bitte «Als Datei sichern» verwenden.");
 });
 $("projSel").addEventListener("change", e => {
-  const p = (lsGet(LS_P)||[]).find(p=>p.id===e.target.value); if (p){ loadState(p.state); toast("Geöffnet: "+projName(p.state)); }
+  const p = projAll().find(p=>p.id===e.target.value && !p.del && p.state); if (p){ loadState(p.state); toast("Geöffnet: "+projName(p.state)); }
 });
 $("bDelProj").addEventListener("click", () => { if (!$("projSel").value){ toast("Zuerst eine gespeicherte Karte wählen."); return; } $("delConfirm").hidden = false; });
 $("bDelNo").addEventListener("click", () => $("delConfirm").hidden = true);
 $("bDelYes").addEventListener("click", () => {
-  const id = $("projSel").value; lsSet(LS_P, (lsGet(LS_P)||[]).filter(p=>p.id!==id));
+  const id = $("projSel").value;
+  // Löschvermerk statt Entfernen, damit das Löschen auch auf anderen Geräten (über Dropbox) ankommt
+  lsSet(LS_P, projAll().filter(p=>p.id!==id).concat([{ id, saved:new Date().toISOString(), del:true }]));
   if (S.id===id) S.id=null; $("delConfirm").hidden = true; fillProj(); toast("Gespeicherte Karte gelöscht");
+  if (window.projSync) projSync(false);
 });
 $("bNeu").addEventListener("click", () => { const keep = { modus:S.modus, betrieb:S.betrieb, vgShow:S.vgShow, vgBreite:S.vgBreite, vgRunden:S.vgRunden, kunde:S.kunde, arbeit:S.arbeit, einheit:S.einheit, grundrate:S.grundrate, produkt:S.produkt }; loadState(Object.assign(blank(), keep), false); fillProj(); toast("Neue Karte – Auftragsdaten übernommen"); });
 
@@ -1872,7 +1880,7 @@ const DBX = {
     if (!r.ok) throw new Error("Dropbox nicht erreichbar (" + r.status + ")");
     const j = await r.json(); this.store(j); return j.access_token;
   },
-  logout(){ try { localStorage.removeItem("appkarte.dbx.tok"); } catch(e){} jdUI(); toast("Von Dropbox abgemeldet – die geladenen Stammdaten bleiben auf diesem Gerät."); },
+  logout(){ try { localStorage.removeItem("appkarte.dbx.tok"); } catch(e){} jdUI(); projCloudUI(); toast("Von Dropbox abgemeldet – die geladenen Stammdaten bleiben auf diesem Gerät."); },
   arg(o){ return JSON.stringify(o).replace(/[\u007f-￿]/g, c => "\\u" + c.charCodeAt(0).toString(16).padStart(4,"0")); },
   async req(url, opt){
     const t = await this.token(); if (!t){ const e = new Error("Bitte bei Dropbox anmelden"); e.auth = true; throw e; }
@@ -1892,6 +1900,13 @@ const DBX = {
     if (r.status===409) return null;
     if (!r.ok) throw new Error("Dropbox: Herunterladen fehlgeschlagen (" + r.status + ")");
     return JSON.parse(await r.text() || "null");
+  },
+  async writeJsonRev(path, data, rev){   // rev = erwarteter Stand (null = neu); Konflikt → e.conflict
+    const mode = rev ? { ".tag":"update", update:rev } : "add";
+    const r = await this.req("https://content.dropboxapi.com/2/files/upload", { headers:{ "Content-Type":"application/octet-stream", "Dropbox-API-Arg":this.arg({ path, mode, autorename:false, mute:true }) }, body:JSON.stringify(data) });
+    if (r.status===409){ const e = new Error("Dropbox: Konflikt"); e.conflict = true; throw e; }
+    if (!r.ok) throw new Error("Dropbox: Speichern fehlgeschlagen (" + r.status + ")");
+    return (await r.json()).rev;
   },
   async writeJson(path, data){
     const r = await this.req("https://content.dropboxapi.com/2/files/upload", { headers:{ "Content-Type":"application/octet-stream", "Dropbox-API-Arg":this.arg({ path, mode:"overwrite", mute:true }) }, body:JSON.stringify(data) });
@@ -2028,6 +2043,50 @@ async function jdRequest(){
     setTimeout(poll, 90000);
   } catch(e){ toast(e.auth ? "Bitte zuerst bei Dropbox anmelden." : "Anfrage nicht möglich: " + e.message); }
 }
+/* ---------- Gespeicherte Karten über Dropbox abgleichen (eigene Datei /applikationskarten.json) ---------- */
+const PROJ_PATH = "/applikationskarten.json";
+const PS = { busy:false, again:false, last:null, err:"" };
+function projMerge(a, b){   // je Karte gewinnt der neuere Stand (auch Löschvermerke)
+  const m = new Map();
+  [...a, ...b].forEach(p => { if (!p || !p.id) return; const o = m.get(p.id); if (!o || String(p.saved) > String(o.saved)) m.set(p.id, p); });
+  return [...m.values()];
+}
+const projSig = l => l.map(p => p.id + "@" + p.saved + (p.del ? "x" : "")).sort().join("|");
+function projCloudUI(){
+  const el = $("projCloud");
+  if (!DBX.configured()) { el.textContent = "Nur auf diesem Gerät gespeichert."; return; }
+  if (!DBX.hasSession()) { el.innerHTML = "Nur auf diesem Gerät gespeichert – für den Abgleich über Dropbox oben bei <b>MyJohnDeere</b> anmelden."; return; }
+  if (PS.busy) { el.textContent = "Dropbox: wird abgeglichen …"; return; }
+  if (PS.err) { el.innerHTML = `<span class="warn">Dropbox: ${jdEsc(PS.err)}</span>`; return; }
+  el.textContent = PS.last ? "Dropbox: abgeglichen " + PS.last.toLocaleTimeString("de-CH", { hour:"2-digit", minute:"2-digit" }) + " · auf allen Geräten verfügbar" : "Dropbox: verbunden";
+}
+async function projSync(manual){
+  if (!DBX.hasSession() || !navigator.onLine){ projCloudUI(); return; }
+  if (PS.busy){ PS.again = true; return; }
+  PS.busy = true; PS.err = ""; projCloudUI();
+  try {
+    for (let versuch = 0; versuch < 3; versuch++){
+      const rev = await DBX.rev(PROJ_PATH);
+      const remote = rev ? ((await DBX.readJson(PROJ_PATH, rev)) || {}).projekte || [] : [];
+      const local = projAll();
+      const merged = projMerge(remote, local);
+      if (projSig(merged) !== projSig(local)){
+        if (!lsSet(LS_P, merged)) throw new Error("Speicher auf diesem Gerät voll");
+        const cur = projAll(); if (S.id && !cur.some(p => p.id===S.id && !p.del)) S.id = null;
+        fillProj();
+      }
+      if (projSig(merged) === projSig(remote) && rev) break;
+      try { await DBX.writeJsonRev(PROJ_PATH, { format:"im-applikationskarten", v:1, stand:new Date().toISOString(), projekte:merged }, rev); break; }
+      catch(e){ if (!e.conflict || versuch===2) throw e; }   // anderes Gerät war schneller → neu zusammenführen
+    }
+    PS.last = new Date();
+    if (manual) toast("Gespeicherte Karten mit Dropbox abgeglichen");
+  } catch(e){ console.warn(e); PS.err = e.auth ? "bitte neu anmelden" : e.message; }
+  finally { PS.busy = false; projCloudUI(); if (PS.again){ PS.again = false; projSync(false); } }
+}
+window.projSync = projSync;
+document.addEventListener("visibilitychange", () => { if (document.visibilityState==="visible" && (!PS.last || Date.now() - PS.last > 60000)) { projSync(false); jdLoad(false); } });
+window.addEventListener("online", () => projSync(false));
 window.jdOnForm = () => { jdFill(); jdFieldCheck(false); };
 $("bJdLogin").addEventListener("click", () => DBX.login());
 $("bJdLoad").addEventListener("click", () => jdLoad(true));
@@ -2041,7 +2100,8 @@ $("iFeld").addEventListener("change", () => { jdFill(); jdFieldCheck(true); });
   await DBX.handleRedirect();
   await jdFromCache();
   jdUI(); jdFill(); jdFieldCheck(false);
-  if (DBX.hasSession()) jdLoad(false);
+  projCloudUI();
+  if (DBX.hasSession()) { jdLoad(false); projSync(false); }
 })();
 
 /* ---------- Start ---------- */

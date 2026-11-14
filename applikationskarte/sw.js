@@ -1,7 +1,7 @@
-/* IM-Applikationskarten – Service Worker v1.18
+/* IM-Applikationskarten – Service Worker v1.19
    Programm und Bibliotheken werden für den Offline-Start zwischengespeichert.
    Karten, Parzellen, Satelliten- und AV-Daten kommen immer frisch aus dem Netz. */
-const CACHE = "appkarte-v1.18";
+const CACHE = "appkarte-v1.19";
 const APP = ["./", "./index.html", "./manifest.webmanifest", "./config.js", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 const LIBS = [
   "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
