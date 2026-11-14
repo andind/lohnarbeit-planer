@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '126', APP_STAND = '13.11.2026';
+const APP_VERSION = '127', APP_STAND = '14.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -2402,11 +2402,12 @@ const yearsOf = () => [...new Set(sprayOrders().map(ernteOf).filter(Boolean))].s
 // ÖLN-Nachweis / Spritzprotokoll
 // Briefkopf (Logo mit Adresse) oben auf der ersten Seite jedes Berichts
 const LETTERHEAD = '<img class="lhead" src="logo.jpg" alt="Indermühle Lohnarbeiten · Maschinenvermietung">';
-function printHtml(title, html, { noTitle } = {}) {
+function printHtml(title, html, { noTitle, after } = {}) {
   let pa = $('#printArea'); if (!pa) { pa = document.createElement('div'); pa.id = 'printArea'; document.body.appendChild(pa); }
   pa.innerHTML = `${noTitle ? '' : `<h1 class="ptitle">${esc(title)}</h1>`}${html}<p class="pfoot">Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · IM-Verwalter v${APP_VERSION}</p>`;
   document.body.classList.add('printing');
-  const done = () => { document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); };
+  let fertig = false;
+  const done = () => { document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); if (!fertig) { fertig = true; if (after) setTimeout(after, 300); } };
   window.addEventListener('afterprint', done);
   // erst drucken, wenn das Logo geladen ist
   const imgs = [...pa.querySelectorAll('img')].filter(i => !i.complete);
@@ -2620,6 +2621,18 @@ function abrechnungContent() {
     <div class="btns"><button class="btn primary" data-act="spBillPrint">Drucken / PDF</button><button class="btn" data-act="spBillCsv">CSV</button>
       ${offen ? `<button class="btn" data-act="spBillMark">${offen} als verrechnet markieren</button>` : ''}</div></div>`;
 }
+// Nach Druck/Export der Spritz-Abrechnung nachfragen, ob die enthaltenen erledigten Aufträge als verrechnet gelten (v127)
+function spBillAsk(bs) {
+  const L = bs.flatMap(b => b.rows.filter(r => statusOf(r.a) === 'erledigt').map(r => r.a));
+  if (!L.length) return;
+  const ks = groupBy(L, a => a.kunde).map(([kid, l]) => `<li>${esc(kundeName(kid))}: ${l.length} ${l.length === 1 ? 'Auftrag' : 'Aufträge'} · ${fmtNum(r2(l.reduce((s, a) => s + flOf(a), 0)))} ha</li>`).join('');
+  const ids = L.map(a => a.id);
+  Dlg.open('Aufträge abgerechnet?', `<p>Die Abrechnung enthält <b>${L.length} erledigte ${L.length === 1 ? 'Spritzauftrag' : 'Spritzaufträge'}</b>, die noch nicht verrechnet sind.</p>
+      <ul style="margin:6px 0 10px 18px">${ks}</ul><p class="nr">Sollen sie jetzt auf «verrechnet» gestellt werden? Das lässt sich im Auftrag wieder ändern.</p>`,
+    `<span class="spacer"></span><button type="button" class="btn" data-act="close">Nein, offen lassen</button><button type="submit" class="btn primary">✓ Ja, als abgerechnet markieren</button>`,
+    () => { const ch = ids.map(id => Store.get('auftraege', id)).filter(a => a && statusOf(a) === 'erledigt').map(a => ({ ...a, status: 'verrechnet' }));
+      if (ch.length) { Store.putMany('auftraege', ch); toast(`${ch.length} ${ch.length === 1 ? 'Auftrag' : 'Aufträge'} als verrechnet markiert`); App.render(); } return true; });
+}
 function billingCsv() {
   const S = App.spray, ids = S.ak ? [S.ak] : kundenMitSpritz(billFilter(S)).map(k => k.id);
   const rows = [['Kunde', 'Erntejahr', 'Kultur', 'Parzelle', 'Datum', 'Fläche ha', 'Position', 'Zulassung', 'Menge/ha', 'Menge', 'Einheit', 'Ansatz CHF', 'Betrag CHF', 'Auftrag']];
@@ -2629,6 +2642,7 @@ function billingCsv() {
     r.mittel.forEach(m => rows.push([b.k.name, ernteOf(r.a), r.a.kultur, r.a.feld, d, r.fl, m.name, m.zulassung, m.mengeHa ?? '', r2(m.menge), m.einheit, m.preisZ.toFixed(2), m.betrag.toFixed(2), r.a.nr]));
   }); });
   download(`Abrechnung_Spritzen_${S.av}_bis_${S.ab}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+  setTimeout(() => spBillAsk(ids.map(id => billing(id, S.av, S.ab, S.ag))), 400);
 }
 
 // ÖLN-Nachweis: ohne Hinweise auf nicht ÖLN-konforme Behandlungen; Zeilen öffnen den Auftrag
@@ -5816,8 +5830,8 @@ document.addEventListener('click', async e => {
     case 'spMore': App.spray.jlimit += 200; App.render(); break;
     case 'spAkSel': App.spray.ak = id; App.render(); window.scrollTo(0, 0); break;
     case 'spBillCsv': billingCsv(); break;
-    case 'spBillPrint': { const S = App.spray, b = billing(S.ak, S.av, S.ab, S.ag); printHtml('Abrechnung Spritzarbeiten', billingHtml(b, S.av, S.ab), { noTitle: true }); break; }
-    case 'spBillPrintAll': { const S = App.spray; printHtml('Abrechnung Spritzarbeiten', kundenMitSpritz(billFilter(S)).map(k => billing(k.id, S.av, S.ab, S.ag)).filter(b => b.rows.length).map(b => billingHtml(b, S.av, S.ab)).join(''), { noTitle: true }); break; }
+    case 'spBillPrint': { const S = App.spray, b = billing(S.ak, S.av, S.ab, S.ag); printHtml('Abrechnung Spritzarbeiten', billingHtml(b, S.av, S.ab), { noTitle: true, after: () => spBillAsk([b]) }); break; }
+    case 'spBillPrintAll': { const S = App.spray, bs = kundenMitSpritz(billFilter(S)).map(k => billing(k.id, S.av, S.ab, S.ag)).filter(b => b.rows.length); printHtml('Abrechnung Spritzarbeiten', bs.map(b => billingHtml(b, S.av, S.ab)).join(''), { noTitle: true, after: () => spBillAsk(bs) }); break; }
     case 'spBillMark': {
       const S = App.spray, b = billing(S.ak, S.av, S.ab, S.ag), ch = b.rows.filter(r => statusOf(r.a) === 'erledigt').map(r => ({ ...r.a, status: 'verrechnet' }));
       if (ch.length && confirm(`${ch.length} Spritzaufträge als verrechnet markieren?`)) { Store.putMany('auftraege', ch); toast('Als verrechnet markiert'); } break;
