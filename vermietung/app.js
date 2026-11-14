@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.6', APP_STAND = '14.11.2026';
+const APP_VERSION = '1.7', APP_STAND = '14.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -751,7 +751,8 @@ const MS = {
   tokens() { return lsJson('mv_mstok'); },
   hasSession() { const t = this.tokens(); return !!(t && (t.refresh || (t.access && t.exp > Date.now()))); },
   scope: 'openid offline_access Files.Read.All',
-  base: 'https://login.microsoftonline.com/common/oauth2/v2.0',
+  tenant() { return Store.cfg().msTenant || 'common'; }, // common | consumers (nur persönliche Konten) | organizations
+  get base() { return `https://login.microsoftonline.com/${this.tenant()}/oauth2/v2.0`; },
   async login(after) {
     if (!this.configured()) { toast('Zuerst unter Mehr › Microsoft die Client-ID eintragen'); App.go('mehr'); return; }
     const verifier = Auth.b64url(crypto.getRandomValues(new Uint8Array(48)));
@@ -763,7 +764,16 @@ const MS = {
   },
   async handleRedirect(q, pk) {
     ls('mv_mspkce', null);
-    if (q.has('error')) { toast('Microsoft-Anmeldung abgebrochen: ' + (q.get('error_description') || q.get('error')).slice(0, 200), 8000); return; }
+    if (q.has('error')) {
+      const d = q.get('error_description') || q.get('error') || '';
+      // App-Registrierung nur für persönliche (bzw. nur geschäftliche) Konten → passenden Endpunkt wählen und automatisch neu anmelden
+      if (/userAudience/i.test(d) && this.tenant() === 'common') {
+        const ten = /Consumer/i.test(d) ? 'consumers' : 'organizations';
+        Store.setCfg({ msTenant: ten }); toast('Microsoft-Anmeldung wird angepasst …', 3000);
+        App.afterBoot = () => this.login(pk.after); return;
+      }
+      toast('Microsoft-Anmeldung abgebrochen: ' + d.slice(0, 200), 8000); return;
+    }
     const r = await fetch(`${this.base}/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ client_id: this.clientId(), grant_type: 'authorization_code', code: q.get('code'), redirect_uri: Auth.redirectUri(), code_verifier: pk.verifier, scope: this.scope }) });
     const j = await r.json().catch(() => ({}));
@@ -1255,6 +1265,7 @@ function viewMehr() {
         <li>Die <b>Anwendungs-ID (Client-ID)</b> kopieren und hier eintragen</li></ol>
       <code class="mono">${esc(Auth.redirectUri())}</code>
       <label class="fld" style="margin-top:10px"><span>Anwendungs-ID (Client-ID)</span><input class="input" data-in="msClient" value="${esc(MS.clientId())}" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></label>
+      <label class="fld"><span>Kontotyp der App-Registrierung</span><select class="input" data-in="msTenant">${optList([['common', 'Alle Konten (persönlich und geschäftlich)'], ['consumers', 'Nur persönliche Microsoft-Konten'], ['organizations', 'Nur Geschäfts-/Schulkonten']], MS.tenant())}</select><div class="hint">Muss zur Einstellung «Unterstützte Kontotypen» der Registrierung passen – wird bei einer Fehlermeldung automatisch angepasst.</div></label>
       <p>${MS.configured() ? (MS.hasSession() ? '✓ Mit Microsoft angemeldet' : 'Noch nicht angemeldet – die Anmeldung erscheint beim ersten Abrufen.') : 'Noch keine Client-ID eingetragen.'}</p>
       <div class="btns">${MS.configured() ? (MS.hasSession() ? '<button class="btn danger" data-act="msLogout">Abmelden</button>' : '<button class="btn" data-act="msLogin">Mit Microsoft anmelden</button>') : ''}</div></div>
     <div class="panel"><h2>Scan (Claude)</h2><p>Für das Auslesen von Papierrapporten braucht es einen eigenen API-Schlüssel von console.anthropic.com. Er wird nur auf diesem Gerät gespeichert, nicht in Dropbox.</p>
@@ -1509,6 +1520,7 @@ function onChange(t, k, v) {
     case 'abrPreise': Store.setCfg({ rapportPreise: t.checked }); break;
     case 'apiKey': ls('mv_apikey', v.trim() || null); App.render(); toast(v.trim() ? 'API-Schlüssel gespeichert' : 'API-Schlüssel entfernt'); break;
     case 'model': ls('mv_model', v.trim() || null); break;
+    case 'msTenant': Store.setCfg({ msTenant: v }); ls('mv_mstok', null); App.render(); break;
     case 'msClient': Store.setCfg({ msClientId: v.trim() }); App.render(); toast(v.trim() ? 'Client-ID gespeichert' : 'Client-ID entfernt'); break;
     case 'restoreFile': if (t.files[0]) restore(t.files[0]); t.value = ''; break;
   }
