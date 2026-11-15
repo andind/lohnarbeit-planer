@@ -1,4 +1,4 @@
-/* IM-Verwalter – Kulturliste mit zwei Ebenen
+/* IM-Verwaltung – Kulturliste mit zwei Ebenen
    Oberbegriff (Weizen, Gerste, Mais …) für Aufträge und Auswertungen;
    genaue Kultur (Winterweizen, Sommerweizen, Silomais …) für Pflanzenschutz und Eigener Betrieb.
    Daten: «einstellungen», id «kulturen»: { list: [{ id, name, ober, zw, syn: [], aktiv }] }

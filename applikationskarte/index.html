@@ -938,7 +938,7 @@ function loadState(st, fit=true){
   if (S.field) setField(S.field, fit); else render();
   if (fit && !S.field && S.zones.length){ const g=L.featureGroup([...zoneLayers.values()]); map.fitBounds(g.getBounds(),{padding:[30,30]}); }
 }
-const LS_P = "appkarte.projekte", LS_D = "appkarte.app.entwurf";   // eigener Entwurf, getrennt von der Karte im IM-Verwalter
+const LS_P = "appkarte.projekte", LS_D = "appkarte.app.entwurf";   // eigener Entwurf, getrennt von der Karte in der IM-Verwaltung
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch(e){ return null; } };
 const lsSet = (k,v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch(e){ return false; } };
 function saveDraft(){ lsSet(LS_D, S); }
@@ -1913,7 +1913,7 @@ const DBX = {
     if (!r.ok) throw new Error("Dropbox: Speichern fehlgeschlagen (" + r.status + ")");
   }
 };
-// grössere Daten (Grenzen) in IndexedDB statt localStorage – localStorage teilt sich die App mit dem IM-Verwalter
+// grössere Daten (Grenzen) in IndexedDB statt localStorage – localStorage teilt sich die App mit der IM-Verwaltung
 const IDB = {
   db:null,
   open(){ return this.db || (this.db = new Promise((res, rej) => { const r = indexedDB.open("im-applikationskarten", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); })); },

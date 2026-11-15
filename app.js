@@ -1,9 +1,9 @@
-/* IM-Verwalter (früher Lohnarbeit-Planer) – App-Logik (ohne Fremdbibliotheken)
+/* IM-Verwaltung (früher Lohnarbeit-Planer) – App-Logik (ohne Fremdbibliotheken)
    Daten: lokal im Browser (offline) + Synchronisation mit Dropbox. */
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '128', APP_STAND = '14.11.2026';
+const APP_VERSION = '129', APP_STAND = '15.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -706,7 +706,7 @@ function openWin(view) {
   const sub = view === 'spritzen' ? App.spray.tab : view === 'betrieb' && App.eb ? App.eb.sub : '';
   if (sub) u.searchParams.set('sub', sub);
   const w = window.open(u.href, 'imv' + Date.now(), `popup,width=${Math.min(1400, screen.availWidth)},height=${Math.min(950, screen.availHeight)}`);
-  if (!w) toast('Das zweite Fenster wurde blockiert – bitte Pop-ups für den IM-Verwalter erlauben.', 5000);
+  if (!w) toast('Das zweite Fenster wurde blockiert – bitte Pop-ups für die IM-Verwaltung erlauben.', 5000);
 }
 // Bereich aus der Adresse (zweites Fenster): ?view=spritzen&sub=…
 (() => {
@@ -1912,7 +1912,7 @@ function drawDayPlan(mid, d) {
       y += hBlock + 24;
     });
     y += 30;
-    text(`Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · IM-Verwalter`, P, F('400', 22), muted, y);
+    text(`Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · IM-Verwaltung`, P, F('400', 22), muted, y);
     return y + 36;
   };
   cv.width = W; cv.height = run(false); run(true);
@@ -2159,7 +2159,7 @@ function sprayImage() {
     ctx.font = F('500', 32); ctx.textAlign = 'left'; ctx.fillStyle = '#5c625d'; ctx.fillText(u, W - P - 90, y);
     y += 64;
   });
-  ctx.font = F('400', 22); ctx.fillStyle = '#5c625d'; ctx.fillText(`Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · IM-Verwalter`, P, y + 30);
+  ctx.font = F('400', 22); ctx.fillStyle = '#5c625d'; ctx.fillText(`Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · IM-Verwaltung`, P, y + 30);
   showImage('Produktbedarf', cv, `Produktbedarf_${sel[0]}_bis_${sel[sel.length - 1]}.png`, `Produktbedarf ${range}`);
 }
 function showImage(title, cv, fname, shareTitle, topHtml = '') {
@@ -2404,7 +2404,7 @@ const yearsOf = () => [...new Set(sprayOrders().map(ernteOf).filter(Boolean))].s
 const LETTERHEAD = '<img class="lhead" src="logo.jpg" alt="Indermühle Lohnarbeiten · Maschinenvermietung">';
 function printHtml(title, html, { noTitle, after } = {}) {
   let pa = $('#printArea'); if (!pa) { pa = document.createElement('div'); pa.id = 'printArea'; document.body.appendChild(pa); }
-  pa.innerHTML = `${noTitle ? '' : `<h1 class="ptitle">${esc(title)}</h1>`}${html}<p class="pfoot">Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · IM-Verwalter v${APP_VERSION}</p>`;
+  pa.innerHTML = `${noTitle ? '' : `<h1 class="ptitle">${esc(title)}</h1>`}${html}<p class="pfoot">Erstellt ${new Date().toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })} · IM-Verwaltung v${APP_VERSION}</p>`;
   document.body.classList.add('printing');
   let fertig = false;
   const done = () => { document.body.classList.remove('printing'); window.removeEventListener('afterprint', done); if (!fertig) { fertig = true; if (after) setTimeout(after, 300); } };
@@ -3219,7 +3219,7 @@ function drawPlanOverview(x) {
       y += 14;
       x.unpl.forEach(a => { y += 34; if (draw) { ctx.font = F('600', 21); ctx.fillStyle = ink; ctx.fillText(`${a.wunsch ? fmtDate(a.wunsch, { day: '2-digit', month: '2-digit' }) + '  ' : ''}${kfText(a)}`, P, y); ctx.font = F('400', 20); ctx.fillStyle = muted; ctx.fillText([a.arbeit, a.kultur, a.flaeche ? fmtNum(a.flaeche) + ' ha' : ''].filter(Boolean).join(' · '), P + Math.min(420, W / 2), y); } });
     }
-    y += 50; if (draw) { ctx.font = F('400', 18); ctx.fillStyle = muted; ctx.fillText('IM-Verwalter', P, y); }
+    y += 50; if (draw) { ctx.font = F('400', 18); ctx.fillStyle = muted; ctx.fillText('IM-Verwaltung', P, y); }
     return y + 24;
   };
   cv.width = W; cv.height = 10; const H = run(false); cv.height = H; run(true);
@@ -3356,7 +3356,7 @@ function exportAllSheets() {
 function exportAllXlsx() {
   try {
     const sh = bakErweitern(exportAllSheets(), Store.data);
-    download(`IM-Verwalter-Daten_${todayIso()}.xlsx`, xlsxBlob(sh));
+    download(`IM-Verwaltung-Daten_${todayIso()}.xlsx`, xlsxBlob(sh));
     toast(`Excel-Datei erstellt: ${sh.map(s => `${s.name} ${s.rows.length - 1}`).join(' · ')}`, 6000);
   } catch (e) { toast('Excel-Export fehlgeschlagen: ' + e.message, 6000); }
 }
@@ -4045,7 +4045,7 @@ function bedMapAct(t) {
 }
 async function bedGrzGeo(id) {
   const r = (App.jdb.rows || []).find(x => x.id === id), g = await bedGrz(id); if (!r || !g) return;
-  const fc = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { CLIENT: r.kunde, FIELD: r.feld, DATUM: r.d, ARBEIT: r.arbeit, HA_BEDECKT: r.ha, QUELLE: 'Virtuelle Feldgrenze aus der Bedeckungskarte (IM-Verwalter)' }, geometry: { type: 'MultiPolygon', coordinates: g } }] };
+  const fc = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { CLIENT: r.kunde, FIELD: r.feld, DATUM: r.d, ARBEIT: r.arbeit, HA_BEDECKT: r.ha, QUELLE: 'Virtuelle Feldgrenze aus der Bedeckungskarte (IM-Verwaltung)' }, geometry: { type: 'MultiPolygon', coordinates: g } }] };
   const clean = t => String(t || '').replace(/[^\wäöüÄÖÜ-]+/g, '_');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(fc)], { type: 'application/geo+json' }));
   a.download = `Grenze_${clean(r.kunde || 'Kunde')}_${clean(r.feld || 'Feld')}_${r.d}.geojson`; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
@@ -4576,7 +4576,7 @@ function versionInfo() {
   const c = Store.cfg(), nas = c.jdDienst, ver = v => +String(v || '').replace(/[^\d.]/g, '') || 0;
   const nasTxt = nas ? `Version ${esc(nas)}${ver(nas) < ver(NAS_MIN) ? ` <span class="badge offen">zu alt – NAS-Dienst auf Version ${NAS_MIN} oder neuer aktualisieren</span>` : ' <span class="nr">(aktuell)</span>'}`
     : c.jdStand ? 'ältere Version ohne Versionsangabe – <b>NAS-Dienst aktualisieren</b>' : 'noch keine Verbindung';
-  return `<table class="btab kv"><tr><td class="nr">IM-Verwalter</td><td><b>Version ${APP_VERSION}</b> · Stand ${APP_STAND}</td></tr>
+  return `<table class="btab kv"><tr><td class="nr">IM-Verwaltung</td><td><b>Version ${APP_VERSION}</b> · Stand ${APP_STAND}</td></tr>
     <tr><td class="nr">NAS-Dienst jd-sync</td><td>${nasTxt}${c.jdStand ? ` <span class="nr">(letzte Daten ${esc(new Date(c.jdStand).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }))})</span>` : ''}</td></tr></table>
     <p class="nr" style="margin-bottom:0">Updates lädt der Planer beim nächsten Öffnen automatisch (bei Bedarf Seite neu laden). Die Version steht auch oben neben dem Programmnamen.</p>`;
 }
@@ -5108,7 +5108,7 @@ function vbMatchProd(name) {
 function vbGuessKultur(name) { const f = vbFeat(name), kul = Lists.kulturen(); return kul.find(k => [...vbFeat(k)].some(x => f.has(x) && x < 10)) || ''; }
 async function vbImportJson(file) {
   let doc; try { doc = JSON.parse(await file.text()); } catch { toast('Datei ist kein gültiges JSON.', 4000); return; }
-  if (!doc || doc.format !== 'lohnarbeit-planer/spritzprogramme' || !Array.isArray(doc.programme)) { toast('Unbekanntes Format – erwartet wird eine Spritzprogramm-Datei für den IM-Verwalter.', 5000); return; }
+  if (!doc || doc.format !== 'lohnarbeit-planer/spritzprogramme' || !Array.isArray(doc.programme)) { toast('Unbekanntes Format – erwartet wird eine Spritzprogramm-Datei für die IM-Verwaltung.', 5000); return; }
   const y = vbYear(), cur = vbRec(), years = [...new Set([...vbYears(), y, y + 1, doc.jahr].filter(Boolean))].sort((a, b) => a - b);
   const body = `<p style="margin-top:0">${esc(doc.quelle || file.name)}${doc.jahr ? ` · Plan ${doc.jahr}` : ''} · Mengen pro ${esc(doc.proFlaeche || '1 ha')}</p>
     <label class="fld"><span>In Erntejahr</span><select class="input" name="jahr">${years.map(j => `<option value="${j}" ${j === y ? 'selected' : ''}>${j}${vbGet(j) ? '' : ' (neu)'}</option>`).join('')}</select></label>
@@ -5181,8 +5181,8 @@ function icsBuild() {
     });
   });
   ev.sort((x, y) => x[4].localeCompare(y[4]));
-  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Indermuehle Lohnarbeiten//IM-Verwalter//DE', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
-    'X-WR-CALNAME:IM-Verwalter Planung', 'X-WR-TIMEZONE:Europe/Zurich', 'REFRESH-INTERVAL;VALUE=DURATION:PT1H', 'X-PUBLISHED-TTL:PT1H', ...ev.flat(), 'END:VCALENDAR'];
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Indermuehle Lohnarbeiten//IM-Verwaltung//DE', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    'X-WR-CALNAME:IM-Verwaltung Planung', 'X-WR-TIMEZONE:Europe/Zurich', 'REFRESH-INTERVAL;VALUE=DURATION:PT1H', 'X-PUBLISHED-TTL:PT1H', ...ev.flat(), 'END:VCALENDAR'];
   return { text: lines.map(icsFold).join('\r\n') + '\r\n', n: ev.length };
 }
 const icsHash = s => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return String(h); };
@@ -5220,7 +5220,7 @@ function icsPanel() {
       <div class="btns" style="margin-bottom:8px"><button type="button" class="btn" data-act="icsLink">Freigabe-Link erstellen</button></div>
       <label class="fld"><span>Dropbox-Freigabelink der Datei planung.ics</span><input class="input" data-in="icsLink" value="${esc(c.link || '')}" placeholder="https://www.dropbox.com/scl/fi/…/planung.ics?…"></label>
       ${sub ? `<label class="fld"><span>Adresse für das Kalenderabo</span><div class="withbtn"><input class="input" readonly value="${esc(sub)}" id="icsSub"><button type="button" class="btn" data-act="icsCopy">Kopieren</button></div></label>
-      <div class="nr icshow"><b>Outlook (Windows, neues Outlook / Outlook im Web):</b> Kalender › Kalender hinzufügen › <i>Aus dem Internet abonnieren</i> › Adresse einfügen › Name «IM-Verwalter Planung» › Importieren.<br>
+      <div class="nr icshow"><b>Outlook (Windows, neues Outlook / Outlook im Web):</b> Kalender › Kalender hinzufügen › <i>Aus dem Internet abonnieren</i> › Adresse einfügen › Name «IM-Verwaltung Planung» › Importieren.<br>
         <b>Klassisches Outlook:</b> Kalender › Kalender hinzufügen › <i>Aus dem Internet…</i> › Adresse einfügen › OK › Ja.<br>
         Outlook holt Änderungen selbst ab, je nach Version alle paar Stunden. Der Kalender ist nur zum Lesen.</div>` : '<p class="nr">Freigabe-Link erstellen (oder in Dropbox bei der Datei «planung.ics» › Teilen › Link kopieren) und hier einfügen.</p>'}` : ''}
   </div>`;
@@ -5919,7 +5919,7 @@ document.addEventListener('click', async e => {
     case 'lrowSort': { const w = $('#lrows', f); [...w.children].sort((x, y) => x.querySelector('input').value.localeCompare(y.querySelector('input').value, 'de')).forEach(r => w.appendChild(r)); break; }
     case 'export': exportCsv(); break;
     case 'exportAllXlsx': exportAllXlsx(); break;
-    case 'backup': download(`IM-Verwalter-Sicherung_${todayIso()}.json`, JSON.stringify({ ...Store.data, _sicherung: { app: 'IM-Verwalter', version: APP_VERSION, erstellt: new Date().toISOString() } }, null, 1), 'application/json'); toast('Sicherung enthält alle Daten aller Module (Aufträge, Spritzen, Vorbestellung, Rübensamen, Eigener Betrieb, Kunden, Felder mit Vermessungen, Abrechnungs-Markierungen, Einstellungen).', 6000); break;
+    case 'backup': download(`IM-Verwaltung-Sicherung_${todayIso()}.json`, JSON.stringify({ ...Store.data, _sicherung: { app: 'IM-Verwaltung', version: APP_VERSION, erstellt: new Date().toISOString() } }, null, 1), 'application/json'); toast('Sicherung enthält alle Daten aller Module (Aufträge, Spritzen, Vorbestellung, Rübensamen, Eigener Betrieb, Kunden, Felder mit Vermessungen, Abrechnungs-Markierungen, Einstellungen).', 6000); break;
     case 'restore': restoreBackup(); break;
   }
 });
@@ -6024,7 +6024,7 @@ document.addEventListener('touchmove', e => { if (App.tdrag) e.preventDefault();
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
 
-/* ================= Datensicherung Excel: zusätzliche Blätter (gleicher Code im IM-Verwalter und im NAS-Dienst) ================= */
+/* ================= Datensicherung Excel: zusätzliche Blätter (gleicher Code in der IM-Verwaltung und im NAS-Dienst) ================= */
 // Arbeitet nur mit den Rohdaten D (Inhalt von planung.json), damit beide Seiten dieselbe Datei erzeugen.
 const BAK_VER = 2;
 function bakHelpers(D) {

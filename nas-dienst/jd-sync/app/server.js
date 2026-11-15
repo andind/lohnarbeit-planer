@@ -1,12 +1,12 @@
-/* jd-sync – Abgleich MyJohnDeere → IM-Verwalter
+/* jd-sync – Abgleich MyJohnDeere → IM-Verwaltung
    Läuft als Container auf dem NAS. Liest Mandanten (Clients), Betriebe (Farms) und Felder mit Fläche (Kunden = Mandanten oder Betriebe, automatisch erkannt)
-   aus dem John Deere Operations Center und schreibt sie als «jd-sync.json» in den Dropbox-App-Ordner des IM-Verwalters.
+   aus dem John Deere Operations Center und schreibt sie als «jd-sync.json» in den Dropbox-App-Ordner der IM-Verwaltung.
    Zusätzlich (unabhängig davon) die Arbeitsgänge (Field Operations) mit Messwerten als «jd-arbeiten.json» –
-   für das Modul Bericht im IM-Verwalter.
-   Dazu: tägliche Datensicherung der IM-Verwalter-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
+   für das Modul Bericht in der IM-Verwaltung.
+   Dazu: tägliche Datensicherung die IM-Verwaltung-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '59', STAND = '14.11.2026'; // v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie der IM-Verwalter (APP_VERSION)
+const VERSION = '60', STAND = '15.11.2026'; // v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -826,7 +826,7 @@ async function readArbeiten(d) {
   if (voll) for (const o of Object.values(arb.ops)) o.v = 2; // nicht mehr gelieferte Arbeitsgänge lösen keinen Volllauf mehr aus
   arb.lastOk = new Date().toISOString(); arb.seit = seit; if (voll) arb.lastFull = arb.lastOk;
   const flaechen = () => { const q = { Maschine: 0, Bedeckungskarte: 0, '': 0 }; for (const o of Object.values(arb.ops)) { setFlaeche(o); q[o.flaecheQuelle || '']++; } st.flaechen = { maschine: q.Maschine, bedeckung: q.Bedeckungskarte, ohne: q[''] }; return q; };
-  // 1. Zwischenstand sofort speichern und in die Dropbox legen (Maschinenflächen sind damit schon im IM-Verwalter)
+  // 1. Zwischenstand sofort speichern und in die Dropbox legen (Maschinenflächen sind damit schon in der IM-Verwaltung)
   let q = flaechen(); save('arbeiten.json', arb);
   log(`Flächen aus Maschinendaten: ${q.Maschine} Arbeitsgänge, ${q['']} ohne – Zwischenstand in die Dropbox`);
   try { await writeArbeiten(arb); } catch (e) { log('Arbeitsdaten Zwischenstand: ' + e.message); }
@@ -845,7 +845,7 @@ async function readArbeiten(d) {
   return { arb, neu, geaendert, fehler, from, voll, requests: reqCount };
 }
 
-/* ---------- Dropbox (App-Ordner des IM-Verwalters) ---------- */
+/* ---------- Dropbox (App-Ordner der IM-Verwaltung) ---------- */
 const b64url = b => b.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 function dbxAuthUrl() {
   const verifier = b64url(crypto.randomBytes(48)), challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
@@ -874,7 +874,7 @@ async function dbxUpload(p, body) { // Text oder Buffer
   const r = await fetch(`${DBX_CONTENT}/2/files/upload`, { method: 'POST', headers: { Authorization: 'Bearer ' + await dbxAccess(), 'Content-Type': 'application/octet-stream', 'Dropbox-API-Arg': dbxArg({ path: p, mode: 'overwrite', mute: true }) }, body });
   if (!r.ok) throw new Error('Dropbox: Hochladen fehlgeschlagen (' + r.status + ') ' + (await r.text()).slice(0, 200));
 }
-async function dbxRequestPending() { // Anfrage «Jetzt abgleichen» aus dem IM-Verwalter?
+async function dbxRequestPending() { // Anfrage «Jetzt abgleichen» aus der IM-Verwaltung?
   const r = await fetch(`${DBX_API}/2/files/get_metadata`, { method: 'POST', headers: { Authorization: 'Bearer ' + await dbxAccess(), 'Content-Type': 'application/json' }, body: JSON.stringify({ path: cfg.requestPath }) });
   if (r.status === 409) return false;
   if (!r.ok) throw new Error('Dropbox ' + r.status);
@@ -898,7 +898,7 @@ async function dbxDelete(p) { await fetch(`${DBX_API}/2/files/delete_v2`, { meth
 // Schutz vor unvollständigen Antworten von John Deere: wechselt die Kundenebene (Betriebe ↔ Mandanten) oder fehlen plötzlich
 // viele Kunden/Felder, wird die Datei NICHT geschrieben. Bleibt das Ergebnis beim nächsten Abgleich gleich, gilt es als gewollt.
 function plausibel(d) {
-  if (!d.clients.length || !d.fields.length) throw new Error(`Abgleich nicht übernommen: John Deere lieferte ${d.clients.length} Kunden und ${d.fields.length} Felder – der IM-Verwalter bleibt unverändert.`);
+  if (!d.clients.length || !d.fields.length) throw new Error(`Abgleich nicht übernommen: John Deere lieferte ${d.clients.length} Kunden und ${d.fields.length} Felder – die IM-Verwaltung bleibt unverändert.`);
   const L = st.lastOk; if (!L || !L.clients) return;
   const grund = [];
   if (cfg.kundenEbene === 'auto' && L.ebene && d.kundenEbene !== L.ebene) grund.push(`Kundenebene würde von ${L.ebene === 'farms' ? 'Betrieben' : 'Mandanten'} zu ${d.kundenEbene === 'farms' ? 'Betrieben' : 'Mandanten'} wechseln`);
@@ -908,7 +908,7 @@ function plausibel(d) {
   const key = `${d.kundenEbene}:${d.clients.length}:${d.fields.length}`;
   if (st.verdacht === key) { log(`Hinweis: ${grund.join(', ')} – beim zweiten Abgleich gleich, wird übernommen.`); delete st.verdacht; return; }
   st.verdacht = key;
-  throw new Error(`Abgleich nicht übernommen: ${grund.join(', ')}. Vermutlich unvollständige Antwort von John Deere – der IM-Verwalter bleibt unverändert. Ist die Änderung gewollt, wird sie beim nächsten Abgleich übernommen (oder «Kunden entsprechen …» fest einstellen).`);
+  throw new Error(`Abgleich nicht übernommen: ${grund.join(', ')}. Vermutlich unvollständige Antwort von John Deere – die IM-Verwaltung bleibt unverändert. Ist die Änderung gewollt, wird sie beim nächsten Abgleich übernommen (oder «Kunden entsprechen …» fest einstellen).`);
 }
 async function runSync(reason) {
   if (st.running) return; st.running = true; saveSt();
@@ -977,7 +977,7 @@ function pruneList(names, re, keepDays, keepMonths) {
   firstOfMonth.forEach(n => keep.add(n));
   return items.filter(it => !keep.has(it.n)).map(it => it.n);
 }
-const RE_JSON = /^planung_(\d{4}-\d{2}-\d{2})_\d{4}\.json$/, RE_XLSX = /^(?:Lohnarbeit|IM-Verwalter)-Daten_(\d{4}-\d{2}-\d{2})\.xlsx$/;
+const RE_JSON = /^planung_(\d{4}-\d{2}-\d{2})_\d{4}\.json$/, RE_XLSX = /^(?:Lohnarbeit|IM-Verwalter|IM-Verwaltung)-Daten_(\d{4}-\d{2}-\d{2})\.xlsx$/;
 const RE_VM_JSON = /^vermietung_(\d{4}-\d{2}-\d{2})_\d{4}\.json$/, RE_VM_XLSX = /^IM-Vermietung-Daten_(\d{4}-\d{2}-\d{2})\.xlsx$/;
 async function runBackup(reason, { excel } = {}) {
   if (st.backupRunning) return; st.backupRunning = true;
@@ -1067,7 +1067,7 @@ async function runExcel(data, reason) {
   const { day } = tzNow();
   try {
     if (!data) { const t = await dbxDownload(cfg.datenPfad); if (t == null) throw new Error(`Datendatei ${cfg.datenPfad} nicht gefunden`); data = JSON.parse(t); }
-    const sheets = bakErweitern(excelSheets(data), data), buf = xlsxBuffer(sheets), name = `IM-Verwalter-Daten_${day}.xlsx`, dir = cfg.excelPfad.replace(/\/+$/, '');
+    const sheets = bakErweitern(excelSheets(data), data), buf = xlsxBuffer(sheets), name = `IM-Verwaltung-Daten_${day}.xlsx`, dir = cfg.excelPfad.replace(/\/+$/, '');
     await dbxUpload(`${dir}/${name}`, buf);
     for (const n of pruneList(await dbxList(dir), RE_XLSX, 7 * +cfg.excelBehalt, 0)) await dbxDelete(`${dir}/${n}`);
     if (cfg.sicherungNas) { const nd = path.join(BACKUP_DIR, 'excel'); fs.mkdirSync(nd, { recursive: true }); fs.writeFileSync(path.join(nd, name), buf); pruneList(fs.readdirSync(nd), RE_XLSX, 7 * +cfg.excelBehalt, 0).forEach(n => { try { fs.unlinkSync(path.join(nd, n)); } catch { } }); }
@@ -1109,8 +1109,8 @@ function xlsxBuffer(sheets) {
     ...sheets.map((s, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: xSheet(s.rows) }))
   ]);
 }
-// dieselben Tabellen wie «Alles als Excel» im IM-Verwalter
-/* ================= Datensicherung Excel: zusätzliche Blätter (gleicher Code im IM-Verwalter und im NAS-Dienst) ================= */
+// dieselben Tabellen wie «Alles als Excel» in der IM-Verwaltung
+/* ================= Datensicherung Excel: zusätzliche Blätter (gleicher Code in der IM-Verwaltung und im NAS-Dienst) ================= */
 // Arbeitet nur mit den Rohdaten D (Inhalt von planung.json), damit beide Seiten dieselbe Datei erzeugen.
 const BAK_VER = 2;
 function bakHelpers(D) {
@@ -1279,7 +1279,7 @@ function syncSlots() { // geplante Zeitpunkte (Minuten ab Mitternacht) für heut
 }
 const hmOf = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 function rhythmText() {
-  if (cfg.syncMode === 'anfrage') return 'nur auf Anfrage aus dem IM-Verwalter';
+  if (cfg.syncMode === 'anfrage') return 'nur auf Anfrage aus der IM-Verwaltung';
   if (cfg.syncMode === 'intervall') return `alle ${cfg.syncIntervall} h von ${cfg.syncVon} bis ${cfg.syncBis} Uhr`;
   const s = syncSlots(); return s.length ? `täglich um ${s.map(hmOf).join(', ')} Uhr` : 'keine Uhrzeit eingestellt';
 }
@@ -1295,7 +1295,7 @@ setInterval(async () => {
   }
   if (st.jd && st.dbx && cfg.orgId && Date.now() - lastPoll > cfg.pollMinutes * 60000) {
     lastPoll = Date.now();
-    try { if (await dbxRequestPending()) { await dbxDelete(cfg.requestPath); await runSync('Anfrage aus dem IM-Verwalter'); } } catch (e) { log('Dropbox-Prüfung: ' + e.message); }
+    try { if (await dbxRequestPending()) { await dbxDelete(cfg.requestPath); await runSync('Anfrage aus der IM-Verwaltung'); } } catch (e) { log('Dropbox-Prüfung: ' + e.message); }
   }
   const bz = toMinutes(cfg.sicherungZeit) ?? 0;
   if (cfg.sicherungAktiv && st.dbx && min >= bz && st.lastBackupDay !== day && !st.backupRunning) { st.lastBackupDay = day; saveSt(); await runBackup('täglich'); }
@@ -1313,21 +1313,21 @@ label{display:block;font-size:13px;color:#555;margin:8px 0 3px}input,select{widt
 button,.btn{display:inline-block;margin-top:10px;padding:9px 14px;border-radius:8px;border:1px solid #2f6b3a;background:#2f6b3a;color:#fff;font:inherit;text-decoration:none;cursor:pointer}
 .btn.sec,button.sec{background:#fff;color:#2f6b3a}.ok{color:#2f7d3b;font-weight:600}.no{color:#b5580b;font-weight:600}.msg{padding:10px 12px;border-radius:8px;background:${err ? '#fde7e5' : '#e3efe4'}}
 pre{background:#f6f5f1;border-radius:8px;padding:10px;font-size:12px;max-height:340px;overflow:auto;white-space:pre-wrap}.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1;min-width:200px}small{color:#666}</style></head><body><main>
-<h1>jd-sync · MyJohnDeere → IM-Verwalter <small style="font-size:.5em;font-weight:500;color:#6b7280;white-space:nowrap">Version ${VERSION} · ${STAND}</small></h1>
+<h1>jd-sync · MyJohnDeere → IM-Verwaltung <small style="font-size:.5em;font-weight:500;color:#6b7280;white-space:nowrap">Version ${VERSION} · ${STAND}</small></h1>
 ${msg ? `<p class="msg">${esc(msg)}</p>` : ''}
 <section><h2>Status</h2><div class="row"><div>${ok(cfg.clientId && cfg.clientSecret, 'John-Deere-App eingetragen')}<br>${ok(!!st.jd, 'Bei John Deere angemeldet')}<br>${ok(!!cfg.orgId, 'Organisation: ' + esc(cfg.orgName || '–'))}<br>${ok(!!st.dbx, 'Mit Dropbox verbunden')}</div>
 <div>Letzter Abgleich: ${st.last ? `${esc(new Date(st.last.at).toLocaleString('de-CH'))} ${st.last.ok ? '<span class="ok">ok</span>' : `<span class="no">Fehler</span><br><small>${esc(st.last.error)}</small>`}` : '–'}<br>
 ${st.lastOk ? `${st.lastOk.clients} Kunden (${st.lastOk.ebene === 'farms' ? 'aus Betrieben' : 'aus Mandanten'}) · ${st.lastOk.fields} Felder (${st.lastOk.withArea} mit Fläche)` : ''}<br>Abgleich ${esc(rhythmText())} · nächster: ${esc(nextSync())}<br>Sicherung: ${cfg.sicherungAktiv ? `täglich ${esc(cfg.sicherungZeit)} Uhr` : 'aus'}${st.backupLast ? ` · zuletzt ${esc(new Date(st.backupLast.at).toLocaleString('de-CH'))} ${st.backupLast.ok ? '<span class="ok">ok</span>' : '<span class="no">Fehler</span>'}` : ''}</div></div>
 ${st.jdStruktur ? `<p><small>MyJohnDeere: ${st.jdStruktur.mandanten} Mandanten (${st.jdStruktur.mandantenMitFeldern} mit Feldern) · ${st.jdStruktur.betriebe} Betriebe (${st.jdStruktur.betriebeMitFeldern} mit Feldern) · ${st.jdStruktur.felder} Felder${st.jdStruktur.ohneZuordnung ? ` · <span class="no">${st.jdStruktur.ohneZuordnung} ohne Zuordnung</span>` : ''} · <a href="/diagnose.json">Diagnose herunterladen</a></small></p>` : ''}
 <form method="post" action="/run"><button ${st.running ? 'disabled' : ''}>${st.running ? 'Abgleich läuft…' : 'Jetzt abgleichen'}</button></form></section>
-<section><h2>Rhythmus Abgleich mit MyJohnDeere</h2><p><small>Wie oft Kunden, Felder und Arbeitsdaten aus MyJohnDeere geholt werden. «Jetzt abgleichen» im IM-Verwalter funktioniert immer zusätzlich.</small></p>
-<form method="post" action="/rhythmus"><div class="row"><div><label>Abgleich</label><select name="syncMode">${[['zeiten', 'zu festen Uhrzeiten'], ['intervall', 'regelmässig alle … Stunden'], ['anfrage', 'nur auf Anfrage aus dem IM-Verwalter']].map(([v, t]) => `<option value="${v}" ${cfg.syncMode === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+<section><h2>Rhythmus Abgleich mit MyJohnDeere</h2><p><small>Wie oft Kunden, Felder und Arbeitsdaten aus MyJohnDeere geholt werden. «Jetzt abgleichen» in der IM-Verwaltung funktioniert immer zusätzlich.</small></p>
+<form method="post" action="/rhythmus"><div class="row"><div><label>Abgleich</label><select name="syncMode">${[['zeiten', 'zu festen Uhrzeiten'], ['intervall', 'regelmässig alle … Stunden'], ['anfrage', 'nur auf Anfrage aus der IM-Verwaltung']].map(([v, t]) => `<option value="${v}" ${cfg.syncMode === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
 <div><label>Uhrzeiten (bei «feste Uhrzeiten», mehrere mit Komma)</label><input name="syncZeiten" value="${esc(cfg.syncZeiten)}" placeholder="z.B. 05:00, 12:00, 18:00"></div></div>
 <div class="row"><div><label>Alle … Stunden (bei «regelmässig»)</label><select name="syncIntervall">${[1, 2, 3, 4, 6, 8, 12].map(h => `<option ${+cfg.syncIntervall === h ? 'selected' : ''}>${h}</option>`).join('')}</select></div>
 <div><label>Von – bis (bei «regelmässig»)</label><div class="row" style="gap:6px"><input name="syncVon" type="time" value="${esc(cfg.syncVon)}" style="min-width:0"><input name="syncBis" type="time" value="${esc(cfg.syncBis)}" style="min-width:0"></div></div></div>
-<div class="row"><div><label>Anfragen aus dem IM-Verwalter prüfen alle … Minuten</label><select name="pollMinutes">${[1, 2, 5, 10, 15, 30].map(m => `<option ${+cfg.pollMinutes === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div><div><label>Aktuell</label><p style="margin:6px 0 0">${esc(rhythmText())} · nächster Abgleich ${esc(nextSync())}</p></div></div>
+<div class="row"><div><label>Anfragen aus der IM-Verwaltung prüfen alle … Minuten</label><select name="pollMinutes">${[1, 2, 5, 10, 15, 30].map(m => `<option ${+cfg.pollMinutes === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div><div><label>Aktuell</label><p style="margin:6px 0 0">${esc(rhythmText())} · nächster Abgleich ${esc(nextSync())}</p></div></div>
 <button>Speichern</button></form></section>
-<section><h2>Datensicherung</h2><p><small>Sichert die IM-Verwalter-Daten (<b>${esc(cfg.datenPfad)}</b>)${cfg.vmAktiv ? ` und die Daten der IM-Vermietung (<b>${esc(cfg.vmDatenPfad)}</b>, Ordner ${esc(cfg.vmDbxPfad)})` : ''} täglich mit Datum. Behalten werden die letzten ${esc(cfg.behaltTage)} Tage und je eine pro Monat für ${esc(cfg.behaltMonate)} Monate. Zusätzlich einmal pro Woche eine Excel-Datei mit allen Daten. Zurückspielen im IM-Verwalter unter <i>Mehr › Sicherung einlesen</i>.</small></p>
+<section><h2>Datensicherung</h2><p><small>Sichert die Daten der IM-Verwaltung (<b>${esc(cfg.datenPfad)}</b>)${cfg.vmAktiv ? ` und die Daten der IM-Vermietung (<b>${esc(cfg.vmDatenPfad)}</b>, Ordner ${esc(cfg.vmDbxPfad)})` : ''} täglich mit Datum. Behalten werden die letzten ${esc(cfg.behaltTage)} Tage und je eine pro Monat für ${esc(cfg.behaltMonate)} Monate. Zusätzlich einmal pro Woche eine Excel-Datei mit allen Daten. Zurückspielen in der IM-Verwaltung unter <i>Mehr › Sicherung einlesen</i>.</small></p>
 ${st.backupLast ? `<p>Letzte Sicherung: ${esc(new Date(st.backupLast.at).toLocaleString('de-CH'))} ${st.backupLast.ok ? `<span class="ok">ok</span> · ${esc(st.backupLast.name)} · ${esc(st.backupLast.kb)} KB · ${esc((st.backupLast.wo || []).join(' + '))} · ${esc(st.backupLast.counts || '')}` : `<span class="no">Fehler</span><br><small>${esc(st.backupLast.error)}</small>`}</p>` : '<p>Noch keine Sicherung.</p>'}
 ${st.excelLast ? `<p>Letzter Excel-Export: ${esc(new Date(st.excelLast.at).toLocaleString('de-CH'))} ${st.excelLast.ok ? `<span class="ok">ok</span> · ${esc(cfg.excelPfad)}/${esc(st.excelLast.name)}<br><small>${esc(st.excelLast.info)}</small>` : `<span class="no">Fehler</span><br><small>${esc(st.excelLast.error)}</small>`}</p>` : ''}
 ${cfg.vmAktiv && st.vmLast ? `<p>IM-Vermietung – letzte Sicherung: ${esc(new Date(st.vmLast.at).toLocaleString('de-CH'))} ${st.vmLast.ok ? `<span class="ok">ok</span> · ${esc(st.vmLast.name)} · ${esc(st.vmLast.kb)} KB · ${esc((st.vmLast.wo || []).join(' + '))} · ${esc(st.vmLast.counts || '')}` : `<span class="no">Fehler</span><br><small>${esc(st.vmLast.error)}</small>`}</p>` : ''}
@@ -1336,7 +1336,7 @@ ${cfg.vmAktiv && st.vmExcelLast ? `<p>IM-Vermietung – letzter Excel-Export: ${
 <div><label>Uhrzeit (00:00 = um Mitternacht)</label><input name="sicherungZeit" type="time" value="${esc(cfg.sicherungZeit)}"></div></div>
 <div class="row"><div><label>Ablage auf dem NAS</label><select name="sicherungNas"><option value="1" ${cfg.sicherungNas ? 'selected' : ''}>Ja – ${esc(BACKUP_DIR === '/backup' ? 'Ordner docker/jd-sync/sicherungen' : BACKUP_DIR.startsWith(DATA) ? 'Ordner data/sicherungen' : BACKUP_DIR)}</option><option value="0" ${cfg.sicherungNas ? '' : 'selected'}>Nein</option></select></div>
 <div><label>Ablage in der Dropbox</label><select name="sicherungDbx"><option value="1" ${cfg.sicherungDbx ? 'selected' : ''}>Ja</option><option value="0" ${cfg.sicherungDbx ? '' : 'selected'}>Nein</option></select></div></div>
-<div class="row"><div><label>Dropbox-Ordner der Sicherungen (im App-Ordner)</label><input name="sicherungDbxPfad" value="${esc(cfg.sicherungDbxPfad)}"></div><div><label>Datendatei des IM-Verwalters (wie dataPath in config.js)</label><input name="datenPfad" value="${esc(cfg.datenPfad)}"></div></div>
+<div class="row"><div><label>Dropbox-Ordner der Sicherungen (im App-Ordner)</label><input name="sicherungDbxPfad" value="${esc(cfg.sicherungDbxPfad)}"></div><div><label>Datendatei der IM-Verwaltung (wie dataPath in config.js)</label><input name="datenPfad" value="${esc(cfg.datenPfad)}"></div></div>
 <div class="row"><div><label>Tägliche Sicherungen behalten (Tage)</label><input name="behaltTage" type="number" min="1" max="365" value="${esc(cfg.behaltTage)}"></div><div><label>Monatliche Sicherungen behalten (Monate)</label><input name="behaltMonate" type="number" min="0" max="120" value="${esc(cfg.behaltMonate)}"></div></div>
 <div class="row"><div><label>Wöchentlicher Excel-Export</label><select name="excelAktiv"><option value="1" ${cfg.excelAktiv ? 'selected' : ''}>Ein</option><option value="0" ${cfg.excelAktiv ? '' : 'selected'}>Aus</option></select></div>
 <div><label>Excel bei der Sicherung am (Montag 00:00 = Ende der Woche)</label><select name="excelTag">${WOCHENTAGE.map((t, i) => `<option value="${i}" ${+cfg.excelTag === i ? 'selected' : ''}>${t}</option>`).join('')}</select></div></div>
@@ -1346,7 +1346,7 @@ ${cfg.vmAktiv && st.vmExcelLast ? `<p>IM-Vermietung – letzter Excel-Export: ${
 <div class="row"><div><label>Dropbox-Ordner der Vermietungs-Sicherungen</label><input name="vmDbxPfad" value="${esc(cfg.vmDbxPfad)}"></div><div></div></div>
 <button>Speichern</button></form>
 <div class="row" style="flex:0"><form method="post" action="/sicherung/jetzt"><button class="sec" ${st.dbx ? '' : 'disabled'}>Jetzt sichern</button></form><form method="post" action="/excel/jetzt"><button class="sec" ${st.dbx ? '' : 'disabled'}>Excel jetzt erstellen</button></form></div></section>
-<section><h2>Arbeitsdaten (Vorrat)</h2><p><small>Arbeitsgänge aus MyJohnDeere (Säen, Spritzen, Ernten, Bodenbearbeitung …) mit Messwerten werden als <b>${esc(cfg.arbeitenPath)}</b> abgelegt (IM-Verwalter › Verwaltung › Bericht und Abrechnung). Aus jeder Bedeckungskarte wird die Fläche <b>ohne Überlappungen</b> («ha bedeckt») berechnet und eine <b>virtuelle Feldgrenze</b> erstellt (<b>${esc(cfg.grenzenPath || '/jd-grenzen.json')}</b>). Bedeckungskarten kommen über die neue <b>Operations Data Export</b>-Schnittstelle von John Deere (<code>/isg/operations/…/operationsExportRequests</code>); wo sie nicht klappt, über die alte (<code>/fieldOps</code>, läuft laut John Deere bis November 2027)${st.covInfo && st.covInfo.neueApi ? ` · letzter Lauf neue API: ${esc(Object.entries(st.covInfo.neueApi.antworten || {}).map(([k, v]) => k + '×' + v).join(', ') || '–')}${st.covInfo.neueApi.gestoppt ? ' <span class="no">kein Zugriff – Freischaltung prüfen</span>' : ''}` : ''}.</small></p>
+<section><h2>Arbeitsdaten (Vorrat)</h2><p><small>Arbeitsgänge aus MyJohnDeere (Säen, Spritzen, Ernten, Bodenbearbeitung …) mit Messwerten werden als <b>${esc(cfg.arbeitenPath)}</b> abgelegt (IM-Verwaltung › Verwaltung › Bericht und Abrechnung). Aus jeder Bedeckungskarte wird die Fläche <b>ohne Überlappungen</b> («ha bedeckt») berechnet und eine <b>virtuelle Feldgrenze</b> erstellt (<b>${esc(cfg.grenzenPath || '/jd-grenzen.json')}</b>). Bedeckungskarten kommen über die neue <b>Operations Data Export</b>-Schnittstelle von John Deere (<code>/isg/operations/…/operationsExportRequests</code>); wo sie nicht klappt, über die alte (<code>/fieldOps</code>, läuft laut John Deere bis November 2027)${st.covInfo && st.covInfo.neueApi ? ` · letzter Lauf neue API: ${esc(Object.entries(st.covInfo.neueApi.antworten || {}).map(([k, v]) => k + '×' + v).join(', ') || '–')}${st.covInfo.neueApi.gestoppt ? ' <span class="no">kein Zugriff – Freischaltung prüfen</span>' : ''}` : ''}.</small></p>
 ${!cfg.arbeitenAktiv ? '<p class="no">Ausgeschaltet</p>' : st.arbLast ? `Letzter Lauf: ${esc(new Date(st.arbLast.at).toLocaleString('de-CH'))} ${st.arbLast.ok ? '<span class="ok">ok</span>' : `<span class="no">Fehler</span><br><small>${esc(st.arbLast.error)}</small>`}<br>` : 'Noch nicht gelaufen – startet mit dem nächsten Abgleich.<br>'}
 ${st.arbOk ? `${st.arbOk.ops} Arbeitsgänge seit ${esc(st.arbOk.seit)} · ${Object.entries(st.arbOk.types || {}).map(([k, v]) => esc(k) + ' ' + v).join(' · ')}<br>` : ''}${st.etagStamm || st.etagArb ? `<small>${cfg.etags === false ? 'eTags ausgeschaltet' : `Letzter Abgleich – Kunden/Felder: ${esc(st.etagStamm || '–')} · Arbeitsgänge: ${esc(st.etagArb || '–')}`}</small><br>` : ''}${st.arbProgress ? `<b>Läuft gerade: ${esc(st.arbProgress.phase)} – ${st.arbProgress.done} von ${st.arbProgress.total} (seit ${esc(new Date(st.arbProgress.at).toLocaleTimeString('de-CH'))})</b><br>` : ''}${st.flaechen ? `Flächen: ${st.flaechen.maschine} aus Maschine, ${st.flaechen.bedeckung} aus Bedeckungskarte (Ersatz), ${Object.values(arbCache() || {}).filter(o => o.cov && o.cov.ha && o.cov.mod === o.modified).length} mit «ha bedeckt», ${Object.keys(grenzen).length} virtuelle Feldgrenzen, ${st.flaechen.ohne} ohne Fläche<br>` : ''}${st.covInfo && st.covInfo.gefragt ? `<small>Bedeckungskarte zuletzt ${esc(new Date(st.covInfo.at).toLocaleString('de-CH'))}: ${st.covInfo.gefragt} abgefragt, ${st.covInfo.mitFlaeche} berechnet, ${st.covInfo.ohneKarte} ohne Karte, ${st.covInfo.offen} noch in Arbeit${st.covInfo.gestoppt ? ' · <span class="no">abgebrochen</span>' : ''} · Antworten ${esc(Object.entries(st.covInfo.status || {}).map(([k, v]) => k + '×' + v).join(', '))}${Object.entries(st.covInfo.meldungen || {}).map(([k, v]) => `<br>${esc(k)}: ${esc(v)}`).join('')}</small><br>` : ''}
 ${st.jd && !hasAg2() ? '<p class="no">Die bestehende John-Deere-Anmeldung enthält die Berechtigung für Arbeitsdaten noch nicht – bitte unten in Schritt 2 neu anmelden. Mandanten und Felder laufen bis dahin normal weiter.</p>' : ''}
@@ -1356,8 +1356,8 @@ ${st.jd && !hasAg2() ? '<p class="no">Die bestehende John-Deere-Anmeldung enthä
 <section><h2>1 · John-Deere-App (developer.deere.com)</h2><form method="post" action="/config">
 <div class="row"><div><label>Application ID (Client-ID)</label><input name="clientId" value="${esc(cfg.clientId)}"></div><div><label>Secret ${cfg.clientSecret ? '<small>(gespeichert – leer lassen = unverändert)</small>' : ''}</label><input name="clientSecret" type="password" autocomplete="off"></div></div>
 <div class="row"><div><label>Redirect URI (genau so in der John-Deere-App eintragen)</label><input name="redirectUri" value="${esc(cfg.redirectUri)}"></div><div><label>Schnittstelle</label><select name="apiBase">${['https://partnerapi.deere.com/platform', 'https://sandboxapi.deere.com/platform'].map(u => `<option ${u === cfg.apiBase ? 'selected' : ''}>${u}</option>`).join('')}</select></div></div>
-<div class="row"><div><label>Dropbox App key (derselbe wie im IM-Verwalter, config.js)</label><input name="dbxAppKey" value="${esc(cfg.dbxAppKey)}"></div><div></div></div>
-<div class="row"><div><label>Kunden im IM-Verwalter entsprechen in MyJohnDeere den …</label><select name="kundenEbene">${[['auto', 'automatisch erkennen'], ['clients', 'Mandanten (Clients)'], ['farms', 'Betrieben (Farms)']].map(([v, t]) => `<option value="${v}" ${cfg.kundenEbene === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div><div></div></div>
+<div class="row"><div><label>Dropbox App key (derselbe wie in der IM-Verwaltung, config.js)</label><input name="dbxAppKey" value="${esc(cfg.dbxAppKey)}"></div><div></div></div>
+<div class="row"><div><label>Kunden in der IM-Verwaltung entsprechen in MyJohnDeere den …</label><select name="kundenEbene">${[['auto', 'automatisch erkennen'], ['clients', 'Mandanten (Clients)'], ['farms', 'Betrieben (Farms)']].map(([v, t]) => `<option value="${v}" ${cfg.kundenEbene === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div><div></div></div>
 <button>Speichern</button></form></section>
 <section><h2>2 · Bei John Deere anmelden</h2><p>Öffnet die Anmeldung von John Deere. Danach landet der Browser auf <b>${esc(cfg.redirectUri)}</b> – die Seite lädt evtl. nicht, das ist in Ordnung. <b>Kopiere die ganze Adresse aus der Browserzeile</b> und füge sie hier ein.</p>
 <a class="btn sec" href="/jd/login" target="_blank" rel="noopener">Bei John Deere anmelden ↗</a>

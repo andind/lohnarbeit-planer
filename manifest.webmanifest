@@ -1,6 +1,6 @@
 {
-  "name": "IM-Verwalter",
-  "short_name": "IM-Verwalter",
+  "name": "IM-Verwaltung",
+  "short_name": "IM-Verwaltung",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

@@ -1,4 +1,4 @@
-/* IM-Verwalter – Modul «Eigener Betrieb» (ein-/ausschaltbar)
+/* IM-Verwaltung – Modul «Eigener Betrieb» (ein-/ausschaltbar)
    Ersetzt die Excel-Mappe «Düngungs- und Anbauplanung»: Parzellen, Fruchtfolge, Düngungsplanung,
    Zwischenfrüchte (Saatgutbestellung) und Bodenproben – alles über die Parzelle verknüpft.
 

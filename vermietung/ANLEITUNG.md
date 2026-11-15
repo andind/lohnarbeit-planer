@@ -1,12 +1,12 @@
 # IM-Vermietung v1.12 – Anleitung
 
 Eigenständige App für die Maschinenvermietung: Einsätze erfassen und importieren, auswerten, Kundenrapporte und Abrechnungsliste drucken.
-Eigene Kunden, Maschinen und Einsätze in einer eigenen Datei (`vermietung.json`) – unabhängig vom IM-Verwalter.
+Eigene Kunden, Maschinen und Einsätze in einer eigenen Datei (`vermietung.json`) – unabhängig von der IM-Verwaltung.
 
 ## Einrichten (einmalig)
 1. Den ganzen Ordner `vermietung/` ins Repository `andind/lohnarbeit-planer` hochladen (neben `applikationskarte/`).
    Adresse danach: **https://andind.github.io/lohnarbeit-planer/vermietung/**
-2. Dropbox: In der App Console (dieselbe Dropbox-App wie beim IM-Verwalter) unter *Settings › OAuth 2 › Redirect URIs*
+2. Dropbox: In der App Console (dieselbe Dropbox-App wie bei der IM-Verwaltung) unter *Settings › OAuth 2 › Redirect URIs*
    zusätzlich `https://andind.github.io/lohnarbeit-planer/vermietung/` eintragen.
 3. App öffnen › *Mehr › Mit Dropbox anmelden*. Die Daten liegen danach in Dropbox › Apps › (Dropbox-App) › `vermietung.json`.
 4. Auf iPhone/iPad: in Safari *Teilen › Zum Home-Bildschirm*. Auf dem PC in Chrome/Edge: *App installieren*.
