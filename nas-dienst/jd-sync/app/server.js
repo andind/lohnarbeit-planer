@@ -6,7 +6,7 @@
    Dazu: tägliche Datensicherung die IM-Verwaltung-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '61', STAND = '16.11.2026'; // v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
+const VERSION = '62', STAND = '16.11.2026'; // v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -1334,13 +1334,29 @@ async function runUpload(n) {
       const g = a.grenze || {}, geo = Array.isArray(g.geo) ? g.geo : null;
       if (!a.feldId) throw new Error('Kein Feld aus MyJohnDeere gewählt.');
       if (!geo || !geo.length) throw new Error('Die Feldgrenze ist leer.');
-      const ring = (r, i) => { const pts = r.map(([lon, lat]) => ({ '@type': 'Point', lat: +(+lat).toFixed(8), lon: +(+lon).toFixed(8) }));
-        if (pts.length > 1 && pts[0].lat === pts[pts.length - 1].lat && pts[0].lon === pts[pts.length - 1].lon) pts.pop();   // John Deere: Ring ohne doppelten Schlusspunkt
-        if (pts.length < 3) throw new Error('Ein Ring der Feldgrenze hat weniger als 3 Punkte.');
-        return { '@type': 'Ring', points: pts, type: i ? 'interior' : 'exterior', passable: true }; };
-      const body = { '@type': 'Boundary', name: String(g.name || 'IM-Applikationskarten').slice(0, 100), sourceType: 'External', active: g.aktiv !== false, archived: false, irrigated: false,
-        multipolygons: geo.map(poly => ({ '@type': 'Polygon', rings: poly.map(ring) })) };
-      const c = await jdSend('POST', `/organizations/${encodeURIComponent(cfg.orgId)}/fields/${encodeURIComponent(a.feldId)}/boundaries`, JSON.stringify(body), ACCEPT);
+      // v62: John Deere prüft die Grenze als GeoJSON (RFC 7946): Ring geschlossen (erster = letzter Punkt, mind. 4 Punkte),
+      // Aussenring gegen den Uhrzeigersinn, Löcher im Uhrzeigersinn, keine doppelten Folgepunkte
+      const area2 = c => { let t = 0; for (let k = 0; k < c.length - 1; k++) t += c[k][0] * c[k + 1][1] - c[k + 1][0] * c[k][1]; return t; };
+      const prepRing = (r, loch) => {
+        const c = r.map(([lon, lat]) => [+(+lon).toFixed(8), +(+lat).toFixed(8)]).filter((q, k, l) => !k || q[0] !== l[k - 1][0] || q[1] !== l[k - 1][1]);
+        if (c.length && (c[0][0] !== c[c.length - 1][0] || c[0][1] !== c[c.length - 1][1])) c.push([c[0][0], c[0][1]]);
+        if (c.length < 4) throw new Error('Ein Ring der Feldgrenze hat weniger als 3 Punkte.');
+        const ccw = area2(c) > 0; if (loch ? ccw : !ccw) c.reverse();
+        return c;
+      };
+      const polys = geo.map(poly => poly.map((r, i) => prepRing(r, i > 0)));
+      const base = { '@type': 'Boundary', name: String(g.name || 'IM-Applikationskarten').slice(0, 100), sourceType: 'External', active: g.aktiv !== false, archived: false, irrigated: false };
+      const mk = zu => ({ ...base, multipolygons: polys.map(poly => ({ '@type': 'Polygon', rings: poly.map((c, i) => ({ '@type': 'Ring',
+        points: (zu ? c : c.slice(0, -1)).map(([lon, lat]) => ({ '@type': 'Point', lat, lon })), type: i ? 'interior' : 'exterior', passable: true })) })) });
+      const body = mk(true), url = `/organizations/${encodeURIComponent(cfg.orgId)}/fields/${encodeURIComponent(a.feldId)}/boundaries`;
+      let c;
+      try { c = await jdSend('POST', url, JSON.stringify(body), ACCEPT); }
+      catch (e) {
+        if (e.status !== 400) throw e;
+        log(`Feldgrenze: John Deere lehnt geschlossene Ringe ab (${e.message}) – zweiter Versuch ohne Schlusspunkt`);
+        try { c = await jdSend('POST', url, JSON.stringify(mk(false)), ACCEPT); }
+        catch (e2) { throw new Error(e.message + (e2.message !== e.message ? ' · ohne Schlusspunkt: ' + e2.message : '')); }
+      }
       const bid = (c.location && c.location.split('?')[0].split('/').filter(Boolean).pop()) || idOf(c.json && c.json.id) || '';
       // Grenzen dieses Feldes beim nächsten Abgleich neu holen
       try { const gc = load('grenzen.json', {}); delete gc[a.feldId]; save('grenzen.json', gc); } catch { }
