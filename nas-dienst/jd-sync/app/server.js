@@ -6,7 +6,7 @@
    Dazu: tägliche Datensicherung die IM-Verwaltung-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '64', STAND = '16.11.2026'; // v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
+const VERSION = '65', STAND = '16.11.2026'; // v65: Ertragskarten nur für ausgewählte Kunden (cfg.ertragKunden), dafür Ernten ab cfg.ertragSeit (längere Historie, nur für Ertragskarten, nicht in jd-arbeiten.json) · v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -735,7 +735,11 @@ const COV_RETRY_MS = 14 * 864e5; // Arbeitsgänge ohne Karte erst nach 14 Tagen 
 // COV_G: Stand der Berechnung – Karten aus älteren Versionen (ohne virtuelle Feldgrenze) werden einmal neu geholt
 const COV_G = 5; // 3 = v54 (Ellipsoid), 4 = v55 (Grenze genauer), 5 = v56 (kleine Lücken) – Karten werden einmal neu berechnet
 const ERTRAG_G = 1; // v64: Ertragskarte je Ernte; Ernten ohne Ertragsraster werden einmal neu exportiert
-const isErnte = o => /harvest/i.test(String(o.type || o.machineType || ''));
+const isHarvest = o => /harvest/i.test(String(o.type || o.fieldOperationType || o.machineType || o.adaptMachineType || ''));
+// v65: Ertragskarten nur für die ausgewählten Kunden (IDs wie in jd-sync.json)
+const ertragKunden = () => new Set(Array.isArray(cfg.ertragKunden) ? cfg.ertragKunden : []);
+const ertragSeit = () => /^\d{4}-\d{2}-\d{2}$/.test(cfg.ertragSeit || '') ? cfg.ertragSeit : '2015-01-01';
+const isErnte = o => isHarvest(o) && ertragKunden().has(o.client);
 const covDone = o => o.cov && o.cov.mod === o.modified && (o.cov.ha ? o.cov.g === COV_G && (!isErnte(o) || o.cov.y === ERTRAG_G) : (o.cov.at && Date.now() - Date.parse(o.cov.at) < COV_RETRY_MS));
 // virtuelle Feldgrenzen (aus der Bedeckungskarte) getrennt gespeichert und als eigene Datei in die Dropbox – hält jd-arbeiten.json klein
 let grenzen = load('bedeckung-grenzen.json', {});
@@ -793,6 +797,9 @@ async function readArbeiten(d) {
   const from = (!voll && arb.lastOk) ? isoDay(Math.max(Date.parse(seit), Date.parse(arb.lastOk) - 14 * 864e5)) : seit;
   const to = isoDay(Date.now() + 864e5);
   const fieldInfo = new Map(d.fields.map(f => [f.id, f]));
+  // v65: Ernten vor «seit» nur für Ertragskarten der ausgewählten Kunden (Flag nurErtrag, nicht in jd-arbeiten.json); abgewählte wieder entfernen
+  const yK = ertragKunden(), ySeit = ertragSeit();
+  for (const [id, o] of Object.entries(arb.ops)) if (o.nurErtrag && !(yK.has(o.client) && String(o.end || o.start || '').slice(0, 10) >= ySeit)) delete arb.ops[id];
   const clientName = new Map(d.clients.map(c => [c.id, c.name]));
   let neu = 0, geaendert = 0, fehler = 0, first403 = null, dateParams = st.arbDateParams !== false;
   reqCount = 0; etagStat = { neu: 0, gleich: 0, geaendert: 0, fehler: 0 };
@@ -804,7 +811,7 @@ async function readArbeiten(d) {
     let list;
     try {
       if (cfg.etags !== false) list = await jdAllE(`ops:${org}:${f.id}`, base);
-      else if (dateParams) {
+      else if (dateParams && !yK.has(f.client)) {
         try { list = await jdAll(`${base}?startDate=${from}T00:00:00.000Z&endDate=${to}T00:00:00.000Z`, true); }
         catch (e) { if (e.status !== 400) throw e; dateParams = st.arbDateParams = false; log('Arbeitsdaten: Datumsfilter nicht unterstützt – filtere selbst'); }
       }
@@ -813,10 +820,11 @@ async function readArbeiten(d) {
     for (const op of list) {
       const id = idOf(op.id); if (!id) continue;
       const start = op.startDate || op.startTime || null, end = op.endDate || op.endTime || null;
-      if ((end || start || '9999').slice(0, 10) < seit) continue;
+      const tag = (end || start || '9999').slice(0, 10), nurErtrag = tag < seit;
+      if (nurErtrag && !(yK.has(f.client) && isHarvest(op) && tag >= ySeit)) continue;
       const modified = op.modifiedTime || op.lastModifiedTime || end || '';
       const alt = arb.ops[id];
-      if (alt && alt.modified === modified && alt.measurements && alt.v === 2) continue; // unverändert
+      if (alt && alt.modified === modified && alt.measurements && alt.v === 2) { if (!!alt.nurErtrag !== nurErtrag) alt.nurErtrag = nurErtrag || undefined; continue; } // unverändert
       // zusätzliche Angaben über die Verknüpfungen: Maschinen, Fahrer, Produkte, Sorten
       const extra = {};
       for (const l of (op.links || [])) {
@@ -830,7 +838,7 @@ async function readArbeiten(d) {
         measurements = stripLinks(await jdAll(mu));
       } catch (e) { if (e.status !== 403) log(`Arbeitsdaten Messwerte ${id}: ${e.message}`); }
       if (areaFromMeas(measurements) == null) { const fb = await areaFallback(lk); if (fb.length) measurements = [...(measurements || []), ...fb]; }
-      arb.ops[id] = { v: 2, lk, machines: machinesOf(op, extra), cov: alt && alt.cov && alt.cov.mod === modified ? alt.cov : undefined,
+      arb.ops[id] = { v: 2, nurErtrag: nurErtrag || undefined, lk, machines: machinesOf(op, extra), cov: alt && alt.cov && alt.cov.mod === modified ? alt.cov : undefined,
         id, field: f.id, fieldName: f.name, client: f.client, clientName: clientName.get(f.client) || '', farm: f.farm,
         type: op.fieldOperationType || op.type || '', cropSeason: op.cropSeason ?? null, crop: op.cropName || op.crop || null,
         machineType: op.adaptMachineType || null, start, end, modified,
@@ -847,7 +855,7 @@ async function readArbeiten(d) {
   for (const o of Object.values(arb.ops)) { const fi = fieldInfo.get(o.field); if (fi) { o.fieldName = fi.name; o.client = fi.client; o.clientName = clientName.get(fi.client) || o.clientName; } }
   if (voll) for (const o of Object.values(arb.ops)) o.v = 2; // nicht mehr gelieferte Arbeitsgänge lösen keinen Volllauf mehr aus
   arb.lastOk = new Date().toISOString(); arb.seit = seit; if (voll) arb.lastFull = arb.lastOk;
-  const flaechen = () => { const q = { Maschine: 0, Bedeckungskarte: 0, '': 0 }; for (const o of Object.values(arb.ops)) { setFlaeche(o); q[o.flaecheQuelle || '']++; } st.flaechen = { maschine: q.Maschine, bedeckung: q.Bedeckungskarte, ohne: q[''] }; return q; };
+  const flaechen = () => { const q = { Maschine: 0, Bedeckungskarte: 0, '': 0 }; for (const o of Object.values(arb.ops)) { setFlaeche(o); if (!o.nurErtrag) q[o.flaecheQuelle || '']++; } st.flaechen = { maschine: q.Maschine, bedeckung: q.Bedeckungskarte, ohne: q[''] }; return q; };
   // 1. Zwischenstand sofort speichern und in die Dropbox legen (Maschinenflächen sind damit schon in der IM-Verwaltung)
   let q = flaechen(); save('arbeiten.json', arb);
   log(`Flächen aus Maschinendaten: ${q.Maschine} Arbeitsgänge, ${q['']} ohne – Zwischenstand in die Dropbox`);
@@ -863,7 +871,7 @@ async function readArbeiten(d) {
   q = flaechen();
   log(`Flächen: ${q.Maschine} Maschine, ${q.Bedeckungskarte} Bedeckungskarte${nCov ? ` (${nCov} neu berechnet)` : ''}, ${q['']} ohne Fläche`);
   for (const id of Object.keys(grenzen)) if (!arb.ops[id] || grenzen[id].mod !== arb.ops[id].modified) delete grenzen[id];
-  for (const id of Object.keys(ertrag)) if (!arb.ops[id] || ertrag[id].mod !== arb.ops[id].modified) delete ertrag[id];
+  for (const id of Object.keys(ertrag)) if (!arb.ops[id] || ertrag[id].mod !== arb.ops[id].modified || !isErnte(arb.ops[id])) delete ertrag[id];
   save('arbeiten.json', arb); save('bedeckung-grenzen.json', grenzen); save('ertrag.json', ertrag); st.arbProgress = null;
   return { arb, neu, geaendert, fehler, from, voll, requests: reqCount };
 }
@@ -926,7 +934,7 @@ function ertragCalc(zipBuf) {
     mittel: Math.round(tS / tW * 100) / 100, feuchte: tmw ? Math.round(tm / tmw * 10) / 10 : null, punkte: n, zellen: cells };
 }
 async function writeErtrag(arb) {
-  const ids = Object.keys(ertrag).filter(id => arb.ops[id]); if (!ids.length && !st.ertragIndex) return;
+  const ids = Object.keys(ertrag).filter(id => arb.ops[id] && isErnte(arb.ops[id])); if (!ids.length && !st.ertragIndex) return;
   let neu = 0;
   for (const id of ids) { const e = ertrag[id]; if (e.up) continue; await dbxUpload(`${ertragDir()}/${id}.json`, JSON.stringify({ format: 'jd-ertrag', id, ...e.grid })); e.up = true; neu++; }
   const index = ids.map(id => { const o = arb.ops[id], g = ertrag[id].grid; return { id, field: o.field, fieldName: o.fieldName, client: o.client, clientName: o.clientName,
@@ -1022,6 +1030,7 @@ async function runSync(reason, opt = {}) {
         info: 'Feldgrenzen (Vermessungen) aus MyJohnDeere je Feld-ID; geo = GeoJSON-MultiPolygon-Koordinaten [lon, lat]', fields: geo }));
       log(`Feldgrenzen mit Geometrie: ${Object.keys(geo).length} Felder → ${cfg.feldgrenzenPath || '/jd-feldgrenzen.json'}`);
     } catch (e) { log('Feldgrenzen (Geometrie) hochladen: ' + e.message); }
+    st.kundenListe = d.clients.map(c => ({ id: c.id, name: c.name })).sort((a, b) => a.name.localeCompare(b.name, 'de'));
     st.lastOk = { at: new Date().toISOString(), ebene: d.kundenEbene, clients: d.clients.length, fields: d.fields.length, withArea: d.fields.filter(f => f.flaeche != null).length };
     log(`Abgleich fertig: ${d.clients.length} Kunden (${d.kundenEbene === 'farms' ? 'Betriebe' : 'Mandanten'}), ${d.fields.length} Felder (${st.lastOk.withArea} mit Fläche) · ${n} Abfragen · ${Math.round((Date.now() - t0) / 1000)} s`);
     etagSave(); st.etagStamm = etagTxt(); log(`Kunden/Felder ${st.etagStamm}`);
@@ -1035,7 +1044,7 @@ async function runSync(reason, opt = {}) {
 }
 async function writeArbeiten(arb) {
   // haB = Fläche aus der Bedeckungskarte ohne Überlappungen (jede Stelle einmal), unabhängig von der Maschinenfläche
-  const ops = Object.values(arb.ops).sort((a, b) => String(b.start || '').localeCompare(String(a.start || ''))).map(({ lk, cov, covReq, v, ...o }) => {
+  const ops = Object.values(arb.ops).filter(o => !o.nurErtrag).sort((a, b) => String(b.start || '').localeCompare(String(a.start || ''))).map(({ lk, cov, covReq, v, nurErtrag, ...o }) => {
     if (cov && cov.mod === o.modified && cov.ha) o.haB = cov.ha; if (grenzen[o.id]) o.grzB = 1; return o; });
   const gz = {}; for (const o of ops) if (grenzen[o.id]) gz[o.id] = grenzen[o.id].grz;
   try { await dbxUpload(cfg.grenzenPath || '/jd-grenzen.json', JSON.stringify({ format: 'jd-grenzen', v: 1, dienst: VERSION, stand: new Date().toISOString(), info: 'Virtuelle Feldgrenzen aus den Bedeckungskarten (GeoJSON-MultiPolygon-Koordinaten je Arbeitsgang)', ops: gz })); } catch (e) { log('Virtuelle Feldgrenzen hochladen: ' + e.message); }
@@ -1604,6 +1613,9 @@ ${st.arbOk ? `${st.arbOk.ops} Arbeitsgänge seit ${esc(st.arbOk.seit)} · ${Obje
 ${st.jd && !hasAg2() ? '<p class="no">Die bestehende John-Deere-Anmeldung enthält die Berechtigung für Arbeitsdaten noch nicht – bitte unten in Schritt 2 neu anmelden. Mandanten und Felder laufen bis dahin normal weiter.</p>' : ''}
 <form method="post" action="/arbeiten"><div class="row"><div><label>Arbeitsdaten abholen</label><select name="arbeitenAktiv"><option value="1" ${cfg.arbeitenAktiv ? 'selected' : ''}>Ja</option><option value="0" ${cfg.arbeitenAktiv ? '' : 'selected'}>Nein</option></select></div>
 <div><label>Ab Datum (früher = längere Historie, erster Lauf dauert länger)</label><input name="arbeitenSeit" type="date" value="${esc(cfg.arbeitenSeit)}"></div></div>
+<h3 style="margin:14px 0 4px;font-size:15px">Ertragskarten</h3><p><small>Nur für die angekreuzten Kunden. Für sie werden Ernten auch vor dem obigen Datum geholt (nur für Ertragskarten, erscheinen nicht im Bericht der IM-Verwaltung). Jede Ernte wird einmal bei John Deere exportiert – viele Jahre brauchen mehrere Abgleiche. ${ertragKunden().size ? `Ausgewählt: ${ertragKunden().size} Kunde${ertragKunden().size > 1 ? 'n' : ''}` : '<span class="no">Kein Kunde ausgewählt – keine Ertragskarten.</span>'}</small></p>
+<div class="row"><div><label>Ernten für Ertragskarten ab</label><input name="ertragSeit" type="date" value="${esc(ertragSeit())}"></div><div><label>Kunden suchen</label><input type="search" placeholder="Name …" oninput="const q=this.value.toLowerCase();document.querySelectorAll('.ykk').forEach(l=>l.hidden=q&&!l.textContent.toLowerCase().includes(q))"></div></div>
+<div style="max-height:260px;overflow:auto;border:1px solid #ddd;border-radius:6px;padding:6px 8px;columns:2 220px">${(st.kundenListe || []).map(c => `<label class="ykk" style="display:block;font-weight:normal;margin:2px 0"><input type="checkbox" name="ertragKunden" value="${esc(c.id)}" ${ertragKunden().has(c.id) ? 'checked' : ''} style="width:auto;margin-right:6px">${esc(c.name)}</label>`).join('') || '<small>Kundenliste erscheint nach dem nächsten Abgleich.</small>'}</div>
 <button>Speichern</button> <button class="sec" name="neu" value="1">Speichern und komplett neu laden</button></form></section>
 <section><h2>Hochladen aus IM-Applikationskarten</h2><p><small>Applikationskarten und Feldgrenzen, die in IM-Applikationskarten «An Operations Center senden» bzw. «In MyJohnDeere speichern» werden, legt die App im Dropbox-Ordner <b>${esc(uploadDir())}</b> ab. jd-sync prüft jede Minute und lädt sie mit der Files- bzw. Boundaries-Schnittstelle von John Deere in die Organisation hoch. Ebenso: neue Felder anlegen (bei bestehendem Kunden und Betrieb) und Feldgrenzen aktiv setzen, archivieren oder wiederherstellen. Danach werden nur Kunden, Felder und Grenzen neu abgeglichen.</small></p><p><small>Ertragskarten (Raster 5 m je Ernte, aus den Bedeckungskarten): ${st.ertragIndex != null ? st.ertragIndex + ' Ernten' : 'noch keine'} im Dropbox-Ordner <b>${esc(ertragDir())}</b>.</small></p>
 ${cfg.schreibrechte === false ? '<p class="no">Schreibrechte sind ausgeschaltet (Schritt 1).</p>' : st.jd ? `<p>${ok(hasFiles(), 'Berechtigung Dateien hochladen (files)')}<br>${ok(hasAg3(), 'Berechtigung Felder und Feldgrenzen (ag3)')}</p>${!hasFiles() || !hasAg3() ? '<p class="no">Die bestehende Anmeldung enthält diese Rechte noch nicht – bitte unten in Schritt 2 neu bei John Deere anmelden. Alles andere läuft bis dahin normal weiter.</p>' : ''}` : ''}
@@ -1664,6 +1676,8 @@ http.createServer(async (req, res) => {
       const f = await body(req);
       cfg.arbeitenAktiv = f.get('arbeitenAktiv') !== '0';
       if (/^\d{4}-\d{2}-\d{2}$/.test(f.get('arbeitenSeit') || '')) cfg.arbeitenSeit = f.get('arbeitenSeit');
+      if (/^\d{4}-\d{2}-\d{2}$/.test(f.get('ertragSeit') || '')) cfg.ertragSeit = f.get('ertragSeit');
+      if (st.kundenListe) cfg.ertragKunden = f.getAll('ertragKunden');
       saveCfg();
       if (f.get('neu')) { try { fs.unlinkSync(file('arbeiten.json')); } catch { } delete st.arbDateParams; saveSt(); log('Arbeitsdaten: Vorrat gelöscht, wird beim nächsten Abgleich neu geladen'); }
       return send(res, 200, page(f.get('neu') ? 'Gespeichert – Arbeitsdaten werden beim nächsten Abgleich komplett neu geladen («Jetzt abgleichen»).' : 'Gespeichert.'));
