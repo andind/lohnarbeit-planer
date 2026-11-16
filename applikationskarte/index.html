@@ -158,7 +158,7 @@ dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:upper
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.25 · by Andreas Indermühle</span></div>
+    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.26 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -228,6 +228,21 @@ dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:upper
     <div class="hint rx-only">Feldgrenze aus dem Operations Center: Feld exportieren als Shapefile (ZIP) und hier laden. Zonen werden automatisch auf die Feldgrenze zugeschnitten.</div>
     <div class="hint">«Parzellen anklicken»: eine oder mehrere Parzellen der amtlichen Vermessung wählen und als Feldgrenze übernehmen. Mit «Nur Acker/Wiese/Weide» werden Wege, Gebäude, Wald und Gewässer gemäss Bodenbedeckung automatisch weggeschnitten. Ist schon eine Feldgrenze da, werden sie dazugefügt. Wege oder Waldränder danach mit «− Aussparung» oder «Bearbeiten» anpassen.</div>
     <div class="hint grenze-only" hidden>Im Operations Center unter <b>Dateien</b> hochladen und als <b>Grenze</b> importieren. Kunde, Betrieb und Feld sind als CLIENT, FARM und FIELD in der Datei – beim Import zuordnen.</div>
+  </section>
+
+  <section class="rx-only">
+    <h2>Arbeit und Produkt</h2>
+    <div class="seg" id="segArbeit">
+      <button data-a="Saat">Saat</button><button data-a="Duengung">Düngung</button><button data-a="PS">Pflanzenschutz</button>
+    </div>
+    <div class="grid2">
+      <label class="f">Produkt<input id="iProdukt" placeholder="z. B. Ammonsalpeter 27 %"></label>
+      <label class="f">Einheit<select id="iEinheit"></select></label>
+    </div>
+    <div class="grid2">
+      <label class="f">Grundrate (Rest des Feldes)<input id="iGrund" type="number" step="any" min="0"></label>
+      <div></div>
+    </div>
   </section>
 
   <section>
@@ -317,17 +332,6 @@ dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:upper
 
   <section class="rx-only">
     <h2>Zonen <button id="bZonenVis" class="ghost" title="Taste Z">Zonen ausblenden</button></h2>
-    <div class="seg" id="segArbeit">
-      <button data-a="Saat">Saat</button><button data-a="Duengung">Düngung</button><button data-a="PS">Pflanzenschutz</button>
-    </div>
-    <div class="grid2">
-      <label class="f">Produkt<input id="iProdukt" placeholder="z. B. Ammonsalpeter 27 %"></label>
-      <label class="f">Einheit<select id="iEinheit"></select></label>
-    </div>
-    <div class="grid2">
-      <label class="f">Grundrate (Rest des Feldes)<input id="iGrund" type="number" step="any" min="0"></label>
-      <div></div>
-    </div>
     <div class="row">
       <button id="bZonePoly" class="pri">+ Zone zeichnen</button>
       <button id="bZoneRect">+ Rechteck</button>
@@ -419,7 +423,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.25";
+const VERSION = "1.26";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
