@@ -125,6 +125,27 @@ aside section.collapsed{padding-block:11px}
 .parzctl .z{display:block;padding:0;border:0;background:none;font-size:11.5px;color:var(--warn)}
 .leaflet-container.picking{cursor:pointer}
 .parztip{font:600 12px var(--body)}
+header.top .fname{flex-basis:100%;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header.top .fname b{color:var(--fg);font-weight:600}
+header.top .fname .chg{color:var(--warn)}
+dialog{border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--fg);padding:16px;width:min(460px,calc(100vw - 32px));box-shadow:0 8px 30px rgba(0,0,0,.35)}
+dialog::backdrop{background:rgba(0,0,0,.35)}
+dialog form{display:flex;flex-direction:column;gap:10px}
+dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:uppercase;margin:0}
+.dbtns{justify-content:flex-end}
+.olist{display:flex;flex-direction:column;gap:4px;max-height:min(420px,55vh);overflow-y:auto}
+.oit{display:grid;grid-template-columns:1fr auto;gap:0 6px;align-items:center;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
+.oit.cur{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.oit > button.o{border:0;background:transparent;text-align:left;padding:6px 8px;display:flex;flex-direction:column;min-width:0}
+.oit .n{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.oit .m{font-size:12px;color:var(--muted)}
+.oit .del.ask{color:var(--warn);font-weight:600}
+.combo{position:relative;min-width:0}
+.combo-sug{position:absolute;left:0;right:0;top:calc(100% + 2px);z-index:900;background:var(--panel);border:1px solid var(--line);border-radius:4px;box-shadow:0 4px 14px rgba(0,0,0,.25);max-height:300px;overflow-y:auto;min-width:220px}
+.combo-sug button{display:flex;justify-content:space-between;gap:8px;width:100%;text-align:left;border:0;border-radius:0;background:transparent;padding:7px 10px;font-size:14px}
+.combo-sug button span{color:var(--muted);font-size:12px;white-space:nowrap}
+.combo-sug button.on,.combo-sug button:hover{background:var(--accent-soft)}
+.combo-sug .none{padding:8px 10px;color:var(--muted);font-size:13px}
 @media (max-width:760px){
   .app{display:flex;flex-direction:column;height:auto}
   .mapwrap{height:58vh}
@@ -137,12 +158,14 @@ aside section.collapsed{padding-block:11px}
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.23 · by Andreas Indermühle</span></div>
+    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.24 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
-      <button id="bSave" title="Im Browser speichern">Speichern</button>
+      <button id="bOpen" title="Gespeicherte Karte öffnen">Laden …</button>
+      <button id="bSave" title="Karte speichern (mit Dropbox auf allen Geräten)">Speichern</button>
     </div>
+    <div class="fname" id="fileName"></div>
   </header>
   <div class="seg modeseg" id="segModus" style="grid-template-columns:1fr 1fr">
     <button data-m="rx">Applikationskarte</button><button data-m="grenze">Nur Feldgrenze</button>
@@ -163,48 +186,21 @@ aside section.collapsed{padding-block:11px}
   </section>
 
   <section>
-    <h2>Gespeicherte Karten <span id="projHead" class="status"></span></h2>
-    <div class="status" id="projCloud"></div>
-    <div class="row">
-      <select id="projSel" style="flex:1"><option value="">– Karte öffnen –</option></select>
-      <button id="bDelProj" class="ghost" title="Gewählte gespeicherte Karte löschen">Löschen</button>
-    </div>
-    <div class="row">
-      <button id="bJsonOut">Als Datei sichern (.json)</button>
-      <button id="bJsonIn">Datei laden</button>
-      <input type="file" id="fJson" accept=".json,application/json" hidden>
-    </div>
-    <div id="delConfirm" class="row" hidden><span class="status">Wirklich löschen?</span><button id="bDelYes" class="pri">Ja, löschen</button><button id="bDelNo">Nein</button></div>
-  </section>
-
-  <section>
-    <h2 id="hAuftrag">Auftrag</h2>
+    <h2 id="hAuftrag">Kunde und Feld</h2>
     <div class="grid2">
-      <label class="f">Kunde<input id="iKunde" placeholder="z. B. Andreas Indermühle"></label>
-      <label class="f">Betrieb<input id="iBetrieb" placeholder="optional"></label>
-      <label class="f">Feld<input id="iFeld" placeholder="z. B. Hofmatt"></label>
-    </div>
-    <datalist id="dlKunden"></datalist><datalist id="dlBetriebe"></datalist><datalist id="dlFelder"></datalist>
-    <div id="jdFeldRow" hidden style="display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid var(--line);border-radius:4px;background:var(--bg)">
-      <div class="status" id="jdFeldInfo"></div>
-      <div class="row"><select id="jdGrzSel" style="flex:1;min-width:0" aria-label="Feldgrenze aus MyJohnDeere"></select><button id="bJdGrz">Als Feldgrenze laden</button></div>
-      <div class="status" id="jdGrzNote"></div>
-    </div>
-    <div class="seg rx-only" id="segArbeit">
-      <button data-a="Saat">Saat</button><button data-a="Duengung">Düngung</button><button data-a="PS">Pflanzenschutz</button>
-    </div>
-    <div class="grid2 rx-only">
-      <label class="f">Produkt<input id="iProdukt" placeholder="z. B. Ammonsalpeter 27 %"></label>
-      <label class="f">Einheit<select id="iEinheit"></select></label>
-    </div>
-    <div class="grid2 rx-only">
-      <label class="f">Grundrate (Rest des Feldes)<input id="iGrund" type="number" step="any" min="0"></label>
-      <div></div>
+      <label class="f">Kunde<input id="iKunde" placeholder="Kunde wählen oder eingeben" autocomplete="off" spellcheck="false"></label>
+      <label class="f">Betrieb<input id="iBetrieb" placeholder="optional" autocomplete="off" spellcheck="false"></label>
+      <label class="f">Feld<input id="iFeld" placeholder="Feld wählen oder eingeben" autocomplete="off" spellcheck="false"></label>
     </div>
   </section>
 
   <section>
     <h2>Feldgrenze <span id="fieldHa" class="status"></span></h2>
+    <div id="jdFeldRow" hidden style="display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid var(--line);border-radius:4px;background:var(--bg)">
+      <div class="status" id="jdFeldInfo"></div>
+      <div class="row"><select id="jdGrzSel" style="flex:1;min-width:0" aria-label="Feldgrenze aus MyJohnDeere"></select><button id="bJdGrz">Als Feldgrenze laden</button></div>
+      <div class="status" id="jdGrzNote"></div>
+    </div>
     <div class="row">
       <button id="bFieldDraw">Zeichnen</button>
       <button id="bFieldLoad">Laden (Shapefile/GeoJSON)</button>
@@ -321,6 +317,17 @@ aside section.collapsed{padding-block:11px}
 
   <section class="rx-only">
     <h2>Zonen <button id="bZonenVis" class="ghost" title="Taste Z">Zonen ausblenden</button></h2>
+    <div class="seg" id="segArbeit">
+      <button data-a="Saat">Saat</button><button data-a="Duengung">Düngung</button><button data-a="PS">Pflanzenschutz</button>
+    </div>
+    <div class="grid2">
+      <label class="f">Produkt<input id="iProdukt" placeholder="z. B. Ammonsalpeter 27 %"></label>
+      <label class="f">Einheit<select id="iEinheit"></select></label>
+    </div>
+    <div class="grid2">
+      <label class="f">Grundrate (Rest des Feldes)<input id="iGrund" type="number" step="any" min="0"></label>
+      <div></div>
+    </div>
     <div class="row">
       <button id="bZonePoly" class="pri">+ Zone zeichnen</button>
       <button id="bZoneRect">+ Rechteck</button>
@@ -363,6 +370,24 @@ aside section.collapsed{padding-block:11px}
 </div>
 </div>
 <div class="toast" id="toast"></div>
+<dialog id="dlgAsk"><form method="dialog">
+  <h3 id="askT"></h3>
+  <div class="hint" id="askX"></div>
+  <label class="f" id="askNameRow">Name der Karte<input id="askName" maxlength="80" autocomplete="off"></label>
+  <div class="row dbtns" id="askBtns"></div>
+</form></dialog>
+<dialog id="dlgOpen"><form method="dialog">
+  <h3>Karte laden</h3>
+  <input id="openQ" placeholder="Suchen: Name, Kunde, Feld …" autocomplete="off" spellcheck="false">
+  <div class="olist" id="openList"></div>
+  <div class="status" id="projCloud"></div>
+  <div class="row dbtns">
+    <button type="button" id="bJsonIn">Aus Datei laden (.json)</button>
+    <button type="button" id="bJsonOut">Aktuelle Karte als Datei sichern</button>
+    <input type="file" id="fJson" accept=".json,application/json" hidden>
+    <button value="close" class="ghost" style="margin-left:auto">Schliessen</button>
+  </div>
+</form></dialog>
 
 <script>
 /* ---------- Als App installieren (PWA) ---------- */
@@ -394,7 +419,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.23";
+const VERSION = "1.24";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -402,7 +427,7 @@ const $ = id => document.getElementById(id);
 
 /* ---------- Zustand ---------- */
 const BETRIEB_STD = "Indermuehle Andreas";   // Vorgabe für das Feld «Betrieb»
-function blank(){ return { id:null, kunde:"", feld:"", arbeit:"Duengung", produkt:"", einheit:"kg/ha", grundrate:DEF_RATE.Duengung, field:null, zones:[], nextNo:1, vgShow:false, vgBreite:12, vgRunden:2, modus:"rx", betrieb:BETRIEB_STD }; }
+function blank(){ return { id:null, kunde:"", feld:"", arbeit:"Duengung", produkt:"", einheit:"kg/ha", grundrate:DEF_RATE.Duengung, field:null, zones:[], nextNo:1, vgShow:false, vgBreite:12, vgRunden:2, modus:"rx", betrieb:BETRIEB_STD, name:"" }; }
 let S = blank();
 let selId = null;
 let drawMode = null;   // 'field' | 'zone'
@@ -654,7 +679,7 @@ function render(){
   fieldInfoUpdate();
 
   $("koeRow").hidden = unit!=="Kö/m²";
-  saveDraft();
+  saveDraft(); fileNameUI();
 }
 
 /* ---------- Auftrag ---------- */
@@ -703,15 +728,12 @@ document.querySelectorAll("#segArbeit button").forEach(b => b.addEventListener("
   if (!S.zones.length) S.grundrate = DEF_RATE[S.arbeit];
   syncForm(); render();
 }));
-$("iKunde").addEventListener("input", e => { S.kunde = e.target.value; saveDraft(); });
-$("iFeld").addEventListener("input", e => { S.feld = e.target.value; saveDraft(); });
-$("iBetrieb").addEventListener("input", e => { S.betrieb = e.target.value; saveDraft(); });
 function applyModus(){
   const g = S.modus==="grenze";
   document.body.classList.toggle("grenze", g);
   document.querySelectorAll("#segModus button").forEach(b => b.classList.toggle("on", b.dataset.m===S.modus));
   document.querySelectorAll(".grenze-only").forEach(el => el.hidden = !g);
-  $("hAuftrag").textContent = g ? "Feld" : "Auftrag";
+  if (fieldLayer) fieldLayer.setStyle(fieldStyle());
   $("bFieldExport").classList.toggle("pri", g);
   zoneVis();
 }
@@ -850,12 +872,14 @@ $("bZonePoly").addEventListener("click", () => startDraw("zone","Polygon"));
 $("bZoneRect").addEventListener("click", () => startDraw("zone","Rectangle"));
 
 /* ---------- Feldgrenze ---------- */
+// Im Modus «Nur Feldgrenze» fehlt die farbige Vorschau der Raten → Fläche selbst füllen, sonst ist die weisse Linie auf hellem Grund kaum sichtbar
+function fieldStyle(){ return S.modus==="grenze" ? { color:"#ffffff", weight:3, fill:true, fillColor:"#41b6c4", fillOpacity:.55 } : { color:"#ffffff", weight:3, fill:false }; }
 function setField(f, fit=true){
   s2Reset();
   if (fieldLayer){ map.removeLayer(fieldLayer); fieldLayer=null; }
   if (!f){ S.field=null; render(); return; }
   S.field = { type:"Feature", properties:{}, geometry:f.geometry };
-  fieldLayer = L.geoJSON(S.field, { style:{ color:"#ffffff", weight:3, fill:false }, interactive:false }).addTo(map).getLayers()[0];
+  fieldLayer = L.geoJSON(S.field, { style:fieldStyle(), interactive:false }).addTo(map).getLayers()[0];
   fieldLayer.on("pm:edit", () => { S.field.geometry = fieldLayer.toGeoJSON().geometry; render(); });
   if (fit) map.fitBounds(fieldLayer.getBounds(), { padding:[30,30] });
   render();
@@ -954,38 +978,6 @@ const LS_P = "appkarte.projekte", LS_D = "appkarte.app.entwurf";   // eigener En
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch(e){ return null; } };
 const lsSet = (k,v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch(e){ return false; } };
 function saveDraft(){ lsSet(LS_D, S); }
-function projName(s){ return [s.feld||"Ohne Feldname", s.modus==="grenze" ? "Feldgrenze" : s.produkt||({Saat:"Saat",Duengung:"Düngung",PS:"Pflanzenschutz"})[s.arbeit], s.kunde].filter(Boolean).join(" · "); }
-function projAll(){ return lsGet(LS_P) || []; }
-function fillProj(){
-  const list = projAll().filter(p => !p.del && p.state); const sel = $("projSel");
-  $("projHead").textContent = list.length ? list.length + " Karten" : "";
-  sel.innerHTML = `<option value="">– Karte öffnen (${list.length}) –</option>`;
-  list.sort((a,b)=>b.saved.localeCompare(a.saved)).forEach(p => {
-    const o=document.createElement("option"); o.value=p.id;
-    o.textContent = `${projName(p.state)} – ${new Date(p.saved).toLocaleDateString("de-CH")}`; sel.appendChild(o);
-  });
-  if (S.id && list.some(p=>p.id===S.id)) sel.value = S.id;
-}
-$("bSave").addEventListener("click", () => {
-  if (!S.id) S.id = "p"+Date.now().toString(36);
-  const list = projAll().filter(p=>p.id!==S.id);
-  list.push({ id:S.id, saved:new Date().toISOString(), state:S });
-  if (lsSet(LS_P, list)){ fillProj(); toast("Gespeichert: "+projName(S) + (window.projSync && DBX.hasSession() ? " – wird in Dropbox abgelegt" : "")); if (window.projSync) projSync(false); }
-  else toast("Speichern im Browser nicht möglich. Bitte «Als Datei sichern» verwenden.");
-});
-$("projSel").addEventListener("change", e => {
-  const p = projAll().find(p=>p.id===e.target.value && !p.del && p.state); if (p){ loadState(p.state); toast("Geöffnet: "+projName(p.state)); }
-});
-$("bDelProj").addEventListener("click", () => { if (!$("projSel").value){ toast("Zuerst eine gespeicherte Karte wählen."); return; } $("delConfirm").hidden = false; });
-$("bDelNo").addEventListener("click", () => $("delConfirm").hidden = true);
-$("bDelYes").addEventListener("click", () => {
-  const id = $("projSel").value;
-  // Löschvermerk statt Entfernen, damit das Löschen auch auf anderen Geräten (über Dropbox) ankommt
-  lsSet(LS_P, projAll().filter(p=>p.id!==id).concat([{ id, saved:new Date().toISOString(), del:true }]));
-  if (S.id===id) S.id=null; $("delConfirm").hidden = true; fillProj(); toast("Gespeicherte Karte gelöscht");
-  if (window.projSync) projSync(false);
-});
-$("bNeu").addEventListener("click", () => { const keep = { modus:S.modus, betrieb:S.betrieb, vgShow:S.vgShow, vgBreite:S.vgBreite, vgRunden:S.vgRunden, kunde:S.kunde, arbeit:S.arbeit, einheit:S.einheit, grundrate:S.grundrate, produkt:S.produkt }; loadState(Object.assign(blank(), keep), false); fillProj(); toast("Neue Karte – Auftragsdaten übernommen"); });
 
 function download(name, blob){
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
@@ -1022,9 +1014,112 @@ async function saveToFolder(files, id){
   return isRx ? dh.name : dh.name + "/Rx";
 }
 function fileBase(){
-  const raw = `RX_${S.feld||"Feld"}_${S.produkt||S.arbeit}`;
+  const nm = (S.name || "").trim(), raw = nm ? (/^rx[\s_-]/i.test(nm) ? nm : "RX_" + nm) : `RX_${S.feld||"Feld"}_${S.produkt||S.arbeit}`;
   return ascii(raw).replace(/[^A-Za-z0-9_-]+/g,"_").replace(/_+/g,"_").replace(/_$/,"").slice(0,48);
 }
+const ARB_NAME = { Saat:"Saat", Duengung:"Düngung", PS:"Pflanzenschutz" };
+function projName(s){ return [s.feld||"Ohne Feldname", s.modus==="grenze" ? "Feldgrenze" : s.produkt||ARB_NAME[s.arbeit], s.kunde].filter(Boolean).join(" · "); }
+function defaultName(){ return [S.feld || "Feld", S.modus==="grenze" ? "Feldgrenze" : (S.produkt || ARB_NAME[S.arbeit])].join(" "); }
+function nameOf(s){ return (s.name || "").trim() || projName(s); }
+function projAll(){ return lsGet(LS_P) || []; }
+/* Geändert seit dem letzten Speichern? (Vergleich mit dem gespeicherten Stand) */
+const sigOf = s => JSON.stringify(Object.keys(s).filter(k => k!=="nextNo").sort().map(k => [k, s[k]]));
+let savedSig = null;
+function hasContent(){ return !!(S.field || S.zones.length); }
+function isDirty(){ return hasContent() && (!S.id || sigOf(S) !== savedSig); }
+function savedSigInit(){ const p = S.id && projAll().find(p => p.id===S.id && !p.del && p.state); savedSig = p ? sigOf(Object.assign(blank(), p.state)) : null; if (S.id && !p) S.id = null; }
+function fileNameUI(){
+  const el = $("fileName"); if (!el) return;
+  el.innerHTML = S.id ? `Karte: <b>${jdEsc(nameOf(S))}</b>${isDirty() ? ' <span class="chg">· nicht gespeicherte Änderungen</span>' : ""}`
+    : `<b>${jdEsc((S.name || "").trim() || "Neue Karte")}</b>${hasContent() ? ' <span class="chg">· noch nicht gespeichert</span>' : ""}`;
+  el.title = el.textContent;
+}
+function fillProj(){ fileNameUI(); if ($("dlgOpen").open) openList(); }
+/* Allgemeine Rückfrage mit optionalem Namen; liefert { v, name } (v = "cancel" bei Esc) */
+function ask(o){
+  return new Promise(res => {
+    const d = $("dlgAsk");
+    $("askT").textContent = o.title; $("askX").innerHTML = o.text || ""; $("askX").hidden = !o.text;
+    $("askNameRow").hidden = o.name==null; $("askName").value = o.name || "";
+    $("askBtns").innerHTML = o.buttons.map(b => `<button value="${b.v}" class="${b.pri ? "pri" : b.ghost ? "ghost" : ""}">${b.l}</button>`).join("");
+    d.returnValue = "";
+    d.addEventListener("close", () => res({ v:d.returnValue || "cancel", name:($("askName").value || "").trim() }), { once:true });
+    d.showModal();
+    if (o.name!=null){ $("askName").focus(); $("askName").select(); } else d.querySelector("#askBtns button").focus();
+  });
+}
+function doSave(name, copy){
+  if (!S.id || copy) S.id = "p"+Date.now().toString(36);
+  S.name = (name || "").trim() || defaultName();
+  const list = projAll().filter(p=>p.id!==S.id);
+  list.push({ id:S.id, saved:new Date().toISOString(), state:S });
+  if (lsSet(LS_P, list)){ savedSig = sigOf(S); fillProj(); render(); toast("Gespeichert: " + S.name + (DBX.hasSession() ? " – wird in Dropbox abgelegt" : "")); projSync(false); return true; }
+  toast("Speichern im Browser nicht möglich (Speicher voll). Bitte «Laden … › Aktuelle Karte als Datei sichern» verwenden."); return false;
+}
+async function saveDialog(){
+  stopEdit();
+  const r = await ask({ title:"Karte speichern", name:S.name || defaultName(),
+    text:DBX.hasSession() ? "Wird über Dropbox auf allen Geräten abgelegt." : "Wird in diesem Browser gespeichert (für alle Geräte: bei MyJohnDeere mit Dropbox anmelden).",
+    buttons:[{ v:"save", l:"Speichern", pri:1 }, ...(S.id ? [{ v:"copy", l:"Als neue Karte" }] : []), { v:"cancel", l:"Abbrechen", ghost:1 }] });
+  if (r.v==="save" || r.v==="copy") doSave(r.name, r.v==="copy");
+}
+// Vor dem Verwerfen (Neu, Laden, Wechsel von Kunde/Feld): true = weiter, false = abgebrochen
+async function askKeep(why){
+  if (!isDirty()) return true;
+  const r = await ask({ title:"Aktuelle Karte speichern?", name:S.name || defaultName(),
+    text:`${why} Die bisherigen Eingaben (Feldgrenze, Zonen) werden dabei geleert.`,
+    buttons:[{ v:"save", l:"Speichern", pri:1 }, { v:"no", l:"Nicht speichern" }, { v:"cancel", l:"Abbrechen", ghost:1 }] });
+  if (r.v==="cancel") return false;
+  if (r.v==="save") return doSave(r.name);
+  return true;
+}
+// Vor Export/Senden: speichern? (Name bestimmt auch den Dateinamen); false = abgebrochen
+async function askBeforeOut(what){
+  if (S.id && !isDirty()) return true;
+  const r = await ask({ title:"Applikationskarte speichern?", name:S.name || defaultName(),
+    text:`Vor dem ${what} die Karte speichern? Der Name wird auch für den Dateinamen verwendet.`,
+    buttons:[{ v:"save", l:"Speichern und weiter", pri:1 }, { v:"no", l:"Ohne Speichern weiter" }, { v:"cancel", l:"Abbrechen", ghost:1 }] });
+  if (r.v==="cancel") return false;
+  if (r.v==="save") return doSave(r.name);
+  S.name = r.name || S.name; saveDraft(); fileNameUI(); return true;
+}
+function resetKeep(extra){
+  s2Reset();
+  const keep = { modus:S.modus, betrieb:S.betrieb, vgShow:S.vgShow, vgBreite:S.vgBreite, vgRunden:S.vgRunden, kunde:S.kunde, feld:"", arbeit:S.arbeit, einheit:S.einheit, grundrate:S.grundrate, produkt:S.produkt };
+  loadState(Object.assign(blank(), keep, extra || {}), false); savedSig = null; fillProj();
+}
+$("bSave").addEventListener("click", saveDialog);
+$("bNeu").addEventListener("click", async () => { if (!(await askKeep("Es wird eine neue Karte begonnen."))) return; resetKeep(); toast("Neue Karte – Kunde und Auftragsdaten übernommen"); });
+/* Laden-Fenster */
+let openDel = null;
+function openList(){
+  const q = jdFold($("openQ").value), toks = q.split(" ").filter(Boolean);
+  const list = projAll().filter(p => !p.del && p.state).sort((a,b) => b.saved.localeCompare(a.saved))
+    .filter(p => !toks.length || toks.every(t => jdFold([nameOf(p.state), p.state.kunde, p.state.feld, p.state.produkt].join(" ")).includes(t)));
+  $("openList").innerHTML = list.map(p => `<div class="oit${p.id===S.id ? " cur" : ""}"><button type="button" class="o" data-id="${p.id}"><span class="n">${jdEsc(nameOf(p.state))}</span>
+    <span class="m">${jdEsc([p.state.kunde, p.state.feld, p.state.modus==="grenze" ? "Feldgrenze" : (p.state.zones||[]).length + " Zonen", new Date(p.saved).toLocaleString("de-CH", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" })].filter(Boolean).join(" · "))}</span></button>
+    <button type="button" class="ghost del${openDel===p.id ? " ask" : ""}" data-del="${p.id}" title="Gespeicherte Karte löschen">${openDel===p.id ? "Löschen?" : "✕"}</button></div>`).join("")
+    || `<div class="empty">${toks.length ? "Keine passende Karte." : "Noch keine Karten gespeichert."}</div>`;
+}
+$("bOpen").addEventListener("click", () => { stopEdit(); openDel = null; $("openQ").value = ""; openList(); projCloudUI(); $("dlgOpen").showModal(); $("openQ").focus(); projSync(false); });
+$("openQ").addEventListener("input", () => { openDel = null; openList(); });
+$("openQ").addEventListener("keydown", e => { if (e.key==="Enter"){ e.preventDefault(); const b = $("openList").querySelector("button.o"); if (b) b.click(); } });
+$("openList").addEventListener("click", async e => {
+  const del = e.target.closest("[data-del]"), o = e.target.closest("button.o");
+  if (del){
+    const id = del.dataset.del;
+    if (openDel!==id){ openDel = id; openList(); return; }
+    // Löschvermerk statt Entfernen, damit das Löschen auch auf anderen Geräten (über Dropbox) ankommt
+    lsSet(LS_P, projAll().filter(p=>p.id!==id).concat([{ id, saved:new Date().toISOString(), del:true }]));
+    if (S.id===id){ S.id = null; savedSig = null; }
+    openDel = null; fillProj(); toast("Gespeicherte Karte gelöscht"); projSync(false); return;
+  }
+  if (!o) return;
+  const p = projAll().find(p=>p.id===o.dataset.id && !p.del && p.state); if (!p) return;
+  $("dlgOpen").close();
+  if (p.id!==S.id && !(await askKeep(`Es wird «${nameOf(p.state)}» geöffnet.`))) return;
+  s2Reset(); loadState(p.state); savedSig = sigOf(Object.assign(blank(), p.state)); fillProj(); toast("Geöffnet: " + nameOf(p.state));
+});
 $("bJsonOut").addEventListener("click", async () => {
   const where = await saveAs(fileBase().replace(/^RX_/,"Karte_")+".json", async () => new Blob([JSON.stringify({ app:"Applikationskarte", version:VERSION, state:S }, null, 1)], { type:"application/json" }),
     "appkarte-json", "IM-Applikationskarten (JSON)", "application/json", ".json");
@@ -1033,7 +1128,10 @@ $("bJsonOut").addEventListener("click", async () => {
 $("bJsonIn").addEventListener("click", () => $("fJson").click());
 $("fJson").addEventListener("change", async e => {
   const f = e.target.files[0]; e.target.value=""; if(!f) return;
-  try { const j = JSON.parse(await f.text()); loadState(j.state || j); toast("Karte geladen"); }
+  let st; try { const j = JSON.parse(await f.text()); st = j.state || j; if (!st || typeof st!=="object" || !("zones" in st || "field" in st)) throw 0; } catch(err){ toast("Diese Datei ist keine gesicherte Applikationskarte."); return; }
+  $("dlgOpen").close();
+  if (!(await askKeep("Es wird eine Karte aus einer Datei geöffnet."))) return;
+  try { s2Reset(); st.id = null; loadState(st); savedSig = null; fillProj(); toast("Karte geladen – mit «Speichern» übernehmen"); }
   catch(err){ toast("Diese Datei ist keine gesicherte Applikationskarte."); }
 });
 
@@ -1138,6 +1236,8 @@ function rxFiles(){
   return { base, files, parts };
 }
 async function exportRx(usb){
+  if (!(lastCalc || compute()).base && !S.zones.length){ rxFiles(); return; }
+  if (!(await askBeforeOut(usb ? "Export für den USB-Stick" : "Export"))) return;
   const rx = rxFiles(); if (!rx) return;
   const { base, files, parts } = rx;
   // USB direkt in den Ordner Rx schreiben (ohne ZIP), wo der Browser das kann
@@ -1995,19 +2095,69 @@ function jdFieldOf(name){
   const hits = jdFields(c ? c.id : null, S.betrieb).filter(f => jdNorm(f.name)===n);
   return hits.length===1 ? hits[0] : (hits.length>1 && !c ? null : hits[0] || null);
 }
-function jdFill(){
-  const has = !!(JD.stamm && JD.stamm.fields);
-  ["iKunde","iBetrieb","iFeld"].forEach(id => { if (has) $(id).setAttribute("list", { iKunde:"dlKunden", iBetrieb:"dlBetriebe", iFeld:"dlFelder" }[id]); else $(id).removeAttribute("list"); });
-  if (!has) return;
-  const opt = (v, l) => `<option value="${jdEsc(v)}"${l ? ` label="${jdEsc(l)}"` : ""}></option>`;
-  const cs = jdClients().slice().sort((a,b) => a.name.localeCompare(b.name, "de"));
-  $("dlKunden").innerHTML = cs.map(c => opt(c.name, c.mandant ? "Mandant " + c.mandant : "")).join("");
-  const c = jdClientOf(S.kunde);
-  const farms = ((JD.stamm.farms) || []).filter(f => !c || f.client===c.id).sort((a,b) => a.name.localeCompare(b.name, "de"));
-  $("dlBetriebe").innerHTML = farms.map(f => opt(f.name)).join("");
-  const cName = id => (jdClients().find(x => x.id===id) || {}).name || "";
-  $("dlFelder").innerHTML = jdFields(c ? c.id : null, S.betrieb).slice().sort((a,b) => a.name.localeCompare(b.name, "de"))
-    .map(f => opt(f.name, [f.flaeche!=null ? fmt(f.flaeche,2) + " ha" : "", jdFarmName(f.farm), c ? "" : cName(f.client)].filter(Boolean).join(" · "))).join("");
+function jdFill(){}   // seit v1.24 Auswahllisten (comboBind) statt Datalists – Einträge werden beim Öffnen frisch berechnet
+const jdFold = t => String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+/* Auswahlfeld wie in der IM-Verwaltung: öffnet beim Antippen, Eingabe schränkt laufend ein; freie Eingabe bleibt möglich */
+function comboBind(inp, items, commit){
+  const wrap = document.createElement("div"); wrap.className = "combo";
+  inp.parentNode.insertBefore(wrap, inp); wrap.appendChild(inp);
+  const box = document.createElement("div"); box.className = "combo-sug"; box.hidden = true; wrap.appendChild(box);
+  let hits = [], idx = -1, start = "";
+  const show = q => {
+    const all = items(); if (!all.length){ box.hidden = true; return; }
+    const toks = jdFold(q).split(" ").filter(Boolean);
+    hits = (toks.length ? all.filter(it => { const t = jdFold(it.v + " " + (it.sub || "")); return toks.every(k => t.includes(k)); }) : all).slice(0, 150);
+    idx = toks.length && hits.length ? 0 : hits.findIndex(it => jdFold(it.v)===jdFold(inp.value));
+    box.innerHTML = hits.map((it, i) => `<button type="button" tabindex="-1" data-i="${i}" class="${i===idx ? "on" : ""}">${jdEsc(it.v)}${it.sub ? `<span>${jdEsc(it.sub)}</span>` : ""}</button>`).join("") || '<div class="none">Kein Eintrag – Text wird so übernommen</div>';
+    box.hidden = false; const on = box.querySelector(".on"); if (on) on.scrollIntoView({ block:"nearest" });
+  };
+  const mark = () => { [...box.children].forEach((b, i) => b.classList.toggle("on", i===idx)); if (box.children[idx]) box.children[idx].scrollIntoView({ block:"nearest" }); };
+  const pick = it => { box.hidden = true; inp.value = it.v; start = it.v; commit(it.v, it); };
+  inp.addEventListener("focus", () => { start = inp.value; show(""); setTimeout(() => inp.select(), 0); });
+  inp.addEventListener("click", () => { if (box.hidden) show(""); });
+  inp.addEventListener("input", () => show(inp.value));
+  inp.addEventListener("blur", () => setTimeout(() => {
+    if (document.activeElement===inp) return;
+    box.hidden = true;
+    const t = inp.value.trim(); if (t===start.trim()) return;
+    const ex = items().find(it => jdFold(it.v)===jdFold(t));
+    if (ex) pick(ex); else { start = t; commit(t, null); }
+  }, 150));
+  inp.addEventListener("keydown", e => {
+    if (e.key==="ArrowDown" || e.key==="ArrowUp"){ if (box.hidden) show(""); else if (hits.length){ idx = (idx + (e.key==="ArrowDown" ? 1 : -1) + hits.length) % hits.length; mark(); } e.preventDefault(); }
+    else if (e.key==="Enter"){ e.preventDefault(); if (!box.hidden && hits[idx]) pick(hits[idx]); else inp.blur(); }
+    else if (e.key==="Tab"){ if (!box.hidden && hits[idx] && jdFold(inp.value) && jdFold(inp.value)!==jdFold(start)) pick(hits[idx]); }
+    else if (e.key==="Escape" && !box.hidden){ box.hidden = true; inp.value = start; e.preventDefault(); e.stopPropagation(); }
+  });
+  box.addEventListener("pointerdown", e => e.preventDefault());   // Fokus im Feld behalten
+  box.addEventListener("click", e => { const b = e.target.closest("[data-i]"); if (b) pick(hits[+b.dataset.i]); });
+  return { revert:v => { inp.value = v; start = v; } };
+}
+const byName = (a, b) => a.v.localeCompare(b.v, "de");
+const cbKunde = comboBind($("iKunde"), () => jdClients().map(c => ({ v:c.name, sub:c.mandant ? "Mandant " + c.mandant : "" })).sort(byName), (v, it) => kfCommit("kunde", v, it));
+const cbFeld = comboBind($("iFeld"), () => { const c = jdClientOf(S.kunde), cName = id => (jdClients().find(x => x.id===id) || {}).name || "";
+  return jdFields(c ? c.id : null, S.betrieb).map(f => ({ v:f.name, kunde:cName(f.client), sub:[f.flaeche!=null ? fmt(f.flaeche,2) + " ha" : "", c ? "" : cName(f.client)].filter(Boolean).join(" · ") })).sort(byName); },
+  (v, it) => kfCommit("feld", v, it));
+comboBind($("iBetrieb"), () => { const c = jdClientOf(S.kunde); return (((JD.stamm && JD.stamm.farms) || []).filter(f => !c || f.client===c.id)).map(f => ({ v:f.name })).sort(byName); },
+  v => { S.betrieb = v; saveDraft(); jdFieldCheck(false); });
+let kfBusy = false;
+async function kfCommit(kind, v, it){
+  v = (v || "").trim(); const old = S[kind] || "";
+  if (v===old || kfBusy) return;
+  const cb = kind==="kunde" ? cbKunde : cbFeld;
+  if (old && hasContent()){
+    kfBusy = true;
+    const ok = await askKeep(kind==="kunde" ? `Der Kunde wechselt von «${old}» zu «${v || "–"}».` : `Das Feld wechselt von «${old}» zu «${v || "–"}».`);
+    kfBusy = false;
+    if (!ok){ cb.revert(old); return; }
+    resetKeep(kind==="kunde" ? { kunde:v, feld:"" } : { feld:v });
+  } else {
+    S[kind] = v;
+    if (kind==="kunde" && old && S.feld){ S.feld = ""; $("iFeld").value = ""; cbFeld.revert(""); }   // Feld gehört zum alten Kunden
+    saveDraft(); fileNameUI();
+  }
+  if (kind==="feld" && it && it.kunde && !S.kunde){ S.kunde = it.kunde; $("iKunde").value = it.kunde; cbKunde.revert(it.kunde); saveDraft(); }
+  jdFieldCheck(kind==="feld");
 }
 function jdGrenzen(fieldId){
   const l = ((JD.geo && JD.geo.fields) || {})[fieldId] || [];
@@ -2130,7 +2280,7 @@ async function projSync(manual){
       const merged = projMerge(remote, local);
       if (projSig(merged) !== projSig(local)){
         if (!lsSet(LS_P, merged)) throw new Error("Speicher auf diesem Gerät voll");
-        const cur = projAll(); if (S.id && !cur.some(p => p.id===S.id && !p.del)) S.id = null;
+        const cur = projAll(); if (S.id && !cur.some(p => p.id===S.id && !p.del)){ S.id = null; savedSig = null; }
         fillProj();
       }
       if (projSig(merged) === projSig(remote) && rev) break;
@@ -2195,6 +2345,8 @@ async function upPoll(){
   if (l.some(x => x.status==="wartet")) upPollStart(15000);
 }
 async function sendRx(){
+  if (!(lastCalc || compute()).base && !S.zones.length){ rxFiles(); return; }
+  if (!(await askBeforeOut("Senden ans Operations Center"))) return;
   const rx = rxFiles(); if (!rx) return;
   const zip = new JSZip(); rx.files.forEach(f => zip.file(f.name, f.data));
   const blob = await zip.generateAsync({ type:"blob" });
@@ -2207,7 +2359,7 @@ function grzSaveOpen(){
   stopEdit();
   if (!S.field){ toast("Zuerst eine Feldgrenze zeichnen oder laden."); return; }
   jdFieldCheck(false);
-  if (!JD.field){ toast("Zuerst im Abschnitt Auftrag ein Feld aus der MyJohnDeere-Liste wählen – dort wird die Grenze gespeichert."); $("iFeld").focus(); return; }
+  if (!JD.field){ toast("Zuerst im Abschnitt «Kunde und Feld» ein Feld aus der MyJohnDeere-Liste wählen – dort wird die Grenze gespeichert."); $("iFeld").focus(); return; }
   const c = jdClients().find(x => x.id===JD.field.client);
   $("grzZiel").innerHTML = `Ziel in MyJohnDeere: <b>${jdEsc(c ? c.name : S.kunde)} › ${jdEsc(JD.field.name)}</b> · neue Grenze ${fmt(areaHa(feat(S.field)),2)} ha`;
   $("grzName").value = grzFreeName("IM-Applikationskarten " + new Date().toLocaleDateString("de-CH"));
@@ -2240,8 +2392,6 @@ $("bJdReq").addEventListener("click", jdRequest);
 $("bJdLogout").addEventListener("click", () => DBX.logout());
 $("bJdGrz").addEventListener("click", () => jdGrzLoad(false));
 $("jdRedirect").textContent = DBX.redirectUri();
-["iKunde","iBetrieb"].forEach(id => $(id).addEventListener("change", () => { jdFill(); jdFieldCheck(false); }));
-$("iFeld").addEventListener("change", () => { jdFill(); jdFieldCheck(true); });
 (async () => {
   await DBX.handleRedirect();
   await jdFromCache();
@@ -2258,6 +2408,7 @@ if (!draft){ const alt = lsGet("appkarte.entwurf"); if (alt){ draft = Object.ass
 $("bToRx").addEventListener("click", () => { endDraw(); stopEdit(); S.modus = "rx"; selId = null; applyModus(); render(); });
 if (draft && (draft.field || (draft.zones && draft.zones.length) || draft.feld)) loadState(draft, false);
 else { syncForm(); applyModus(); render(); }
+savedSigInit(); fileNameUI();
 </script>
 </body>
 </html>
