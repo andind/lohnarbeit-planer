@@ -78,7 +78,7 @@ Programmname seit 15.11.2026 (v129) «IM-Verwaltung» (passend zu IM-Vermietung 
 - Fixierte Spaltenüberschriften: Tabellen in Aufträge (Liste), Verwaltung (Bericht, Abrechnung, Summen) im Rahmen `.dscroll` (Bildschirmhöhe,
   `thead th` sticky); Planung-Kalender/Zeitachsen hatten das schon (`.cal`). Neue grosse Datentabellen ebenfalls in `.dscroll` legen.
   Scrollt die Seite statt des Rahmens, hält `stickyUpd` (setzt `--sty`) die Kopfzeilen direkt unter der Titelleiste (v106, v.a. Wochenansicht).
-  Bericht und Abrechnung (v130): Haupttabelle im Rahmen `.dfit`, `dfitUpd` setzt die Höhe auf den restlichen Platz im Fenster (ab 900 px Breite; mind. 240 px) → Seite scrollt nicht, nur die Tabelle; neu gerechnet bei Render, Fenstergrösse, Datenzoom, Auf-/Zuklappen.
+  Bericht und Abrechnung (v130): Haupttabelle im Rahmen `.dfit`, `dfitUpd` setzt die Höhe auf den restlichen Platz im Fenster (ab 900 px Breite; mind. 240 px) → Seite scrollt nicht, nur die Tabelle; neu gerechnet bei Render, Fenstergrösse, Datenzoom, Auf-/Zuklappen und (v131) per ResizeObserver `dfitObserve`, wenn sich Inhalt oberhalb ohne Render ändert; Nachkorrektur über Abstand `#main`-Unterkante ↔ Fensterunterkante.
   Spaltenbreite ziehen: Umrechnung mit `colZ(t)` = UIZ × Datenzoom der Tabelle (v130; vorher nur UIZ → bei 115 % sprang die Spalte und alle Spalten wurden breiter).
 - Flächen in Bericht und Abrechnung **nie aus Feldgrenzen**. Seit v122 ist die **bedeckte Fläche** (Bedeckungskarte, NAS `haB`) die Standardfläche:
   **Bericht** (`jdbRow`): `ha` = bedeckt (Spalte «ha bedeckt», Summen), `haM` = Maschinenfläche nur zur Information (Spalte «ha Maschine», grau;

@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '130', APP_STAND = '16.11.2026';
+const APP_VERSION = '131', APP_STAND = '16.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -666,7 +666,7 @@ const App = {
     $('#content').innerHTML = v.content();
     vzApply();
     if (v.after) v.after();
-    dfitUpd();
+    dfitUpd(); dfitObserve();
     stickyUpd();
     renderSelbar();
     hdrUpdate();
@@ -1792,8 +1792,22 @@ function dfitUpd() {
   el.style.maxHeight = 'none';
   const r = el.getBoundingClientRect(), k = el.offsetHeight ? r.height / el.offsetHeight : UIZ(); // Fenster-Pixel je CSS-Pixel des Rahmens
   const unten = Math.max(0, document.body.getBoundingClientRect().bottom - r.bottom), frei = window.innerHeight - (r.top + scrollY) - unten - 4;
-  if (r.height > frei) el.style.maxHeight = Math.max(240, Math.floor(frei / k)) + 'px'; else el.style.removeProperty('max-height');
+  if (r.height > frei) {
+    let mh = Math.max(240, Math.floor(frei / k)); el.style.maxHeight = mh + 'px';
+    // Nachkorrektur (v131): Abstand zwischen Seitenende (main inkl. Rand unten) und Fensterunterkante direkt messen und ausgleichen
+    const m = $('#main'), g = m ? window.innerHeight - 2 - m.getBoundingClientRect().bottom : 0;
+    if (Math.abs(g) > 2) { mh = Math.max(240, Math.floor(mh + g / k)); el.style.maxHeight = mh + 'px'; }
+  } else el.style.removeProperty('max-height');
   el.scrollTop = st; el.scrollLeft = sl;
+}
+// Inhalt oberhalb der Tabelle ändert sich ohne neues Rendern (Schrift, Umbruch, Zeilen) → Höhe neu rechnen (Grösse des Rahmens selbst zählt nicht)
+var _dfRo = null;
+function dfitObserve() {
+  if (!window.ResizeObserver) return;
+  if (!_dfRo) _dfRo = new ResizeObserver(() => dfitLater());
+  _dfRo.disconnect();
+  const el = $('.dfit'); if (!el) return;
+  [...el.parentElement.children].filter(c => c !== el).forEach(c => _dfRo.observe(c));
 }
 var _dfRaf = 0;
 function dfitLater() { if (!_dfRaf) _dfRaf = requestAnimationFrame(() => { _dfRaf = 0; dfitUpd(); stickyUpd(); }); }
