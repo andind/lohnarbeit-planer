@@ -79,14 +79,17 @@
         <tr><th>Bedeckungskarten</th><td>Daraus wird die tatsächlich bearbeitete Fläche ohne Überlappungen berechnet. <span class="muted">Operations Data Export</span></td></tr>
         <tr><th>Maschinenliste</th><td>Nur die Namen der Maschinen und Geräte, zur Anzeige im Bericht. <span class="muted">Equipment</span></td></tr>
         <tr><th>Status hochgeladener Dateien</th><td>Ob eine hochgeladene Applikationskarte verarbeitet wurde (in Bearbeitung, fertig, ungültig). <span class="muted">Files</span></td></tr>
+        <tr><th>Status von Übertragungen</th><td>Ob eine an eine Maschine gesendete Applikationskarte am Terminal angekommen ist. <span class="muted">File Transfers</span></td></tr>
       </table>
       <h3>Geschrieben <span class="pill">nur auf ausdrücklichen Befehl</span></h3>
       <table>
         <tr><th>Applikationskarten</th><td>Im Zusatzprogramm erstellte Applikationskarten (Shapefile als ZIP) werden als Datei in die Organisation hochgeladen, damit sie an die Terminals gesendet werden können. <span class="muted">Files</span></td></tr>
-        <tr><th>Feldgrenzen</th><td>Im Zusatzprogramm erstellte oder korrigierte Feldgrenzen werden beim gewählten Feld gespeichert. <span class="muted">Boundaries</span></td></tr>
+        <tr><th>An Maschinen senden</th><td>Eine hochgeladene Applikationskarte wird drahtlos an das Terminal einer ausgewählten eigenen Maschine gesendet. <span class="muted">File Transfers</span></td></tr>
+        <tr><th>Feldgrenzen</th><td>Im Zusatzprogramm erstellte oder korrigierte Feldgrenzen werden beim gewählten Feld gespeichert. Bestehende Grenzen können aktiv gesetzt, archiviert oder wieder hervorgeholt werden. <span class="muted">Boundaries</span></td></tr>
+        <tr><th>Felder</th><td>Neue Felder werden bei einem bestehenden Kunden und Betrieb angelegt. Kunden und Betriebe werden nicht angelegt oder verändert. <span class="muted">Fields</span></td></tr>
       </table>
       <p>Geschrieben wird nur, wenn der Benutzer das ausdrücklich auslöst. Es werden <b>keine Daten gelöscht</b>; das Programm hat keine Löschrechte.</p>
-      <p class="muted" style="margin-top:10px">Berechtigungen (Scopes): <code>ag1</code> Felder/Organisation lesen · <code>ag2</code> Arbeitsdaten lesen · <code>ag3</code> Feldgrenzen speichern · <code>eq1</code> Maschinen lesen · <code>files</code> Dateien hochladen und deren Status lesen · <code>offline_access</code> für den automatischen Abgleich.</p>
+      <p class="muted" style="margin-top:10px">Berechtigungen (Scopes): <code>ag1</code> Felder/Organisation lesen · <code>ag2</code> Arbeitsdaten lesen · <code>ag3</code> Felder anlegen und Feldgrenzen verwalten · <code>eq1</code> Maschinen lesen · <code>files</code> Dateien hochladen, an Maschinen senden und deren Status lesen · <code>offline_access</code> für den automatischen Abgleich.</p>
     </section>
 
     <section class="card">
@@ -136,14 +139,17 @@
         <tr><th>Coverage maps</th><td>Used to calculate the actually worked area without overlaps. <span class="muted">Operations Data Export</span></td></tr>
         <tr><th>Equipment list</th><td>Machine and implement names only, for display in the work report. <span class="muted">Equipment</span></td></tr>
         <tr><th>Status of uploaded files</th><td>Whether an uploaded prescription file was processed (processing, complete, invalid). <span class="muted">Files</span></td></tr>
+        <tr><th>Status of file transfers</th><td>Whether a prescription sent to a machine has arrived at the display. <span class="muted">File Transfers</span></td></tr>
       </table>
       <h3>Written <span class="pill">only on explicit user action</span></h3>
       <table>
         <tr><th>Prescription maps</th><td>Prescription maps created in the companion app (zipped shapefile) are uploaded as a file to our organization so they can be sent to the displays. <span class="muted">Files</span></td></tr>
-        <tr><th>Field boundaries</th><td>Field boundaries created or corrected in the companion app are saved to the selected field. <span class="muted">Boundaries</span></td></tr>
+        <tr><th>Send to machines</th><td>An uploaded prescription is sent wirelessly to the display of a selected machine of our own fleet. <span class="muted">File Transfers</span></td></tr>
+        <tr><th>Field boundaries</th><td>Field boundaries created or corrected in the companion app are saved to the selected field. Existing boundaries can be set active, archived or restored. <span class="muted">Boundaries</span></td></tr>
+        <tr><th>Fields</th><td>New fields are created under an existing client and farm. Clients and farms are never created or changed. <span class="muted">Fields</span></td></tr>
       </table>
       <p>Data is written only when the user explicitly triggers it. <b>No data is deleted</b>; the application has no delete permissions.</p>
-      <p class="muted" style="margin-top:10px">OAuth scopes: <code>ag1</code> read organization/fields · <code>ag2</code> read work data · <code>ag3</code> save field boundaries · <code>eq1</code> read equipment · <code>files</code> upload files and read their status · <code>offline_access</code> for the scheduled synchronization.</p>
+      <p class="muted" style="margin-top:10px">OAuth scopes: <code>ag1</code> read organization/fields · <code>ag2</code> read work data · <code>ag3</code> create fields and manage field boundaries · <code>eq1</code> read equipment · <code>files</code> upload files, send them to machines and read their status · <code>offline_access</code> for the scheduled synchronization.</p>
     </section>
 
     <section class="card">
