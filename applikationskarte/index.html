@@ -146,6 +146,17 @@ dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:upper
 .combo-sug button span{color:var(--muted);font-size:12px;white-space:nowrap}
 .combo-sug button.on,.combo-sug button:hover{background:var(--accent-soft)}
 .combo-sug .none{padding:8px 10px;color:var(--muted);font-size:13px}
+.grzl{display:flex;flex-direction:column;gap:4px}
+.grzi{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;border:1px solid var(--line);border-radius:4px;padding:5px 6px;background:var(--panel)}
+.grzi.arch{opacity:.65}
+.grzi .n{flex:1 1 140px;min-width:0;font-size:13px}
+.grzi .n b{font-weight:600}
+.grzi .n span{color:var(--muted);font-size:12px}
+.grzi button{padding:3px 8px;font-size:12px}
+.nfrow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 8px;border:1px dashed var(--line);border-radius:4px}
+.nfrow .status{flex:1 1 160px}
+.ykit{display:flex;align-items:center;gap:8px;text-align:left;width:100%}
+.ykit input{margin:0}
 @media (max-width:760px){
   .app{display:flex;flex-direction:column;height:auto}
   .mapwrap{height:58vh}
@@ -158,7 +169,7 @@ dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:upper
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.27 · by Andreas Indermühle</span></div>
+    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.28 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -182,7 +193,7 @@ dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:upper
       <button id="bJdLogout" class="ghost" hidden>Abmelden</button>
     </div>
     <div id="upBox" hidden style="display:flex;flex-direction:column;gap:4px"><div class="sub">Übertragungen ins Operations Center</div><div id="upList" style="display:flex;flex-direction:column;gap:4px"></div></div>
-    <div class="hint">Kunden, Betriebe, Felder und Feldgrenzen kommen vom NAS-Dienst (Dateien <b>jd-sync.json</b> und <b>jd-feldgrenzen.json</b> im Dropbox-Ordner) und werden auf diesem Gerät gespeichert – auch ohne Netz verfügbar. Die App ändert in MyJohnDeere nichts. Mit der Anmeldung werden auch die <b>gespeicherten Karten</b> über Dropbox (<b>applikationskarten.json</b>) zwischen PC, iPhone und Tablet abgeglichen. Einmalig in der Dropbox App Console › Redirect URIs eintragen: <code id="jdRedirect" style="word-break:break-all"></code></div>
+    <div class="hint">Kunden, Betriebe, Felder und Feldgrenzen kommen vom NAS-Dienst (Dateien <b>jd-sync.json</b> und <b>jd-feldgrenzen.json</b> im Dropbox-Ordner) und werden auf diesem Gerät gespeichert – auch ohne Netz verfügbar. In MyJohnDeere ändert die App nur auf ausdrücklichen Befehl etwas (Applikationskarte senden, Feldgrenze speichern/aktiv setzen/archivieren, neues Feld anlegen) – über den NAS-Dienst. Mit der Anmeldung werden auch die <b>gespeicherten Karten</b> über Dropbox (<b>applikationskarten.json</b>) zwischen PC, iPhone und Tablet abgeglichen. Einmalig in der Dropbox App Console › Redirect URIs eintragen: <code id="jdRedirect" style="word-break:break-all"></code></div>
   </section>
 
   <section>
@@ -192,13 +203,15 @@ dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:upper
       <label class="f">Betrieb<input id="iBetrieb" placeholder="optional" autocomplete="off" spellcheck="false"></label>
       <label class="f">Feld<input id="iFeld" placeholder="Feld wählen oder eingeben" autocomplete="off" spellcheck="false"></label>
     </div>
+    <div id="nfRow" hidden class="nfrow"><span class="status" id="nfInfo"></span><button id="bNfOpen">In MyJohnDeere anlegen …</button></div>
   </section>
 
   <section>
     <h2>Feldgrenze <span id="fieldHa" class="status"></span></h2>
     <div id="jdFeldRow" hidden style="display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid var(--line);border-radius:4px;background:var(--bg)">
       <div class="status" id="jdFeldInfo"></div>
-      <div class="row"><select id="jdGrzSel" style="flex:1;min-width:0" aria-label="Feldgrenze aus MyJohnDeere"></select><button id="bJdGrz">Als Feldgrenze laden</button></div>
+      <div class="grzl" id="jdGrzList"></div>
+      <label class="check" id="jdArchRow" hidden><input type="checkbox" id="cJdArch"><span id="jdArchTxt">Archivierte anzeigen</span></label>
       <div class="status" id="jdGrzNote"></div>
     </div>
     <div class="row">
@@ -308,6 +321,14 @@ dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:upper
     <div class="hint">GeoTIFF aus WebODM («odm_orthophoto.tif»). Für schnelles Laden in WebODM die Option <b>cog</b> aktivieren. Das Bild wird nicht mitgespeichert, nur angezeigt.</div>
   </section>
 
+  <section>
+    <h2>Ertragskarte <span id="ykInfo" class="status"></span></h2>
+    <div class="status" id="ykNote"></div>
+    <div class="s2list" id="ykList"></div>
+    <div class="row" id="ykRow" hidden><button id="bYkShow" class="pri">Anzeigen</button><span class="status" id="ykSelInfo"></span></div>
+    <div class="hint">Ernten aus MyJohnDeere (NAS-Dienst ab v64, Raster 5 m, Ausreisser entfernt). Eine Ernte zeigt den Ertrag in t/ha. Mehrere Ernten werden je Jahr auf das Feldmittel bezogen (= 100 %) und gemittelt – das ergibt die stabilsten Ertragszonen.</div>
+  </section>
+
   <section id="idxSec" hidden>
     <h2 id="idxTitle">Index</h2>
     <div id="s2Vis" style="display:flex;flex-direction:column;gap:6px">
@@ -380,6 +401,16 @@ dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:upper
   <label class="f" id="askNameRow">Name der Karte<input id="askName" maxlength="80" autocomplete="off"></label>
   <div class="row dbtns" id="askBtns"></div>
 </form></dialog>
+<dialog id="dlgNf"><form method="dialog">
+  <h3>Neues Feld in MyJohnDeere</h3>
+  <div class="status" id="nfKunde"></div>
+  <label class="f" id="nfFarmRow">Betrieb<select id="nfFarm"></select></label>
+  <label class="f">Feldname<input id="nfName" maxlength="100" autocomplete="off"></label>
+  <label class="check" id="nfGrzRow"><input type="checkbox" id="cNfGrz" checked><span id="nfGrzTxt">Aktuelle Feldgrenze als aktive Grenze mitspeichern</span></label>
+  <label class="f" id="nfGrzNameRow">Name der Feldgrenze<input id="nfGrzName" maxlength="100" autocomplete="off"></label>
+  <div class="hint">Wird über den NAS-Dienst (ab v64) beim bestehenden Kunden und Betrieb angelegt – Kunden und Betriebe werden nie angelegt. Dauert ein bis zwei Minuten, danach steht das Feld hier und in der IM-Verwaltung zur Verfügung.</div>
+  <div class="row dbtns"><button value="ok" class="pri">Anlegen</button><button value="cancel" class="ghost">Abbrechen</button></div>
+</form></dialog>
 <dialog id="dlgOpen"><form method="dialog">
   <h3>Karte laden</h3>
   <input id="openQ" placeholder="Suchen: Name, Kunde, Feld …" autocomplete="off" spellcheck="false">
@@ -423,7 +454,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.27";
+const VERSION = "1.28";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -2184,42 +2215,175 @@ async function kfCommit(kind, v, it){
   if (kind==="feld" && it && it.kunde && !S.kunde){ S.kunde = it.kunde; $("iKunde").value = it.kunde; cbKunde.revert(it.kunde); saveDraft(); }
   jdFieldCheck(kind==="feld");
 }
-function jdGrenzen(fieldId){
+function jdGrenzen(fieldId, mitArch){
   const l = ((JD.geo && JD.geo.fields) || {})[fieldId] || [];
-  return l.filter(g => g.geo).slice().sort((a,b) => (b.aktiv - a.aktiv) || (a.archiviert - b.archiviert) || String(b.geaendert).localeCompare(String(a.geaendert)));
+  return l.filter(g => g.geo && (mitArch || !g.archiviert)).slice().sort((a,b) => (b.aktiv - a.aktiv) || (a.archiviert - b.archiviert) || String(b.geaendert).localeCompare(String(a.geaendert)));
 }
 function jdFieldCheck(auto){
   const f = jdFieldOf(S.feld); JD.field = f;
   const row = $("jdFeldRow");
-  if (!f){ row.hidden = true; return; }
+  nfUI();
+  if (!f){ row.hidden = true; ykUI(); return; }
   // Kunde/Betrieb aus MyJohnDeere ergänzen, wenn leer
   if (!S.kunde){ const c = jdClients().find(x => x.id===f.client); if (c){ S.kunde = c.name; $("iKunde").value = c.name; } }
   if (!S.betrieb && f.farm){ S.betrieb = jdFarmName(f.farm); $("iBetrieb").value = S.betrieb; }
-  const gs = jdGrenzen(f.id);
   row.hidden = false;
   $("jdFeldInfo").textContent = `MyJohnDeere: ${f.name}${f.flaeche!=null ? " · " + fmt(f.flaeche,2) + " ha" : ""}`;
-  if (!gs.length){
-    $("jdGrzSel").hidden = true; $("bJdGrz").hidden = true;
-    $("jdGrzNote").textContent = JD.geo ? "Zu diesem Feld liefert MyJohnDeere keine Grenze." : "Grenzen fehlen: jd-feldgrenzen.json gibt es erst ab NAS-Dienst v59.";
-    return;
-  }
-  $("jdGrzNote").textContent = "";
-  $("jdGrzSel").hidden = false; $("bJdGrz").hidden = false;
-  // Auswahl behalten, solange es dasselbe Feld mit denselben Grenzen ist (sonst springt sie z. B. beim Verlassen des Eingabefelds zurück)
-  const key = f.id + ":" + gs.length, keep = JD.selKey===key ? $("jdGrzSel").value : null;
-  $("jdGrzSel").innerHTML = gs.map((g,i) => `<option value="${i}">${jdEsc(g.name || "Grenze")}${g.ha!=null ? " · " + fmt(g.ha,2) + " ha" : ""}${g.aktiv ? " · aktiv" : ""}${g.archiviert ? " (archiviert)" : ""}</option>`).join("");
-  if (keep!=null) $("jdGrzSel").value = keep;
-  JD.selKey = key;
-  if (auto && !S.field) jdGrzLoad(true);
+  grzListUI();
+  ykUI();
+  if (auto && !S.field){ const g = jdGrenzen(f.id)[0]; if (g) jdGrzLoad(true, g); }
 }
-function jdGrzLoad(auto){
+/* v1.28: Feldgrenzen des Feldes verwalten – laden, aktiv setzen, archivieren, wiederherstellen (über den NAS-Dienst ab v64) */
+const GRZ_PEND = new Map();   // Grenz-ID → Text, solange der Auftrag beim NAS-Dienst liegt
+function grzListUI(){
   const f = JD.field; if (!f) return;
-  const g = jdGrenzen(f.id)[+$("jdGrzSel").value || 0]; if (!g) return;
+  const all = jdGrenzen(f.id, true), nArch = all.filter(g => g.archiviert).length, mitArch = $("cJdArch").checked;
+  const gs = all.filter(g => mitArch || !g.archiviert);
+  $("jdArchRow").hidden = !nArch; $("jdArchTxt").textContent = `Archivierte anzeigen (${nArch})`;
+  const on = DBX.hasSession();
+  $("jdGrzList").innerHTML = gs.map((g, i) => {
+    const pend = g.id && GRZ_PEND.get(g.id), can = on && g.id && !pend;
+    return `<div class="grzi${g.archiviert ? " arch" : ""}"><div class="n"><b>${jdEsc(g.name || "Grenze")}</b> <span>${g.ha!=null ? fmt(g.ha,2) + " ha" : ""}${g.geaendert ? " · " + new Date(g.geaendert).toLocaleDateString("de-CH") : ""}</span>
+      ${g.aktiv ? '<span class="s2b good">aktiv</span>' : ""}${g.archiviert ? '<span class="s2b">archiviert</span>' : ""}${pend ? `<span class="s2b wait">${jdEsc(pend)}</span>` : ""}</div>
+      <button data-grz="load" data-i="${i}">Laden</button>
+      ${can && !g.aktiv && !g.archiviert ? `<button data-grz="aktiv" data-i="${i}" title="In MyJohnDeere als aktive Feldgrenze setzen (die bisher aktive wird inaktiv)">Aktiv setzen</button>` : ""}
+      ${can && !g.archiviert ? `<button class="ghost" data-grz="arch" data-i="${i}" title="In MyJohnDeere archivieren">Archivieren</button>` : ""}
+      ${can && g.archiviert ? `<button data-grz="unarch" data-i="${i}" title="In MyJohnDeere wiederherstellen">Wiederherstellen</button>` : ""}</div>`;
+  }).join("");
+  $("jdGrzList").dataset.fid = f.id; JD.grzShown = gs;
+  const ohneId = on && gs.some(g => !g.id);
+  $("jdGrzNote").textContent = !all.length ? (JD.geo ? "Zu diesem Feld liefert MyJohnDeere keine Grenze." : "Grenzen fehlen: jd-feldgrenzen.json gibt es erst ab NAS-Dienst v59.")
+    : !gs.length ? "Nur archivierte Grenzen vorhanden."
+    : ohneId ? "Aktiv setzen und Archivieren gehen, sobald der NAS-Dienst ab v64 einmal abgeglichen hat (Grenz-IDs)." : "";
+}
+$("cJdArch").addEventListener("change", grzListUI);
+$("jdGrzList").addEventListener("click", async e => {
+  const b = e.target.closest("[data-grz]"); if (!b || !JD.field) return;
+  const g = (JD.grzShown || [])[+b.dataset.i]; if (!g) return;
+  const act = b.dataset.grz, f = JD.field;
+  if (act==="load"){ jdGrzLoad(false, g); return; }
+  const was = { aktiv:"als aktive Feldgrenze setzen? Die bisher aktive Grenze des Feldes wird dabei inaktiv.", arch:"archivieren? Sie bleibt in MyJohnDeere erhalten und kann wiederhergestellt werden.", unarch:"wiederherstellen?" }[act];
+  const r = await ask({ title:"Feldgrenze in MyJohnDeere ändern", text:`Grenze <b>${jdEsc(g.name || "Grenze")}</b> beim Feld <b>${jdEsc(f.name)}</b> ${was}`,
+    buttons:[{ v:"ok", l:{ aktiv:"Aktiv setzen", arch:"Archivieren", unarch:"Wiederherstellen" }[act], pri:1 }, { v:"cancel", l:"Abbrechen", ghost:1 }] });
+  if (r.v!=="ok") return;
+  const job = { art:"grenze-status", name:`${f.name} – ${g.name || "Grenze"}`, feld:f.name, feldId:f.id, grenzeId:g.id, kunde:S.kunde };
+  if (act==="aktiv") job.aktiv = true; else job.archiviert = act==="arch";
+  if (await upSend(job)){ GRZ_PEND.set(g.id, { aktiv:"wird aktiv gesetzt …", arch:"wird archiviert …", unarch:"wird wiederhergestellt …" }[act]); grzListUI(); }
+});
+function jdGrzLoad(auto, g){
+  const f = JD.field; if (!f || !g) return;
   stopEdit();
   const geom = g.geo.length===1 ? { type:"Polygon", coordinates:g.geo[0] } : { type:"MultiPolygon", coordinates:g.geo };
   setField({ type:"Feature", properties:{}, geometry:geom });
   toast(`${auto ? "Feldgrenze automatisch geladen" : "Feldgrenze geladen"}: ${f.name} – ${g.name || "Grenze"}${g.ha!=null ? " (" + fmt(g.ha,2) + " ha laut MyJohnDeere)" : ""}`);
 }
+/* v1.28: neues Feld in MyJohnDeere anlegen – nur bei bestehendem Kunden und Betrieb */
+function nfUI(){
+  const row = $("nfRow"), c = jdClientOf(S.kunde), name = (S.feld || "").trim();
+  const show = DBX.hasSession() && JD.stamm && c && name && !jdFields(c.id).some(f => jdNorm(f.name)===jdNorm(name));
+  row.hidden = !show; if (!show) return;
+  const pend = upAll().find(x => x.art==="feld" && x.status==="wartet" && jdNorm(x.feld)===jdNorm(name));
+  $("nfInfo").innerHTML = pend ? `Feld <b>${jdEsc(name)}</b> wird in MyJohnDeere angelegt …` : `Feld <b>${jdEsc(name)}</b> gibt es beim Kunden in MyJohnDeere noch nicht.`;
+  $("bNfOpen").hidden = !!pend;
+}
+async function nfOpen(){
+  const c = jdClientOf(S.kunde); if (!c){ toast("Zuerst einen Kunden aus der MyJohnDeere-Liste wählen."); return; }
+  const ebeneFarms = JD.stamm.kundenEbene==="farms";
+  const farms = ((JD.stamm && JD.stamm.farms) || []).filter(f => f.client===c.id).sort((a,b) => a.name.localeCompare(b.name, "de"));
+  if (!ebeneFarms && !farms.length){ toast("Der Kunde hat in MyJohnDeere noch keinen Betrieb – bitte zuerst im Operations Center anlegen."); return; }
+  $("nfKunde").innerHTML = `Kunde: <b>${jdEsc(c.name)}</b>`;
+  $("nfFarmRow").hidden = ebeneFarms;
+  $("nfFarm").innerHTML = farms.map(f => `<option value="${f.id}">${jdEsc(f.name)}</option>`).join("");
+  const pre = farms.find(f => jdNorm(f.name)===jdNorm(S.betrieb)) || farms.find(f => jdNorm(f.name)===jdNorm(BETRIEB_STD)) || farms[0];
+  if (pre) $("nfFarm").value = pre.id;
+  $("nfName").value = (S.feld || "").trim();
+  $("nfGrzRow").hidden = $("nfGrzNameRow").hidden = !S.field;
+  if (S.field) $("nfGrzTxt").textContent = `Aktuelle Feldgrenze (${fmt(areaHa(feat(S.field)),2)} ha) als aktive Grenze mitspeichern`;
+  $("nfGrzName").value = "IM-Applikationskarten " + new Date().toLocaleDateString("de-CH");
+  const d = $("dlgNf"); d.returnValue = "";
+  d.showModal(); $("nfName").focus();
+  await new Promise(res => d.addEventListener("close", res, { once:true }));
+  if (d.returnValue!=="ok") return;
+  const name = $("nfName").value.trim().slice(0, 100);
+  if (!name){ toast("Bitte einen Feldnamen eingeben."); return; }
+  if (jdFields(c.id).some(f => jdNorm(f.name)===jdNorm(name))){ toast(`Beim Kunden gibt es schon ein Feld «${name}».`); return; }
+  const job = { art:"feld", name, feld:name, kunde:c.name, kundeId:c.id, betriebId:ebeneFarms ? "" : $("nfFarm").value, betrieb:ebeneFarms ? "" : jdFarmName($("nfFarm").value) };
+  if (S.field && $("cNfGrz").checked){
+    let f = feat(S.field); try { f = turf.rewind(turf.cleanCoords(f), { reverse:false }); } catch(e){}
+    let kinks = 0; try { kinks = turf.kinks(f).features.length; } catch(e){}
+    if (kinks){ toast(`Die Feldgrenze überschneidet sich selbst (${kinks} Stelle${kinks>1?"n":""}) – bitte zuerst korrigieren oder ohne Grenze anlegen.`); return; }
+    const g = f.geometry, r7 = v => Math.round(v * 1e7) / 1e7;
+    job.grenze = { name:($("nfGrzName").value.trim() || "IM-Applikationskarten").slice(0, 100), aktiv:true,
+      geo:(g.type==="Polygon" ? [g.coordinates] : g.coordinates).map(poly => poly.map(ring => ring.map(([x, y]) => [r7(x), r7(y)]))) };
+  }
+  if (await upSend(job)){
+    if (jdNorm(name)!==jdNorm(S.feld)){ S.feld = name; $("iFeld").value = name; cbFeld.revert(name); saveDraft(); fileNameUI(); }
+    if (!jdNorm(S.betrieb) && job.betrieb){ S.betrieb = job.betrieb; $("iBetrieb").value = job.betrieb; saveDraft(); }
+    nfUI();
+  }
+}
+$("bNfOpen").addEventListener("click", nfOpen);
+/* ---------- v1.28: Ertragskarten (NAS-Dienst ab v64, Dropbox /jd-ertrag) ---------- */
+const YK = { index:null, rev:null, sel:new Set() };
+async function ykLoad(){
+  try {
+    const rev = await DBX.rev("/jd-ertrag/index.json");
+    if (rev && rev!==YK.rev){ const d = await DBX.readJson("/jd-ertrag/index.json", rev); if (d && d.format==="jd-ertrag-index"){ YK.index = d; YK.rev = rev; await IDB.set("yk.index", { rev, data:d }); } }
+  } catch(e){ console.warn(e); }
+  ykUI();
+}
+function ykErnten(){ const f = JD.field; return f && YK.index ? (YK.index.ernten || []).filter(e => e.field===f.id) : []; }
+function ykUI(){
+  const f = JD.field, l = ykErnten();
+  [...YK.sel].forEach(id => { if (!l.some(e => e.id===id)) YK.sel.delete(id); });
+  $("ykInfo").textContent = l.length ? `${l.length} Ernte${l.length>1 ? "n" : ""}` : "";
+  $("ykNote").textContent = !DBX.hasSession() ? "Mit Dropbox anmelden (Abschnitt MyJohnDeere)." : !YK.index ? "Noch keine Ertragskarten – sie kommen mit dem NAS-Dienst ab v64 nach dem nächsten Abgleich der Arbeitsdaten." : !f ? "Feld aus der MyJohnDeere-Liste wählen." : !l.length ? "Zu diesem Feld gibt es keine Ernte mit Ertragsdaten." : "";
+  $("ykList").innerHTML = l.map(e => `<label class="s2it ykit"><input type="checkbox" data-yk="${e.id}" ${YK.sel.has(e.id) ? "checked" : ""}>
+    <span><b>${e.start ? new Date(e.start).toLocaleDateString("de-CH") : "?"}</b> ${jdEsc(e.crop || "")}${e.ha ? " · " + fmt(e.ha,2) + " ha" : ""}<br><span class="status">Ø ${fmt(e.mittel,2)} ${jdEsc(e.einheit)}${e.feuchte!=null ? " · Feuchte " + fmt(e.feuchte,1) + " %" : ""}</span></span></label>`).join("");
+  $("ykRow").hidden = !YK.sel.size;
+  $("ykSelInfo").textContent = YK.sel.size>1 ? `${YK.sel.size} Ernten → relativer Ertrag (%)` : "";
+}
+$("ykList").addEventListener("change", e => { const c = e.target.closest("[data-yk]"); if (!c) return; c.checked ? YK.sel.add(c.dataset.yk) : YK.sel.delete(c.dataset.yk); ykUI(); });
+async function ykGrid(id){
+  const c = await IDB.get("yk." + id); if (c) return c;
+  const d = await DBX.readJson(`/jd-ertrag/${id}.json`); if (!d || !d.vals) throw new Error("Ertragskarte nicht gefunden");
+  await IDB.set("yk." + id, d); return d;
+}
+async function ykShow(){
+  if (!S.field){ toast("Zuerst die Feldgrenze laden."); return; }
+  const ids = ykErnten().filter(e => YK.sel.has(e.id)).map(e => e.id); if (!ids.length) return;
+  const btn = $("bYkShow"); btn.disabled = true;
+  try {
+    const G = []; for (const id of ids) G.push(await ykGrid(id));
+    const field = feat(S.field), b = G[0], w = b.w, h = b.h;
+    const val = (g, lon, lat) => { const i = Math.floor((lon - g.lon0) / g.dlon), j = Math.floor((g.lat0 - lat) / g.dlat); if (i<0 || j<0 || i>=g.w || j>=g.h) return null; return g.vals[j*g.w+i]; };
+    const vals = new Float32Array(w*h).fill(NaN), inField = new Uint8Array(w*h);
+    const ctr = (i, j) => [b.lon0 + (i+.5)*b.dlon, b.lat0 - (j+.5)*b.dlat];
+    for (let j=0;j<h;j++) for (let i=0;i<w;i++) if (turf.booleanPointInPolygon(ctr(i,j), field)) inField[j*w+i] = 1;
+    // Feldmittel je Ernte (nur Zellen im Feld) für den relativen Ertrag
+    const mean = G.map(g => { let s=0, n=0; for (let j=0;j<h;j++) for (let i=0;i<w;i++){ if (!inField[j*w+i]) continue; const v = val(g, ...ctr(i,j)); if (v>0){ s+=v; n++; } } return n ? s/n : null; });
+    const rel = G.length>1;
+    let nIn = 0, nOk = 0;
+    for (let k=0;k<w*h;k++){
+      if (!inField[k]) continue; nIn++;
+      const i = k % w, j = (k - i) / w, c = ctr(i,j); let s = 0, n = 0;
+      G.forEach((g, q) => { const v = val(g, ...c); if (v>0 && mean[q]){ s += rel ? v/mean[q]*100 : v; n++; } });
+      if (n){ vals[k] = s/n; nOk++; }
+    }
+    const ok = Array.from(vals).filter(v => !isNaN(v)).sort((a,b) => a-b), q = p => ok.length ? ok[Math.min(ok.length-1, Math.floor(ok.length*p))] : NaN;
+    const E = ykErnten().filter(e => ids.includes(e.id)), unit = rel ? "%" : (b.unit || E[0].einheit || "t/ha");
+    s2Sel = null; if (s2Items.length) s2RenderList();
+    s2Data = { grid:{ w, h, vals, inField, corner:(i,j) => [b.lon0 + i*b.dlon, b.lat0 - j*b.dlat] }, nIn, nOk,
+      mean: ok.length ? ok.reduce((s,v)=>s+v,0)/ok.length : NaN, p02:q(.02), p98:q(.98), min:ok[0], max:ok[ok.length-1],
+      idx: rel ? "Ertrag %" : "Ertrag", res:b.cell || 5, date:E[0].start || Date.now(), src:"ertrag" };
+    if (!nOk) toast("Die Ertragskarte deckt die geladene Feldgrenze nicht ab.");
+    const jahre = E.map(e => new Date(e.start).getFullYear()).filter(Boolean);
+    idxShow(rel ? `Relativer Ertrag (%) · ${E.length} Ernten ${Math.min(...jahre)}–${Math.max(...jahre)}` : `Ertrag ${unit} · ${E[0].crop || "Ernte"} ${new Date(E[0].start).toLocaleDateString("de-CH")}`);
+    $("s2Stat").textContent = `${nOk} Zellen à ${s2Data.res} m mit Ertrag (${nIn ? Math.round(nOk/nIn*100) : 0} % des Feldes) · Ø ${fmt(s2Data.mean, rel ? 0 : 2)} ${unit} · Bereich ${fmt(s2Data.min, rel ? 0 : 2)} bis ${fmt(s2Data.max, rel ? 0 : 2)}`;
+  } catch(e){ console.warn(e); toast(e.auth ? "Dropbox-Anmeldung abgelaufen – bitte neu anmelden." : "Ertragskarte konnte nicht geladen werden: " + e.message); }
+  finally { btn.disabled = false; }
+}
+$("bYkShow").addEventListener("click", ykShow);
 function jdUI(){
   const ok = DBX.configured(), on = DBX.hasSession(), st = JD.stamm;
   $("bJdLogin").hidden = !ok || on; $("bJdLoad").hidden = !on; $("bJdReq").hidden = !on; $("bJdLogout").hidden = !on;
@@ -2236,6 +2400,7 @@ async function jdFromCache(){
   const s = await IDB.get("jd.stamm"), g = await IDB.get("jd.geo");
   if (s){ JD.stamm = s.data; JD.rev = s.rev; }
   if (g){ JD.geo = g.data; JD.geoRev = g.rev; }
+  const y = await IDB.get("yk.index"); if (y){ YK.index = y.data; YK.rev = y.rev; }
 }
 async function jdLoad(manual){
   if (JD.busy || !DBX.hasSession()) return;
@@ -2266,6 +2431,7 @@ async function jdLoad(manual){
   } finally {
     JD.busy = false; $("bJdLoad").disabled = false; jdUI(); jdFill(); jdFieldCheck(false);
   }
+  ykLoad();
 }
 async function jdRequest(){
   try {
@@ -2330,7 +2496,7 @@ function upUI(){
   $("upBox").hidden = !l.length;
   $("upList").innerHTML = l.map(x => {
     const chip = x.status==="ok" ? '<span class="s2b good">✓ übertragen</span>' : x.status==="fehler" ? '<span class="s2b bad">Fehler</span>' : '<span class="s2b wait">wartet auf NAS …</span>';
-    return `<div class="upit"><span><b>${x.art==="grenze" ? "Feldgrenze" : "Applikationskarte"}</b> ${jdEsc(x.name || "")} · ${new Date(x.at).toLocaleString("de-CH", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })}</span>${chip}${x.meldung ? `<span class="m">${jdEsc(x.meldung)}</span>` : ""}</div>`;
+    return `<div class="upit"><span><b>${{ grenze:"Feldgrenze", "grenze-status":"Feldgrenze ändern", feld:"Neues Feld" }[x.art] || "Applikationskarte"}</b> ${jdEsc(x.name || "")} · ${new Date(x.at).toLocaleString("de-CH", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })}</span>${chip}${x.meldung ? `<span class="m">${jdEsc(x.meldung)}</span>` : ""}</div>`;
   }).join("");
   const on = DBX.hasSession();
   $("bSendOC").hidden = !on; $("bGrzSave").hidden = !on;
@@ -2342,9 +2508,9 @@ async function upSend(job, zipBlob){
   try {
     if (zipBlob){ job.datei = id + ".zip"; await DBX.writeBytes(`${UP_DIR}/${job.datei}`, zipBlob); }
     await DBX.writeJson(`${UP_DIR}/${id}.json`, Object.assign({ id, at:new Date().toISOString(), von:"IM-Applikationskarten " + VERSION, orgId:(JD.stamm && JD.stamm.org && JD.stamm.org.id) || null }, job));
-    upSave([{ id, art:job.art, name:job.name, at:new Date().toISOString(), status:"wartet", meldung:"in Dropbox abgelegt – der NAS-Dienst überträgt es in der nächsten Minute" }, ...upAll()]);
+    upSave([{ id, art:job.art, name:job.name, feld:job.feld, grenzeId:job.grenzeId, at:new Date().toISOString(), status:"wartet", meldung:"in Dropbox abgelegt – der NAS-Dienst überträgt es in der nächsten Minute" }, ...upAll()]);
     upUI(); upPollStart(15000);
-    toast(job.art==="grenze" ? "Feldgrenze gesendet – der NAS-Dienst speichert sie in MyJohnDeere" : "Applikationskarte gesendet – der NAS-Dienst lädt sie ins Operations Center");
+    toast({ grenze:"Feldgrenze gesendet – der NAS-Dienst speichert sie in MyJohnDeere", "grenze-status":"Auftrag gesendet – der NAS-Dienst ändert die Feldgrenze in MyJohnDeere", feld:"Auftrag gesendet – der NAS-Dienst legt das Feld in MyJohnDeere an" }[job.art] || "Applikationskarte gesendet – der NAS-Dienst lädt sie ins Operations Center");
     return true;
   } catch(e){ console.warn(e); toast(e.auth ? "Dropbox-Anmeldung abgelaufen – bitte neu anmelden." : "Senden fehlgeschlagen: " + e.message); return false; }
 }
@@ -2360,9 +2526,10 @@ async function upPoll(){
         x.status = r.status==="ok" ? "ok" : "fehler"; x.meldung = (r.meldung || "") + (r.jdStatus ? ` · Status bei John Deere: ${r.jdStatus}` : ""); changed = true;
         toast((x.status==="ok" ? "✓ " : "Fehler: ") + (r.meldung || x.name));
         DBX.del(`${UP_DIR}/${x.id}.status.json`).catch(() => {});
-        if (x.status==="ok" && x.art==="grenze"){ setTimeout(() => jdLoad(false), 180000); setTimeout(() => jdLoad(false), 420000); }
+        if (x.art!=="rx"){ if (x.grenzeId) GRZ_PEND.delete(x.grenzeId); if (x.status==="ok"){ setTimeout(() => jdLoad(false), 90000); setTimeout(() => jdLoad(false), 210000); setTimeout(() => jdLoad(false), 420000); } if (JD.field) grzListUI(); nfUI(); }
       } else if (Date.now() - Date.parse(x.at) > 30 * 60000){
-        x.status = "fehler"; x.meldung = "Keine Antwort vom NAS-Dienst nach 30 Minuten – läuft jd-sync ab Version 61 und ist es mit Dropbox verbunden?"; changed = true;
+        x.status = "fehler"; x.meldung = `Keine Antwort vom NAS-Dienst nach 30 Minuten – läuft jd-sync ab Version ${x.art==="rx" || x.art==="grenze" ? 61 : 64} und ist es mit Dropbox verbunden?`; changed = true;
+        if (x.grenzeId) GRZ_PEND.delete(x.grenzeId);
       }
     } catch(e){ if (e.auth) break; }
   }
@@ -2415,7 +2582,6 @@ $("bJdLogin").addEventListener("click", () => DBX.login());
 $("bJdLoad").addEventListener("click", () => jdLoad(true));
 $("bJdReq").addEventListener("click", jdRequest);
 $("bJdLogout").addEventListener("click", () => DBX.logout());
-$("bJdGrz").addEventListener("click", () => jdGrzLoad(false));
 $("jdRedirect").textContent = DBX.redirectUri();
 (async () => {
   await DBX.handleRedirect();

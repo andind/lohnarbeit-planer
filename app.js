@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '132', APP_STAND = '16.11.2026';
+const APP_VERSION = '133', APP_STAND = '16.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -3653,11 +3653,14 @@ function grenzenInner(f, arch) {
   const dd = s => s ? esc(fmtDate(String(s).slice(0, 10), { day: '2-digit', month: '2-digit', year: 'numeric' })) : '';
   const L = g.slice().sort((a, b) => (b.aktiv - a.aktiv) || String(b.erstellt || b.geaendert || '').localeCompare(String(a.erstellt || a.geaendert || '')));
   const mitE = L.some(x => x.erstellt), mitQ = L.some(x => x.quelle), mitS = L.some(x => x.signal), mitG = L.some(x => x.geaendert && String(x.geaendert) !== String(x.erstellt || ''));
-  return `<div class="grzwrap"><table class="btab kv grz"><thead><tr><th>Vermessung</th><th class="n">Fläche</th><th class="n">bearbeitbar</th>${mitQ ? '<th>Quelle</th>' : ''}${mitS ? '<th>Signal</th>' : ''}${mitE ? '<th>Erstellt</th>' : ''}${mitG || !mitE ? '<th>Geändert</th>' : ''}</tr></thead><tbody>
+  // v133: inaktive Vermessung in MyJohnDeere aktiv setzen (Auftrag an den NAS-Dienst ab v64; braucht die Grenz-ID aus dem Abgleich)
+  const canAkt = !!(f.jdId && Auth.configured() && Auth.hasSession()), mitA = canAkt && L.some(x => x.id && !x.aktiv && !x.archiviert);
+  const aktCell = x => !mitA ? '' : `<td>${x.id && !x.aktiv && !x.archiviert ? (GRZ_PENDING.has(x.id) ? '<span class="nr">wird aktiv gesetzt …</span>' : `<button type="button" class="btn mini" data-act="grzAktiv" data-id="${esc(f.id)}" data-gid="${esc(x.id)}" title="In MyJohnDeere als aktive Feldgrenze setzen (die bisher aktive wird inaktiv)">Aktiv setzen</button>`) : ''}</td>`;
+  return `<div class="grzwrap"><table class="btab kv grz"><thead><tr><th>Vermessung</th><th class="n">Fläche</th><th class="n">bearbeitbar</th>${mitQ ? '<th>Quelle</th>' : ''}${mitS ? '<th>Signal</th>' : ''}${mitE ? '<th>Erstellt</th>' : ''}${mitG || !mitE ? '<th>Geändert</th>' : ''}${mitA ? '<th></th>' : ''}</tr></thead><tbody>
     ${L.map(x => `<tr class="${x.aktiv ? 'grz-akt' : ''}${x.archiviert ? ' grz-arch' : ''}"><td>${esc(x.name || '(ohne Namen)')}${x.aktiv ? ' <span class="badge geplant">aktiv</span>' : ''}${x.archiviert ? ' <span class="nr">archiviert</span>' : ''}</td>
       <td class="n">${x.ha != null ? fmtNum(x.ha) + ' ha' : ''}</td><td class="n">${x.bha != null ? fmtNum(x.bha) + ' ha' : ''}</td>
       ${mitQ ? `<td title="${esc(x.quelle || '')}">${esc(grzQuelle(x.quelle))}</td>` : ''}${mitS ? `<td title="${esc(x.signal || '')}">${x.signal ? `<span class="sig ${grzRtk(x.signal) ? 'sig-rtk' : ''}">${esc(grzSignal(x.signal))}</span>` : ''}</td>` : ''}
-      ${mitE ? `<td>${dd(x.erstellt)}</td>` : ''}${mitG || !mitE ? `<td>${x.geaendert && String(x.geaendert) !== String(x.erstellt || '') ? dd(x.geaendert) : ''}</td>` : ''}</tr>`).join('')}</tbody></table></div>${grzArchLink(f, arch)}
+      ${mitE ? `<td>${dd(x.erstellt)}</td>` : ''}${mitG || !mitE ? `<td>${x.geaendert && String(x.geaendert) !== String(x.erstellt || '') ? dd(x.geaendert) : ''}</td>` : ''}${aktCell(x)}</tr>`).join('')}</tbody></table></div>${grzArchLink(f, arch)}
     ${!mitE || !mitS ? `<p class="nr" style="margin-top:6px">${!mitS ? 'Signaltyp' : ''}${!mitS && !mitE ? ' und ' : ''}${!mitE ? 'Erstellungsdatum' : ''}: ${L.some(x => 'signal' in x) || mitE ? 'liefert MyJohnDeere für dieses Feld nicht.' : 'kommt mit dem NAS-Dienst ab Version 48.'}</p>` : ''}`;
 }
 // Eigenes Fenster «Vermessungen» (Klick auf das Feld in den Listen von Bericht und Abrechnung)
@@ -3675,6 +3678,33 @@ function feldGrzToggle(fid) {
   box.hidden = !box.hidden; box.closest('.feldrow')?.classList.toggle('grzopen', !box.hidden);
 }
 
+const GRZ_PENDING = new Set();
+async function grzAktivSetzen(el, fid) {
+  const f = feldById(fid), g = f && (f.grenzen || []).find(x => x.id === el.dataset.gid);
+  if (!f || !g || !f.jdId) return;
+  if (!confirm(`Vermessung «${g.name || '(ohne Namen)'}» beim Feld «${f.name}» in MyJohnDeere als aktive Feldgrenze setzen?\n\nDie bisher aktive Vermessung wird dabei inaktiv.`)) return;
+  const id = 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  try {
+    await Drive.writeJson(`/jd-upload/${id}.json`, { id, art: 'grenze-status', at: new Date().toISOString(), von: 'IM-Verwaltung ' + APP_VERSION, name: g.name || f.name, feld: f.name, feldId: f.jdId, grenzeId: g.id, aktiv: true });
+  } catch (e) { toast(e.auth ? 'Zuerst mit Dropbox verbinden (Mehr › Dropbox)' : 'Senden fehlgeschlagen: ' + e.message, 5000); return; }
+  GRZ_PENDING.add(g.id);
+  const host = el.closest('.grzhost'); if (host) host.outerHTML = grenzenHtml(f, host.dataset.arch === '1');
+  toast('Gesendet – der NAS-Dienst setzt die Vermessung in der nächsten Minute aktiv.', 5000);
+  // Rückmeldung des NAS-Dienstes abholen (Statusdatei), danach den neuen Stand aus jd-sync.json übernehmen
+  let n = 0;
+  const poll = async () => {
+    let r = null; try { r = await Drive.readJson(`/jd-upload/${id}.status.json`); } catch { }
+    if (r) {
+      GRZ_PENDING.delete(g.id);
+      try { await Drive.req('https://api.dropboxapi.com/2/files/delete_v2', { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: `/jd-upload/${id}.status.json` }) }); } catch { }
+      toast((r.status === 'ok' ? '✓ ' : 'Fehler: ') + (r.meldung || ''), 7000);
+      if (r.status === 'ok') { let m = 0; const p2 = async () => { const before = Store.cfg().jdStand; await jdAuto(); if (Store.cfg().jdStand === before && ++m < 8) setTimeout(p2, 60000); }; setTimeout(p2, 60000); }
+      App.render(); return;
+    }
+    if (++n < 30) setTimeout(poll, 30000); else { GRZ_PENDING.delete(g.id); toast('Keine Antwort vom NAS-Dienst – läuft jd-sync ab Version 64?', 6000); }
+  };
+  setTimeout(poll, 45000);
+}
 function grzArchToggle(el) {
   const host = el.closest('.grzhost'); if (!host) return;
   const f = feldById(host.dataset.fid); if (!f) return;
@@ -5924,6 +5954,7 @@ document.addEventListener('click', async e => {
     case 'feldGrz': feldGrzToggle(id); break;
     case 'jdOc': jdOcOpen(t.dataset.k, id); break;
     case 'grzArch': grzArchToggle(t); break;
+    case 'grzAktiv': grzAktivSetzen(t, id); break;
     case 'delKunde': {
       const n = Store.all('auftraege').filter(a => a.kunde === id).length;
       if (confirm(n ? `Dieser Kunde hat ${n} Aufträge. Trotzdem löschen?` : 'Kunde löschen?')) { Store.remove('kunden', id); Dlg.close(); } break;

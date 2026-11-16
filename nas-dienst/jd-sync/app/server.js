@@ -6,7 +6,7 @@
    Dazu: tägliche Datensicherung die IM-Verwaltung-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '63', STAND = '16.11.2026'; // v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
+const VERSION = '64', STAND = '16.11.2026'; // v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -266,13 +266,13 @@ async function readJohnDeere() {
     }
     return out.length ? out : null;
   };
-  const gOf = b => ({ name: String(b.name || '').trim(), ha: areaHa(b.area), bha: areaHa(b.workableArea), aktiv: !!b.active, archiviert: !!b.archived, geo: gGeo(b),
+  const gOf = b => ({ id: idOf(b.id), name: String(b.name || '').trim(), ha: areaHa(b.area), bha: areaHa(b.workableArea), aktiv: !!b.active, archiviert: !!b.archived, geo: gGeo(b),
     quelle: b.sourceType || b.source || '', signal: b.signalType || (b.signal && (b.signal.type || b.signal)) || '', erstellt: b.createdTime || b.creationTime || b.createdDate || b.dateCreated || '',
     geaendert: b.modifiedTime || b.lastModifiedTime || b.lastModified || b.createdTime || '' });
   await pool(fields, 4, async f => {
     let b = null, list = null;
     const c = gCache[f.id];
-    if (c && c.v >= 5 && now - Date.parse(c.at) < gAlt) list = c.list; // v4: alle Grenzen (recordFilter=all), mit Erstellungsdatum und Signaltyp · v5: mit Geometrie
+    if (c && c.v >= 6 && now - Date.parse(c.at) < gAlt) list = c.list; // v4: alle Grenzen (recordFilter=all), mit Erstellungsdatum und Signaltyp · v5: mit Geometrie
     else {
       const bu = link(f.raw, 'boundaries') || `/organizations/${org}/fields/${encodeURIComponent(f.id)}/boundaries`;
       // recordFilter=all: auch nicht aktive / archivierte Grenzen (Standard bei John Deere wäre nur «active»)
@@ -280,7 +280,7 @@ async function readJohnDeere() {
       try { let bs; try { bs = await jdAll(buAll, true); } catch (e) { if (e.status !== 400) throw e; bs = await jdAll(bu); }
         // Fehlt in der Liste die Geometrie, die einzelne Grenze nachladen
         for (let i = 0; i < bs.length; i++) if (!embedded(bs[i], 'multipolygons').length && link(bs[i], 'self')) { try { bs[i] = Object.assign({}, bs[i], await jdGet(link(bs[i], 'self'))); } catch (e) { if (e.status === 403) throw e; } }
-        list = bs.map(gOf); gCache[f.id] = { v: 5, at: new Date().toISOString(), list }; gNeu++; diag.boundary = diag.boundary || sample(bs[0]); }
+        list = bs.map(gOf); gCache[f.id] = { v: 6, at: new Date().toISOString(), list }; gNeu++; diag.boundary = diag.boundary || sample(bs[0]); }
       catch (e) { if (e.status !== 403 && e.status !== 404) throw e; list = c ? c.list : null; }
     }
     const emb = f.raw.activeBoundary || embedded(f.raw, 'boundaries').find(x => x.active);
@@ -301,7 +301,7 @@ async function readJohnDeere() {
   diag.unassigned = fields.filter(f => !f.client && !f.farm).slice(0, 3).map(f => sample(f.raw));
   save('diagnose.json', diag);
   const outF = f => ({ id: f.id, name: f.name, client: ebene === 'farms' ? f.farm : f.client, farm: ebene === 'farms' ? '' : f.farm, flaeche: f.flaeche, archived: f.archived,
-    grenzen: (f.grenzen || []).map(g => ({ name: g.name, ha: g.ha != null ? Math.round(g.ha * 100) / 100 : null, bha: g.bha != null ? Math.round(g.bha * 100) / 100 : null, aktiv: g.aktiv, archiviert: g.archiviert, quelle: g.quelle, signal: typeof g.signal === 'string' ? g.signal : '', erstellt: g.erstellt || '', geaendert: g.geaendert })) });
+    grenzen: (f.grenzen || []).map(g => ({ id: g.id || '', name: g.name, ha: g.ha != null ? Math.round(g.ha * 100) / 100 : null, bha: g.bha != null ? Math.round(g.bha * 100) / 100 : null, aktiv: g.aktiv, archiviert: g.archiviert, quelle: g.quelle, signal: typeof g.signal === 'string' ? g.signal : '', erstellt: g.erstellt || '', geaendert: g.geaendert })) });
   const out = ebene === 'farms'
     ? { clients: fAct.map(f => ({ id: f.id, name: f.name, archived: false, mandant: clientsById.get(f.client)?.name || '' })), farms: [] }
     : { clients: cAct.map(c => ({ id: c.id, name: c.name, archived: false })), farms: [...farmsById.values()].map(f => ({ id: f.id, name: f.name, client: f.client })) };
@@ -311,7 +311,7 @@ async function readJohnDeere() {
     ...out,
     fields: fields.filter(f => known.has(outF(f).client)).map(outF),
     _geo: Object.fromEntries(fields.filter(f => known.has(outF(f).client)).map(f => [f.id, (f.grenzen || []).filter(g => g.geo)
-      .map(g => ({ name: g.name, aktiv: g.aktiv, archiviert: g.archiviert, ha: g.ha != null ? Math.round(g.ha * 100) / 100 : null, geaendert: g.geaendert || '', geo: g.geo }))]).filter(([, l]) => l.length)),
+      .map(g => ({ id: g.id || '', name: g.name, aktiv: g.aktiv, archiviert: g.archiviert, ha: g.ha != null ? Math.round(g.ha * 100) / 100 : null, geaendert: g.geaendert || '', geo: g.geo }))]).filter(([, l]) => l.length)),
     _requests: reqCount
   };
 }
@@ -660,8 +660,9 @@ async function oxRequest(o) {
     delete o.covReq; return 'alt'; };
   // laufende Anfrage weiterverfolgen (gleicher Bearbeitungsstand, höchstens 2 Tage alt), sonst neu anfordern
   if (!(o.covReq && o.covReq.mod === o.modified && Date.now() - Date.parse(o.covReq.at) < 2 * 864e5)) {
-    let r = await oxFetch(u, { method: 'POST', headers: { 'Content-Type': ACCEPT, 'Accept-UOM-System': 'METRIC' }, body: JSON.stringify({ exportSettings: { format: 'SHAPEFILE', shapeType: 'Point', resolution: 'EachSection', splitShapeFile: false } }) });
-    if (r.status === 415) r = await oxFetch(u, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept-UOM-System': 'METRIC' }, body: JSON.stringify({ exportSettings: { format: 'SHAPEFILE', shapeType: 'Point', resolution: 'EachSection', splitShapeFile: false } }) });
+    const yh = isErnte(o) ? { 'Accept-Yield-Preference': 'MASS' } : {};   // v64: Ertrag als Masse (t/ha)
+    let r = await oxFetch(u, { method: 'POST', headers: { 'Content-Type': ACCEPT, 'Accept-UOM-System': 'METRIC', ...yh }, body: JSON.stringify({ exportSettings: { format: 'SHAPEFILE', shapeType: 'Point', resolution: 'EachSection', splitShapeFile: false } }) });
+    if (r.status === 415) r = await oxFetch(u, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept-UOM-System': 'METRIC', ...yh }, body: JSON.stringify({ exportSettings: { format: 'SHAPEFILE', shapeType: 'Point', resolution: 'EachSection', splitShapeFile: false } }) });
     if (r.status >= 300) return fail(r, 'Anfrage');
     ox403 = 0; oxStat[r.status] = (oxStat[r.status] || 0) + 1;
     let js = null; try { js = await r.json(); } catch { }
@@ -733,7 +734,9 @@ async function coverageRequest(o) {
 const COV_RETRY_MS = 14 * 864e5; // Arbeitsgänge ohne Karte erst nach 14 Tagen erneut fragen
 // COV_G: Stand der Berechnung – Karten aus älteren Versionen (ohne virtuelle Feldgrenze) werden einmal neu geholt
 const COV_G = 5; // 3 = v54 (Ellipsoid), 4 = v55 (Grenze genauer), 5 = v56 (kleine Lücken) – Karten werden einmal neu berechnet
-const covDone = o => o.cov && o.cov.mod === o.modified && (o.cov.ha ? o.cov.g === COV_G : (o.cov.at && Date.now() - Date.parse(o.cov.at) < COV_RETRY_MS));
+const ERTRAG_G = 1; // v64: Ertragskarte je Ernte; Ernten ohne Ertragsraster werden einmal neu exportiert
+const isErnte = o => /harvest/i.test(String(o.type || o.machineType || ''));
+const covDone = o => o.cov && o.cov.mod === o.modified && (o.cov.ha ? o.cov.g === COV_G && (!isErnte(o) || o.cov.y === ERTRAG_G) : (o.cov.at && Date.now() - Date.parse(o.cov.at) < COV_RETRY_MS));
 // virtuelle Feldgrenzen (aus der Bedeckungskarte) getrennt gespeichert und als eigene Datei in die Dropbox – hält jd-arbeiten.json klein
 let grenzen = load('bedeckung-grenzen.json', {});
 const arbCache = () => { try { return (load('arbeiten.json', null) || {}).ops; } catch { return null; } };
@@ -755,10 +758,12 @@ async function coverageAreas(list, maxWaitMs = 20 * 60 * 1000) {
         res = best ? best.b : { none: 'leer' };
       }
       let ha = null, grz = null; if (Buffer.isBuffer(res)) { try { const c = coverageCalc(res); if (c) { ha = c.ha; grz = c.grz; } } catch (e) { covErr.lesen = covErr.lesen || `${o.fieldName}: ${e.message}`; } }
+      let yOk = false;
+      if (Buffer.isBuffer(res) && isErnte(o)) { try { const E = ertragCalc(res); if (E) { ertrag[o.id] = { mod: o.modified, up: false, grid: E }; yOk = true; } else delete ertrag[o.id]; } catch (e) { covErr.ertrag = covErr.ertrag || `${o.fieldName}: ${e.message}`; } }
       if (grz) grenzen[o.id] = { mod: o.modified, grz }; else delete grenzen[o.id];
       const st0 = Buffer.isBuffer(res) ? (ha ? 'ok' : 'leer') : res && res.none;
       // gemerkt werden Karten und eindeutige «keine Karte»-Antworten; Berechtigungs- und Netzfehler werden beim nächsten Lauf neu versucht
-      if (Buffer.isBuffer(res) || [404, 410, 204, 'json', 'download', 'leer', 'export-fehler'].includes(st0)) o.cov = { mod: o.modified, ha, at: new Date().toISOString(), st: st0, g: COV_G };
+      if (Buffer.isBuffer(res) || [404, 410, 204, 'json', 'download', 'leer', 'export-fehler'].includes(st0)) o.cov = { mod: o.modified, ha, at: new Date().toISOString(), st: st0, g: COV_G, ...(isErnte(o) ? { y: ERTRAG_G, yOk } : {}) };
       if (ha) ok++; else none++;
       if ((ok + none) % 25 === 0 && covSave) covSave(ok + none);
     }
@@ -852,16 +857,85 @@ async function readArbeiten(d) {
   const ohne = Object.values(arb.ops).filter(o => !covDone(o));
   st.arbProgress = { phase: 'Bedeckungskarten', done: 0, total: ohne.length, at: new Date().toISOString() }; saveSt();
   let lastUp = Date.now();
-  covSave = async n => { flaechen(); save('arbeiten.json', arb); save('bedeckung-grenzen.json', grenzen); if (Date.now() - lastUp > 5 * 60 * 1000) { lastUp = Date.now(); log(`Bedeckungskarte: ${n} von ${ohne.length} bearbeitet · Speicher ${Math.round(process.memoryUsage().rss / 1048576)} MB – Zwischenstand in die Dropbox`); try { await writeArbeiten(arb); } catch { } } };
+  covSave = async n => { flaechen(); save('arbeiten.json', arb); save('bedeckung-grenzen.json', grenzen); save('ertrag.json', ertrag); if (Date.now() - lastUp > 5 * 60 * 1000) { lastUp = Date.now(); log(`Bedeckungskarte: ${n} von ${ohne.length} bearbeitet · Speicher ${Math.round(process.memoryUsage().rss / 1048576)} MB – Zwischenstand in die Dropbox`); try { await writeArbeiten(arb); } catch { } } };
   const nCov = cfg.bedeckung === false ? 0 : await coverageAreas(ohne);
   covSave = null;
   q = flaechen();
   log(`Flächen: ${q.Maschine} Maschine, ${q.Bedeckungskarte} Bedeckungskarte${nCov ? ` (${nCov} neu berechnet)` : ''}, ${q['']} ohne Fläche`);
   for (const id of Object.keys(grenzen)) if (!arb.ops[id] || grenzen[id].mod !== arb.ops[id].modified) delete grenzen[id];
-  save('arbeiten.json', arb); save('bedeckung-grenzen.json', grenzen); st.arbProgress = null;
+  for (const id of Object.keys(ertrag)) if (!arb.ops[id] || ertrag[id].mod !== arb.ops[id].modified) delete ertrag[id];
+  save('arbeiten.json', arb); save('bedeckung-grenzen.json', grenzen); save('ertrag.json', ertrag); st.arbProgress = null;
   return { arb, neu, geaendert, fehler, from, voll, requests: reqCount };
 }
 
+/* ---------- v64: Ertragskarten ----------
+   Aus dem Punkt-Export einer Ernte (gleiche Datei wie die Bedeckungskarte) ein Raster von 5 m: je Zelle flächengewichteter Ø-Ertrag
+   (VRYIELDMAS in t/ha, sonst VRYIELDVOL), Ausreisser (Anfahren, Vorgewende, Füllstandswechsel) über Median-Grenzen und 2-%-/98-%-Quantile entfernt.
+   Dropbox: /jd-ertrag/<Arbeitsgang>.json (Raster) und /jd-ertrag/index.json (Liste aller Ernten) für IM-Applikationskarten. */
+let ertrag = load('ertrag.json', {});
+const ertragDir = () => cfg.ertragPfad || '/jd-ertrag';
+const YCELL = 5;
+function ertragCalc(zipBuf) {
+  const files = unzip(zipBuf), names = Object.keys(files);
+  const shpN = names.find(n => /\.shp$/i.test(n)), dbfN = names.find(n => /\.dbf$/i.test(n)), jsN = names.find(n => /\.json$/i.test(n));
+  if (!shpN || !dbfN || !files[shpN] || !files[dbfN]) return null;
+  const A = dbfCols(files[dbfN], ['VRYIELDMAS', 'VRYIELDVOL', 'MOISTURE', 'SWATHWIDTH', 'DISTANCE']);
+  const has = c => A[c] && A[c].some(v => v > 0);
+  const col = has('VRYIELDMAS') ? 'VRYIELDMAS' : has('VRYIELDVOL') ? 'VRYIELDVOL' : null; if (!col) return null;
+  // Einheit aus der beigelegten .json (Metadaten), sonst geschätzt
+  let unitRaw = '';
+  if (jsN && files[jsN]) { const tx = files[jsN].toString('utf8'), i = tx.indexOf(col); if (i >= 0) { const m = /"(?:unit|Unit|unitId|UnitOfMeasure|uom)"\s*:\s*"([^"]+)"/.exec(tx.slice(i, i + 400)); if (m) unitRaw = m[1]; } }
+  const shp = files[shpN], recs = []; let p = 100;
+  while (p + 8 <= shp.length) { const len = shp.readInt32BE(p + 4) * 2, c = shp.slice(p + 8, p + 8 + len); p += 8 + len; recs.push(c); }
+  const pts = [];
+  for (let i = 0; i < recs.length && i < A.n; i++) {
+    if (A.del[i]) continue; const c = recs[i], t = c.length >= 4 ? c.readInt32LE(0) : 0, v = A[col][i];
+    if (!(v > 0)) continue; const w = (A.SWATHWIDTH[i] > 0 ? A.SWATHWIDTH[i] : 1) * (A.DISTANCE[i] > 0 && A.DISTANCE[i] < 50 ? A.DISTANCE[i] : 1);
+    if (A.DISTANCE[i] > 50) continue;
+    if ([1, 11, 21].includes(t) && c.length >= 20) pts.push([c.readDoubleLE(4), c.readDoubleLE(12), v, w, A.MOISTURE[i]]);
+    else if ([8, 18, 28].includes(t) && c.length >= 40) { const m = c.readInt32LE(36); for (let q = 0; q < m && 40 + 16 * q + 16 <= c.length; q++) pts.push([c.readDoubleLE(40 + 16 * q), c.readDoubleLE(48 + 16 * q), v, w / m, A.MOISTURE[i]]); }
+  }
+  if (pts.length < 20) return null;
+  const sorted = pts.map(q => q[2]).sort((a, b) => a - b), qn = f => sorted[Math.min(sorted.length - 1, Math.floor(f * sorted.length))];
+  const med = qn(0.5), lo = Math.max(qn(0.02), med * 0.3), hi = Math.min(qn(0.98), med * 2.5);
+  // Umrechnung in t/ha (Masse); Volumen bleibt in der gelieferten Einheit
+  let unit = col === 'VRYIELDMAS' ? 't/ha' : 'l/ha', f = 1; const u = unitRaw.toLowerCase();
+  if (col === 'VRYIELDMAS') { if (/^kg1ha-1|kg\/ha/.test(u)) f = 0.001; else if (/^lb1ac-1|lb\/ac/.test(u)) f = 0.00112085; else if (/^(ton|t)1ha-1|t\/ha/.test(u)) f = 1; else if (!u && med > 300) f = 0.001; }
+  else { if (/bu1ac-1|bu\/ac/.test(u)) unit = 'bu/ac'; else if (/^l1ha-1|l\/ha/.test(u)) unit = 'l/ha'; else if (u) unit = unitRaw; }
+  let sx = 0, sy = 0; for (const q of pts) { sx += q[0]; sy += q[1]; }
+  const lonC = sx / pts.length, latC = sy / pts.length, { kx, ky } = geoK(latC);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const q of pts) { if (q[0] < x0) x0 = q[0]; if (q[0] > x1) x1 = q[0]; if (q[1] < y0) y0 = q[1]; if (q[1] > y1) y1 = q[1]; }
+  const dlon = YCELL / kx, dlat = YCELL / ky;
+  // Raster an einem festen Gitter ausrichten (gleiche Zellen für alle Ernten eines Feldes)
+  const lon0 = Math.floor(x0 / dlon) * dlon, lat1 = Math.ceil(y1 / dlat) * dlat;
+  const w = Math.ceil((x1 - lon0) / dlon) + 1, h = Math.ceil((lat1 - y0) / dlat) + 1;
+  if (w * h > 400000) return null;
+  const S = new Float64Array(w * h), W = new Float64Array(w * h), MS = new Float64Array(w * h), MW = new Float64Array(w * h);
+  let n = 0;
+  for (const q of pts) {
+    if (q[2] < lo || q[2] > hi) continue;
+    const i = Math.floor((q[0] - lon0) / dlon), j = Math.floor((lat1 - q[1]) / dlat); if (i < 0 || j < 0 || i >= w || j >= h) continue;
+    const k = j * w + i; S[k] += q[2] * q[3]; W[k] += q[3]; n++;
+    if (q[4] > 0 && q[4] < 60) { MS[k] += q[4] * q[3]; MW[k] += q[3]; }
+  }
+  const vals = new Array(w * h).fill(null); let tS = 0, tW = 0, tm = 0, tmw = 0, cells = 0;
+  for (let k = 0; k < w * h; k++) if (W[k] > 0) { const v = S[k] / W[k] * f; vals[k] = Math.round(v * 100) / 100; tS += S[k] * f; tW += W[k]; cells++; if (MW[k]) { tm += MS[k]; tmw += MW[k]; } }
+  if (!cells) return null;
+  return { v: 1, cell: YCELL, lon0: +lon0.toFixed(8), lat0: +lat1.toFixed(8), dlon: +dlon.toPrecision(10), dlat: +dlat.toPrecision(10), w, h, vals, unit, spalte: col,
+    mittel: Math.round(tS / tW * 100) / 100, feuchte: tmw ? Math.round(tm / tmw * 10) / 10 : null, punkte: n, zellen: cells };
+}
+async function writeErtrag(arb) {
+  const ids = Object.keys(ertrag).filter(id => arb.ops[id]); if (!ids.length && !st.ertragIndex) return;
+  let neu = 0;
+  for (const id of ids) { const e = ertrag[id]; if (e.up) continue; await dbxUpload(`${ertragDir()}/${id}.json`, JSON.stringify({ format: 'jd-ertrag', id, ...e.grid })); e.up = true; neu++; }
+  const index = ids.map(id => { const o = arb.ops[id], g = ertrag[id].grid; return { id, field: o.field, fieldName: o.fieldName, client: o.client, clientName: o.clientName,
+    crop: o.crop || (o.cropSeason ? '' : ''), cropSeason: o.cropSeason ?? null, start: o.start, end: o.end, ha: o.cov && o.cov.ha || o.flaeche || null, mittel: g.mittel, einheit: g.unit, feuchte: g.feuchte, zellen: g.zellen }; })
+    .sort((a, b) => String(b.start || '').localeCompare(String(a.start || '')));
+  await dbxUpload(`${ertragDir()}/index.json`, JSON.stringify({ format: 'jd-ertrag-index', v: 1, dienst: VERSION, stand: new Date().toISOString(), zelle: YCELL, ernten: index }));
+  st.ertragIndex = index.length; save('ertrag.json', ertrag);
+  if (neu) log(`Ertragskarten: ${neu} neu in die Dropbox (${index.length} Ernten im Verzeichnis ${ertragDir()})`);
+}
 /* ---------- Dropbox (App-Ordner der IM-Verwaltung) ---------- */
 const b64url = b => b.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 function dbxAuthUrl() {
@@ -933,7 +1007,7 @@ function plausibel(d) {
   st.verdacht = key;
   throw new Error(`Abgleich nicht übernommen: ${grund.join(', ')}. Vermutlich unvollständige Antwort von John Deere – die IM-Verwaltung bleibt unverändert. Ist die Änderung gewollt, wird sie beim nächsten Abgleich übernommen (oder «Kunden entsprechen …» fest einstellen).`);
 }
-async function runSync(reason) {
+async function runSync(reason, opt = {}) {
   if (st.running) return; st.running = true; saveSt();
   const t0 = Date.now(); log(`Abgleich gestartet (${reason})`);
   try {
@@ -953,7 +1027,7 @@ async function runSync(reason) {
     etagSave(); st.etagStamm = etagTxt(); log(`Kunden/Felder ${st.etagStamm}`);
     st.last = { at: new Date().toISOString(), ok: true };
     // Arbeitsdaten separat – ein Fehler hier stört den Abgleich von Mandanten/Feldern nicht
-    if (cfg.arbeitenAktiv) await runArbeiten(d);
+    if (cfg.arbeitenAktiv && !opt.nurStamm) await runArbeiten(d);
   } catch (e) {
     st.last = { at: new Date().toISOString(), ok: false, error: e.message };
     log('FEHLER: ' + e.message);
@@ -965,6 +1039,7 @@ async function writeArbeiten(arb) {
     if (cov && cov.mod === o.modified && cov.ha) o.haB = cov.ha; if (grenzen[o.id]) o.grzB = 1; return o; });
   const gz = {}; for (const o of ops) if (grenzen[o.id]) gz[o.id] = grenzen[o.id].grz;
   try { await dbxUpload(cfg.grenzenPath || '/jd-grenzen.json', JSON.stringify({ format: 'jd-grenzen', v: 1, dienst: VERSION, stand: new Date().toISOString(), info: 'Virtuelle Feldgrenzen aus den Bedeckungskarten (GeoJSON-MultiPolygon-Koordinaten je Arbeitsgang)', ops: gz })); } catch (e) { log('Virtuelle Feldgrenzen hochladen: ' + e.message); }
+  try { await writeErtrag(arb); } catch (e) { log('Ertragskarten hochladen: ' + e.message); }
   await dbxUpload(cfg.arbeitenPath, JSON.stringify({ format: 'jd-arbeiten', v: 2, dienst: VERSION, flaechen: st.flaechen || null, bedeckung: st.covInfo ? { at: st.covInfo.at, gefragt: st.covInfo.gefragt, berechnet: st.covInfo.mitFlaeche, ohneKarte: st.covInfo.ohneKarte, offen: st.covInfo.offen, gestoppt: st.covInfo.gestoppt, antworten: st.covInfo.status, meldungen: st.covInfo.meldungen } : null, stand: new Date().toISOString(), org: { id: cfg.orgId, name: cfg.orgName }, seit: arb.seit, operations: ops }));
   return ops;
 }
@@ -1296,6 +1371,75 @@ function excelSheets(D) {
    und schreibt das Ergebnis als /jd-upload/<id>.status.json zurück (die App liest und löscht es). Auftrag und ZIP werden danach gelöscht.
    art 'rx'     : ZIP als Datei in die Organisation (POST /organizations/{org}/files, PUT /files/{id})
    art 'grenze' : Feldgrenze beim Feld anlegen (POST /organizations/{org}/fields/{feldId}/boundaries), geo = MultiPolygon-Koordinaten [lon,lat] */
+/* ---------- v64: Felder und Feldgrenzen schreiben ---------- */
+const lastSeg = loc => (loc || '').split('?')[0].split('/').filter(Boolean).pop() || '';
+function grenzenNeu(feldId) { try { const gc = load('grenzen.json', {}); delete gc[feldId]; save('grenzen.json', gc); } catch { } }
+// Grenze anlegen: v62 – GeoJSON nach RFC 7946 (Ringe geschlossen, Aussenring gegen, Löcher im Uhrzeigersinn, keine doppelten Folgepunkte)
+async function postBoundary(feldId, g) {
+  const geo = Array.isArray(g.geo) ? g.geo : null;
+  if (!geo || !geo.length) throw new Error('Die Feldgrenze ist leer.');
+  const area2 = c => { let t = 0; for (let k = 0; k < c.length - 1; k++) t += c[k][0] * c[k + 1][1] - c[k + 1][0] * c[k][1]; return t; };
+  const prepRing = (r, loch) => {
+    const c = r.map(([lon, lat]) => [+(+lon).toFixed(8), +(+lat).toFixed(8)]).filter((q, k, l) => !k || q[0] !== l[k - 1][0] || q[1] !== l[k - 1][1]);
+    if (c.length && (c[0][0] !== c[c.length - 1][0] || c[0][1] !== c[c.length - 1][1])) c.push([c[0][0], c[0][1]]);
+    if (c.length < 4) throw new Error('Ein Ring der Feldgrenze hat weniger als 3 Punkte.');
+    const ccw = area2(c) > 0; if (loch ? ccw : !ccw) c.reverse();
+    return c;
+  };
+  const polys = geo.map(poly => poly.map((r, i) => prepRing(r, i > 0)));
+  const base = { '@type': 'Boundary', name: String(g.name || 'IM-Applikationskarten').slice(0, 100), sourceType: 'External', active: g.aktiv !== false, archived: false, irrigated: false };
+  const mk = zu => ({ ...base, multipolygons: polys.map(poly => ({ '@type': 'Polygon', rings: poly.map((c, i) => ({ '@type': 'Ring',
+    points: (zu ? c : c.slice(0, -1)).map(([lon, lat]) => ({ '@type': 'Point', lat, lon })), type: i ? 'interior' : 'exterior', passable: true })) })) });
+  const url = `/organizations/${encodeURIComponent(cfg.orgId)}/fields/${encodeURIComponent(feldId)}/boundaries`;
+  let c;
+  try { c = await jdSend('POST', url, JSON.stringify(mk(true)), ACCEPT); }
+  catch (e) {
+    if (e.status !== 400 || !/geojson|polygon|ring|point/i.test(e.message)) throw e;   // z.B. «Boundary name must be unique» ohne zweiten Versuch
+    log(`Feldgrenze: John Deere lehnt geschlossene Ringe ab (${e.message}) – zweiter Versuch ohne Schlusspunkt`);
+    try { c = await jdSend('POST', url, JSON.stringify(mk(false)), ACCEPT); }
+    catch (e2) { throw new Error(e.message + (e2.message !== e.message ? ' · ohne Schlusspunkt: ' + e2.message : '')); }
+  }
+  return { id: lastSeg(c.location) || idOf(c.json && c.json.id), name: base.name, active: base.active };
+}
+// Grenze aktiv setzen / archivieren / wiederherstellen. John Deere verlangt beim PUT das ganze Objekt (name, active, irrigated, sourceType, multipolygons).
+async function setBoundaryState(feldId, grenzeId, a) {
+  const url = `/organizations/${encodeURIComponent(cfg.orgId)}/fields/${encodeURIComponent(feldId)}/boundaries/${encodeURIComponent(grenzeId)}`;
+  const b = await jdGet(url);
+  const want = { active: a.aktiv != null ? !!a.aktiv : !!b.active, archived: a.archiviert != null ? !!a.archiviert : !!b.archived };
+  if (want.archived) want.active = false;   // archivierte Grenze kann nicht aktiv sein
+  const mp = embedded(b, 'multipolygons').map(poly => ({ '@type': 'Polygon', rings: embedded(poly, 'rings').map(r => ({ '@type': 'Ring',
+    points: embedded(r, 'points').map(q => ({ '@type': 'Point', lat: q.lat ?? q.latitude, lon: q.lon ?? q.longitude })), type: r.type || 'exterior', passable: r.passable !== false })) }));
+  if (!mp.length) throw new Error('John Deere lieferte die Grenze ohne Geometrie.');
+  const body = (key, src) => { const o = { '@type': 'Boundary', name: b.name || 'Grenze', active: want.active, irrigated: !!b.irrigated, sourceType: src, multipolygons: mp };
+    o[key] = want.archived; if (b.signalType) o.signalType = b.signalType; return JSON.stringify(o); };
+  const put = async key => {
+    try { await jdSend('PUT', url, body(key, b.sourceType || 'External'), ACCEPT); }
+    catch (e) { if (b.sourceType && b.sourceType !== 'External' && (e.status === 400 || e.status === 403) && /source|licen/i.test(e.message)) { log(`Feldgrenze: Quelle «${b.sourceType}» nicht übernehmbar – als External gespeichert`); await jdSend('PUT', url, body(key, 'External'), ACCEPT); } else throw e; }
+  };
+  await put('archived');
+  // Dokumentation nennt das Feld teils «archive», teils «archived»: prüfen und nötigenfalls mit dem anderen Namen wiederholen
+  let chk = null; try { await sleep(1500); chk = await jdGet(url); } catch { }
+  if (chk && !!chk.archived !== want.archived) { await put('archive'); try { await sleep(1500); chk = await jdGet(url); } catch { } }
+  if (chk && !!chk.archived !== want.archived) throw new Error(want.archived ? 'John Deere hat die Grenze nicht archiviert.' : 'John Deere erlaubt das Wiederherstellen dieser archivierten Grenze über die Schnittstelle nicht – bitte im Operations Center wiederherstellen.');
+  const text = want.archived ? (b.archived ? 'bleibt archiviert' : 'archiviert') : (b.archived ? 'wiederhergestellt' + (want.active ? ' und aktiv gesetzt' : '') : want.active ? 'aktiv gesetzt (übrige Grenzen des Feldes inaktiv)' : 'inaktiv gesetzt');
+  return { name: b.name || grenzeId, text };
+}
+// Neues Feld: Kunde und Betrieb müssen bestehen (IDs aus jd-sync.json; bei Kundenebene «Betriebe» ist die Kunden-ID die Betriebs-ID)
+async function createField(a) {
+  const org = encodeURIComponent(cfg.orgId), name = String(a.name || '').trim().slice(0, 100);
+  if (!name) throw new Error('Kein Feldname angegeben.');
+  let farmId = a.betriebId || '', clientId = a.kundeId || '';
+  if ((st.lastOk && st.lastOk.ebene) === 'farms') { farmId = a.kundeId; clientId = ''; }
+  if (!farmId) throw new Error('Kein Betrieb gewählt – das Feld braucht einen bestehenden Betrieb.');
+  if (!clientId) { try { const l = await jdAll(`/organizations/${org}/farms/${encodeURIComponent(farmId)}/clients`); clientId = idOf(l[0] && l[0].id); } catch (e) { if (e.status === 403) throw e; } }
+  if (!clientId) throw new Error('Der Kunde des Betriebs konnte nicht ermittelt werden.');
+  // gleicher Name beim gleichen Kunden? (John Deere verlangt eindeutige Feldnamen)
+  try { const l = await jdAll(`/organizations/${org}/clients/${encodeURIComponent(clientId)}/fields`, true); if (l.some(f => String(f.name || '').trim().toLowerCase() === name.toLowerCase())) throw Object.assign(new Error(`Beim Kunden gibt es bereits ein Feld «${name}».`), { dup: true }); } catch (e) { if (e.dup) throw e; }
+  const c = await jdSend('POST', `/organizations/${org}/fields`, JSON.stringify({ name, archived: false, farms: { farms: [{ id: farmId }] }, clients: { clients: [{ id: clientId }] } }), ACCEPT);
+  const id = lastSeg(c.location) || idOf(c.json && c.json.id);
+  if (!id) throw new Error('John Deere hat keine Feld-ID zurückgegeben.');
+  return { id, name };
+}
 const uploadDir = () => cfg.uploadPfad || '/jd-upload';
 let uploadBusy = false, lastUploadPoll = 0;
 async function runUploads() {
@@ -1331,38 +1475,35 @@ async function runUpload(n) {
       log(`Upload: Applikationskarte «${name}» ins Operations Center hochgeladen (Datei ${fileId}${jdStatus ? ', ' + jdStatus : ''})`);
     } else if (a.art === 'grenze') {
       if (!hasAg3()) throw new Error('Die John-Deere-Anmeldung hat noch keine Berechtigung für Feldgrenzen – auf dem NAS (jd-sync, Schritt 2) neu bei John Deere anmelden.');
-      const g = a.grenze || {}, geo = Array.isArray(g.geo) ? g.geo : null;
       if (!a.feldId) throw new Error('Kein Feld aus MyJohnDeere gewählt.');
-      if (!geo || !geo.length) throw new Error('Die Feldgrenze ist leer.');
-      // v62: John Deere prüft die Grenze als GeoJSON (RFC 7946): Ring geschlossen (erster = letzter Punkt, mind. 4 Punkte),
-      // Aussenring gegen den Uhrzeigersinn, Löcher im Uhrzeigersinn, keine doppelten Folgepunkte
-      const area2 = c => { let t = 0; for (let k = 0; k < c.length - 1; k++) t += c[k][0] * c[k + 1][1] - c[k + 1][0] * c[k][1]; return t; };
-      const prepRing = (r, loch) => {
-        const c = r.map(([lon, lat]) => [+(+lon).toFixed(8), +(+lat).toFixed(8)]).filter((q, k, l) => !k || q[0] !== l[k - 1][0] || q[1] !== l[k - 1][1]);
-        if (c.length && (c[0][0] !== c[c.length - 1][0] || c[0][1] !== c[c.length - 1][1])) c.push([c[0][0], c[0][1]]);
-        if (c.length < 4) throw new Error('Ein Ring der Feldgrenze hat weniger als 3 Punkte.');
-        const ccw = area2(c) > 0; if (loch ? ccw : !ccw) c.reverse();
-        return c;
-      };
-      const polys = geo.map(poly => poly.map((r, i) => prepRing(r, i > 0)));
-      const base = { '@type': 'Boundary', name: String(g.name || 'IM-Applikationskarten').slice(0, 100), sourceType: 'External', active: g.aktiv !== false, archived: false, irrigated: false };
-      const mk = zu => ({ ...base, multipolygons: polys.map(poly => ({ '@type': 'Polygon', rings: poly.map((c, i) => ({ '@type': 'Ring',
-        points: (zu ? c : c.slice(0, -1)).map(([lon, lat]) => ({ '@type': 'Point', lat, lon })), type: i ? 'interior' : 'exterior', passable: true })) })) });
-      const body = mk(true), url = `/organizations/${encodeURIComponent(cfg.orgId)}/fields/${encodeURIComponent(a.feldId)}/boundaries`;
-      let c;
-      try { c = await jdSend('POST', url, JSON.stringify(body), ACCEPT); }
-      catch (e) {
-        if (e.status !== 400 || !/geojson|polygon|ring|point/i.test(e.message)) throw e;   // z.B. «Boundary name must be unique» ohne zweiten Versuch
-        log(`Feldgrenze: John Deere lehnt geschlossene Ringe ab (${e.message}) – zweiter Versuch ohne Schlusspunkt`);
-        try { c = await jdSend('POST', url, JSON.stringify(mk(false)), ACCEPT); }
-        catch (e2) { throw new Error(e.message + (e2.message !== e.message ? ' · ohne Schlusspunkt: ' + e2.message : '')); }
-      }
-      const bid = (c.location && c.location.split('?')[0].split('/').filter(Boolean).pop()) || idOf(c.json && c.json.id) || '';
-      // Grenzen dieses Feldes beim nächsten Abgleich neu holen
-      try { const gc = load('grenzen.json', {}); delete gc[a.feldId]; save('grenzen.json', gc); } catch { }
-      await status({ status: 'ok', meldung: `Feldgrenze «${body.name}» beim Feld «${a.feld || a.feldId}» gespeichert${body.active ? ' (aktiv)' : ''}. Die Feldliste wird gleich neu abgeglichen.`, jdBoundaryId: bid });
+      const r = await postBoundary(a.feldId, a.grenze || {});
+      grenzenNeu(a.feldId);
+      await status({ status: 'ok', meldung: `Feldgrenze «${r.name}» beim Feld «${a.feld || a.feldId}» gespeichert${r.active ? ' (aktiv)' : ''}. Die Feldliste wird gleich neu abgeglichen.`, jdBoundaryId: r.id });
       rec({ ok: true, meldung: `Feldgrenze beim Feld ${a.feld || a.feldId} gespeichert` });
-      log(`Upload: Feldgrenze «${body.name}» beim Feld «${a.feld || a.feldId}» gespeichert${bid ? ' (' + bid + ')' : ''}`);
+      log(`Upload: Feldgrenze «${r.name}» beim Feld «${a.feld || a.feldId}» gespeichert${r.id ? ' (' + r.id + ')' : ''}`);
+      st.syncNachUpload = true; saveSt();
+    } else if (a.art === 'grenze-status') {
+      // v64: Grenze aktiv setzen / archivieren / wiederherstellen (PUT mit vollständigem Objekt; aktiv setzen macht die übrigen Grenzen des Feldes inaktiv)
+      if (!hasAg3()) throw new Error('Die John-Deere-Anmeldung hat noch keine Berechtigung für Feldgrenzen – auf dem NAS (jd-sync, Schritt 2) neu bei John Deere anmelden.');
+      if (!a.feldId || !a.grenzeId) throw new Error('Feld oder Grenze fehlt (Grenz-ID erst ab NAS-Dienst v64 nach einem Abgleich vorhanden).');
+      const r = await setBoundaryState(a.feldId, a.grenzeId, a);
+      grenzenNeu(a.feldId);
+      await status({ status: 'ok', meldung: `Feldgrenze «${r.name}»: ${r.text}. Die Feldliste wird gleich neu abgeglichen.` });
+      rec({ ok: true, meldung: `Feldgrenze ${r.name} (${a.feld || a.feldId}): ${r.text}` });
+      log(`Auftrag: Feldgrenze «${r.name}» beim Feld «${a.feld || a.feldId}» – ${r.text}`);
+      st.syncNachUpload = true; saveSt();
+    } else if (a.art === 'feld') {
+      // v64: neues Feld bei bestehendem Kunden und Betrieb (Kunden und Betriebe werden nie angelegt)
+      if (!hasAg3()) throw new Error('Die John-Deere-Anmeldung hat noch keine Berechtigung zum Anlegen von Feldern – auf dem NAS (jd-sync, Schritt 2) neu bei John Deere anmelden.');
+      const r = await createField(a);
+      let gtxt = '';
+      if (a.grenze && Array.isArray(a.grenze.geo) && a.grenze.geo.length) {
+        try { const b = await postBoundary(r.id, a.grenze); gtxt = ` mit Feldgrenze «${b.name}»`; }
+        catch (e) { gtxt = ` – Feldgrenze nicht gespeichert: ${e.message}`; }
+      }
+      await status({ status: 'ok', meldung: `Feld «${r.name}» in MyJohnDeere angelegt${gtxt}. Die Feldliste wird gleich neu abgeglichen.`, jdFieldId: r.id });
+      rec({ ok: true, meldung: `Feld ${r.name} angelegt${gtxt}` });
+      log(`Auftrag: Feld «${r.name}» angelegt (${r.id})${gtxt}`);
       st.syncNachUpload = true; saveSt();
     } else throw new Error('Unbekannte Auftragsart: ' + a.art);
   } catch (e) {
@@ -1406,7 +1547,7 @@ setInterval(async () => {
   // v61: Aufträge aus IM-Applikationskarten (jede Minute)
   if (st.jd && st.dbx && cfg.orgId && Date.now() - lastUploadPoll > (cfg.uploadSekunden || 60) * 1000) {
     lastUploadPoll = Date.now(); await runUploads();
-    if (st.syncNachUpload && !st.running) { st.syncNachUpload = false; saveSt(); runSync('nach Feldgrenze aus IM-Applikationskarten'); }
+    if (st.syncNachUpload && !st.running) { st.syncNachUpload = false; saveSt(); runSync('nach Auftrag aus IM-Applikationskarten (nur Kunden, Felder, Grenzen)', { nurStamm: true }); }
   }
   const bz = toMinutes(cfg.sicherungZeit) ?? 0;
   if (cfg.sicherungAktiv && st.dbx && min >= bz && st.lastBackupDay !== day && !st.backupRunning) { st.lastBackupDay = day; saveSt(); await runBackup('täglich'); }
@@ -1464,8 +1605,8 @@ ${st.jd && !hasAg2() ? '<p class="no">Die bestehende John-Deere-Anmeldung enthä
 <form method="post" action="/arbeiten"><div class="row"><div><label>Arbeitsdaten abholen</label><select name="arbeitenAktiv"><option value="1" ${cfg.arbeitenAktiv ? 'selected' : ''}>Ja</option><option value="0" ${cfg.arbeitenAktiv ? '' : 'selected'}>Nein</option></select></div>
 <div><label>Ab Datum (früher = längere Historie, erster Lauf dauert länger)</label><input name="arbeitenSeit" type="date" value="${esc(cfg.arbeitenSeit)}"></div></div>
 <button>Speichern</button> <button class="sec" name="neu" value="1">Speichern und komplett neu laden</button></form></section>
-<section><h2>Hochladen aus IM-Applikationskarten</h2><p><small>Applikationskarten und Feldgrenzen, die in IM-Applikationskarten «An Operations Center senden» bzw. «In MyJohnDeere speichern» werden, legt die App im Dropbox-Ordner <b>${esc(uploadDir())}</b> ab. jd-sync prüft jede Minute und lädt sie mit der Files- bzw. Boundaries-Schnittstelle von John Deere in die Organisation hoch.</small></p>
-${cfg.schreibrechte === false ? '<p class="no">Schreibrechte sind ausgeschaltet (Schritt 1).</p>' : st.jd ? `<p>${ok(hasFiles(), 'Berechtigung Dateien hochladen (files)')}<br>${ok(hasAg3(), 'Berechtigung Feldgrenzen speichern (ag3)')}</p>${!hasFiles() || !hasAg3() ? '<p class="no">Die bestehende Anmeldung enthält diese Rechte noch nicht – bitte unten in Schritt 2 neu bei John Deere anmelden. Alles andere läuft bis dahin normal weiter.</p>' : ''}` : ''}
+<section><h2>Hochladen aus IM-Applikationskarten</h2><p><small>Applikationskarten und Feldgrenzen, die in IM-Applikationskarten «An Operations Center senden» bzw. «In MyJohnDeere speichern» werden, legt die App im Dropbox-Ordner <b>${esc(uploadDir())}</b> ab. jd-sync prüft jede Minute und lädt sie mit der Files- bzw. Boundaries-Schnittstelle von John Deere in die Organisation hoch. Ebenso: neue Felder anlegen (bei bestehendem Kunden und Betrieb) und Feldgrenzen aktiv setzen, archivieren oder wiederherstellen. Danach werden nur Kunden, Felder und Grenzen neu abgeglichen.</small></p><p><small>Ertragskarten (Raster 5 m je Ernte, aus den Bedeckungskarten): ${st.ertragIndex != null ? st.ertragIndex + ' Ernten' : 'noch keine'} im Dropbox-Ordner <b>${esc(ertragDir())}</b>.</small></p>
+${cfg.schreibrechte === false ? '<p class="no">Schreibrechte sind ausgeschaltet (Schritt 1).</p>' : st.jd ? `<p>${ok(hasFiles(), 'Berechtigung Dateien hochladen (files)')}<br>${ok(hasAg3(), 'Berechtigung Felder und Feldgrenzen (ag3)')}</p>${!hasFiles() || !hasAg3() ? '<p class="no">Die bestehende Anmeldung enthält diese Rechte noch nicht – bitte unten in Schritt 2 neu bei John Deere anmelden. Alles andere läuft bis dahin normal weiter.</p>' : ''}` : ''}
 ${(st.uploads || []).length ? `<p><small>${(st.uploads || []).slice(0, 10).map(x => `${esc(new Date(x.at).toLocaleString('de-CH'))} · ${x.art === 'grenze' ? 'Feldgrenze' : 'Applikationskarte'} «${esc(x.name || '')}» · ${x.ok ? '<span class="ok">ok</span>' : '<span class="no">Fehler</span>'} ${esc(x.meldung || '')}`).join('<br>')}</small></p>` : '<p><small>Noch nichts hochgeladen.</small></p>'}</section>
 <section><h2>1 · John-Deere-App (developer.deere.com)</h2><form method="post" action="/config">
 <div class="row"><div><label>Application ID (Client-ID)</label><input name="clientId" value="${esc(cfg.clientId)}"></div><div><label>Secret ${cfg.clientSecret ? '<small>(gespeichert – leer lassen = unverändert)</small>' : ''}</label><input name="clientSecret" type="password" autocomplete="off"></div></div>
