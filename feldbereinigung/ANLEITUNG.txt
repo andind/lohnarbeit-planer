@@ -1,23 +1,27 @@
-IM-Feldbereinigung v1.0 (16.11.2026) – doppelte Felder im John Deere Operations Center aufräumen (nur PC)
+IM-Feldbereinigung v1.1 (16.11.2026) – Vorschläge zum Zusammenführen von Feldern im John Deere Operations Center (nur PC)
+
+Das Programm ändert nichts in MyJohnDeere. Es zeigt, welche Felder zusammengehören könnten;
+zusammengeführt wird von Hand im Operations Center.
 
 Einrichten (einmalig)
-1. NAS: jd-sync auf Version 66 aktualisieren (Ordner app/ ersetzen, Container neu starten). Ältere Versionen können keine Felder archivieren.
-2. GitHub: Ordner «feldbereinigung» ins Repository andind/lohnarbeit-planer hochladen.
-   Adresse danach: https://andind.github.io/lohnarbeit-planer/feldbereinigung/
-3. Dropbox: Ist auf dem PC IM-Applikationskarten bereits angemeldet, wird diese Anmeldung übernommen.
+1. Adresse: https://andind.github.io/lohnarbeit-planer/feldbereinigung/
+2. Dropbox: Ist auf dem PC IM-Applikationskarten bereits angemeldet, wird diese Anmeldung übernommen.
    Sonst in der Dropbox App Console › Settings › Redirect URIs die obige Adresse eintragen und im Reiter «Verbindung» anmelden.
-4. In Edge/Chrome über «App installieren» als eigenes Fenster installierbar.
+3. In Edge/Chrome über «App installieren» als eigenes Fenster installierbar.
+Der NAS-Dienst jd-sync braucht dafür keine neue Version.
 
-Ausprobieren ohne Verbindung: Adresse mit ?demo am Schluss (Beispieldaten, es wird nichts gesendet).
+Ausprobieren ohne Verbindung: Adresse mit ?demo am Schluss (Beispieldaten).
+
+Was vorgeschlagen wird (immer nur Felder des gleichen Kunden)
+- Doppelt: die Grenzen überlappen sich (ab 50 %, einstellbar) oder die Namen sind gleich bzw. – wenn eine Grenze fehlt – ähnlich.
+- Angrenzend: die Grenzen liegen auf mindestens 10 m Länge direkt aneinander (Abstand bis 3 m, einstellbar;
+  grösserer Abstand = auch Felder mit Weg oder Graben dazwischen).
 
 Ablauf
-- «Doppelte Felder»: je Gruppe die Felder, Fläche, Grenzen, Arbeitsgänge und die Lage der Grenzen.
-- Felder anhaken (oder «Vorschlag anhaken» / «Sichere Vorschläge anhaken»), dann «Ausgewählte archivieren».
-- Der NAS-Dienst archiviert innert etwa einer Minute und gleicht die Feldliste neu ab.
-- «Kein Duplikat» blendet eine Gruppe dauerhaft aus (zurücksetzen im Reiter «Verbindung»).
-- «Protokoll»: alle Aufträge, mit «Wiederherstellen».
+- Je Vorschlag: Felder mit Fläche, Grenzen, Arbeitsgängen und einer Skizze der Grenzen.
+- Zielfeld = Feld, das bleiben soll (Vorschlag: meiste Arbeitsgänge; änderbar).
+- «Liste drucken» oder «Als CSV speichern», dann im Operations Center zusammenführen.
+- «✓ Erledigt» hakt einen Vorschlag ab, «Nicht zusammenführen» blendet ihn dauerhaft aus.
+- Danach im Reiter «Verbindung» einen Abgleich anfordern und «Neu laden».
 
-Wichtig
-- Es wird nur archiviert, nie gelöscht. Grenzen und Arbeitsdaten bleiben beim archivierten Feld.
-- Arbeitsgänge werden nicht auf das behaltene Feld übertragen.
-- Arbeitsgänge werden erst ab dem im NAS-Dienst eingestellten Datum gezählt (Arbeitsdaten «seit»).
+Hinweis: Arbeitsgänge werden erst ab dem im NAS-Dienst eingestellten Datum gezählt (Arbeitsdaten «seit»).

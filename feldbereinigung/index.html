@@ -10,9 +10,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap">
 <style>
-/* IM-Feldbereinigung – doppelte Felder im John Deere Operations Center finden und archivieren (nur PC)
-   Liest jd-sync.json, jd-feldgrenzen.json und jd-arbeiten.json aus dem Dropbox-App-Ordner (geschrieben vom NAS-Dienst jd-sync)
-   und legt Aufträge «feld-status» in /jd-upload ab – der NAS-Dienst (ab v66) archiviert die Felder in MyJohnDeere. */
+/* IM-Feldbereinigung – Vorschläge zum Zusammenführen von Feldern im John Deere Operations Center (nur PC)
+   Liest jd-sync.json, jd-feldgrenzen.json und jd-arbeiten.json aus dem Dropbox-App-Ordner (geschrieben vom NAS-Dienst jd-sync).
+   Das Programm ändert nichts in MyJohnDeere: es schlägt doppelte und angrenzende Felder des gleichen Kunden vor,
+   zusammengeführt wird von Hand im Operations Center. */
 :root{
   --bg:#f3f4f1; --panel:#ffffff; --fg:#1d2420; --muted:#66706a; --line:#d9ddd6;
   --accent:#2f6b3f; --accent-fg:#ffffff; --accent-soft:#e3eee5; --warn:#a4421d; --warn-soft:#f7e6de; --chip:#eef0ec;
@@ -33,7 +34,7 @@ header button{background:transparent;border:1px solid currentColor;color:inherit
 nav{display:flex;gap:4px;padding:0 20px;background:var(--panel);border-bottom:1px solid var(--line);flex:none}
 nav button{border:0;border-bottom:3px solid transparent;border-radius:0;background:none;padding:11px 14px;font:600 15px var(--body);color:var(--muted)}
 nav button.on{color:var(--accent);border-bottom-color:var(--accent)}
-main{flex:1;overflow:auto;padding:16px 20px 90px}
+main{flex:1;overflow:auto;padding:16px 20px 30px}
 button{font:500 14px var(--body);padding:7px 13px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
 button:hover:not(:disabled){border-color:var(--accent)}
 button:disabled{opacity:.45;cursor:default}
@@ -63,13 +64,13 @@ th{font:600 12.5px var(--body);color:var(--muted);text-transform:uppercase;lette
 tr:last-child td{border-bottom:0}
 td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 td small{color:var(--muted)}
-tr.sel td{background:var(--warn-soft)}
+tr.sel td{background:var(--accent-soft)}
 .dot{display:inline-block;width:18px;height:0;border-top:3px solid;vertical-align:middle;margin-right:7px}
 .keep{color:var(--accent);font-weight:600;font-size:13px;white-space:nowrap}
 .arch{display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer}
-.arch input{width:17px;height:17px;accent-color:var(--warn)}
-#act{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);padding:11px 20px;display:flex;gap:14px;align-items:center;box-shadow:0 -4px 14px rgba(0,0,0,.08)}
-#act .sp{flex:1}
+.arch input{width:17px;height:17px;accent-color:var(--accent)}
+#print{display:none}
+@media print{html,body{height:auto}body{display:block;background:#fff;color:#000}header,nav,main,#toast,dialog{display:none!important}#print{display:block}#print h2{font:700 17pt var(--display);margin:0 0 4pt}#print p{margin:0 0 10pt;font-size:10pt}#print table{font-size:10.5pt}#print th,#print td{border-bottom:1px solid #999;padding:5pt 6pt;vertical-align:top}#print td.k{width:22pt}#print .box{display:inline-block;width:11pt;height:11pt;border:1px solid #000}tr{break-inside:avoid}}
 dialog{border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--fg);padding:0;max-width:720px;width:92vw}
 dialog::backdrop{background:rgba(0,0,0,.45)}
 dialog h2{font:700 22px var(--display);margin:0;padding:14px 18px;border-bottom:1px solid var(--line)}
@@ -90,8 +91,8 @@ h3{font:600 18px var(--display);margin:18px 0 8px}
   <button id="bReload" title="Stammdaten neu aus Dropbox laden">Neu laden</button>
 </header>
 <nav>
-  <button data-tab="dup" class="on">Doppelte Felder <span id="nDup"></span></button>
-  <button data-tab="log">Protokoll <span id="nLog"></span></button>
+  <button data-tab="dup" class="on">Vorschläge <span id="nDup"></span></button>
+  <button data-tab="log">Erledigt <span id="nLog"></span></button>
   <button data-tab="set">Verbindung</button>
 </nav>
 <main>
@@ -99,36 +100,36 @@ h3{font:600 18px var(--display);margin:18px 0 8px}
     <div id="hinweis"></div>
     <div class="bar">
       <label>Kunde <select id="fKunde"></select></label>
-      <input type="search" id="fSuch" placeholder="Feldname suchen …" size="22">
-      <label><input type="checkbox" id="oGeo" checked> Überlappende Flächen ab <input type="number" id="oSchwelle" min="30" max="100" step="5" value="50" style="width:64px"> %</label>
-      <label><input type="checkbox" id="oName" checked> Ähnliche Namen</label>
-      <label title="Gleiche Fläche bei zwei verschiedenen Kunden (z.B. nach Pächterwechsel)"><input type="checkbox" id="oQuer"> Auch zwischen verschiedenen Kunden</label>
+      <label>Art <select id="fArt"><option value="">Alle</option><option value="dup">Nur doppelte</option><option value="nach">Nur angrenzende</option></select></label>
+      <input type="search" id="fSuch" placeholder="Feldname suchen …" size="20">
       <span class="sp"></span>
-      <button id="bSicher" title="Hakt in allen eindeutigen Gruppen die Felder ohne Arbeitsgänge an">Sichere Vorschläge anhaken</button>
+      <button id="bPrint">Liste drucken</button><button id="bCsv">Als CSV speichern</button>
+    </div>
+    <div class="bar">
+      <label><input type="checkbox" id="oGeo" checked> Doppelt: Flächen überlappen ab <input type="number" id="oSchwelle" min="30" max="100" step="5" value="50" style="width:64px"> %</label>
+      <label><input type="checkbox" id="oName" checked> Ähnliche Namen</label>
+      <label title="Felder des gleichen Kunden, deren Grenzen direkt aneinander liegen"><input type="checkbox" id="oNach" checked> Angrenzende Felder, Abstand bis <input type="number" id="oTol" min="0" max="30" step="1" value="3" style="width:58px"> m</label>
+      <label title="Gleiche Fläche bei zwei verschiedenen Kunden (z.B. nach Pächterwechsel)"><input type="checkbox" id="oQuer"> Doppelte auch zwischen verschiedenen Kunden</label>
     </div>
     <div id="groups"></div>
   </section>
   <section id="tab-log" hidden>
-    <div class="note"><p>Archivierte Felder bleiben in MyJohnDeere erhalten (mit Grenzen und Arbeitsdaten) und lassen sich hier oder im Operations Center unter <b>Land › Archiv</b> wiederherstellen.</p></div>
+    <div class="note"><p>Als erledigt markierte Vorschläge. Nach dem nächsten Abgleich des NAS-Dienstes verschwinden im Operations Center zusammengeführte Felder ohnehin aus den Vorschlägen.</p></div>
     <div id="logList"></div>
   </section>
   <section id="tab-set" hidden>
     <div id="setBody"></div>
   </section>
 </main>
-<div id="act" hidden>
-  <b id="actTxt"></b><span class="sp"></span>
-  <button id="bClear">Auswahl aufheben</button>
-  <button id="bArch" class="warn">Ausgewählte archivieren …</button>
-</div>
+<div id="print"></div>
 <dialog id="dlg"><h2 id="dlgT"></h2><div class="c" id="dlgC"></div><div class="f"><button id="dlgNo">Abbrechen</button><button id="dlgOk" class="warn"></button></div></dialog>
 <div id="toast"></div>
 
 <script src="config.js"></script>
 <script>
 "use strict";
-const VERSION = "1.0", STAND = "16.11.2026", NAS_MIN = 66;
-const UP_DIR = "/jd-upload", STATE_PATH = "/feldbereinigung.json";
+const VERSION = "1.1", STAND = "16.11.2026", MIN_NACHBAR = 10;   // angrenzend ab 10 m gemeinsamer Grenze
+const STATE_PATH = "/feldbereinigung.json";
 const DEMO = new URLSearchParams(location.search).has("demo");
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
@@ -213,9 +214,10 @@ const DBX = {
 
 /* ---------- Daten ---------- */
 const D = { stamm:null, geo:null, arb:null, busy:false, fehler:"" };
-// eigener Stand (Dropbox /feldbereinigung.json): ign = «kein Duplikat»-Paare, arch = hier archivierte Feld-IDs, log = Protokoll
-let S = { format:"feldbereinigung", v:1, ign:[], arch:{}, log:[] };
-const UI = { tab:"dup", sel:new Set(), kunde:"", such:"" };
+// eigener Stand (Dropbox /feldbereinigung.json): ign = «nicht zusammenführen»-Paare, done = erledigte Vorschläge, ziel = gewähltes Zielfeld je Vorschlag
+const S0 = () => ({ format:"feldbereinigung", v:2, ign:[], done:{}, ziel:{} });
+let S = S0();
+const UI = { tab:"dup", kunde:"", art:"", such:"" };
 let A = null;   // Ergebnis der Analyse
 
 async function loadAll(manual){
@@ -227,13 +229,13 @@ async function loadAll(manual){
     const [st, geo, arb, own] = await Promise.all([DBX.readJson("/jd-sync.json"), DBX.readJson("/jd-feldgrenzen.json"), DBX.readJson("/jd-arbeiten.json").catch(() => null), DBX.readJson(STATE_PATH).catch(() => null)]);
     if (!st || st.format !== "jd-sync" || !Array.isArray(st.fields)) throw new Error("Im Dropbox-Ordner gibt es keine jd-sync.json – läuft der NAS-Dienst?");
     D.stamm = st; D.geo = (geo && geo.format === "jd-feldgrenzen") ? geo : null; D.arb = (arb && Array.isArray(arb.operations)) ? arb : null;
-    if (own && own.format === "feldbereinigung"){ S = Object.assign({ ign:[], arch:{}, log:[] }, own); lsSet("feldber.state", S); }
-    else { const l = lsGet("feldber.state"); if (l && l.format === "feldbereinigung") S = Object.assign({ ign:[], arch:{}, log:[] }, l); }
+    if (own && own.format === "feldbereinigung"){ S = Object.assign(S0(), own); lsSet("feldber.state", S); }
+    else { const l = lsGet("feldber.state"); if (l && l.format === "feldbereinigung") S = Object.assign(S0(), l); }
     analyse();
     if (manual) toast("Stammdaten neu geladen");
   } catch(e){ console.warn(e); D.fehler = e.auth ? "Dropbox-Anmeldung abgelaufen – bitte im Reiter «Verbindung» neu anmelden." : e.message; }
   D.busy = false; $("bReload").disabled = false;
-  render(); pollStart(3000);
+  render();
 }
 let saveT = null;
 function saveState(){
@@ -296,6 +298,29 @@ function overlap(G, H){
   if (!count(10)) return 0;
   return Math.min(1, count(48) / min);
 }
+// Länge der Grenze von G (m), die höchstens tol Meter von der Grenze von H entfernt verläuft = gemeinsame Grenze
+function segDist2(px, py, ax, ay, bx, by){ const dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy; let t = l ? ((px - ax) * dx + (py - ay) * dy) / l : 0; t = t < 0 ? 0 : t > 1 ? 1 : t; const x = ax + t * dx - px, y = ay + t * dy - py; return x * x + y * y; }
+function shared(G, H, tol){
+  const x0 = H.box[0] - tol, y0 = H.box[1] - tol, x1 = H.box[2] + tol, y1 = H.box[3] + tol;
+  if (G.box[2] < x0 || G.box[0] > x1 || G.box[3] < y0 || G.box[1] > y1) return 0;
+  const sg = []; for (const p of H.polys){ const r = p[0]; for (let k = 0; k < r.length - 1; k++) sg.push(r[k][0], r[k][1], r[k+1][0], r[k+1][1]); }
+  const t2 = tol * tol; let len = 0;
+  for (const p of G.polys){ const r = p[0];
+    for (let k = 0; k < r.length - 1; k++){
+      const ax = r[k][0], ay = r[k][1], bx = r[k+1][0], by = r[k+1][1], L = Math.hypot(bx - ax, by - ay); if (!L) continue;
+      const n = Math.max(1, Math.round(L / 2)), d = L / n;   // alle 2 m ein Prüfpunkt
+      for (let i = 0; i < n; i++){ const x = ax + (bx - ax) * (i + .5) / n, y = ay + (by - ay) * (i + .5) / n; if (x < x0 || x > x1 || y < y0 || y > y1) continue;
+        for (let q = 0; q < sg.length; q += 4) if (segDist2(x, y, sg[q], sg[q+1], sg[q+2], sg[q+3]) <= t2){ len += d; break; } }
+    } }
+  return len;
+}
+function calcAdj(tol){   // angrenzende Felder des gleichen Kunden
+  const adj = new Map(), byC = new Map();
+  for (const f of PRE.fields) if (f.G){ if (!byC.has(f.client)) byC.set(f.client, []); byC.get(f.client).push(f); }
+  for (const l of byC.values()){ l.sort((a, b) => a.G.box[0] - b.G.box[0]);
+    for (let i = 0; i < l.length; i++) for (let j = i + 1; j < l.length && l[j].G.box[0] < l[i].G.box[2] + tol; j++){ const m = Math.min(shared(l[i].G, l[j].G, tol), shared(l[j].G, l[i].G, tol)); if (m >= MIN_NACHBAR) adj.set(pairKey(l[i].id, l[j].id), m); } }
+  PRE.adj = adj; PRE.adjTol = tol;
+}
 const pairKey = (a, b) => a < b ? a + "|" + b : b + "|" + a;
 let PRE = null;   // vorbereitete Felder + Überlappungen (nur bei neuen Daten neu gerechnet)
 function prepare(){
@@ -316,38 +341,52 @@ function analyse(){
   if (!D.stamm){ A = null; return; }
   if (!PRE) prepare();
   const thr = Math.min(100, Math.max(30, +$("oSchwelle").value || 50)) / 100, optGeo = $("oGeo").checked, optName = $("oName").checked, quer = $("oQuer").checked;
-  const ign = new Set(S.ign), fields = PRE.fields.filter(f => !S.arch[f.id]), byId = new Map(fields.map(f => [f.id, f]));
+  const optNach = $("oNach").checked, tol = Math.min(30, Math.max(0, +$("oTol").value || 0));
+  if (optNach && PRE.adjTol !== tol) calcAdj(tol);
+  const ign = new Set(S.ign), fields = PRE.fields, byId = PRE.byId;
   const edges = [];
   const add = (a, b, e) => { if (!ign.has(pairKey(a.id, b.id))) edges.push(Object.assign({ a:a.id, b:b.id }, e)); };
-  // 1) gleicher Kunde: Name und Fläche
+  // 1) gleicher Kunde: doppelt (Fläche, Name) oder angrenzend
   const byC = new Map(); for (const f of fields){ if (!byC.has(f.client)) byC.set(f.client, []); byC.get(f.client).push(f); }
   for (const l of byC.values()) for (let i = 0; i < l.length; i++) for (let j = i + 1; j < l.length; j++){
-    const a = l[i], b = l[j], rel = nameRel(a.c, b.c), o = (a.G && b.G) ? (PRE.ov.get(pairKey(a.id, b.id)) || 0) : null;
+    const a = l[i], b = l[j], k = pairKey(a.id, b.id), rel = nameRel(a.c, b.c), o = (a.G && b.G) ? (PRE.ov.get(k) || 0) : null;
     if (o != null){
+      const n = optNach ? (PRE.adj.get(k) || 0) : 0;
       if (optGeo && o >= thr) add(a, b, { ov:o, rel });
+      else if (n) add(a, b, { nach:n, ov:o, rel });
       else if (rel === "gleich") add(a, b, { ov:o, rel, getrennt:o < 0.3 });      // gleicher Name, aber an verschiedenen Orten
     } else if (rel === "gleich" || (rel === "aehnlich" && optName)) add(a, b, { ov:null, rel });
   }
-  // 2) verschiedene Kunden: nur über die Fläche
+  // 2) verschiedene Kunden: nur doppelte, nur über die Fläche
   if (quer && optGeo) for (const [k, o] of PRE.ov){ if (o < thr) continue; const [x, y] = k.split("|"), a = byId.get(x), b = byId.get(y); if (a && b && a.client !== b.client) add(a, b, { ov:o, rel:nameRel(a.c, b.c), quer:true }); }
   // Gruppen (zusammenhängende Felder)
   const par = new Map(); const find = x => { while (par.get(x) !== x){ par.set(x, par.get(par.get(x))); x = par.get(x); } return x; };
   for (const e of edges){ for (const x of [e.a, e.b]) if (!par.has(x)) par.set(x, x); par.set(find(e.a), find(e.b)); }
   const gm = new Map();
   for (const e of edges){ const r = find(e.a); if (!gm.has(r)) gm.set(r, { ids:new Set(), edges:[] }); const g = gm.get(r); g.ids.add(e.a); g.ids.add(e.b); g.edges.push(e); }
-  const groups = [...gm.values()].map(g => {
+  let groups = [...gm.values()].map(g => {
     const m = [...g.ids].map(id => byId.get(id));
-    // Vorschlag «behalten»: meiste Arbeitsgänge, dann jüngster Arbeitsgang, dann mit Grenze, dann mehr Grenzen
-    m.sort((a, b) => b.ops.n - a.ops.n || b.ops.last.localeCompare(a.ops.last) || (b.G ? 1 : 0) - (a.G ? 1 : 0) || b.grenzen.length - a.grenzen.length || a.name.localeCompare(b.name, "de"));
-    const stark = e => (e.ov != null && e.ov >= 0.8) || (e.rel === "gleich" && !e.getrennt && (e.ov == null || e.ov >= thr));
-    const sicher = !!D.arb && m.slice(1).every(f => f.ops.n === 0 && g.edges.some(e => (e.a === f.id || e.b === f.id) && stark(e) && !e.quer));
-    const maxOv = Math.max(0, ...g.edges.map(e => e.ov || 0));
-    return { key:m.map(f => f.id).sort().join("+"), m, edges:g.edges, keep:m[0].id, sicher, maxOv, quer:g.edges.some(e => e.quer),
-      gleich:g.edges.some(e => e.rel === "gleich"), aehnlich:g.edges.some(e => e.rel === "aehnlich"), getrennt:g.edges.every(e => e.getrennt), kunde:m[0].kunde };
-  }).sort((a, b) => (b.sicher - a.sicher) || a.kunde.localeCompare(b.kunde, "de") || a.m[0].name.localeCompare(b.m[0].name, "de"));
-  // Auswahl auf noch vorhandene Felder beschränken
-  const vis = new Set(groups.flatMap(g => g.m.map(f => f.id))); for (const id of [...UI.sel]) if (!vis.has(id)) UI.sel.delete(id);
-  A = { groups, nFields:fields.length, mitGrenze:fields.filter(f => f.G).length, thr };
+    // Vorschlag Zielfeld: meiste Arbeitsgänge, dann jüngster Arbeitsgang, dann mit Grenze, dann grössere Fläche
+    m.sort((a, b) => b.ops.n - a.ops.n || b.ops.last.localeCompare(a.ops.last) || (b.G ? 1 : 0) - (a.G ? 1 : 0) || (b.flaeche || 0) - (a.flaeche || 0) || a.name.localeCompare(b.name, "de"));
+    const key = m.map(f => f.id).sort().join("+"), dupE = g.edges.filter(e => !e.nach), z = S.ziel[key];
+    return { key, m, edges:g.edges, ziel:m.some(f => f.id === z) ? z : m[0].id, art:dupE.length ? "dup" : "nach",
+      maxOv:Math.max(0, ...dupE.map(e => e.ov || 0)), maxNach:Math.max(0, ...g.edges.map(e => e.nach || 0)), quer:g.edges.some(e => e.quer),
+      gleich:dupE.some(e => e.rel === "gleich"), aehnlich:dupE.some(e => e.rel === "aehnlich"), getrennt:dupE.length > 0 && g.edges.every(e => e.getrennt),
+      kunde:m[0].kunde, haSum:m.reduce((s, f) => s + (f.flaeche || 0), 0) };
+  });
+  const nDone = groups.filter(g => S.done[g.key]).length;
+  groups = groups.filter(g => !S.done[g.key]).sort((a, b) => (a.art === b.art ? 0 : a.art === "dup" ? -1 : 1) || a.kunde.localeCompare(b.kunde, "de") || a.m[0].name.localeCompare(b.m[0].name, "de"));
+  A = { groups, nDone, nFields:fields.length, mitGrenze:fields.filter(f => f.G).length, thr, tol };
+}
+const zielOf = g => g.m.find(f => f.id === g.ziel);
+function grundText(g){
+  const t = [];
+  if (g.maxOv >= 0.3) t.push(`Fläche überlappt ${Math.round(g.maxOv * 100)} %`);
+  if (g.gleich) t.push("gleicher Name"); else if (g.aehnlich) t.push("ähnlicher Name");
+  if (g.maxNach) t.push(`angrenzend, gemeinsame Grenze ${Math.round(g.maxNach)} m`);
+  if (g.getrennt) t.push("Flächen liegen getrennt");
+  if (g.quer) t.push("verschiedene Kunden");
+  return t;
 }
 
 /* ---------- Anzeige ---------- */
@@ -366,46 +405,47 @@ function miniMap(g){
     `<text x="6" y="${H - 6}" font-size="11" fill="currentColor" opacity=".6">Ausschnitt ca. ${m} m</text></svg>`;
 }
 function groupHtml(g){
-  const chips = [];
-  if (g.sicher) chips.push(`<span class="chip s">eindeutig</span>`);
+  const chips = [`<span class="chip s">${g.art === "dup" ? "doppelt" : "angrenzend"}</span>`];
   if (g.maxOv >= 0.3) chips.push(`<span class="chip">Fläche überlappt ${Math.round(g.maxOv * 100)} %</span>`);
   if (g.gleich) chips.push(`<span class="chip">gleicher Name</span>`); else if (g.aehnlich) chips.push(`<span class="chip">ähnlicher Name</span>`);
+  if (g.maxNach) chips.push(`<span class="chip">gemeinsame Grenze ${Math.round(g.maxNach)} m</span>`);
+  if (g.art === "nach") chips.push(`<span class="chip">zusammen ${ha(g.haSum)} ha</span>`);
   if (g.getrennt) chips.push(`<span class="chip u">Flächen liegen getrennt – wohl zwei Felder</span>`);
   if (g.quer) chips.push(`<span class="chip u">verschiedene Kunden</span>`);
   const kunden = [...new Set(g.m.map(f => f.kunde))].join(" / ");
   const rows = g.m.map((f, i) => {
-    const sel = UI.sel.has(f.id), akt = f.grenzen.find(x => x.aktiv);
-    return `<tr class="${sel ? "sel" : ""}">
-      <td><label class="arch"><input type="checkbox" data-f="${esc(f.id)}" data-g="${esc(g.key)}" ${sel ? "checked" : ""}> archivieren</label></td>
-      <td><span class="dot" style="border-top-color:${FARBEN[i % 6]};border-top-style:${STRICH[i % 6] ? "dashed" : "solid"}"></span><b>${esc(f.name)}</b>${f.id === g.keep ? ` <span class="keep">· Vorschlag: behalten</span>` : ""}<br><small>${esc(f.kunde)}${f.betrieb && f.betrieb !== f.kunde ? " · " + esc(f.betrieb) : ""}</small></td>
+    const z = f.id === g.ziel, akt = f.grenzen.find(x => x.aktiv);
+    return `<tr class="${z ? "sel" : ""}">
+      <td><label class="arch"><input type="radio" name="z${esc(g.key)}" data-z="${esc(f.id)}" data-g="${esc(g.key)}" ${z ? "checked" : ""}> ${z ? "<b>Zielfeld</b>" : "Zielfeld"}</label></td>
+      <td><span class="dot" style="border-top-color:${FARBEN[i % 6]};border-top-style:${STRICH[i % 6] ? "dashed" : "solid"}"></span><b>${esc(f.name)}</b><br><small>${esc(f.kunde)}${f.betrieb && f.betrieb !== f.kunde ? " · " + esc(f.betrieb) : ""}</small></td>
       <td class="n">${ha(f.flaeche)}</td>
       <td>${f.grenzen.length ? `${f.grenzen.length} <small>${akt ? "· aktiv: " + esc(akt.name) : "· keine aktiv"}</small>` : `<small>keine</small>`}</td>
       <td class="n">${D.arb ? (f.ops.n ? `${f.ops.n} <small>· zuletzt ${dch(f.ops.last)}</small>` : `<small>keine</small>`) : `<small>?</small>`}</td></tr>`;
   }).join("");
   return `<div class="card"><div class="h"><b>${esc(kunden)}</b>${chips.join("")}<span class="sp"></span>
-    <button class="sm" data-vor="${esc(g.key)}">Vorschlag anhaken</button><button class="sm" data-ign="${esc(g.key)}" title="Diese Felder gehören nicht zusammen – nicht mehr anzeigen">Kein Duplikat</button></div>
+    <button class="sm pri" data-done="${esc(g.key)}" title="Im Operations Center zusammengeführt – Vorschlag ausblenden">✓ Erledigt</button><button class="sm" data-ign="${esc(g.key)}" title="Diese Felder sollen getrennt bleiben – nicht mehr vorschlagen">Nicht zusammenführen</button></div>
     <div class="b"><table><thead><tr><th></th><th>Feld</th><th class="n">Fläche ha</th><th>Grenzen</th><th class="n">Arbeitsgänge</th></tr></thead><tbody>${rows}</tbody></table>${miniMap(g)}</div></div>`;
 }
 function visGroups(){
   if (!A) return [];
   const s = canon(UI.such);
-  return A.groups.filter(g => (!UI.kunde || g.m.some(f => f.client === UI.kunde)) && (!s || g.m.some(f => f.c.includes(s))));
+  return A.groups.filter(g => (!UI.kunde || g.m.some(f => f.client === UI.kunde)) && (!UI.art || g.art === UI.art) && (!s || g.m.some(f => f.c.includes(s))));
 }
 function render(){
   $("ver").textContent = `v${VERSION} · ${STAND}${DEMO ? " · BEISPIELDATEN" : ""}`;
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === UI.tab));
   for (const t of ["dup", "log", "set"]) $("tab-" + t).hidden = UI.tab !== t;
-  const st = D.stamm, nas = st ? parseInt(st.dienst, 10) || 0 : 0;
+  const st = D.stamm;
   $("stand").innerHTML = st ? `${esc((st.org && st.org.name) || "MyJohnDeere")} · Stand ${dchT(st.stand)}<br><small>NAS-Dienst v${esc(st.dienst || "?")}</small>` : (D.busy ? "Daten werden geladen …" : "nicht verbunden");
   // Hinweise
   const h = [];
   if (!DEMO && !DBX.hasSession()) h.push(`<div class="note w"><p><b>Nicht mit Dropbox verbunden.</b> Die Felder kommen über den NAS-Dienst jd-sync aus dem Dropbox-Ordner. <button class="sm pri" data-go="set">Zur Anmeldung</button></p></div>`);
   if (D.fehler) h.push(`<div class="note w"><p><b>Fehler:</b> ${esc(D.fehler)}</p></div>`);
-  if (st && nas < NAS_MIN) h.push(`<div class="note w"><p><b>NAS-Dienst v${esc(st.dienst || "?")} ist zu alt.</b> Zum Archivieren braucht es jd-sync ab v${NAS_MIN} – bis dahin kannst du die Vorschläge ansehen, aber nichts senden.</p></div>`);
-  if (st && !D.geo) h.push(`<div class="note w"><p>Die Datei <code>jd-feldgrenzen.json</code> fehlt – der Vergleich läuft nur über die Feldnamen.</p></div>`);
-  if (st && !D.arb) h.push(`<div class="note w"><p>Die Datei <code>jd-arbeiten.json</code> fehlt – es ist nicht ersichtlich, welches Feld Arbeitsgänge hat. «Sichere Vorschläge» sind deshalb ausgeschaltet.</p></div>`);
-  if (A) h.push(`<div class="note"><p><b>${A.groups.length} Gruppen</b> mit möglichen Duplikaten in ${A.nFields} aktiven Feldern (${A.mitGrenze} mit Feldgrenze)${D.arb ? ` · Arbeitsgänge gezählt seit ${dch(D.arb.seit)}` : ""}.</p>
-    <p><small>Nichts wird automatisch geändert: Felder anhaken, dann «Ausgewählte archivieren». Archivierte Felder behalten Grenzen und Arbeitsdaten und lassen sich wiederherstellen. Arbeitsgänge werden dabei <b>nicht</b> auf das behaltene Feld übertragen.</small></p></div>`);
+  if (st && !D.geo) h.push(`<div class="note w"><p>Die Datei <code>jd-feldgrenzen.json</code> fehlt – der Vergleich läuft nur über die Feldnamen, angrenzende Felder werden nicht erkannt.</p></div>`);
+  if (st && !D.arb) h.push(`<div class="note w"><p>Die Datei <code>jd-arbeiten.json</code> fehlt – es ist nicht ersichtlich, welches Feld Arbeitsgänge hat (Vorschlag für das Zielfeld dann nach Fläche).</p></div>`);
+  if (A){ const nd = A.groups.filter(g => g.art === "dup").length;
+    h.push(`<div class="note"><p><b>${A.groups.length} Vorschläge</b> zum Zusammenführen: ${nd} mit doppelten, ${A.groups.length - nd} mit angrenzenden Feldern · ${A.nFields} aktive Felder (${A.mitGrenze} mit Feldgrenze)${D.arb ? ` · Arbeitsgänge gezählt seit ${dch(D.arb.seit)}` : ""}.</p>
+    <p><small>Das Programm ändert nichts in MyJohnDeere. Zusammengeführt wird von dir im Operations Center; als Zielfeld ist das Feld mit den meisten Arbeitsgängen vorgeschlagen (änderbar). Erledigtes mit «✓ Erledigt» abhaken.</small></p></div>`); }
   $("hinweis").innerHTML = h.join("");
   // Kundenfilter
   if (A){
@@ -415,27 +455,17 @@ function render(){
     $("fKunde").innerHTML = `<option value="">Alle Kunden (${opt.length})</option>` + opt.map(([id, n]) => `<option value="${esc(id)}" ${id === UI.kunde ? "selected" : ""}>${esc(n)}</option>`).join("");
   }
   const vg = visGroups();
-  $("groups").innerHTML = !A ? "" : vg.length ? vg.map(groupHtml).join("") : `<div class="empty">${A.groups.length ? "Kein Treffer mit diesem Filter." : "Keine doppelten Felder gefunden. ✓"}</div>`;
+  $("groups").innerHTML = !A ? "" : vg.length ? vg.map(groupHtml).join("") : `<div class="empty">${A.groups.length ? "Kein Treffer mit diesem Filter." : "Keine Vorschläge – nichts zusammenzuführen. ✓"}</div>`;
   $("nDup").textContent = A ? `(${A.groups.length})` : "";
-  $("bSicher").disabled = !A || !A.groups.some(g => g.sicher);
-  if (A) $("bSicher").textContent = `Sichere Vorschläge anhaken (${A.groups.filter(g => g.sicher).length})`;
-  // Aktionsleiste
-  const n = UI.sel.size;
-  $("act").hidden = !n || UI.tab !== "dup";
-  $("actTxt").textContent = `${n} ${n === 1 ? "Feld" : "Felder"} zum Archivieren ausgewählt`;
-  $("bArch").disabled = !DEMO && (!st || nas < NAS_MIN);
+  $("bPrint").disabled = $("bCsv").disabled = !vg.length;
   renderLog(); renderSet();
 }
 function renderLog(){
-  const l = S.log || [], w = l.filter(x => x.status === "wartet").length;
-  $("nLog").textContent = l.length ? `(${w ? w + " offen / " : ""}${l.length})` : "";
-  if (!l.length){ $("logList").innerHTML = `<div class="empty">Noch nichts archiviert.</div>`; return; }
-  $("logList").innerHTML = `<div class="card"><table><thead><tr><th>Zeit</th><th>Feld</th><th>Kunde</th><th>Auftrag</th><th>Status</th><th></th></tr></thead><tbody>` + l.map(x => {
-    const kann = x.aktion === "archivieren" && x.status === "ok" && !x.rueck;
-    return `<tr><td>${dchT(x.at)}</td><td><b>${esc(x.feld)}</b></td><td>${esc(x.kunde)}</td><td>${x.aktion === "archivieren" ? "Archivieren" : "Wiederherstellen"}</td>
-      <td><span class="${x.status === "ok" ? "st-ok" : x.status === "fehler" ? "st-f" : "st-w"}">${x.status === "ok" ? "✓ erledigt" : x.status === "fehler" ? "Fehler" : "wartet auf NAS-Dienst …"}</span><br><small>${esc(x.meldung || "")}</small></td>
-      <td>${kann ? `<button class="sm" data-rueck="${esc(x.id)}">Wiederherstellen</button>` : x.rueck ? `<small>wiederhergestellt</small>` : ""}</td></tr>`;
-  }).join("") + `</tbody></table></div>`;
+  const l = Object.entries(S.done || {}).sort((a, b) => String(b[1].at).localeCompare(String(a[1].at)));
+  $("nLog").textContent = l.length ? `(${l.length})` : "";
+  if (!l.length){ $("logList").innerHTML = `<div class="empty">Noch nichts als erledigt markiert.</div>`; return; }
+  $("logList").innerHTML = `<div class="card"><table><thead><tr><th>Erledigt am</th><th>Kunde</th><th>Zielfeld</th><th>Zusammengeführt mit</th><th></th></tr></thead><tbody>` + l.map(([k, x]) =>
+    `<tr><td>${dchT(x.at)}</td><td>${esc(x.kunde)}</td><td><b>${esc(x.ziel)}</b></td><td>${esc((x.felder || []).join(", "))}</td><td><button class="sm" data-undone="${esc(k)}">Wieder vorschlagen</button></td></tr>`).join("") + `</tbody></table></div>`;
 }
 function renderSet(){
   const t = DBX.hasSession() ? lsGet(TOK) : null, st = D.stamm;
@@ -448,105 +478,52 @@ function renderSet(){
     <h3>NAS-Dienst jd-sync</h3>
     <div class="note"><p>${st ? `Version <b>${esc(st.dienst || "?")}</b> · letzter Abgleich ${dchT(st.stand)} · ${st.fields.length} Felder, ${st.clients.length} Kunden` : "Noch keine Daten geladen."}</p>
       <p><button id="bSync" ${t ? "" : "disabled"}>Abgleich mit MyJohnDeere anfordern</button></p>
-      <p><small>Aufträge werden im Dropbox-Ordner <code>${UP_DIR}</code> abgelegt; der NAS-Dienst (ab v${NAS_MIN}) führt sie innert einer Minute aus und gleicht danach die Feldliste neu ab.</small></p></div>
-    <h3>Als «Kein Duplikat» markiert</h3>
+      <p><small>Nach dem Zusammenführen im Operations Center einen Abgleich anfordern und ein paar Minuten später «Neu laden» – dann stimmt die Feldliste wieder.</small></p></div>
+    <h3>Als «Nicht zusammenführen» markiert</h3>
     <div class="note"><p>${(S.ign || []).length} Feldpaare werden nicht mehr vorgeschlagen. <button class="sm" id="bIgnReset" ${(S.ign || []).length ? "" : "disabled"}>Alle wieder anzeigen</button></p></div>`;
 }
 
 /* ---------- Bedienung ---------- */
-function confirmDlg(titel, html, okText, fn){
-  $("dlgT").textContent = titel; $("dlgC").innerHTML = html; $("dlgOk").textContent = okText;
-  $("dlgOk").onclick = () => { $("dlg").close(); fn(); }; $("dlgNo").onclick = () => $("dlg").close();
-  $("dlg").showModal();
-}
 const groupOf = key => A && A.groups.find(g => g.key === key);
+const OPT = ["oGeo", "oName", "oQuer", "oSchwelle", "oNach", "oTol"];
 document.addEventListener("change", e => {
   const t = e.target;
-  if (t.matches("input[data-f]")){
-    const g = groupOf(t.dataset.g), id = t.dataset.f;
-    if (t.checked){
-      if (g && g.m.every(f => f.id === id || UI.sel.has(f.id))){ t.checked = false; toast("Ein Feld der Gruppe muss bleiben – sonst wären alle archiviert."); return; }
-      UI.sel.add(id);
-    } else UI.sel.delete(id);
-    render();
-  }
+  if (t.matches("input[data-z]")){ S.ziel[t.dataset.g] = t.dataset.z; saveState(); analyse(); render(); }
   if (t.id === "fKunde"){ UI.kunde = t.value; render(); }
-  if (["oGeo", "oName", "oQuer", "oSchwelle"].includes(t.id)){ lsSet("feldber.opt", { geo:$("oGeo").checked, name:$("oName").checked, quer:$("oQuer").checked, thr:$("oSchwelle").value }); analyse(); render(); }
+  if (t.id === "fArt"){ UI.art = t.value; render(); }
+  if (OPT.includes(t.id)){ lsSet("feldber.opt", { geo:$("oGeo").checked, name:$("oName").checked, quer:$("oQuer").checked, thr:$("oSchwelle").value, nach:$("oNach").checked, tol:$("oTol").value }); analyse(); render(); }
 });
-$("fSuch").addEventListener("input", e => { UI.such = e.target.value; const y = $("fSuch").selectionStart; render(); $("fSuch").focus(); try { $("fSuch").setSelectionRange(y, y); } catch(x){} });
+$("fSuch").addEventListener("input", e => { UI.such = e.target.value; render(); });
 document.addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
   if (b.dataset.tab){ UI.tab = b.dataset.tab; render(); }
   else if (b.dataset.go){ UI.tab = b.dataset.go; render(); }
-  else if (b.dataset.vor){ const g = groupOf(b.dataset.vor); if (g){ for (const f of g.m) f.id === g.keep ? UI.sel.delete(f.id) : UI.sel.add(f.id); render(); } }
-  else if (b.dataset.ign){ const g = groupOf(b.dataset.ign); if (g){ for (const e2 of g.edges) S.ign.push(pairKey(e2.a, e2.b)); S.ign = [...new Set(S.ign)]; saveState(); analyse(); render(); toast("Als «Kein Duplikat» gemerkt (rückgängig im Reiter «Verbindung»)."); } }
-  else if (b.dataset.rueck) restore(b.dataset.rueck);
-  else if (b.id === "bSicher"){ let n = 0; for (const g of A.groups) if (g.sicher) for (const f of g.m) if (f.id !== g.keep && !UI.sel.has(f.id)){ UI.sel.add(f.id); n++; } render(); toast(`${n} Felder angehakt – bitte vor dem Archivieren durchsehen.`); }
-  else if (b.id === "bClear"){ UI.sel.clear(); render(); }
-  else if (b.id === "bArch") archDialog();
+  else if (b.dataset.done){ const g = groupOf(b.dataset.done); if (g){ const z = zielOf(g); S.done[g.key] = { at:new Date().toISOString(), kunde:[...new Set(g.m.map(f => f.kunde))].join(" / "), ziel:z.name, felder:g.m.filter(f => f !== z).map(f => f.name) }; saveState(); analyse(); render(); toast("Als erledigt abgehakt (Reiter «Erledigt»)."); } }
+  else if (b.dataset.undone){ delete S.done[b.dataset.undone]; saveState(); analyse(); render(); }
+  else if (b.dataset.ign){ const g = groupOf(b.dataset.ign); if (g){ for (const e2 of g.edges) S.ign.push(pairKey(e2.a, e2.b)); S.ign = [...new Set(S.ign)]; saveState(); analyse(); render(); toast("Wird nicht mehr vorgeschlagen (rückgängig im Reiter «Verbindung»)."); } }
+  else if (b.id === "bPrint") printList();
+  else if (b.id === "bCsv") csvList();
   else if (b.id === "bReload"){ PRE = null; loadAll(true); }
   else if (b.id === "bLogin") DBX.login();
   else if (b.id === "bLogout"){ DBX.logout(); render(); toast("Von Dropbox abgemeldet."); }
   else if (b.id === "bSync") DBX.writeJson("/jd-sync-request.json", { at:new Date().toISOString(), von:"IM-Feldbereinigung" }).then(() => toast("Abgleich angefordert – in ein paar Minuten «Neu laden»."), err => toast("Anfordern fehlgeschlagen: " + err.message));
   else if (b.id === "bIgnReset"){ S.ign = []; saveState(); analyse(); render(); }
 });
-function archDialog(){
-  const items = [];
-  for (const g of A.groups){ const weg = g.m.filter(f => UI.sel.has(f.id)); if (!weg.length) continue; const bleibt = g.m.filter(f => !UI.sel.has(f.id)); for (const f of weg) items.push({ f, bleibt }); }
-  if (!items.length) return;
-  const mitOps = items.filter(x => x.f.ops.n).length;
-  confirmDlg(`${items.length} ${items.length === 1 ? "Feld" : "Felder"} in MyJohnDeere archivieren?`,
-    `<table><thead><tr><th>Wird archiviert</th><th>Kunde</th><th class="n">Arbeitsgänge</th><th>Bleibt</th></tr></thead><tbody>` +
-    items.map(x => `<tr><td><b>${esc(x.f.name)}</b></td><td>${esc(x.f.kunde)}</td><td class="n">${x.f.ops.n || "–"}</td><td>${x.bleibt.map(f => esc(f.name)).join(", ")}</td></tr>`).join("") + `</tbody></table>` +
-    (mitOps ? `<div class="note w" style="margin-top:12px"><p><b>${mitOps} ${mitOps === 1 ? "Feld hat" : "Felder haben"} Arbeitsgänge.</b> Sie bleiben beim archivierten Feld und erscheinen nicht beim behaltenen.</p></div>` : "") +
-    `<p><small>Der NAS-Dienst archiviert die Felder innert etwa einer Minute. Wiederherstellen: Reiter «Protokoll» oder Operations Center › Land › Archiv.</small></p>`,
-    "Jetzt archivieren", () => sendOrders(items.map(x => x.f), true));
+/* Vorschlagsliste zum Abarbeiten im Operations Center: drucken oder als CSV (Excel) */
+function printList(){
+  const vg = visGroups(); if (!vg.length) return;
+  $("print").innerHTML = `<h2>Felder zusammenführen – Vorschläge</h2><p>${esc((D.stamm.org && D.stamm.org.name) || "")} · Stand MyJohnDeere ${dchT(D.stamm.stand)} · ${vg.length} Vorschläge · IM-Feldbereinigung v${VERSION}</p>
+    <table><thead><tr><th></th><th>Kunde</th><th>Zielfeld (bleibt)</th><th>zusammenführen mit</th><th>Grund</th></tr></thead><tbody>` + vg.map(g => { const z = zielOf(g);
+      return `<tr><td class="k"><span class="box"></span></td><td>${esc([...new Set(g.m.map(f => f.kunde))].join(" / "))}</td><td><b>${esc(z.name)}</b><br><small>${ha(z.flaeche)} ha · ${z.ops.n} Arbeitsgänge</small></td>
+        <td>${g.m.filter(f => f !== z).map(f => `${esc(f.name)} <small>(${ha(f.flaeche)} ha · ${f.ops.n} Arb.${g.quer ? " · " + esc(f.kunde) : ""})</small>`).join("<br>")}</td><td>${esc(grundText(g).join(", "))}</td></tr>`; }).join("") + `</tbody></table>`;
+  window.print();
 }
-async function sendOrders(fields, archiviert, orig){
-  if (DEMO){ for (const f of fields){ S.log.unshift({ id:"demo" + Math.random().toString(36).slice(2, 8), feldId:f.id, feld:f.name, kunde:f.kunde, aktion:archiviert ? "archivieren" : "wiederherstellen", at:new Date().toISOString(), status:"ok", meldung:"Beispieldaten – nichts gesendet" }); if (archiviert) S.arch[f.id] = 1; else delete S.arch[f.id]; } UI.sel.clear(); analyse(); render(); return; }
-  if (!navigator.onLine){ toast("Keine Internetverbindung."); return; }
-  let n = 0;
-  try {
-    for (const f of fields){
-      const id = "f" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-      await DBX.writeJson(`${UP_DIR}/${id}.json`, { id, at:new Date().toISOString(), von:"IM-Feldbereinigung " + VERSION, orgId:(D.stamm.org && D.stamm.org.id) || null,
-        art:"feld-status", feldId:f.id, feld:f.name, kunde:f.kunde, archiviert, name:`Feld «${f.name}» ${archiviert ? "archivieren" : "wiederherstellen"}` });
-      S.log.unshift({ id, feldId:f.id, feld:f.name, kunde:f.kunde, aktion:archiviert ? "archivieren" : "wiederherstellen", at:new Date().toISOString(), status:"wartet", meldung:"in Dropbox abgelegt", zu:orig || undefined });
-      UI.sel.delete(f.id); n++;
-    }
-  } catch(e){ console.warn(e); toast(e.auth ? "Dropbox-Anmeldung abgelaufen – bitte neu anmelden." : "Senden fehlgeschlagen: " + e.message); }
-  S.log = S.log.slice(0, 500); saveState(); render();
-  if (n){ toast(`${n} ${n === 1 ? "Auftrag" : "Aufträge"} gesendet – der NAS-Dienst führt sie in der nächsten Minute aus.`); pollStart(15000); }
-}
-function restore(logId){
-  const x = S.log.find(l => l.id === logId); if (!x) return;
-  confirmDlg("Feld wiederherstellen?", `<p>Das Feld <b>${esc(x.feld)}</b> (${esc(x.kunde)}) wird in MyJohnDeere wieder aktiv gesetzt.</p>`, "Wiederherstellen",
-    () => sendOrders([{ id:x.feldId, name:x.feld, kunde:x.kunde }], false, x.id));
-}
-/* Rückmeldungen des NAS-Dienstes (<id>.status.json) abholen */
-let pollT = null;
-function pollStart(ms){ if (!pollT && !DEMO) pollT = setTimeout(poll, ms || 15000); }
-async function poll(){
-  pollT = null;
-  const offen = (S.log || []).filter(x => x.status === "wartet"); if (!offen.length || !DBX.hasSession()) return;
-  let changed = false;
-  for (const x of offen){
-    try {
-      const r = await DBX.readJson(`${UP_DIR}/${x.id}.status.json`);
-      if (r){
-        x.status = r.status === "ok" ? "ok" : "fehler"; x.meldung = r.meldung || ""; changed = true;
-        if (x.status === "ok"){
-          if (x.aktion === "archivieren") S.arch[x.feldId] = x.at;
-          else { delete S.arch[x.feldId]; const o = S.log.find(l => l.id === x.zu); if (o) o.rueck = true; }
-        }
-        DBX.del(`${UP_DIR}/${x.id}.status.json`).catch(() => {});
-      } else if (Date.now() - Date.parse(x.at) > 30 * 60000){
-        x.status = "fehler"; x.meldung = `Keine Antwort vom NAS-Dienst nach 30 Minuten – läuft jd-sync ab Version ${NAS_MIN} und ist es mit Dropbox verbunden?`; changed = true;
-      }
-    } catch(e){ if (e.auth) break; }
-  }
-  if (changed){ saveState(); analyse(); render(); const f = offen.filter(x => x.status === "fehler").length, ok = offen.filter(x => x.status === "ok").length; if (ok || f) toast(`${ok} erledigt${f ? `, ${f} mit Fehler (siehe Protokoll)` : ""}`); }
-  if (S.log.some(x => x.status === "wartet")) pollStart(15000);
+function csvList(){
+  const vg = visGroups(); if (!vg.length) return;
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`, rows = [["Nr", "Art", "Kunde", "Rolle", "Feld", "Fläche ha", "Grenzen", "Arbeitsgänge", "Letzter Arbeitsgang", "Grund"]];
+  vg.forEach((g, i) => { const z = zielOf(g); for (const f of [z, ...g.m.filter(x => x !== z)]) rows.push([i + 1, g.art === "dup" ? "doppelt" : "angrenzend", f.kunde, f === z ? "Zielfeld" : "zusammenführen", f.name, f.flaeche == null ? "" : String(f.flaeche).replace(".", ","), f.grenzen.length, f.ops.n, f.ops.last ? dch(f.ops.last) : "", grundText(g).join(", ")]); });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\ufeff" + rows.map(r => r.map(q).join(";")).join("\r\n")], { type:"text/csv;charset=utf-8" }));
+  a.download = `Felder-zusammenfuehren_${new Date().toISOString().slice(0, 10)}.csv`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
 /* ---------- Beispieldaten (Adresse mit ?demo – ohne Dropbox, es wird nichts gesendet) ---------- */
@@ -568,10 +545,9 @@ function demoData(){
 
 /* ---------- Start ---------- */
 (async function start(){
-  const o = lsGet("feldber.opt"); if (o){ $("oGeo").checked = o.geo !== false; $("oName").checked = o.name !== false; $("oQuer").checked = !!o.quer; if (+o.thr) $("oSchwelle").value = o.thr; }
+  const o = lsGet("feldber.opt"); if (o){ $("oGeo").checked = o.geo !== false; $("oName").checked = o.name !== false; $("oQuer").checked = !!o.quer; if (+o.thr) $("oSchwelle").value = o.thr; $("oNach").checked = o.nach !== false; if (o.tol != null && o.tol !== "") $("oTol").value = o.tol; }
   try { if (await DBX.handleRedirect()) UI.tab = "dup"; } catch(e){ console.warn(e); }
   render(); loadAll(false);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) pollStart(1000); });
 })();
 </script>
 </body>

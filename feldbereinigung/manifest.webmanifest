@@ -1,7 +1,7 @@
 {
   "name": "IM-Feldbereinigung",
   "short_name": "IM-Feldbereinigung",
-  "description": "Doppelte Felder im John Deere Operations Center finden und archivieren – Indermühle Lohnarbeiten",
+  "description": "Vorschläge zum Zusammenführen doppelter und angrenzender Felder im John Deere Operations Center – Indermühle Lohnarbeiten",
   "lang": "de-CH",
   "id": "./",
   "start_url": "./",
