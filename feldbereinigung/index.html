@@ -12,8 +12,9 @@
 <style>
 /* IM-Feldbereinigung – Vorschläge zum Zusammenführen von Feldern im John Deere Operations Center (nur PC)
    Liest jd-sync.json, jd-feldgrenzen.json und jd-arbeiten.json aus dem Dropbox-App-Ordner (geschrieben vom NAS-Dienst jd-sync).
-   Das Programm ändert nichts in MyJohnDeere: es schlägt doppelte und angrenzende Felder des gleichen Kunden vor,
-   zusammengeführt wird von Hand im Operations Center. */
+   Felder: nur Vorschläge (doppelte und angrenzende Felder des gleichen Kunden) – zusammengeführt/archiviert wird von Hand im Operations Center.
+   Einzige Änderung an Feldern: neue Felder anlegen (Auftrag «feld», jd-sync ab v64).
+   Feldgrenzen: überzählige Grenzen archivieren und Grenzen aktiv setzen – als Auftrag «grenze-status» in /jd-upload, ausgeführt vom NAS-Dienst jd-sync (ab v64). */
 :root{
   --bg:#f3f4f1; --panel:#ffffff; --fg:#1d2420; --muted:#66706a; --line:#d9ddd6;
   --accent:#2f6b3f; --accent-fg:#ffffff; --accent-soft:#e3eee5; --warn:#a4421d; --warn-soft:#f7e6de; --chip:#eef0ec;
@@ -34,7 +35,7 @@ header button{background:transparent;border:1px solid currentColor;color:inherit
 nav{display:flex;gap:4px;padding:0 20px;background:var(--panel);border-bottom:1px solid var(--line);flex:none}
 nav button{border:0;border-bottom:3px solid transparent;border-radius:0;background:none;padding:11px 14px;font:600 15px var(--body);color:var(--muted)}
 nav button.on{color:var(--accent);border-bottom-color:var(--accent)}
-main{flex:1;overflow:auto;padding:16px 20px 30px}
+main{flex:1;overflow:auto;padding:16px 20px 90px}
 button{font:500 14px var(--body);padding:7px 13px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
 button:hover:not(:disabled){border-color:var(--accent)}
 button:disabled{opacity:.45;cursor:default}
@@ -69,12 +70,19 @@ tr.sel td{background:var(--accent-soft)}
 .keep{color:var(--accent);font-weight:600;font-size:13px;white-space:nowrap}
 .arch{display:flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer}
 .arch input{width:17px;height:17px;accent-color:var(--accent)}
+#act{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);padding:11px 20px;display:flex;gap:14px;align-items:center;box-shadow:0 -4px 14px rgba(0,0,0,.08)}
+#act .sp{flex:1}
+.arch.w input{accent-color:var(--warn)}
+tr.selw td{background:var(--warn-soft)}
 #print{display:none}
-@media print{html,body{height:auto}body{display:block;background:#fff;color:#000}header,nav,main,#toast,dialog{display:none!important}#print{display:block}#print h2{font:700 17pt var(--display);margin:0 0 4pt}#print p{margin:0 0 10pt;font-size:10pt}#print table{font-size:10.5pt}#print th,#print td{border-bottom:1px solid #999;padding:5pt 6pt;vertical-align:top}#print td.k{width:22pt}#print .box{display:inline-block;width:11pt;height:11pt;border:1px solid #000}tr{break-inside:avoid}}
+@media print{html,body{height:auto}body{display:block;background:#fff;color:#000}header,nav,main,#toast,dialog,#act{display:none!important}#print{display:block}#print h2{font:700 17pt var(--display);margin:0 0 4pt}#print p{margin:0 0 10pt;font-size:10pt}#print table{font-size:10.5pt}#print th,#print td{border-bottom:1px solid #999;padding:5pt 6pt;vertical-align:top}#print td.k{width:22pt}#print .box{display:inline-block;width:11pt;height:11pt;border:1px solid #000}tr{break-inside:avoid}}
 dialog{border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--fg);padding:0;max-width:720px;width:92vw}
 dialog::backdrop{background:rgba(0,0,0,.45)}
 dialog h2{font:700 22px var(--display);margin:0;padding:14px 18px;border-bottom:1px solid var(--line)}
 dialog .c{padding:14px 18px;max-height:60vh;overflow:auto}
+.form{display:grid;grid-template-columns:150px 1fr;gap:10px 12px;align-items:center}
+.form input[type=text],.form select{width:100%;font:14px var(--body);padding:7px 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--fg)}
+#dlgOk.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
 dialog .f{padding:12px 18px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px}
 #toast{position:fixed;left:50%;bottom:76px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:8px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:80vw;z-index:9}
 #toast.on{opacity:1}
@@ -92,7 +100,8 @@ h3{font:600 18px var(--display);margin:18px 0 8px}
 </header>
 <nav>
   <button data-tab="dup" class="on">Vorschläge <span id="nDup"></span></button>
-  <button data-tab="log">Erledigt <span id="nLog"></span></button>
+  <button data-tab="grz">Feldgrenzen <span id="nGrz"></span></button>
+  <button data-tab="log">Protokoll <span id="nLog"></span></button>
   <button data-tab="set">Verbindung</button>
 </nav>
 <main>
@@ -103,7 +112,7 @@ h3{font:600 18px var(--display);margin:18px 0 8px}
       <label>Art <select id="fArt"><option value="">Alle</option><option value="dup">Nur doppelte</option><option value="nach">Nur angrenzende</option></select></label>
       <input type="search" id="fSuch" placeholder="Feldname suchen …" size="20">
       <span class="sp"></span>
-      <button id="bPrint">Liste drucken</button><button id="bCsv">Als CSV speichern</button>
+      <button id="bNeu" class="pri">Neues Feld anlegen …</button><button id="bPrint">Liste drucken</button><button id="bCsv">Als CSV speichern</button>
     </div>
     <div class="bar">
       <label><input type="checkbox" id="oGeo" checked> Doppelt: Flächen überlappen ab <input type="number" id="oSchwelle" min="30" max="100" step="5" value="50" style="width:64px"> %</label>
@@ -113,6 +122,17 @@ h3{font:600 18px var(--display);margin:18px 0 8px}
     </div>
     <div id="groups"></div>
   </section>
+  <section id="tab-grz" hidden>
+    <div id="grzHinweis"></div>
+    <div class="bar">
+      <label>Kunde <select id="gKunde"></select></label>
+      <label>Art <select id="gArt"><option value="">Alle</option><option value="mehr">Mehrere Grenzen</option><option value="keine">Keine Grenze aktiv</option><option value="ohne">Felder ohne Grenze</option></select></label>
+      <input type="search" id="gSuch" placeholder="Feldname suchen …" size="20">
+      <span class="sp"></span>
+      <button id="bInakt" title="Hakt bei allen angezeigten Feldern die nicht aktiven Grenzen an">Alle inaktiven anhaken</button>
+    </div>
+    <div id="grzList"></div>
+  </section>
   <section id="tab-log" hidden>
     <div class="note"><p>Als erledigt markierte Vorschläge. Nach dem nächsten Abgleich des NAS-Dienstes verschwinden im Operations Center zusammengeführte Felder ohnehin aus den Vorschlägen.</p></div>
     <div id="logList"></div>
@@ -121,6 +141,11 @@ h3{font:600 18px var(--display);margin:18px 0 8px}
     <div id="setBody"></div>
   </section>
 </main>
+<div id="act" hidden>
+  <b id="actTxt"></b><span class="sp"></span>
+  <button id="bClear">Auswahl aufheben</button>
+  <button id="bArch" class="warn">Ausgewählte Grenzen archivieren …</button>
+</div>
 <div id="print"></div>
 <dialog id="dlg"><h2 id="dlgT"></h2><div class="c" id="dlgC"></div><div class="f"><button id="dlgNo">Abbrechen</button><button id="dlgOk" class="warn"></button></div></dialog>
 <div id="toast"></div>
@@ -128,7 +153,8 @@ h3{font:600 18px var(--display);margin:18px 0 8px}
 <script src="config.js"></script>
 <script>
 "use strict";
-const VERSION = "1.1", STAND = "16.11.2026", MIN_NACHBAR = 10;   // angrenzend ab 10 m gemeinsamer Grenze
+const VERSION = "1.2", STAND = "16.11.2026", MIN_NACHBAR = 10;   // angrenzend ab 10 m gemeinsamer Grenze
+const NAS_MIN = 64, UP_DIR = "/jd-upload";                       // Feldgrenzen-Aufträge (grenze-status) kann jd-sync ab v64
 const STATE_PATH = "/feldbereinigung.json";
 const DEMO = new URLSearchParams(location.search).has("demo");
 const $ = id => document.getElementById(id);
@@ -215,14 +241,16 @@ const DBX = {
 /* ---------- Daten ---------- */
 const D = { stamm:null, geo:null, arb:null, busy:false, fehler:"" };
 // eigener Stand (Dropbox /feldbereinigung.json): ign = «nicht zusammenführen»-Paare, done = erledigte Vorschläge, ziel = gewähltes Zielfeld je Vorschlag
-const S0 = () => ({ format:"feldbereinigung", v:2, ign:[], done:{}, ziel:{} });
+// glog = Aufträge Feldgrenzen, garch/gakt = hier archivierte bzw. aktiv gesetzte Grenzen, bis der nächste Abgleich sie zeigt
+const S0 = () => ({ format:"feldbereinigung", v:3, ign:[], done:{}, ziel:{}, glog:[], garch:{}, gakt:{} });
 let S = S0();
-const UI = { tab:"dup", kunde:"", art:"", such:"" };
+const UI = { tab:"dup", kunde:"", art:"", such:"", gsel:new Set(), gk:"", gart:"", gsuch:"" };
+let B = null;   // Ergebnis der Feldgrenzen-Analyse
 let A = null;   // Ergebnis der Analyse
 
 async function loadAll(manual){
   if (D.busy) return;
-  if (DEMO){ demoData(); analyse(); render(); return; }
+  if (DEMO){ if (!D.stamm) demoData(); analyse(); analyseGrz(); render(); return; }
   if (!DBX.hasSession()){ render(); return; }
   D.busy = true; D.fehler = ""; $("bReload").disabled = true; $("stand").textContent = "Daten werden geladen …";
   try {
@@ -231,11 +259,14 @@ async function loadAll(manual){
     D.stamm = st; D.geo = (geo && geo.format === "jd-feldgrenzen") ? geo : null; D.arb = (arb && Array.isArray(arb.operations)) ? arb : null;
     if (own && own.format === "feldbereinigung"){ S = Object.assign(S0(), own); lsSet("feldber.state", S); }
     else { const l = lsGet("feldber.state"); if (l && l.format === "feldbereinigung") S = Object.assign(S0(), l); }
-    analyse();
+    // eigene Änderungen an Grenzen vergessen, sobald ein neuerer Abgleich sie enthält
+    for (const k of Object.keys(S.garch)) if (String(S.garch[k]) < String(st.stand)) delete S.garch[k];
+    for (const k of Object.keys(S.gakt)) if (String(S.gakt[k].at) < String(st.stand)) delete S.gakt[k];
+    analyse(); analyseGrz();
     if (manual) toast("Stammdaten neu geladen");
   } catch(e){ console.warn(e); D.fehler = e.auth ? "Dropbox-Anmeldung abgelaufen – bitte im Reiter «Verbindung» neu anmelden." : e.message; }
   D.busy = false; $("bReload").disabled = false;
-  render();
+  render(); pollStart(3000);
 }
 let saveT = null;
 function saveState(){
@@ -272,19 +303,23 @@ function nameRel(ca, cb){   // "gleich" | "aehnlich" | null
   return null;
 }
 /* Geometrie: aktive Grenze je Feld, in Meter umgerechnet (ebene Näherung um eine gemeinsame Breite – für Überlappungen genau genug) */
-function prepGeo(list, kx, ky){
-  if (!Array.isArray(list)) return null;
-  const g = list.find(x => x.aktiv && !x.archiviert && x.geo) || list.find(x => !x.archiviert && x.geo); if (!g) return null;
+function geoOne(geo, kx, ky, name){
+  if (!Array.isArray(geo)) return null;
   const polys = []; let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, area = 0;
   const ringA = r => { let t = 0; for (let k = 0; k < r.length - 1; k++) t += r[k][0] * r[k+1][1] - r[k+1][0] * r[k][1]; return Math.abs(t) / 2; };
-  for (const poly of g.geo){
+  for (const poly of geo){
     const rings = poly.map(r => r.map(q => [q[0] * kx, q[1] * ky])).filter(r => r.length >= 4);
     if (!rings.length) continue;
     for (const q of rings[0]){ if (q[0] < x0) x0 = q[0]; if (q[0] > x1) x1 = q[0]; if (q[1] < y0) y0 = q[1]; if (q[1] > y1) y1 = q[1]; }
     area += ringA(rings[0]) - rings.slice(1).reduce((s, r) => s + ringA(r), 0);
     polys.push(rings);
   }
-  return polys.length && area > 0 ? { polys, box:[x0, y0, x1, y1], area, name:g.name } : null;
+  return polys.length && area > 0 ? { polys, box:[x0, y0, x1, y1], area, name } : null;
+}
+function prepGeo(list, kx, ky){
+  if (!Array.isArray(list)) return null;
+  const g = list.find(x => x.aktiv && !x.archiviert && x.geo) || list.find(x => !x.archiviert && x.geo);
+  return g ? geoOne(g.geo, kx, ky, g.name) : null;
 }
 function inRing(r, x, y){ let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++){ const a = r[i], b = r[j]; if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; }
 function inside(G, x, y){ for (const p of G.polys){ if (inRing(p[0], x, y)){ let loch = false; for (let k = 1; k < p.length; k++) if (inRing(p[k], x, y)){ loch = true; break; } if (!loch) return true; } } return false; }
@@ -389,21 +424,95 @@ function grundText(g){
   return t;
 }
 
+/* ---------- Feldgrenzen: Felder mit mehreren Grenzen, ohne aktive Grenze, ohne Grenze ---------- */
+const pendG = () => new Set((S.glog || []).filter(x => x.status === "wartet").map(x => x.grenzeId));
+function analyseGrz(){
+  if (!D.stamm){ B = null; return; }
+  if (!PRE) prepare();
+  const gf = (D.geo && D.geo.fields) || {}, cName = new Map(D.stamm.clients.map(c => [c.id, c.name])), items = [], ohne = [];
+  for (const f of D.stamm.fields){
+    if (f.archived) continue;
+    const l = (f.grenzen || []).filter(g => !g.archiviert && !S.garch[g.id]).map(g => Object.assign({}, g));
+    const o = S.gakt[f.id]; if (o && l.some(g => g.id === o.id)) l.forEach(g => g.aktiv = g.id === o.id);
+    const base = { id:f.id, name:f.name, client:f.client, kunde:cName.get(f.client) || "", c:canon(f.name) };
+    if (!l.length){ ohne.push(base); continue; }
+    const akt = l.find(g => g.aktiv);
+    if (l.length < 2 && akt) continue;                       // genau eine, aktive Grenze: in Ordnung
+    const geos = new Map((gf[f.id] || []).map(x => [x.id, x.geo]));
+    l.forEach(g => { g.G = geoOne(geos.get(g.id), PRE.kx, PRE.ky, g.name); });
+    l.forEach(g => { g.deck = (akt && akt.G && g !== akt && g.G) ? overlap(akt.G, g.G) : null; });
+    l.sort((a, b) => (b.aktiv ? 1 : 0) - (a.aktiv ? 1 : 0) || String(b.geaendert || "").localeCompare(String(a.geaendert || "")));
+    items.push(Object.assign(base, { l, art:akt ? "mehr" : "keine" }));
+  }
+  const srt = (a, b) => a.kunde.localeCompare(b.kunde, "de") || a.name.localeCompare(b.name, "de");
+  items.sort((a, b) => (a.art === b.art ? 0 : a.art === "keine" ? -1 : 1) || srt(a, b)); ohne.sort(srt);
+  const ok = new Set(items.filter(it => it.art === "mehr").flatMap(it => it.l.filter(g => !g.aktiv && g.id).map(g => it.id + "|" + g.id)));
+  for (const k of [...UI.gsel]) if (!ok.has(k)) UI.gsel.delete(k);
+  B = { items, ohne, nInakt:ok.size };
+}
+function visGrz(){
+  if (!B) return [];
+  const s = canon(UI.gsuch);
+  return (UI.gart === "ohne" ? [] : B.items).filter(it => (!UI.gk || it.client === UI.gk) && (!UI.gart || it.art === UI.gart) && (!s || it.c.includes(s)));
+}
+function grzHtml(it, pend){
+  const rows = it.l.map((g, i) => {
+    const key = it.id + "|" + g.id, sel = UI.gsel.has(key), w = pend.has(g.id);
+    const erste = w ? `<small>wartet auf NAS-Dienst …</small>` : g.aktiv ? `<span class="keep">aktiv – bleibt</span>` : !g.id ? `<small>ohne Kennung</small>`
+      : it.art === "mehr" ? `<label class="arch w"><input type="checkbox" data-gz="${esc(key)}" ${sel ? "checked" : ""}> archivieren</label>` : "";
+    return `<tr class="${sel ? "selw" : ""}"><td>${erste}</td>
+      <td><span class="dot" style="border-top-color:${FARBEN[i % 6]};border-top-style:${STRICH[i % 6] ? "dashed" : "solid"}"></span><b>${esc(g.name || "(ohne Namen)")}</b>${g.quelle ? `<br><small>${esc(g.quelle)}${g.signal ? " · " + esc(g.signal) : ""}</small>` : ""}</td>
+      <td class="n">${ha(g.ha)}</td><td>${g.geaendert ? dch(g.geaendert) : "–"}</td>
+      <td class="n">${g.aktiv ? "" : g.deck == null ? `<small>–</small>` : g.deck >= 0.3 ? Math.round(g.deck * 100) + " %" : `<small>unter 30 %</small>`}</td>
+      <td>${!g.aktiv && g.id && !w ? `<button class="sm" data-akt="${esc(key)}">Aktiv setzen</button>` : ""}</td></tr>`;
+  }).join("");
+  const mg = it.l.map((g, i) => ({ G:g.G, name:g.name, i })).filter(x => x.G);
+  return `<div class="card"><div class="h"><b>${esc(it.name)}</b><small>${esc(it.kunde)}</small><span class="chip">${it.l.length} ${it.l.length === 1 ? "Grenze" : "Grenzen"}</span>${it.art === "keine" ? `<span class="chip u">keine aktiv</span>` : ""}<span class="sp"></span>
+    ${it.art === "mehr" ? `<button class="sm" data-gvor="${esc(it.id)}">Inaktive anhaken</button>` : ""}</div>
+    <div class="b"><table><thead><tr><th></th><th>Feldgrenze</th><th class="n">Fläche ha</th><th>Geändert</th><th class="n" title="Anteil der kleineren Fläche, der sich mit der aktiven Grenze deckt">Deckt sich mit aktiver</th><th></th></tr></thead><tbody>${rows}</tbody></table>${shapes(mg, "Keine Geometrie vorhanden")}</div></div>`;
+}
+function renderGrz(){
+  const st = D.stamm, nas = st ? parseInt(st.dienst, 10) || 0 : 0, h = [];
+  if (st && nas < NAS_MIN) h.push(`<div class="note w"><p><b>NAS-Dienst v${esc(st.dienst || "?")} ist zu alt.</b> Feldgrenzen ändern kann jd-sync ab v${NAS_MIN}.</p></div>`);
+  if (B){ const nm = B.items.filter(x => x.art === "mehr").length, nk = B.items.length - nm;
+    h.push(`<div class="note"><p>Felder mit mehreren Grenzen: <b>${nm}</b> (${B.nInakt} nicht aktive Grenzen) · Felder ohne aktive Grenze: <b>${nk}</b> · Felder ganz ohne Grenze: <b>${B.ohne.length}</b></p>
+    <p><small>Grenzen anhaken und archivieren, oder eine andere Grenze aktiv setzen – der NAS-Dienst führt es innert etwa einer Minute in MyJohnDeere aus. Archivierte Grenzen bleiben erhalten (Operations Center › Land › Archiv), gelöscht wird nichts. Die aktive Grenze eines Feldes kann nicht archiviert werden.</small></p></div>`); }
+  $("grzHinweis").innerHTML = h.join("");
+  if (B){
+    const ks = new Map(); for (const it of [...B.items, ...B.ohne]) ks.set(it.client, it.kunde);
+    if (UI.gk && !ks.has(UI.gk)) UI.gk = "";
+    $("gKunde").innerHTML = `<option value="">Alle Kunden</option>` + [...ks].sort((a, b) => a[1].localeCompare(b[1], "de")).map(([id, n]) => `<option value="${esc(id)}" ${id === UI.gk ? "selected" : ""}>${esc(n)}</option>`).join("");
+  }
+  const vg = visGrz(), pend = pendG(), s = canon(UI.gsuch);
+  let html = vg.map(it => grzHtml(it, pend)).join("");
+  if (B && (!UI.gart || UI.gart === "ohne")){
+    const oh = B.ohne.filter(it => (!UI.gk || it.client === UI.gk) && (!s || it.c.includes(s)));
+    if (oh.length) html += `<h3>Felder ohne Feldgrenze (${oh.length})</h3><div class="card"><table><thead><tr><th>Kunde</th><th>Feld</th></tr></thead><tbody>${oh.map(it => `<tr><td>${esc(it.kunde)}</td><td><b>${esc(it.name)}</b></td></tr>`).join("")}</tbody></table></div>`;
+  }
+  $("grzList").innerHTML = !B ? "" : html || `<div class="empty">${B.items.length || B.ohne.length ? "Kein Treffer mit diesem Filter." : "Alle Felder haben genau eine aktive Grenze. ✓"}</div>`;
+  $("nGrz").textContent = B ? `(${B.items.length})` : "";
+  $("bInakt").disabled = !vg.some(it => it.art === "mehr");
+  const n = UI.gsel.size;
+  $("act").hidden = !n || UI.tab !== "grz";
+  $("actTxt").textContent = `${n} ${n === 1 ? "Feldgrenze" : "Feldgrenzen"} zum Archivieren ausgewählt`;
+  $("bArch").disabled = !DEMO && nas < NAS_MIN;
+}
+
 /* ---------- Anzeige ---------- */
 const FARBEN = ["#2563eb", "#d9480f", "#7c3aed", "#0f766e", "#be123c", "#a16207"], STRICH = ["", "7 4", "2 4", "10 3 2 3", "", "7 4"];
-function miniMap(g){
-  const mg = g.m.map((f, i) => ({ f, i })).filter(x => x.f.G);
-  if (!mg.length) return `<div class="nomap">Keine Feldgrenze vorhanden –<br>Vergleich nur über den Namen</div>`;
+function shapes(mg, leer){   // mg: [{ G, name, i }]
+  if (!mg.length) return `<div class="nomap">${leer}</div>`;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  for (const { f } of mg){ const b = f.G.box; x0 = Math.min(x0, b[0]); y0 = Math.min(y0, b[1]); x1 = Math.max(x1, b[2]); y1 = Math.max(y1, b[3]); }
+  for (const { G } of mg){ const b = G.box; x0 = Math.min(x0, b[0]); y0 = Math.min(y0, b[1]); x1 = Math.max(x1, b[2]); y1 = Math.max(y1, b[3]); }
   const W = 250, H = 190, pad = 20, k = Math.min((W - 2 * pad) / Math.max(1, x1 - x0), (H - 2 * pad) / Math.max(1, y1 - y0));
   const ox = (W - (x1 - x0) * k) / 2, oy = (H - (y1 - y0) * k) / 2;
   const path = G => G.polys.map(p => p.map(r => "M" + r.map(q => (ox + (q[0] - x0) * k).toFixed(1) + " " + (H - oy - (q[1] - y0) * k).toFixed(1)).join("L") + "Z").join("")).join("");
   const m = Math.round(Math.max(x1 - x0, y1 - y0));
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Lage der Feldgrenzen">` + mg.map(({ f, i }) =>
-    `<path d="${path(f.G)}" fill="${FARBEN[i % 6]}" fill-opacity=".13" fill-rule="evenodd" stroke="${FARBEN[i % 6]}" stroke-width="2" stroke-dasharray="${STRICH[i % 6]}"><title>${esc(f.name)}</title></path>`).join("") +
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Lage der Feldgrenzen">` + mg.map(({ G, name, i }) =>
+    `<path d="${path(G)}" fill="${FARBEN[i % 6]}" fill-opacity=".13" fill-rule="evenodd" stroke="${FARBEN[i % 6]}" stroke-width="2" stroke-dasharray="${STRICH[i % 6]}"><title>${esc(name)}</title></path>`).join("") +
     `<text x="6" y="${H - 6}" font-size="11" fill="currentColor" opacity=".6">Ausschnitt ca. ${m} m</text></svg>`;
 }
+const miniMap = g => shapes(g.m.map((f, i) => ({ G:f.G, name:f.name, i })).filter(x => x.G), "Keine Feldgrenze vorhanden –<br>Vergleich nur über den Namen");
 function groupHtml(g){
   const chips = [`<span class="chip s">${g.art === "dup" ? "doppelt" : "angrenzend"}</span>`];
   if (g.maxOv >= 0.3) chips.push(`<span class="chip">Fläche überlappt ${Math.round(g.maxOv * 100)} %</span>`);
@@ -423,7 +532,7 @@ function groupHtml(g){
       <td class="n">${D.arb ? (f.ops.n ? `${f.ops.n} <small>· zuletzt ${dch(f.ops.last)}</small>` : `<small>keine</small>`) : `<small>?</small>`}</td></tr>`;
   }).join("");
   return `<div class="card"><div class="h"><b>${esc(kunden)}</b>${chips.join("")}<span class="sp"></span>
-    <button class="sm pri" data-done="${esc(g.key)}" title="Im Operations Center zusammengeführt – Vorschlag ausblenden">✓ Erledigt</button><button class="sm" data-ign="${esc(g.key)}" title="Diese Felder sollen getrennt bleiben – nicht mehr vorschlagen">Nicht zusammenführen</button></div>
+    ${g.quer ? "" : `<button class="sm" data-neu="${esc(g.key)}" title="Neues Feld beim gleichen Kunden anlegen, z.B. als gemeinsames Feld">Neues Feld …</button>`}<button class="sm pri" data-done="${esc(g.key)}" title="Im Operations Center zusammengeführt – Vorschlag ausblenden">✓ Erledigt</button><button class="sm" data-ign="${esc(g.key)}" title="Diese Felder sollen getrennt bleiben – nicht mehr vorschlagen">Nicht zusammenführen</button></div>
     <div class="b"><table><thead><tr><th></th><th>Feld</th><th class="n">Fläche ha</th><th>Grenzen</th><th class="n">Arbeitsgänge</th></tr></thead><tbody>${rows}</tbody></table>${miniMap(g)}</div></div>`;
 }
 function visGroups(){
@@ -434,7 +543,7 @@ function visGroups(){
 function render(){
   $("ver").textContent = `v${VERSION} · ${STAND}${DEMO ? " · BEISPIELDATEN" : ""}`;
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === UI.tab));
-  for (const t of ["dup", "log", "set"]) $("tab-" + t).hidden = UI.tab !== t;
+  for (const t of ["dup", "grz", "log", "set"]) $("tab-" + t).hidden = UI.tab !== t;
   const st = D.stamm;
   $("stand").innerHTML = st ? `${esc((st.org && st.org.name) || "MyJohnDeere")} · Stand ${dchT(st.stand)}<br><small>NAS-Dienst v${esc(st.dienst || "?")}</small>` : (D.busy ? "Daten werden geladen …" : "nicht verbunden");
   // Hinweise
@@ -458,14 +567,17 @@ function render(){
   $("groups").innerHTML = !A ? "" : vg.length ? vg.map(groupHtml).join("") : `<div class="empty">${A.groups.length ? "Kein Treffer mit diesem Filter." : "Keine Vorschläge – nichts zusammenzuführen. ✓"}</div>`;
   $("nDup").textContent = A ? `(${A.groups.length})` : "";
   $("bPrint").disabled = $("bCsv").disabled = !vg.length;
-  renderLog(); renderSet();
+  $("bNeu").disabled = !st || (!DEMO && (parseInt(st.dienst, 10) || 0) < NAS_MIN);
+  renderGrz(); renderLog(); renderSet();
 }
 function renderLog(){
-  const l = Object.entries(S.done || {}).sort((a, b) => String(b[1].at).localeCompare(String(a[1].at)));
-  $("nLog").textContent = l.length ? `(${l.length})` : "";
-  if (!l.length){ $("logList").innerHTML = `<div class="empty">Noch nichts als erledigt markiert.</div>`; return; }
-  $("logList").innerHTML = `<div class="card"><table><thead><tr><th>Erledigt am</th><th>Kunde</th><th>Zielfeld</th><th>Zusammengeführt mit</th><th></th></tr></thead><tbody>` + l.map(([k, x]) =>
-    `<tr><td>${dchT(x.at)}</td><td>${esc(x.kunde)}</td><td><b>${esc(x.ziel)}</b></td><td>${esc((x.felder || []).join(", "))}</td><td><button class="sm" data-undone="${esc(k)}">Wieder vorschlagen</button></td></tr>`).join("") + `</tbody></table></div>`;
+  const l = Object.entries(S.done || {}).sort((a, b) => String(b[1].at).localeCompare(String(a[1].at))), gl = S.glog || [], w = gl.filter(x => x.status === "wartet").length;
+  $("nLog").textContent = (l.length + gl.length) ? `(${w ? w + " offen / " : ""}${l.length + gl.length})` : "";
+  $("logList").innerHTML = `<h3>Aufträge an MyJohnDeere (Feldgrenzen, neue Felder)</h3>` + (gl.length ? `<div class="card"><table><thead><tr><th>Zeit</th><th>Kunde</th><th>Feld</th><th>Feldgrenze</th><th>Auftrag</th><th>Status</th></tr></thead><tbody>` + gl.map(x =>
+    `<tr><td>${dchT(x.at)}</td><td>${esc(x.kunde)}</td><td>${esc(x.feld)}</td><td><b>${esc(x.grenze)}</b></td><td>${x.aktion === "aktiv" ? "Grenze aktiv setzen" : x.aktion === "feld" ? "Feld anlegen" : "Grenze archivieren"}</td>
+      <td><span class="${x.status === "ok" ? "st-ok" : x.status === "fehler" ? "st-f" : "st-w"}">${x.status === "ok" ? "✓ erledigt" : x.status === "fehler" ? "Fehler" : "wartet auf NAS-Dienst …"}</span><br><small>${esc(x.meldung || "")}</small></td></tr>`).join("") + `</tbody></table></div>` : `<div class="empty">Noch keine Aufträge.</div>`) +
+    `<h3>Felder – als erledigt abgehakte Vorschläge</h3>` + (l.length ? `<div class="card"><table><thead><tr><th>Erledigt am</th><th>Kunde</th><th>Zielfeld</th><th>Zusammengeführt mit</th><th></th></tr></thead><tbody>` + l.map(([k, x]) =>
+    `<tr><td>${dchT(x.at)}</td><td>${esc(x.kunde)}</td><td><b>${esc(x.ziel)}</b></td><td>${esc((x.felder || []).join(", "))}</td><td><button class="sm" data-undone="${esc(k)}">Wieder vorschlagen</button></td></tr>`).join("") + `</tbody></table></div>` : `<div class="empty">Noch nichts abgehakt.</div>`);
 }
 function renderSet(){
   const t = DBX.hasSession() ? lsGet(TOK) : null, st = D.stamm;
@@ -478,22 +590,34 @@ function renderSet(){
     <h3>NAS-Dienst jd-sync</h3>
     <div class="note"><p>${st ? `Version <b>${esc(st.dienst || "?")}</b> · letzter Abgleich ${dchT(st.stand)} · ${st.fields.length} Felder, ${st.clients.length} Kunden` : "Noch keine Daten geladen."}</p>
       <p><button id="bSync" ${t ? "" : "disabled"}>Abgleich mit MyJohnDeere anfordern</button></p>
-      <p><small>Nach dem Zusammenführen im Operations Center einen Abgleich anfordern und ein paar Minuten später «Neu laden» – dann stimmt die Feldliste wieder.</small></p></div>
+      <p><small>Nach dem Zusammenführen im Operations Center einen Abgleich anfordern und ein paar Minuten später «Neu laden» – dann stimmt die Feldliste wieder. Aufträge zu Feldgrenzen liegen im Dropbox-Ordner <code>${UP_DIR}</code>; der NAS-Dienst (ab v${NAS_MIN}) führt sie innert einer Minute aus.</small></p></div>
     <h3>Als «Nicht zusammenführen» markiert</h3>
     <div class="note"><p>${(S.ign || []).length} Feldpaare werden nicht mehr vorgeschlagen. <button class="sm" id="bIgnReset" ${(S.ign || []).length ? "" : "disabled"}>Alle wieder anzeigen</button></p></div>`;
 }
 
 /* ---------- Bedienung ---------- */
 const groupOf = key => A && A.groups.find(g => g.key === key);
+function confirmDlg(titel, html, okText, fn, gut){
+  $("dlgT").textContent = titel; $("dlgC").innerHTML = html; $("dlgOk").textContent = okText;
+  $("dlgOk").classList.toggle("pri", !!gut);
+  $("dlgOk").onclick = () => { if (fn() !== false) $("dlg").close(); }; $("dlgNo").onclick = () => $("dlg").close();
+  $("dlg").showModal();
+}
+const grzOf = key => { const [fid, gid] = key.split("|"), it = B && B.items.find(x => x.id === fid), g = it && it.l.find(x => x.id === gid); return g ? { it, g } : null; };
 const OPT = ["oGeo", "oName", "oQuer", "oSchwelle", "oNach", "oTol"];
 document.addEventListener("change", e => {
   const t = e.target;
   if (t.matches("input[data-z]")){ S.ziel[t.dataset.g] = t.dataset.z; saveState(); analyse(); render(); }
+  if (t.matches("input[data-gz]")){ t.checked ? UI.gsel.add(t.dataset.gz) : UI.gsel.delete(t.dataset.gz); render(); }
+  if (t.id === "nfK") nfFill();
+  if (t.id === "gKunde"){ UI.gk = t.value; render(); }
+  if (t.id === "gArt"){ UI.gart = t.value; render(); }
   if (t.id === "fKunde"){ UI.kunde = t.value; render(); }
   if (t.id === "fArt"){ UI.art = t.value; render(); }
   if (OPT.includes(t.id)){ lsSet("feldber.opt", { geo:$("oGeo").checked, name:$("oName").checked, quer:$("oQuer").checked, thr:$("oSchwelle").value, nach:$("oNach").checked, tol:$("oTol").value }); analyse(); render(); }
 });
 $("fSuch").addEventListener("input", e => { UI.such = e.target.value; render(); });
+$("gSuch").addEventListener("input", e => { UI.gsuch = e.target.value; render(); });
 document.addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
   if (b.dataset.tab){ UI.tab = b.dataset.tab; render(); }
@@ -501,6 +625,15 @@ document.addEventListener("click", e => {
   else if (b.dataset.done){ const g = groupOf(b.dataset.done); if (g){ const z = zielOf(g); S.done[g.key] = { at:new Date().toISOString(), kunde:[...new Set(g.m.map(f => f.kunde))].join(" / "), ziel:z.name, felder:g.m.filter(f => f !== z).map(f => f.name) }; saveState(); analyse(); render(); toast("Als erledigt abgehakt (Reiter «Erledigt»)."); } }
   else if (b.dataset.undone){ delete S.done[b.dataset.undone]; saveState(); analyse(); render(); }
   else if (b.dataset.ign){ const g = groupOf(b.dataset.ign); if (g){ for (const e2 of g.edges) S.ign.push(pairKey(e2.a, e2.b)); S.ign = [...new Set(S.ign)]; saveState(); analyse(); render(); toast("Wird nicht mehr vorgeschlagen (rückgängig im Reiter «Verbindung»)."); } }
+  else if (b.dataset.gvor){ const it = B.items.find(x => x.id === b.dataset.gvor), p = pendG(); if (it){ for (const g of it.l) if (!g.aktiv && g.id && !p.has(g.id)) UI.gsel.add(it.id + "|" + g.id); render(); } }
+  else if (b.dataset.akt){ const x = grzOf(b.dataset.akt); if (x) confirmDlg("Feldgrenze aktiv setzen?", `<p>Beim Feld <b>${esc(x.it.name)}</b> (${esc(x.it.kunde)}) wird die Grenze <b>${esc(x.g.name)}</b> (${ha(x.g.ha)} ha) aktiv gesetzt. Die bisher aktive Grenze wird inaktiv, bleibt aber erhalten.</p>`, "Aktiv setzen", () => sendGrz([x], { aktiv:true })); }
+  else if (b.id === "bInakt"){ const p = pendG(); let n = 0; for (const it of visGrz()) if (it.art === "mehr") for (const g of it.l) if (!g.aktiv && g.id && !p.has(g.id) && !UI.gsel.has(it.id + "|" + g.id)){ UI.gsel.add(it.id + "|" + g.id); n++; } render(); toast(`${n} Feldgrenzen angehakt – bitte vor dem Archivieren durchsehen.`); }
+  else if (b.id === "bClear"){ UI.gsel.clear(); render(); }
+  else if (b.id === "bArch"){ const l = [...UI.gsel].map(grzOf).filter(Boolean); if (l.length) confirmDlg(`${l.length} ${l.length === 1 ? "Feldgrenze" : "Feldgrenzen"} in MyJohnDeere archivieren?`,
+      `<table><thead><tr><th>Kunde</th><th>Feld</th><th>Wird archiviert</th><th class="n">ha</th><th>Aktiv bleibt</th></tr></thead><tbody>` + l.map(x => { const a = x.it.l.find(g => g.aktiv); return `<tr><td>${esc(x.it.kunde)}</td><td>${esc(x.it.name)}</td><td><b>${esc(x.g.name)}</b></td><td class="n">${ha(x.g.ha)}</td><td>${a ? esc(a.name) : "–"}</td></tr>`; }).join("") +
+      `</tbody></table><p><small>Der NAS-Dienst archiviert die Grenzen innert etwa einer Minute. Sie bleiben in MyJohnDeere erhalten und lassen sich im Operations Center (Land › Archiv) oder in IM-Applikationskarten wiederherstellen.</small></p>`, "Jetzt archivieren", () => sendGrz(l, { archiviert:true })); }
+  else if (b.id === "bNeu") nfOpen(null);
+  else if (b.dataset.neu) nfOpen(groupOf(b.dataset.neu));
   else if (b.id === "bPrint") printList();
   else if (b.id === "bCsv") csvList();
   else if (b.id === "bReload"){ PRE = null; loadAll(true); }
@@ -509,6 +642,88 @@ document.addEventListener("click", e => {
   else if (b.id === "bSync") DBX.writeJson("/jd-sync-request.json", { at:new Date().toISOString(), von:"IM-Feldbereinigung" }).then(() => toast("Abgleich angefordert – in ein paar Minuten «Neu laden»."), err => toast("Anfordern fehlgeschlagen: " + err.message));
   else if (b.id === "bIgnReset"){ S.ign = []; saveState(); analyse(); render(); }
 });
+/* Feldgrenzen: Auftrag «grenze-status» für den NAS-Dienst in Dropbox ablegen, Rückmeldung <id>.status.json abholen */
+async function sendGrz(list, job){
+  const aktion = job.aktiv ? "aktiv" : "archivieren", now = () => new Date().toISOString();
+  if (DEMO){ for (const { it, g } of list){ S.glog.unshift({ id:"demo" + Math.random().toString(36).slice(2, 8), feldId:it.id, feld:it.name, kunde:it.kunde, grenzeId:g.id, grenze:g.name, aktion, at:now(), status:"ok", meldung:"Beispieldaten – nichts gesendet" }); if (job.aktiv) S.gakt[it.id] = { id:g.id, at:now() }; else S.garch[g.id] = now(); UI.gsel.delete(it.id + "|" + g.id); } analyseGrz(); render(); return; }
+  if (!navigator.onLine){ toast("Keine Internetverbindung."); return; }
+  let n = 0;
+  try {
+    for (const { it, g } of list){
+      const id = "g" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      await DBX.writeJson(`${UP_DIR}/${id}.json`, Object.assign({ id, at:now(), von:"IM-Feldbereinigung " + VERSION, orgId:(D.stamm.org && D.stamm.org.id) || null,
+        art:"grenze-status", feldId:it.id, feld:it.name, grenzeId:g.id, name:`Feldgrenze «${g.name}» ${job.aktiv ? "aktiv setzen" : "archivieren"}` }, job));
+      S.glog.unshift({ id, feldId:it.id, feld:it.name, kunde:it.kunde, grenzeId:g.id, grenze:g.name, aktion, at:now(), status:"wartet", meldung:"in Dropbox abgelegt" });
+      UI.gsel.delete(it.id + "|" + g.id); n++;
+    }
+  } catch(e){ console.warn(e); toast(e.auth ? "Dropbox-Anmeldung abgelaufen – bitte neu anmelden." : "Senden fehlgeschlagen: " + e.message); }
+  S.glog = S.glog.slice(0, 500); saveState(); render();
+  if (n){ toast(`${n} ${n === 1 ? "Auftrag" : "Aufträge"} gesendet – der NAS-Dienst führt sie in der nächsten Minute aus.`); pollStart(15000); }
+}
+/* Neues Feld anlegen (einzige Änderung an Feldern): Auftrag «feld» – bestehender Kunde und Betrieb, optional mit Feldgrenze */
+let NF = null;
+const rawGeo = fid => { const l = ((D.geo && D.geo.fields) || {})[fid] || [], g = l.find(x => x.aktiv && !x.archiviert && x.geo) || l.find(x => !x.archiviert && x.geo); return g ? g.geo : null; };
+function nfFill(){
+  const kid = $("nfK").value, st = D.stamm, farms = st.kundenEbene === "farms" ? null : (st.farms || []).filter(f => f.client === kid);
+  $("nfB").innerHTML = farms ? (farms.length ? farms.map(f => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join("") : `<option value="">– kein Betrieb vorhanden –</option>`) : `<option value="">(Kunde = Betrieb)</option>`;
+  $("nfB").disabled = !farms || farms.length < 2;
+  const fl = PRE.fields.filter(f => f.client === kid && f.G).sort((a, b) => a.name.localeCompare(b.name, "de"));
+  const grp = NF && NF.g && NF.g.art === "nach" && NF.g.m[0].client === kid && NF.g.m.every(f => f.G);
+  $("nfG").innerHTML = `<option value="">ohne Feldgrenze</option>` + (grp ? `<option value="*" selected>alle ${NF.g.m.length} Felder dieses Vorschlags (mehrteilige Grenze)</option>` : "") + fl.map(f => `<option value="${esc(f.id)}">Kopie von «${esc(f.name)}» (${ha(f.flaeche)} ha)</option>`).join("");
+}
+function nfOpen(g){
+  if (!D.stamm){ toast("Zuerst die Stammdaten laden."); return; }
+  if (!PRE) prepare();
+  NF = { g };
+  const ks = [...D.stamm.clients].sort((a, b) => a.name.localeCompare(b.name, "de")), kid = g ? g.m[0].client : (UI.kunde || (ks[0] && ks[0].id));
+  confirmDlg("Neues Feld in MyJohnDeere anlegen", `<div class="form">
+      <label for="nfK">Kunde</label><select id="nfK">${ks.map(c => `<option value="${esc(c.id)}" ${c.id === kid ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
+      <label for="nfB">Betrieb</label><select id="nfB"></select>
+      <label for="nfN">Feldname</label><input type="text" id="nfN" maxlength="100" value="${g ? esc(zielOf(g).name) + " neu" : ""}">
+      <label for="nfG">Feldgrenze</label><select id="nfG"></select></div>
+    <p><small>Kunden und Betriebe werden nie angelegt. Der NAS-Dienst legt das Feld innert etwa einer Minute an; die bisherigen Felder bleiben unverändert – zusammenführen oder archivieren weiterhin im Operations Center.${g && g.art === "nach" ? " Die mehrteilige Grenze enthält die aktiven Grenzen der Felder nebeneinander (nicht verschmolzen)." : ""}</small></p>`,
+    "Feld anlegen", () => {
+      const kid2 = $("nfK").value, name = $("nfN").value.trim(), farms = D.stamm.kundenEbene === "farms", bid = $("nfB").value, gw = $("nfG").value;
+      if (!name){ toast("Bitte einen Feldnamen eingeben."); return false; }
+      if (!farms && !bid){ toast("Dieser Kunde hat in MyJohnDeere keinen Betrieb – bitte im Operations Center anlegen."); return false; }
+      if (D.stamm.fields.some(f => f.client === kid2 && !f.archived && canon(f.name) === canon(name))){ toast(`Beim Kunden gibt es bereits ein Feld «${name}».`); return false; }
+      let geo = null; if (gw === "*") geo = NF.g.m.flatMap(f => rawGeo(f.id) || []); else if (gw) geo = rawGeo(gw);
+      sendFeld({ name, kundeId:kid2, betriebId:farms ? "" : bid, kunde:(D.stamm.clients.find(c => c.id === kid2) || {}).name || "", grenze:geo && geo.length ? { name, aktiv:true, geo } : undefined });
+    }, true);
+  nfFill();
+}
+async function sendFeld(job){
+  const now = new Date().toISOString(), mit = job.grenze ? "mit Feldgrenze" : "ohne Feldgrenze";
+  if (DEMO){ S.glog.unshift({ id:"demo" + Math.random().toString(36).slice(2, 8), feld:job.name, kunde:job.kunde, grenze:mit, aktion:"feld", at:now, status:"ok", meldung:"Beispieldaten – nichts gesendet" }); render(); toast("Beispieldaten – es wurde nichts gesendet."); return; }
+  if (!navigator.onLine){ toast("Keine Internetverbindung."); return; }
+  const id = "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  try {
+    await DBX.writeJson(`${UP_DIR}/${id}.json`, Object.assign({ id, at:now, von:"IM-Feldbereinigung " + VERSION, orgId:(D.stamm.org && D.stamm.org.id) || null, art:"feld" }, job));
+    S.glog.unshift({ id, feld:job.name, kunde:job.kunde, grenze:mit, aktion:"feld", at:now, status:"wartet", meldung:"in Dropbox abgelegt" });
+    saveState(); render(); toast("Auftrag gesendet – der NAS-Dienst legt das Feld in der nächsten Minute an."); pollStart(15000);
+  } catch(e){ console.warn(e); toast(e.auth ? "Dropbox-Anmeldung abgelaufen – bitte neu anmelden." : "Senden fehlgeschlagen: " + e.message); }
+}
+let pollT = null;
+function pollStart(ms){ if (!pollT && !DEMO) pollT = setTimeout(poll, ms || 15000); }
+async function poll(){
+  pollT = null;
+  const offen = (S.glog || []).filter(x => x.status === "wartet"); if (!offen.length || !DBX.hasSession()) return;
+  let changed = false;
+  for (const x of offen){
+    try {
+      const r = await DBX.readJson(`${UP_DIR}/${x.id}.status.json`);
+      if (r){
+        x.status = r.status === "ok" ? "ok" : "fehler"; x.meldung = r.meldung || ""; changed = true;
+        if (x.status === "ok" && x.aktion !== "feld"){ const at = new Date().toISOString(); if (x.aktion === "aktiv") S.gakt[x.feldId] = { id:x.grenzeId, at }; else S.garch[x.grenzeId] = at; }
+        DBX.del(`${UP_DIR}/${x.id}.status.json`).catch(() => {});
+      } else if (Date.now() - Date.parse(x.at) > 30 * 60000){
+        x.status = "fehler"; x.meldung = `Keine Antwort vom NAS-Dienst nach 30 Minuten – läuft jd-sync ab Version ${NAS_MIN} und ist es mit Dropbox verbunden?`; changed = true;
+      }
+    } catch(e){ if (e.auth) break; }
+  }
+  if (changed){ saveState(); analyseGrz(); render(); const f = offen.filter(x => x.status === "fehler").length, ok = offen.filter(x => x.status === "ok").length; if (ok || f) toast(`${ok} erledigt${f ? `, ${f} mit Fehler (siehe Protokoll)` : ""}`); }
+  if (S.glog.some(x => x.status === "wartet")) pollStart(15000);
+}
 /* Vorschlagsliste zum Abarbeiten im Operations Center: drucken oder als CSV (Excel) */
 function printList(){
   const vg = visGroups(); if (!vg.length) return;
@@ -539,7 +754,11 @@ function demoData(){
   add("9", "Bergacker", "B", q(7.41, 47.03, .002, .0015), 2, "2026-08-20T08:00:00Z"); add("10", "Bergacher", "B", q(7.4106, 47.03, .002, .0015), 5, "2026-10-01T08:00:00Z");
   add("11", "Allmend", "A", q(7.42, 47.03, .002, .002), 2, "2025-07-20T08:00:00Z"); add("12", "Allmend Pacht", "B", q(7.4201, 47.03, .002, .002), 1, "2026-07-20T08:00:00Z");
   add("13", "Rütti", "B", q(7.43, 47.03, .002, .001), 0); add("14", "Rütti", "B", q(7.45, 47.04, .002, .001), 0);
-  D.stamm = { format:"jd-sync", dienst:"66", stand:new Date().toISOString(), org:{ id:"0", name:"Beispielbetrieb" }, clients:[{ id:"A", name:"Muster Hans" }, { id:"B", name:"Beispiel Peter" }], farms:[], fields:F };
+  const mehr = (id, name, geo, haV) => { const g = { id:"x" + id + name, name, aktiv:false, archiviert:false, ha:haV, quelle:"External", geaendert:"2021-04-0" + (1 + F.find(f => f.id === id).grenzen.length) + "T08:00:00Z" }; F.find(f => f.id === id).grenzen.push(g); G[id].push(Object.assign({ geo }, g)); };
+  F.forEach(f => f.grenzen.forEach(g => { g.ha = 1.5; g.geaendert = "2024-03-15T08:00:00Z"; g.quelle = "Display"; }));
+  mehr("1", "Grenze 2021", q(7.37002, 47.03, .00195, .0012), 1.46); mehr("1", "Test Vorgewende", q(7.3703, 47.0302, .0012, .0007), 0.55); mehr("5", "Alt 2019", q(7.39, 47.03, .0015, .00095), 1.1);
+  F.find(f => f.id === "9").grenzen[0].aktiv = false; G["9"][0].aktiv = false;
+  D.stamm = { format:"jd-sync", dienst:"67", stand:new Date().toISOString(), org:{ id:"0", name:"Beispielbetrieb" }, clients:[{ id:"A", name:"Muster Hans" }, { id:"B", name:"Beispiel Peter" }], farms:[{ id:"FA", name:"Muster Hans", client:"A" }, { id:"FB", name:"Beispiel Peter", client:"B" }], fields:F };
   D.geo = { format:"jd-feldgrenzen", fields:G }; D.arb = { seit:"2025-01-01", operations:O };
 }
 
@@ -548,6 +767,7 @@ function demoData(){
   const o = lsGet("feldber.opt"); if (o){ $("oGeo").checked = o.geo !== false; $("oName").checked = o.name !== false; $("oQuer").checked = !!o.quer; if (+o.thr) $("oSchwelle").value = o.thr; $("oNach").checked = o.nach !== false; if (o.tol != null && o.tol !== "") $("oTol").value = o.tol; }
   try { if (await DBX.handleRedirect()) UI.tab = "dup"; } catch(e){ console.warn(e); }
   render(); loadAll(false);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) pollStart(1000); });
 })();
 </script>
 </body>

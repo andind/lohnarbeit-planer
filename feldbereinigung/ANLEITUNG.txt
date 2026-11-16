@@ -1,27 +1,33 @@
-IM-Feldbereinigung v1.1 (16.11.2026) – Vorschläge zum Zusammenführen von Feldern im John Deere Operations Center (nur PC)
+IM-Feldbereinigung v1.2 (16.11.2026) – Felder und Feldgrenzen im John Deere Operations Center aufräumen (nur PC)
 
-Das Programm ändert nichts in MyJohnDeere. Es zeigt, welche Felder zusammengehören könnten;
-zusammengeführt wird von Hand im Operations Center.
+Grundsatz
+- Feldgrenzen ändert das Programm selber (archivieren, aktiv setzen) – über den NAS-Dienst jd-sync.
+- Felder: das Programm macht Vorschläge und kann neue Felder anlegen. Zusammenführen oder archivieren
+  von Feldern geschieht von Hand im Operations Center.
+- Gelöscht wird nie etwas.
 
 Einrichten (einmalig)
 1. Adresse: https://andind.github.io/lohnarbeit-planer/feldbereinigung/
 2. Dropbox: Ist auf dem PC IM-Applikationskarten bereits angemeldet, wird diese Anmeldung übernommen.
    Sonst in der Dropbox App Console › Settings › Redirect URIs die obige Adresse eintragen und im Reiter «Verbindung» anmelden.
-3. In Edge/Chrome über «App installieren» als eigenes Fenster installierbar.
-Der NAS-Dienst jd-sync braucht dafür keine neue Version.
+3. NAS-Dienst jd-sync ab Version 64 (Feldgrenzen ändern, Felder anlegen).
+4. In Edge/Chrome über «App installieren» als eigenes Fenster installierbar.
 
-Ausprobieren ohne Verbindung: Adresse mit ?demo am Schluss (Beispieldaten).
+Ausprobieren ohne Verbindung: Adresse mit ?demo am Schluss (Beispieldaten, es wird nichts gesendet).
 
-Was vorgeschlagen wird (immer nur Felder des gleichen Kunden)
+Reiter «Vorschläge» (immer nur Felder des gleichen Kunden)
 - Doppelt: die Grenzen überlappen sich (ab 50 %, einstellbar) oder die Namen sind gleich bzw. – wenn eine Grenze fehlt – ähnlich.
-- Angrenzend: die Grenzen liegen auf mindestens 10 m Länge direkt aneinander (Abstand bis 3 m, einstellbar;
-  grösserer Abstand = auch Felder mit Weg oder Graben dazwischen).
-
-Ablauf
-- Je Vorschlag: Felder mit Fläche, Grenzen, Arbeitsgängen und einer Skizze der Grenzen.
+- Angrenzend: die Grenzen liegen auf mindestens 10 m Länge direkt aneinander (Abstand bis 3 m, einstellbar).
 - Zielfeld = Feld, das bleiben soll (Vorschlag: meiste Arbeitsgänge; änderbar).
-- «Liste drucken» oder «Als CSV speichern», dann im Operations Center zusammenführen.
-- «✓ Erledigt» hakt einen Vorschlag ab, «Nicht zusammenführen» blendet ihn dauerhaft aus.
-- Danach im Reiter «Verbindung» einen Abgleich anfordern und «Neu laden».
+- «Liste drucken» / «Als CSV speichern», dann im Operations Center zusammenführen; «✓ Erledigt» hakt ab.
+- «Neues Feld anlegen …»: Kunde, Betrieb, Feldname, wahlweise mit Feldgrenze (Kopie einer bestehenden Grenze
+  oder – aus einem Vorschlag «angrenzend» – alle Grenzen zusammen als mehrteilige Grenze).
+
+Reiter «Feldgrenzen»
+- Felder mit mehreren Grenzen: nicht aktive anhaken und «Ausgewählte Grenzen archivieren».
+- Felder ohne aktive Grenze: «Aktiv setzen».
+- Felder ganz ohne Grenze: nur als Liste.
+- Der NAS-Dienst führt die Aufträge innert etwa einer Minute aus; Stand im Reiter «Protokoll».
+- Archivierte Grenzen wiederherstellen: Operations Center › Land › Archiv oder IM-Applikationskarten.
 
 Hinweis: Arbeitsgänge werden erst ab dem im NAS-Dienst eingestellten Datum gezählt (Arbeitsdaten «seit»).

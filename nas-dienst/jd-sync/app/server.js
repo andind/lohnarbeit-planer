@@ -6,7 +6,7 @@
    Dazu: tägliche Datensicherung die IM-Verwaltung-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '66', STAND = '16.11.2026'; // v66: Felder archivieren / wiederherstellen (art feld-status, aus IM-Feldbereinigung; PUT /organizations/{org}/fields/{id}, danach geprüft), Feldliste danach ganz neu geholt · v65: Ertragskarten nur für ausgewählte Kunden (cfg.ertragKunden), dafür Ernten ab cfg.ertragSeit (längere Historie, nur für Ertragskarten, nicht in jd-arbeiten.json) · v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
+const VERSION = '67', STAND = '16.11.2026'; // v67: Feld archivieren/wiederherstellen (v66, art feld-status) wieder entfernt – Felder werden nur angelegt, nie geändert; Feldgrenzen-Aufträge (grenze-status) auch aus IM-Feldbereinigung · v65: Ertragskarten nur für ausgewählte Kunden (cfg.ertragKunden), dafür Ernten ab cfg.ertragSeit (längere Historie, nur für Ertragskarten, nicht in jd-arbeiten.json) · v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -1008,7 +1008,7 @@ function plausibel(d) {
   const grund = [];
   if (cfg.kundenEbene === 'auto' && L.ebene && d.kundenEbene !== L.ebene) grund.push(`Kundenebene würde von ${L.ebene === 'farms' ? 'Betrieben' : 'Mandanten'} zu ${d.kundenEbene === 'farms' ? 'Betrieben' : 'Mandanten'} wechseln`);
   if (L.clients >= 5 && d.clients.length < L.clients * 0.7) grund.push(`nur noch ${d.clients.length} statt ${L.clients} Kunden`);
-  if (L.fields >= 20 && d.fields.length < Math.max(0, L.fields - (st.archSeit || 0)) * 0.7) grund.push(`nur noch ${d.fields.length} statt ${L.fields} Felder`);
+  if (L.fields >= 20 && d.fields.length < L.fields * 0.7) grund.push(`nur noch ${d.fields.length} statt ${L.fields} Felder`);
   if (!grund.length) { delete st.verdacht; return; }
   const key = `${d.kundenEbene}:${d.clients.length}:${d.fields.length}`;
   if (st.verdacht === key) { log(`Hinweis: ${grund.join(', ')} – beim zweiten Abgleich gleich, wird übernommen.`); delete st.verdacht; return; }
@@ -1031,7 +1031,6 @@ async function runSync(reason, opt = {}) {
       log(`Feldgrenzen mit Geometrie: ${Object.keys(geo).length} Felder → ${cfg.feldgrenzenPath || '/jd-feldgrenzen.json'}`);
     } catch (e) { log('Feldgrenzen (Geometrie) hochladen: ' + e.message); }
     st.kundenListe = d.clients.map(c => ({ id: c.id, name: c.name })).sort((a, b) => a.name.localeCompare(b.name, 'de'));
-    st.archSeit = 0;
     st.lastOk = { at: new Date().toISOString(), ebene: d.kundenEbene, clients: d.clients.length, fields: d.fields.length, withArea: d.fields.filter(f => f.flaeche != null).length };
     log(`Abgleich fertig: ${d.clients.length} Kunden (${d.kundenEbene === 'farms' ? 'Betriebe' : 'Mandanten'}), ${d.fields.length} Felder (${st.lastOk.withArea} mit Fläche) · ${n} Abfragen · ${Math.round((Date.now() - t0) / 1000)} s`);
     etagSave(); st.etagStamm = etagTxt(); log(`Kunden/Felder ${st.etagStamm}`);
@@ -1450,29 +1449,6 @@ async function createField(a) {
   if (!id) throw new Error('John Deere hat keine Feld-ID zurückgegeben.');
   return { id, name };
 }
-// v66: Feld archivieren / wiederherstellen (Auftrag «feld-status» aus IM-Feldbereinigung). John Deere: PUT /organizations/{org}/fields/{id}
-// ändert Name, Archiv-Status oder Kunde/Betrieb – gesendet wird das Feld unverändert, nur «archived» wechselt. Danach wird geprüft, ob es gewirkt hat.
-const firstId = (o, key) => { const v = o && o[key]; if (!v) return ''; const l = Array.isArray(v) ? v : Array.isArray(v.values) ? v.values : Array.isArray(v[key]) ? v[key] : [v]; return idOf(l[0] && l[0].id); };
-async function setFieldState(feldId, a) {
-  const org = encodeURIComponent(cfg.orgId), url = `/organizations/${org}/fields/${encodeURIComponent(feldId)}`;
-  let f; try { f = await jdGet(url + '?embed=clients,farms'); } catch (e) { if (e.status === 403) throw e; f = await jdGet(url); }
-  const name = String(f.name || '').trim(), want = !!a.archiviert;
-  if (!name) throw new Error('John Deere lieferte das Feld ohne Namen.');
-  // Sicherung: der Auftrag nennt den Feldnamen – heisst das Feld inzwischen anders, wird nichts geändert
-  if (a.feld && String(a.feld).trim().toLowerCase() !== name.toLowerCase()) throw new Error(`Das Feld heisst in MyJohnDeere «${name}», im Auftrag steht «${a.feld}» – nichts geändert. Bitte in IM-Feldbereinigung neu laden.`);
-  if (!!f.archived === want) return { name, text: want ? 'war bereits archiviert' : 'war bereits aktiv' };
-  let fa = firstId(f, 'farms'), cl = firstId(f, 'clients');
-  if (!fa) { try { const l = await jdAll(link(f, 'farms') || url + '/farms'); fa = idOf(l[0] && l[0].id); } catch (e) { if (e.status === 403) throw e; } }
-  if (!cl) { try { const l = await jdAll(link(f, 'clients') || url + '/clients'); cl = idOf(l[0] && l[0].id); } catch (e) { if (e.status === 403) throw e; } }
-  const voll = { name, archived: want }; if (fa) voll.farms = { farms: [{ id: fa }] }; if (cl) voll.clients = { clients: [{ id: cl }] };
-  try { await jdSend('PUT', url, JSON.stringify(voll), ACCEPT); }
-  catch (e) { if (e.status !== 400 || (!fa && !cl)) throw e; log(`Feld «${name}»: John Deere lehnt die Angabe von Kunde/Betrieb ab (${e.message}) – zweiter Versuch nur mit Name und Archiv-Status`); await jdSend('PUT', url, JSON.stringify({ name, archived: want }), ACCEPT); }
-  let chk = null; try { await sleep(1500); chk = await jdGet(url); } catch { }
-  if (chk && !!chk.archived !== want) throw new Error(want ? 'John Deere hat das Feld nicht archiviert.' : 'John Deere hat das Feld nicht wiederhergestellt – bitte im Operations Center (Land › Archiv) wiederherstellen.');
-  try { delete ETAGS[`fields:${cfg.orgId}`]; } catch { }   // Feldliste beim nächsten Abgleich ganz neu holen
-  st.archSeit = Math.max(0, (st.archSeit || 0) + (want ? 1 : -1));
-  return { name, text: want ? 'archiviert' : 'wiederhergestellt' };
-}
 const uploadDir = () => cfg.uploadPfad || '/jd-upload';
 let uploadBusy = false, lastUploadPoll = 0;
 async function runUploads() {
@@ -1537,15 +1513,6 @@ async function runUpload(n) {
       await status({ status: 'ok', meldung: `Feld «${r.name}» in MyJohnDeere angelegt${gtxt}. Die Feldliste wird gleich neu abgeglichen.`, jdFieldId: r.id });
       rec({ ok: true, meldung: `Feld ${r.name} angelegt${gtxt}` });
       log(`Auftrag: Feld «${r.name}» angelegt (${r.id})${gtxt}`);
-      st.syncNachUpload = true; saveSt();
-    } else if (a.art === 'feld-status') {
-      // v66: Feld archivieren / wiederherstellen (IM-Feldbereinigung); Arbeitsdaten und Grenzen bleiben beim Feld erhalten
-      if (!hasAg3()) throw new Error('Die John-Deere-Anmeldung hat noch keine Berechtigung zum Ändern von Feldern – auf dem NAS (jd-sync, Schritt 2) neu bei John Deere anmelden.');
-      if (!a.feldId || typeof a.archiviert !== 'boolean') throw new Error('Feld oder gewünschter Zustand fehlt.');
-      const r = await setFieldState(a.feldId, a);
-      await status({ status: 'ok', meldung: `Feld «${r.name}»: ${r.text}. Die Feldliste wird gleich neu abgeglichen.` });
-      rec({ ok: true, meldung: `Feld ${r.name}: ${r.text}` });
-      log(`Auftrag: Feld «${r.name}» – ${r.text}`);
       st.syncNachUpload = true; saveSt();
     } else throw new Error('Unbekannte Auftragsart: ' + a.art);
   } catch (e) {
