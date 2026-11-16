@@ -1278,3 +1278,6 @@ body.fsmode #selbar { left: 12px; }
 .bedmap-lay button { font-size: 12px; padding: 0 8px; }
 .bedmap-lay button.on { background: #2f7d32; color: #fff; border-color: #2f7d32; }
 .bedmap-attr { position: absolute; right: 4px; bottom: 2px; font-size: 10px; color: #222; background: rgba(255,255,255,.75); padding: 0 4px; border-radius: 3px; }
+/* v134: Knopf «In IM-Applikationskarten öffnen» unter der Feldauswahl im Auftrag */
+.fld .akbtn { margin-top: 6px; align-self: flex-start; width: auto; }
+.grzpick .grzakt { margin-left: auto; padding: 4px 10px; min-height: 0; font-size: 13px; }

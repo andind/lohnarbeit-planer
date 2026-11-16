@@ -169,7 +169,7 @@ dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:upper
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.28 · by Andreas Indermühle</span></div>
+    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.29 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -454,7 +454,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.28";
+const VERSION = "1.29";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -2578,6 +2578,25 @@ $("bGrzSave").addEventListener("click", grzSaveOpen);
 $("bGrzSaveYes").addEventListener("click", grzSaveDo);
 $("bGrzSaveNo").addEventListener("click", () => $("grzSaveRow").hidden = true);
 window.jdOnForm = () => { jdFill(); jdFieldCheck(false); };
+/* v1.29: Aufruf aus der IM-Verwaltung (Auftrag › «In IM-Applikationskarten öffnen») mit ?kunde=…&feld=…&fid=<MyJohnDeere-Feld-ID>:
+   Kunde, Betrieb und Feld vorbelegen; aktive Grenze wird automatisch geladen. Liegt eine andere Karte vor, Rückfrage wie bei einem Feldwechsel. */
+async function urlPrefill(){
+  const q = new URLSearchParams(location.search);
+  if (!q.has("kunde") && !q.has("feld") && !q.has("fid")) return;
+  history.replaceState(null, "", location.pathname + location.hash);   // beim Neuladen nicht nochmals anwenden
+  let kunde = (q.get("kunde") || "").trim(), feld = (q.get("feld") || "").trim(), betrieb = S.betrieb;
+  const f = q.get("fid") && JD.stamm ? (JD.stamm.fields || []).find(x => x.id===q.get("fid")) : null;
+  if (f){ feld = f.name; const c = jdClients().find(x => x.id===f.client); if (c) kunde = c.name; if (f.farm && jdFarmName(f.farm)) betrieb = jdFarmName(f.farm); }
+  if (!feld && !kunde) return;
+  if (jdNorm(kunde)===jdNorm(S.kunde) && jdNorm(feld)===jdNorm(S.feld)){ jdFieldCheck(true); toast(`Kunde «${kunde}» und Feld «${feld}» sind bereits gewählt.`); return; }
+  if (hasContent()){
+    if (!(await askKeep(`Aus der IM-Verwaltung: Kunde «${kunde || "–"}», Feld «${feld || "–"}».`))) return;
+    resetKeep({ kunde, feld, betrieb });
+  } else { S.kunde = kunde; S.feld = feld; S.betrieb = betrieb; syncForm(); }
+  cbKunde.revert(kunde); cbFeld.revert(feld); saveDraft(); fileNameUI();
+  jdFieldCheck(true);
+  toast(`Aus der IM-Verwaltung übernommen: ${kunde ? kunde + " · " : ""}${feld}${JD.field ? "" : " (Feld nicht in den MyJohnDeere-Daten dieses Geräts)"}`);
+}
 $("bJdLogin").addEventListener("click", () => DBX.login());
 $("bJdLoad").addEventListener("click", () => jdLoad(true));
 $("bJdReq").addEventListener("click", jdRequest);
@@ -2587,6 +2606,7 @@ $("jdRedirect").textContent = DBX.redirectUri();
   await DBX.handleRedirect();
   await jdFromCache();
   jdUI(); jdFill(); jdFieldCheck(false);
+  await urlPrefill();
   projCloudUI(); upUI();
   if (DBX.hasSession()) { jdLoad(false); projSync(false); upPollStart(3000); }
 })();

@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '133', APP_STAND = '16.11.2026';
+const APP_VERSION = '134', APP_STAND = '16.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -3412,22 +3412,31 @@ function wireFeld(f, a) {
   const box = sel.closest('.fld');
   // Liste der Vermessungen des gewählten Feldes: Antippen übernimmt deren Fläche als Auftragsfläche
   const gbox = document.createElement('div'); gbox.className = 'grzpick'; gbox.hidden = true; box.after(gbox);
+  // v134: Knopf «IM-Applikationskarten» – öffnet das eigenständige Programm mit Kunde und Feld vorbelegt
+  const akBtn = document.createElement('button'); akBtn.type = 'button'; akBtn.className = 'btn mini akbtn'; akBtn.hidden = true;
+  akBtn.textContent = '🗺 In IM-Applikationskarten öffnen'; akBtn.title = 'Applikationskarte für dieses Feld erstellen (eigenes Programm, Kunde und Feld sind ausgefüllt)';
+  sel.after(akBtn);
+  akBtn.addEventListener('click', e => { e.preventDefault(); const fd = feldById(sel.value); if (fd) appKarteOpen(fd); });
   const setHa = v => { if (!f.flaeche || v == null) return; f.flaeche.value = v; f.flaeche.dispatchEvent(new Event('input', { bubbles: true })); f.flaeche.dispatchEvent(new Event('change', { bubbles: true })); gbox.querySelectorAll('.grzb').forEach(b => b.classList.toggle('on', +b.dataset.ha === +v)); };
   const grz = () => {
     const fd = feldById(sel.value), nArch = fd ? grzArchN(fd.grenzen) : 0, L = fd && Array.isArray(fd.grenzen) ? grzSicht(fd.grenzen, gbox.dataset.arch === '1').sort((x, y) => (y.aktiv - x.aktiv) || String(y.erstellt || y.geaendert || '').localeCompare(String(x.erstellt || x.geaendert || ''))) : [];
+    if (akBtn) akBtn.hidden = box.hidden || !fd;
     gbox.hidden = box.hidden || (!L.length && !nArch); if (gbox.hidden) { gbox.innerHTML = ''; return; }
     const cur = num(f.flaeche && f.flaeche.value), dd = s => s ? fmtDate(String(s).slice(0, 10), { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
+    const canAkt = !!(fd && fd.jdId && Auth.configured() && Auth.hasSession()); // v134: Vermessung schon beim Erfassen aktiv setzen (NAS-Dienst ab v64)
     const btn = (x, v, lbl) => `<button type="button" class="grzb${cur != null && +v === +cur ? ' on' : ''}" data-ha="${v}" title="Fläche ${fmtNum(v)} ha als Auftragsfläche übernehmen">${lbl}</button>`;
     const open = gbox.querySelector('details')?.open ?? ls('lp_grzOpen') === '1';
     gbox.innerHTML = `<details ${open ? 'open' : ''}><summary>📐 Vermessungen des Feldes (${L.length}) – antippen übernimmt die Fläche</summary><div class="grzlist">${L.map(x => {
       const v = x.ha ?? x.bha; if (v == null) return '';
       return `<div class="grzi${x.archiviert ? ' arch' : ''}">${btn(x, v, `<b>${fmtNum(v)} ha</b> <span>${esc(x.name || '(ohne Namen)')}</span>${x.aktiv ? ' <span class="badge geplant">aktiv</span>' : ''}`)}
         ${x.bha != null && x.ha != null && Math.abs(x.bha - x.ha) >= 0.005 ? btn(x, x.bha, `bearbeitbar ${fmtNum(x.bha)} ha`) : ''}
-        <span class="nr">${[grzSignal(x.signal), x.erstellt ? 'erstellt ' + dd(x.erstellt) : x.geaendert ? dd(x.geaendert) : '', x.archiviert ? 'archiviert' : ''].filter(Boolean).join(' · ')}</span></div>`; }).join('')}
+        <span class="nr">${[grzSignal(x.signal), x.erstellt ? 'erstellt ' + dd(x.erstellt) : x.geaendert ? dd(x.geaendert) : '', x.archiviert ? 'archiviert' : ''].filter(Boolean).join(' · ')}</span>
+        ${canAkt && x.id && !x.aktiv && !x.archiviert ? (GRZ_PENDING.has(x.id) ? '<span class="nr">wird aktiv gesetzt …</span>' : `<button type="button" class="btn mini grzakt" data-gid="${esc(x.id)}" title="In MyJohnDeere als aktive Feldgrenze setzen (die bisher aktive wird inaktiv)">Aktiv setzen</button>`) : ''}</div>`; }).join('')}
       ${nArch ? `<a href="#" class="grzarch nr">${gbox.dataset.arch === '1' ? 'Archivierte ausblenden' : `Auch archivierte anzeigen (${nArch})`}</a>` : ''}</div></details>`;
     gbox.querySelector('details').addEventListener('toggle', e => ls('lp_grzOpen', e.target.open ? '1' : '0'));
   };
-  gbox.addEventListener('click', e => { const b = e.target.closest('.grzb'); if (b) { e.preventDefault(); setHa(+b.dataset.ha); return; }
+  gbox.addEventListener('click', e => { const ak = e.target.closest('.grzakt'); if (ak) { e.preventDefault(); e.stopPropagation(); grzAktivSetzen(ak, sel.value).then(grz); return; }
+    const b = e.target.closest('.grzb'); if (b) { e.preventDefault(); setHa(+b.dataset.ha); return; }
     if (e.target.closest('.grzarch')) { e.preventDefault(); gbox.dataset.arch = gbox.dataset.arch === '1' ? '' : '1'; grz(); } });
   const refresh = () => {
     const k = findKunde(f.kunde.value), cur = sel.value || a.kfeld || '';
@@ -3678,6 +3687,12 @@ function feldGrzToggle(fid) {
   box.hidden = !box.hidden; box.closest('.feldrow')?.classList.toggle('grzopen', !box.hidden);
 }
 
+// v134: eigenständiges Programm IM-Applikationskarten mit Kunde und Feld öffnen (fid = MyJohnDeere-Feld-ID → dort exakte Namen und aktive Grenze)
+function appKarteOpen(fd) {
+  const k = Store.get('kunden', fd.kunde), q = new URLSearchParams();
+  if (k) q.set('kunde', k.name); q.set('feld', fd.name); if (fd.jdId) q.set('fid', fd.jdId);
+  window.open(new URL('applikationskarte/?' + q, location.href).href, 'im-applikationskarten');
+}
 const GRZ_PENDING = new Set();
 async function grzAktivSetzen(el, fid) {
   const f = feldById(fid), g = f && (f.grenzen || []).find(x => x.id === el.dataset.gid);
