@@ -6,7 +6,7 @@
    Dazu: tägliche Datensicherung die IM-Verwaltung-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '60', STAND = '15.11.2026'; // v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
+const VERSION = '61', STAND = '16.11.2026'; // v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -22,6 +22,8 @@ const DBX_API = process.env.DBX_API || 'https://api.dropboxapi.com';
 const DBX_CONTENT = process.env.DBX_CONTENT || 'https://content.dropboxapi.com';
 const ACCEPT = 'application/vnd.deere.axiom.v3+json';
 const SCOPES = 'ag1 ag2 eq1 offline_access'; // ag2 = Arbeitsdaten (Field Operations), eq1 = Maschinenliste (Namen)
+// v61: Schreibrechte für IM-Applikationskarten – ag3 = Feldgrenzen speichern, files = Dateien hochladen/Status lesen (abschaltbar: cfg.schreibrechte = false)
+const scopes = () => SCOPES + (cfg.schreibrechte === false ? '' : ' ag3 files');
 const SCOPES_OLD = 'ag1 offline_access';
 
 /* ---------- Speicher ---------- */
@@ -53,7 +55,7 @@ async function wellknown() { if (!wk) { const r = await fetch(JD_WELLKNOWN); if 
 async function jdAuthUrl() {
   const w = await wellknown(), state = crypto.randomBytes(12).toString('hex');
   st.pending.jdState = state; saveSt();
-  const p = new URLSearchParams({ response_type: 'code', client_id: cfg.clientId, redirect_uri: cfg.redirectUri, scope: SCOPES, state });
+  const p = new URLSearchParams({ response_type: 'code', client_id: cfg.clientId, redirect_uri: cfg.redirectUri, scope: scopes(), state });
   return `${w.authorization_endpoint}?${p}`;
 }
 async function jdToken(params) {
@@ -67,7 +69,7 @@ async function jdToken(params) {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error('John Deere: ' + (j.error_description || j.error || r.status));
   st.jd = { access: j.access_token, refresh: j.refresh_token || st.jd?.refresh, exp: Date.now() + (j.expires_in || 3600) * 1000,
-    scope: j.scope || (params.grant_type === 'authorization_code' ? SCOPES : (st.jd?.scope || SCOPES_OLD)) };
+    scope: j.scope || (params.grant_type === 'authorization_code' ? scopes() : (st.jd?.scope || SCOPES_OLD)) };
   saveSt();
 }
 async function jdCodeFromUrl(input) {
@@ -105,6 +107,21 @@ async function jdGet(url, tries = 0, quiet400 = false) {
   return r.json();
 }
 const link = (o, rel) => ((o && o.links) || []).find(l => l.rel === rel)?.uri;
+// v61: schreibende Aufrufe (POST/PUT) – Fehlermeldung von John Deere lesbar zurückgeben
+const jdMsg = t => { try { const j = JSON.parse(t); const e = (j.errors || [])[0]; return (e && (e.message || e.description)) || j.message || j.error_description || t.slice(0, 300); } catch { return String(t || '').slice(0, 300); } };
+async function jdSend(method, url, body, contentType, tries = 0) {
+  const full = /^https?:/.test(url) ? url : cfg.apiBase.replace(/\/$/, '') + url;
+  const r = await fetch(full, { method, headers: { Authorization: 'Bearer ' + await jdAccess(), Accept: ACCEPT, 'Content-Type': contentType }, body });
+  reqCount++;
+  if (r.status === 401 && tries < 1) { st.jd.exp = 0; return jdSend(method, url, body, contentType, tries + 1); }
+  if ((r.status === 429 || r.status >= 500) && tries < 3) { await sleep((+r.headers.get('retry-after') || 3 * (tries + 1)) * 1000); return jdSend(method, url, body, contentType, tries + 1); }
+  const text = await r.text().catch(() => '');
+  if (!r.ok) throw Object.assign(new Error(`John Deere ${r.status}: ${jdMsg(text)}`), { status: r.status });
+  let json = null; try { json = text ? JSON.parse(text) : null; } catch { }
+  return { status: r.status, location: r.headers.get('location') || '', json };
+}
+const hasFiles = () => !!st.jd?.scope && /\bfiles\b/.test(st.jd.scope);
+const hasAg3 = () => !!st.jd?.scope && /\bag3\b/.test(st.jd.scope);
 async function jdAll(url, quiet400) { // alle Seiten einer Liste
   const out = []; let next = url, guard = 0;
   while (next && guard++ < 500) { const j = await jdGet(next, 0, quiet400); out.push(...(j.values || [])); next = link(j, 'nextPage'); }
@@ -886,6 +903,12 @@ async function dbxDownload(p) { // Datei als Text, null = nicht vorhanden
   if (!r.ok) throw new Error('Dropbox: Herunterladen fehlgeschlagen (' + r.status + ')');
   return r.text();
 }
+async function dbxDownloadBuf(p) { // Datei als Buffer, null = nicht vorhanden
+  const r = await fetch(`${DBX_CONTENT}/2/files/download`, { method: 'POST', headers: { Authorization: 'Bearer ' + await dbxAccess(), 'Dropbox-API-Arg': dbxArg({ path: p }) } });
+  if (r.status === 409) return null;
+  if (!r.ok) throw new Error('Dropbox: Herunterladen fehlgeschlagen (' + r.status + ')');
+  return Buffer.from(await r.arrayBuffer());
+}
 async function dbxList(p) { // Dateinamen in einem Ordner
   const call = async (ep, body) => { const r = await fetch(`${DBX_API}/2/files/${ep}`, { method: 'POST', headers: { Authorization: 'Bearer ' + await dbxAccess(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); if (r.status === 409) return null; if (!r.ok) throw new Error('Dropbox: Ordner lesen fehlgeschlagen (' + r.status + ')'); return r.json(); };
   let j = await call('list_folder', { path: p === '/' ? '' : p }); const out = [];
@@ -1268,6 +1291,73 @@ function excelSheets(D) {
   return sheets;
 }
 
+/* ---------- v61: Hochladen aus IM-Applikationskarten ----------
+   Die App legt in Dropbox /jd-upload/<id>.json (Auftrag) und bei Applikationskarten <id>.zip ab. jd-sync arbeitet die Aufträge ab
+   und schreibt das Ergebnis als /jd-upload/<id>.status.json zurück (die App liest und löscht es). Auftrag und ZIP werden danach gelöscht.
+   art 'rx'     : ZIP als Datei in die Organisation (POST /organizations/{org}/files, PUT /files/{id})
+   art 'grenze' : Feldgrenze beim Feld anlegen (POST /organizations/{org}/fields/{feldId}/boundaries), geo = MultiPolygon-Koordinaten [lon,lat] */
+const uploadDir = () => cfg.uploadPfad || '/jd-upload';
+let uploadBusy = false, lastUploadPoll = 0;
+async function runUploads() {
+  if (uploadBusy || !st.jd || !st.dbx || !cfg.orgId) return;
+  uploadBusy = true;
+  try {
+    const names = await dbxList(uploadDir());
+    for (const n of names.filter(n => /\.json$/i.test(n) && !/\.status\.json$/i.test(n))) await runUpload(n);
+  } catch (e) { log('Upload-Prüfung: ' + e.message); }
+  finally { uploadBusy = false; }
+}
+async function runUpload(n) {
+  const dir = uploadDir(), p = `${dir}/${n}`, base = n.replace(/\.json$/i, '');
+  let a = null; try { a = JSON.parse(await dbxDownload(p) || 'null'); } catch { }
+  const status = o => dbxUpload(`${dir}/${base}.status.json`, JSON.stringify({ id: (a && a.id) || base, art: a && a.art, name: a && a.name, at: new Date().toISOString(), dienst: VERSION, ...o }));
+  const rec = o => { st.uploads = [{ at: new Date().toISOString(), art: a && a.art, name: a && a.name, ...o }, ...(st.uploads || [])].slice(0, 20); saveSt(); };
+  if (!a || !a.art) { await status({ status: 'fehler', meldung: 'Auftrag unlesbar' }); await dbxDelete(p); return; }
+  try {
+    if (a.art === 'rx') {
+      if (!hasFiles()) throw new Error('Die John-Deere-Anmeldung hat noch keine Berechtigung für Dateien – auf dem NAS (jd-sync, Schritt 2) neu bei John Deere anmelden.');
+      const buf = await dbxDownloadBuf(`${dir}/${a.datei}`);
+      if (!buf || !buf.length) throw new Error('Die ZIP-Datei fehlt in Dropbox.');
+      const name = String(a.name || a.datei || 'Applikationskarte.zip').replace(/[^\w.\- ]+/g, '_');
+      const c = await jdSend('POST', `/organizations/${encodeURIComponent(cfg.orgId)}/files`, JSON.stringify({ name }), ACCEPT);
+      const fileId = (c.location && c.location.split('?')[0].split('/').filter(Boolean).pop()) || idOf(c.json && c.json.id);
+      if (!fileId) throw new Error('John Deere hat keine Datei-ID zurückgegeben.');
+      try { await jdSend('PUT', `/files/${encodeURIComponent(fileId)}`, buf, 'application/zip'); }
+      catch (e) { if (e.status !== 415 && e.status !== 400) throw e; await jdSend('PUT', `/files/${encodeURIComponent(fileId)}`, buf, 'application/octet-stream'); }
+      let info = null; try { await sleep(4000); info = await jdGet(`/files/${encodeURIComponent(fileId)}`); } catch { }
+      const jdStatus = info ? (info.status || info.processingStatus || info.fileStatus || (info.transferPending ? 'in Bearbeitung' : null)) : null;
+      await status({ status: 'ok', meldung: `Ins Operations Center hochgeladen (Dateien › «${name}»)`, jdFileId: fileId, jdStatus, jdTyp: info && info.type || null });
+      rec({ ok: true, meldung: `hochgeladen, Datei-ID ${fileId}${jdStatus ? ' · ' + jdStatus : ''}` });
+      log(`Upload: Applikationskarte «${name}» ins Operations Center hochgeladen (Datei ${fileId}${jdStatus ? ', ' + jdStatus : ''})`);
+    } else if (a.art === 'grenze') {
+      if (!hasAg3()) throw new Error('Die John-Deere-Anmeldung hat noch keine Berechtigung für Feldgrenzen – auf dem NAS (jd-sync, Schritt 2) neu bei John Deere anmelden.');
+      const g = a.grenze || {}, geo = Array.isArray(g.geo) ? g.geo : null;
+      if (!a.feldId) throw new Error('Kein Feld aus MyJohnDeere gewählt.');
+      if (!geo || !geo.length) throw new Error('Die Feldgrenze ist leer.');
+      const ring = (r, i) => { const pts = r.map(([lon, lat]) => ({ '@type': 'Point', lat: +(+lat).toFixed(8), lon: +(+lon).toFixed(8) }));
+        if (pts.length > 1 && pts[0].lat === pts[pts.length - 1].lat && pts[0].lon === pts[pts.length - 1].lon) pts.pop();   // John Deere: Ring ohne doppelten Schlusspunkt
+        if (pts.length < 3) throw new Error('Ein Ring der Feldgrenze hat weniger als 3 Punkte.');
+        return { '@type': 'Ring', points: pts, type: i ? 'interior' : 'exterior', passable: true }; };
+      const body = { '@type': 'Boundary', name: String(g.name || 'IM-Applikationskarten').slice(0, 100), sourceType: 'External', active: g.aktiv !== false, archived: false, irrigated: false,
+        multipolygons: geo.map(poly => ({ '@type': 'Polygon', rings: poly.map(ring) })) };
+      const c = await jdSend('POST', `/organizations/${encodeURIComponent(cfg.orgId)}/fields/${encodeURIComponent(a.feldId)}/boundaries`, JSON.stringify(body), ACCEPT);
+      const bid = (c.location && c.location.split('?')[0].split('/').filter(Boolean).pop()) || idOf(c.json && c.json.id) || '';
+      // Grenzen dieses Feldes beim nächsten Abgleich neu holen
+      try { const gc = load('grenzen.json', {}); delete gc[a.feldId]; save('grenzen.json', gc); } catch { }
+      await status({ status: 'ok', meldung: `Feldgrenze «${body.name}» beim Feld «${a.feld || a.feldId}» gespeichert${body.active ? ' (aktiv)' : ''}. Die Feldliste wird gleich neu abgeglichen.`, jdBoundaryId: bid });
+      rec({ ok: true, meldung: `Feldgrenze beim Feld ${a.feld || a.feldId} gespeichert` });
+      log(`Upload: Feldgrenze «${body.name}» beim Feld «${a.feld || a.feldId}» gespeichert${bid ? ' (' + bid + ')' : ''}`);
+      st.syncNachUpload = true; saveSt();
+    } else throw new Error('Unbekannte Auftragsart: ' + a.art);
+  } catch (e) {
+    await status({ status: 'fehler', meldung: e.message }).catch(() => { });
+    rec({ ok: false, meldung: e.message });
+    log(`Upload «${(a && a.name) || base}»: Fehler – ${e.message}`);
+  }
+  if (a.datei) await dbxDelete(`${dir}/${a.datei}`).catch(() => { });
+  await dbxDelete(p).catch(() => { });
+}
+
 /* ---------- Zeitplan: Abgleich mit MyJohnDeere nach eingestelltem Rhythmus, Sicherung täglich ---------- */
 function syncSlots() { // geplante Zeitpunkte (Minuten ab Mitternacht) für heute
   if (cfg.syncMode === 'anfrage') return [];
@@ -1296,6 +1386,11 @@ setInterval(async () => {
   if (st.jd && st.dbx && cfg.orgId && Date.now() - lastPoll > cfg.pollMinutes * 60000) {
     lastPoll = Date.now();
     try { if (await dbxRequestPending()) { await dbxDelete(cfg.requestPath); await runSync('Anfrage aus der IM-Verwaltung'); } } catch (e) { log('Dropbox-Prüfung: ' + e.message); }
+  }
+  // v61: Aufträge aus IM-Applikationskarten (jede Minute)
+  if (st.jd && st.dbx && cfg.orgId && Date.now() - lastUploadPoll > (cfg.uploadSekunden || 60) * 1000) {
+    lastUploadPoll = Date.now(); await runUploads();
+    if (st.syncNachUpload && !st.running) { st.syncNachUpload = false; saveSt(); runSync('nach Feldgrenze aus IM-Applikationskarten'); }
   }
   const bz = toMinutes(cfg.sicherungZeit) ?? 0;
   if (cfg.sicherungAktiv && st.dbx && min >= bz && st.lastBackupDay !== day && !st.backupRunning) { st.lastBackupDay = day; saveSt(); await runBackup('täglich'); }
@@ -1353,11 +1448,16 @@ ${st.jd && !hasAg2() ? '<p class="no">Die bestehende John-Deere-Anmeldung enthä
 <form method="post" action="/arbeiten"><div class="row"><div><label>Arbeitsdaten abholen</label><select name="arbeitenAktiv"><option value="1" ${cfg.arbeitenAktiv ? 'selected' : ''}>Ja</option><option value="0" ${cfg.arbeitenAktiv ? '' : 'selected'}>Nein</option></select></div>
 <div><label>Ab Datum (früher = längere Historie, erster Lauf dauert länger)</label><input name="arbeitenSeit" type="date" value="${esc(cfg.arbeitenSeit)}"></div></div>
 <button>Speichern</button> <button class="sec" name="neu" value="1">Speichern und komplett neu laden</button></form></section>
+<section><h2>Hochladen aus IM-Applikationskarten</h2><p><small>Applikationskarten und Feldgrenzen, die in IM-Applikationskarten «An Operations Center senden» bzw. «In MyJohnDeere speichern» werden, legt die App im Dropbox-Ordner <b>${esc(uploadDir())}</b> ab. jd-sync prüft jede Minute und lädt sie mit der Files- bzw. Boundaries-Schnittstelle von John Deere in die Organisation hoch.</small></p>
+${cfg.schreibrechte === false ? '<p class="no">Schreibrechte sind ausgeschaltet (Schritt 1).</p>' : st.jd ? `<p>${ok(hasFiles(), 'Berechtigung Dateien hochladen (files)')}<br>${ok(hasAg3(), 'Berechtigung Feldgrenzen speichern (ag3)')}</p>${!hasFiles() || !hasAg3() ? '<p class="no">Die bestehende Anmeldung enthält diese Rechte noch nicht – bitte unten in Schritt 2 neu bei John Deere anmelden. Alles andere läuft bis dahin normal weiter.</p>' : ''}` : ''}
+${(st.uploads || []).length ? `<p><small>${(st.uploads || []).slice(0, 10).map(x => `${esc(new Date(x.at).toLocaleString('de-CH'))} · ${x.art === 'grenze' ? 'Feldgrenze' : 'Applikationskarte'} «${esc(x.name || '')}» · ${x.ok ? '<span class="ok">ok</span>' : '<span class="no">Fehler</span>'} ${esc(x.meldung || '')}`).join('<br>')}</small></p>` : '<p><small>Noch nichts hochgeladen.</small></p>'}</section>
 <section><h2>1 · John-Deere-App (developer.deere.com)</h2><form method="post" action="/config">
 <div class="row"><div><label>Application ID (Client-ID)</label><input name="clientId" value="${esc(cfg.clientId)}"></div><div><label>Secret ${cfg.clientSecret ? '<small>(gespeichert – leer lassen = unverändert)</small>' : ''}</label><input name="clientSecret" type="password" autocomplete="off"></div></div>
 <div class="row"><div><label>Redirect URI (genau so in der John-Deere-App eintragen)</label><input name="redirectUri" value="${esc(cfg.redirectUri)}"></div><div><label>Schnittstelle</label><select name="apiBase">${['https://partnerapi.deere.com/platform', 'https://sandboxapi.deere.com/platform'].map(u => `<option ${u === cfg.apiBase ? 'selected' : ''}>${u}</option>`).join('')}</select></div></div>
 <div class="row"><div><label>Dropbox App key (derselbe wie in der IM-Verwaltung, config.js)</label><input name="dbxAppKey" value="${esc(cfg.dbxAppKey)}"></div><div></div></div>
-<div class="row"><div><label>Kunden in der IM-Verwaltung entsprechen in MyJohnDeere den …</label><select name="kundenEbene">${[['auto', 'automatisch erkennen'], ['clients', 'Mandanten (Clients)'], ['farms', 'Betrieben (Farms)']].map(([v, t]) => `<option value="${v}" ${cfg.kundenEbene === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div><div></div></div>
+<div class="row"><div><label>Kunden in der IM-Verwaltung entsprechen in MyJohnDeere den …</label><select name="kundenEbene">${[['auto', 'automatisch erkennen'], ['clients', 'Mandanten (Clients)'], ['farms', 'Betrieben (Farms)']].map(([v, t]) => `<option value="${v}" ${cfg.kundenEbene === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+<div><label>Schreibrechte anfordern (IM-Applikationskarten: Dateien hochladen, Feldgrenzen speichern – ag3, files)</label><select name="schreibrechte"><option value="1" ${cfg.schreibrechte !== false ? 'selected' : ''}>Ja</option><option value="0" ${cfg.schreibrechte === false ? 'selected' : ''}>Nein</option></select></div></div>
+<p><small>Angefordert werden: <code>${esc(scopes())}</code>. Nach einer Änderung in Schritt 2 neu anmelden.</small></p>
 <button>Speichern</button></form></section>
 <section><h2>2 · Bei John Deere anmelden</h2><p>Öffnet die Anmeldung von John Deere. Danach landet der Browser auf <b>${esc(cfg.redirectUri)}</b> – die Seite lädt evtl. nicht, das ist in Ordnung. <b>Kopiere die ganze Adresse aus der Browserzeile</b> und füge sie hier ein.</p>
 <a class="btn sec" href="/jd/login" target="_blank" rel="noopener">Bei John Deere anmelden ↗</a>
@@ -1392,6 +1492,7 @@ http.createServer(async (req, res) => {
       const f = await body(req);
       ['clientId', 'redirectUri', 'apiBase', 'dbxAppKey', 'kundenEbene'].forEach(k => { if (f.has(k)) cfg[k] = f.get(k).trim(); });
       if (f.get('clientSecret')) cfg.clientSecret = f.get('clientSecret').trim();
+      if (f.has('schreibrechte')) cfg.schreibrechte = f.get('schreibrechte') !== '0';
       saveCfg(); return send(res, 200, page('Gespeichert.'));
     }
     if (u.pathname === '/jd/login') { if (!cfg.clientId || !cfg.clientSecret) return send(res, 200, page('Zuerst Client-ID und Secret eintragen.', true)); res.writeHead(302, { Location: await jdAuthUrl() }); return res.end(); }

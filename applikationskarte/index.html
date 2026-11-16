@@ -87,6 +87,8 @@ aside section.collapsed{padding-block:11px}
 @media (prefers-reduced-motion:reduce){aside section > h2::before{transition:none}}
 .modehint{margin:10px 16px 0;padding:8px 10px;border:1px solid var(--accent);border-radius:4px;background:var(--accent-soft);font-size:13px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
 .modehint button{padding:4px 10px}
+.upit{display:grid;grid-template-columns:1fr auto;gap:2px 8px;font-size:12.5px;padding:5px 8px;border:1px solid var(--line);border-radius:4px;background:var(--bg)}
+.upit .m{grid-column:1 / -1;color:var(--muted)}
 .s2list{display:flex;flex-direction:column;gap:4px;max-height:260px;overflow-y:auto}
 .s2it{display:grid;grid-template-columns:1fr auto;gap:0 8px;text-align:left;background:var(--bg);padding:6px 8px}
 .s2it.on{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
@@ -135,7 +137,7 @@ aside section.collapsed{padding-block:11px}
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.19 · by Andreas Indermühle</span></div>
+    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.20 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -156,6 +158,7 @@ aside section.collapsed{padding-block:11px}
       <button id="bJdReq" hidden title="Fordert beim NAS-Dienst einen Abgleich mit MyJohnDeere an">⟳ Abgleich anfordern</button>
       <button id="bJdLogout" class="ghost" hidden>Abmelden</button>
     </div>
+    <div id="upBox" hidden style="display:flex;flex-direction:column;gap:4px"><div class="sub">Übertragungen ins Operations Center</div><div id="upList" style="display:flex;flex-direction:column;gap:4px"></div></div>
     <div class="hint">Kunden, Betriebe, Felder und Feldgrenzen kommen vom NAS-Dienst (Dateien <b>jd-sync.json</b> und <b>jd-feldgrenzen.json</b> im Dropbox-Ordner) und werden auf diesem Gerät gespeichert – auch ohne Netz verfügbar. Die App ändert in MyJohnDeere nichts. Mit der Anmeldung werden auch die <b>gespeicherten Karten</b> über Dropbox (<b>applikationskarten.json</b>) zwischen PC, iPhone und Tablet abgeglichen. Einmalig in der Dropbox App Console › Redirect URIs eintragen: <code id="jdRedirect" style="word-break:break-all"></code></div>
   </section>
 
@@ -218,6 +221,14 @@ aside section.collapsed{padding-block:11px}
     <label class="f" id="featPick" hidden>Mehrere Felder in der Datei – welches?<select id="featSel"></select></label>
     <div class="status" id="fieldInfo"></div>
     <button id="bFieldExport" class="big">Feldgrenze exportieren (.zip)</button>
+    <button id="bGrzSave" class="big" hidden>In MyJohnDeere speichern …</button>
+    <div id="grzSaveRow" hidden style="display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid var(--accent);border-radius:4px;background:var(--accent-soft)">
+      <div class="status" id="grzZiel"></div>
+      <label class="f">Name der Feldgrenze in MyJohnDeere<input id="grzName" maxlength="100"></label>
+      <label class="check"><input type="checkbox" id="cGrzAktiv" checked><span>Als aktive Feldgrenze speichern</span></label>
+      <div class="row"><button id="bGrzSaveYes" class="pri">Speichern</button><button id="bGrzSaveNo">Abbrechen</button></div>
+      <div class="hint">Wird als neue Vermessung beim Feld angelegt (bestehende werden nicht gelöscht). Übertragen über den NAS-Dienst (ab Version 61) – dauert ein bis zwei Minuten.</div>
+    </div>
     <div class="hint rx-only">Feldgrenze aus dem Operations Center: Feld exportieren als Shapefile (ZIP) und hier laden. Zonen werden automatisch auf die Feldgrenze zugeschnitten.</div>
     <div class="hint">«Parzellen anklicken»: eine oder mehrere Parzellen der amtlichen Vermessung wählen und als Feldgrenze übernehmen. Mit «Nur Acker/Wiese/Weide» werden Wege, Gebäude, Wald und Gewässer gemäss Bodenbedeckung automatisch weggeschnitten. Ist schon eine Feldgrenze da, werden sie dazugefügt. Wege oder Waldränder danach mit «− Aussparung» oder «Bearbeiten» anpassen.</div>
     <div class="hint grenze-only" hidden>Im Operations Center unter <b>Dateien</b> hochladen und als <b>Grenze</b> importieren. Kunde, Betrieb und Feld sind als CLIENT, FARM und FIELD in der Datei – beim Import zuordnen.</div>
@@ -330,10 +341,11 @@ aside section.collapsed{padding-block:11px}
   <section class="rx-only">
     <h2>Export John Deere</h2>
     <label class="check" id="koeRow" hidden><input type="checkbox" id="cKoe" checked><span>Saatmenge als Kö/ha exportieren (× 10 000) – das Operations Center kennt keine Kö/m².</span></label>
-    <button id="bExport" class="pri big">Für Operations Center (.zip)</button>
+    <button id="bExport" class="big">Für Operations Center (.zip)</button>
+    <button id="bSendOC" class="pri big" hidden>An Operations Center senden (über NAS)</button>
     <button id="bExportUsb" class="big">Für USB-Stick / Data Manager</button>
     <label class="check" id="usbDirectRow" hidden><input type="checkbox" id="cUsbDirect" checked><span>Direkt auf den USB-Stick schreiben (Ordner Rx, ohne ZIP)</span></label>
-    <div class="hint"><b>Operations Center:</b> ZIP unter <b>Dateien</b> hochladen, als Applikationskarte (Rx) importieren, Spalte <b>RATE</b> und Einheit wählen, dann per Datensynchronisation aufs Terminal.<br>
+    <div class="hint"><b>An Operations Center senden:</b> überträgt die Karte über den NAS-Dienst direkt in die Organisation (Dateien) – auch vom iPhone; Dropbox-Anmeldung im Abschnitt MyJohnDeere nötig.<br><b>Operations Center (Datei):</b> ZIP unter <b>Dateien</b> hochladen, als Applikationskarte (Rx) importieren, Spalte <b>RATE</b> und Einheit wählen, dann per Datensynchronisation aufs Terminal.<br>
     <b>USB-Stick:</b> <span id="usbHowZip">ZIP direkt im Hauptverzeichnis des Sticks entpacken (es entsteht der Ordner <b>Rx</b>).</span><span id="usbHowDir" hidden>Im Dialog den USB-Stick wählen – der Ordner <b>Rx</b> wird angelegt. Lässt der Browser das Hauptverzeichnis nicht zu, auf dem Stick einen Ordner «Rx» anlegen und diesen wählen.</span> Am Terminal (Gen4/G5): Menü → System → <b>Data Manager</b> → Import vom USB-Stick → Datentyp «Rx-Verschreibung». Danach in der Arbeitseinrichtung die Spalte <b>RATE</b> und die Einheit wählen.</div>
   </section>
 </aside>
@@ -382,7 +394,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.19";
+const VERSION = "1.20";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -1111,11 +1123,11 @@ $("bFieldExport").addEventListener("click", async () => {
   if (where) toast(`Exportiert: ${where} (${fmt(ha,2)} ha)`);
 });
 const PRJ = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
-async function exportRx(usb){
+function rxFiles(){
   stopEdit();
   const c = lastCalc || compute();
   const parts = (c.base?[c.base]:[]).concat(c.zones).filter(p=>p.geom && p.ha>0);
-  if (!parts.length){ toast("Nichts zu exportieren – zuerst Feldgrenze oder Zonen zeichnen."); return; }
+  if (!parts.length){ toast("Nichts zu exportieren – zuerst Feldgrenze oder Zonen zeichnen."); return null; }
   const koe = S.einheit==="Kö/m²" && $("cKoe").checked;
   const factor = koe ? 10000 : 1, unit = koe ? "Koe/ha" : ascii(S.einheit);
   const fields = [ {name:"RATE",type:"N",len:14,dec:2}, {name:"ZONE",type:"C",len:30}, {name:"PRODUKT",type:"C",len:40}, {name:"EINHEIT",type:"C",len:10}, {name:"FLAECHE_HA",type:"N",len:12,dec:4} ];
@@ -1123,6 +1135,11 @@ async function exportRx(usb){
   const { shp, shx } = writeShp(parts.map(p=>({ geom:p.geom.geometry || p.geom })));
   const base = fileBase(), dbf = writeDbf(fields, rows);
   const files = [ { name:base+".shp", data:shp }, { name:base+".shx", data:shx }, { name:base+".dbf", data:dbf }, { name:base+".prj", data:PRJ }, { name:base+".cpg", data:"ASCII" } ];
+  return { base, files, parts };
+}
+async function exportRx(usb){
+  const rx = rxFiles(); if (!rx) return;
+  const { base, files, parts } = rx;
   // USB direkt in den Ordner Rx schreiben (ohne ZIP), wo der Browser das kann
   if (usb && FS_DIR && $("cUsbDirect").checked){
     try {
@@ -1908,6 +1925,11 @@ const DBX = {
     if (!r.ok) throw new Error("Dropbox: Speichern fehlgeschlagen (" + r.status + ")");
     return (await r.json()).rev;
   },
+  async writeBytes(path, blob){
+    const r = await this.req("https://content.dropboxapi.com/2/files/upload", { headers:{ "Content-Type":"application/octet-stream", "Dropbox-API-Arg":this.arg({ path, mode:"overwrite", mute:true }) }, body:blob });
+    if (!r.ok) throw new Error("Dropbox: Hochladen fehlgeschlagen (" + r.status + ")");
+  },
+  async del(path){ await this.req("https://api.dropboxapi.com/2/files/delete_v2", { headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ path }) }); },
   async writeJson(path, data){
     const r = await this.req("https://content.dropboxapi.com/2/files/upload", { headers:{ "Content-Type":"application/octet-stream", "Dropbox-API-Arg":this.arg({ path, mode:"overwrite", mute:true }) }, body:JSON.stringify(data) });
     if (!r.ok) throw new Error("Dropbox: Speichern fehlgeschlagen (" + r.status + ")");
@@ -1998,6 +2020,7 @@ function jdUI(){
   else info = on ? "Noch nichts geladen." : "Mit Dropbox anmelden, um Kunden, Felder und Feldgrenzen aus MyJohnDeere zu übernehmen.";
   $("jdInfo").innerHTML = info;
   $("jdHead").textContent = st ? `${jdClients().length} Kunden` : "";
+  if (typeof upUI === "function") upUI();
 }
 async function jdFromCache(){
   const s = await IDB.get("jd.stamm"), g = await IDB.get("jd.geo");
@@ -2087,6 +2110,83 @@ async function projSync(manual){
 window.projSync = projSync;
 document.addEventListener("visibilitychange", () => { if (document.visibilityState==="visible" && (!PS.last || Date.now() - PS.last > 60000)) { projSync(false); jdLoad(false); } });
 window.addEventListener("online", () => projSync(false));
+/* ---------- An Operations Center senden (über den NAS-Dienst jd-sync ab v61, Ordner /jd-upload in Dropbox) ---------- */
+const UP_DIR = "/jd-upload";
+const upAll = () => lsGet("appkarte.uploads") || [];
+const upSave = l => lsSet("appkarte.uploads", l.slice(0, 20));
+let upTimer = null;
+function upUI(){
+  const l = upAll().slice(0, 6);
+  $("upBox").hidden = !l.length;
+  $("upList").innerHTML = l.map(x => {
+    const chip = x.status==="ok" ? '<span class="s2b good">✓ übertragen</span>' : x.status==="fehler" ? '<span class="s2b bad">Fehler</span>' : '<span class="s2b wait">wartet auf NAS …</span>';
+    return `<div class="upit"><span><b>${x.art==="grenze" ? "Feldgrenze" : "Applikationskarte"}</b> ${jdEsc(x.name || "")} · ${new Date(x.at).toLocaleString("de-CH", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" })}</span>${chip}${x.meldung ? `<span class="m">${jdEsc(x.meldung)}</span>` : ""}</div>`;
+  }).join("");
+  const on = DBX.hasSession();
+  $("bSendOC").hidden = !on; $("bGrzSave").hidden = !on;
+}
+async function upSend(job, zipBlob){
+  if (!DBX.hasSession()){ toast("Zuerst im Abschnitt MyJohnDeere mit Dropbox anmelden."); return false; }
+  if (!navigator.onLine){ toast("Keine Internetverbindung – bitte später nochmals senden."); return false; }
+  const id = "u" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  try {
+    if (zipBlob){ job.datei = id + ".zip"; await DBX.writeBytes(`${UP_DIR}/${job.datei}`, zipBlob); }
+    await DBX.writeJson(`${UP_DIR}/${id}.json`, Object.assign({ id, at:new Date().toISOString(), von:"IM-Applikationskarten " + VERSION, orgId:(JD.stamm && JD.stamm.org && JD.stamm.org.id) || null }, job));
+    upSave([{ id, art:job.art, name:job.name, at:new Date().toISOString(), status:"wartet", meldung:"in Dropbox abgelegt – der NAS-Dienst überträgt es in der nächsten Minute" }, ...upAll()]);
+    upUI(); upPollStart(15000);
+    toast(job.art==="grenze" ? "Feldgrenze gesendet – der NAS-Dienst speichert sie in MyJohnDeere" : "Applikationskarte gesendet – der NAS-Dienst lädt sie ins Operations Center");
+    return true;
+  } catch(e){ console.warn(e); toast(e.auth ? "Dropbox-Anmeldung abgelaufen – bitte neu anmelden." : "Senden fehlgeschlagen: " + e.message); return false; }
+}
+function upPollStart(ms){ if (!upTimer) upTimer = setTimeout(upPoll, ms || 15000); }
+async function upPoll(){
+  upTimer = null;
+  const l = upAll(); if (!l.some(x => x.status==="wartet") || !DBX.hasSession()) return;
+  let changed = false;
+  for (const x of l.filter(x => x.status==="wartet")){
+    try {
+      const r = await DBX.readJson(`${UP_DIR}/${x.id}.status.json`);
+      if (r){
+        x.status = r.status==="ok" ? "ok" : "fehler"; x.meldung = (r.meldung || "") + (r.jdStatus ? ` · Status bei John Deere: ${r.jdStatus}` : ""); changed = true;
+        toast((x.status==="ok" ? "✓ " : "Fehler: ") + (r.meldung || x.name));
+        DBX.del(`${UP_DIR}/${x.id}.status.json`).catch(() => {});
+        if (x.status==="ok" && x.art==="grenze"){ setTimeout(() => jdLoad(false), 180000); setTimeout(() => jdLoad(false), 420000); }
+      } else if (Date.now() - Date.parse(x.at) > 30 * 60000){
+        x.status = "fehler"; x.meldung = "Keine Antwort vom NAS-Dienst nach 30 Minuten – läuft jd-sync ab Version 61 und ist es mit Dropbox verbunden?"; changed = true;
+      }
+    } catch(e){ if (e.auth) break; }
+  }
+  if (changed){ upSave(l); upUI(); }
+  if (l.some(x => x.status==="wartet")) upPollStart(15000);
+}
+async function sendRx(){
+  const rx = rxFiles(); if (!rx) return;
+  const zip = new JSZip(); rx.files.forEach(f => zip.file(f.name, f.data));
+  const blob = await zip.generateAsync({ type:"blob" });
+  await upSend({ art:"rx", name:rx.base + ".zip", kunde:S.kunde, betrieb:S.betrieb, feld:S.feld, feldId:JD.field ? JD.field.id : null, zonen:rx.parts.length }, blob);
+}
+function grzSaveOpen(){
+  stopEdit();
+  if (!S.field){ toast("Zuerst eine Feldgrenze zeichnen oder laden."); return; }
+  jdFieldCheck(false);
+  if (!JD.field){ toast("Zuerst im Abschnitt Auftrag ein Feld aus der MyJohnDeere-Liste wählen – dort wird die Grenze gespeichert."); $("iFeld").focus(); return; }
+  const c = jdClients().find(x => x.id===JD.field.client);
+  $("grzZiel").innerHTML = `Ziel in MyJohnDeere: <b>${jdEsc(c ? c.name : S.kunde)} › ${jdEsc(JD.field.name)}</b> · neue Grenze ${fmt(areaHa(feat(S.field)),2)} ha`;
+  $("grzName").value = "IM-Applikationskarten " + new Date().toLocaleDateString("de-CH");
+  $("grzSaveRow").hidden = false; $("grzName").focus(); $("grzName").select();
+}
+async function grzSaveDo(){
+  if (!S.field || !JD.field) return;
+  const g = feat(S.field).geometry, r7 = v => Math.round(v * 1e7) / 1e7;
+  const geo = (g.type==="Polygon" ? [g.coordinates] : g.coordinates).map(poly => poly.map(ring => ring.map(([x, y]) => [r7(x), r7(y)])));
+  const ok = await upSend({ art:"grenze", name:JD.field.name, feld:JD.field.name, feldId:JD.field.id, kunde:S.kunde,
+    grenze:{ name:($("grzName").value.trim() || "IM-Applikationskarten").slice(0, 100), aktiv:$("cGrzAktiv").checked, geo } });
+  if (ok) $("grzSaveRow").hidden = true;
+}
+$("bSendOC").addEventListener("click", sendRx);
+$("bGrzSave").addEventListener("click", grzSaveOpen);
+$("bGrzSaveYes").addEventListener("click", grzSaveDo);
+$("bGrzSaveNo").addEventListener("click", () => $("grzSaveRow").hidden = true);
 window.jdOnForm = () => { jdFill(); jdFieldCheck(false); };
 $("bJdLogin").addEventListener("click", () => DBX.login());
 $("bJdLoad").addEventListener("click", () => jdLoad(true));
@@ -2100,8 +2200,8 @@ $("iFeld").addEventListener("change", () => { jdFill(); jdFieldCheck(true); });
   await DBX.handleRedirect();
   await jdFromCache();
   jdUI(); jdFill(); jdFieldCheck(false);
-  projCloudUI();
-  if (DBX.hasSession()) { jdLoad(false); projSync(false); }
+  projCloudUI(); upUI();
+  if (DBX.hasSession()) { jdLoad(false); projSync(false); upPollStart(3000); }
 })();
 
 /* ---------- Start ---------- */

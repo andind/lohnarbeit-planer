@@ -8,6 +8,13 @@ Seit v59 legt jd-sync zusätzlich die **Feldgrenzen mit Geometrie** (alle Vermes
 daneben ab. Diese Datei liest **IM-Applikationskarten** (Kunde/Feld wählen → Feldgrenze laden). Beim ersten Abgleich nach dem
 Update werden die Grenzen aller Felder einmal neu bei John Deere abgefragt (danach wie bisher höchstens alle 3 Tage).
 
+Seit v61 überträgt jd-sync auch in die andere Richtung: Applikationskarten und Feldgrenzen, die in **IM-Applikationskarten**
+mit «An Operations Center senden» bzw. «In MyJohnDeere speichern» abgeschickt werden, legt die App im Dropbox-Ordner
+`/jd-upload` ab. jd-sync prüft jede Minute und lädt sie ins Operations Center (Dateien bzw. Feldgrenze beim Feld).
+Dafür braucht die John-Deere-App die Freigaben **Files** und **Boundaries Write** und jd-sync die Scopes `ag3` und `files`:
+nach dem Update **einmal neu bei John Deere anmelden** (Schritt 2). Auf der Statusseite zeigt der Abschnitt
+«Hochladen aus IM-Applikationskarten», ob die Rechte vorhanden sind, und die letzten Übertragungen.
+
 Zusätzlich holt jd-sync die **Arbeitsdaten** (Arbeitsgänge wie Säen, Spritzen, Ernten, Bodenbearbeitung mit Messwerten)
 und legt sie als `jd-arbeiten.json` daneben ab – als Vorrat für später. Der Planer liest diese Datei derzeit nicht.
 Klappt das Abholen der Arbeitsdaten einmal nicht, läuft der Abgleich von Mandanten und Feldern trotzdem normal.
