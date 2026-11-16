@@ -157,6 +157,11 @@ dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:upper
 .nfrow .status{flex:1 1 160px}
 .ykit{display:flex;align-items:center;gap:8px;text-align:left;width:100%}
 .ykit input{margin:0}
+.kbl{display:flex;flex-direction:column;gap:4px}
+.kbi{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:4px;padding:5px 6px;background:var(--panel)}
+.kbi .n{flex:1;min-width:0;font-size:13px}
+.kbi .n span{display:block;color:var(--muted);font-size:12px}
+.kbi input{width:64px;text-align:right}
 @media (max-width:760px){
   .app{display:flex;flex-direction:column;height:auto}
   .mapwrap{height:58vh}
@@ -169,7 +174,7 @@ dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:upper
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.29 · by Andreas Indermühle</span></div>
+    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.30 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -329,12 +334,22 @@ dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:upper
     <div class="hint">Ernten aus MyJohnDeere (NAS-Dienst ab v64, Raster 5 m, Ausreisser entfernt). Eine Ernte zeigt den Ertrag in t/ha. Mehrere Ernten werden je Jahr auf das Feldmittel bezogen (= 100 %) und gemittelt – das ergibt die stabilsten Ertragszonen.</div>
   </section>
 
+  <section>
+    <h2>Kombinieren <span id="kbInfo" class="status"></span></h2>
+    <div class="status" id="kbNote">Eine Karte anzeigen (Ertrag, Satellit oder Drohne) und dort «＋ Zur Kombination» wählen.</div>
+    <div class="kbl" id="kbList"></div>
+    <div class="row" id="kbRow" hidden><button id="bKbShow" class="pri">Kombiniert anzeigen</button><button id="bKbClear" class="ghost">Alle entfernen</button></div>
+    <div class="status" id="kbAgree"></div>
+    <div class="hint">Jede Karte wird auf ein Raster von 5 m im Feld gebracht und auf ihr Feldmittel bezogen (= 100 %), danach gewichtet gemittelt. Wo eine Quelle fehlt (Wolken, keine Ertragspunkte), zählen nur die übrigen. Vorschlag Grunddüngung: Ertrag 50, Satellit 30, Drohne 20 – für Stickstoff im Bestand das aktuelle Bild stärker gewichten.</div>
+  </section>
+
   <section id="idxSec" hidden>
     <h2 id="idxTitle">Index</h2>
     <div id="s2Vis" style="display:flex;flex-direction:column;gap:6px">
       <div class="s2leg" id="s2Legend"></div>
       <div class="status" id="s2Stat"></div>
       <div class="row"><label class="f" style="flex:1">Deckkraft<input type="range" id="rS2" min="0.1" max="1" step="0.05" value="0.75"></label><button id="bS2Hide" class="ghost">Ausblenden</button></div>
+      <button id="bKbAdd" title="Diese Karte für die kombinierte Zonenbildung merken">＋ Zur Kombination</button>
     </div>
     <div id="s2Zones" class="rx-only" hidden style="display:flex;flex-direction:column;gap:8px">
       <div class="sub">Zonen aus diesem Index</div>
@@ -454,7 +469,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.29";
+const VERSION = "1.30";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -1602,6 +1617,9 @@ function idxShow(title){
   $("s2Zones").hidden = !s2Data.nOk;
   if (!$("s2Lo").value) { $("s2Lo").value = s2Round(S.grundrate*1.15); $("s2Hi").value = s2Round(S.grundrate*0.85); }
   $("s2Repl").hidden = true;
+  $("bKbAdd").hidden = s2Data.src==="komb" || !s2Data.nOk;
+  $("bKbAdd").textContent = "＋ Zur Kombination"; $("bKbAdd").disabled = false;
+  KB.lastTitle = title;
 }
 function s2FillEdge(grid, cls, n, passes){
   const { w, h } = grid;
@@ -2384,6 +2402,102 @@ async function ykShow(){
   finally { btn.disabled = false; }
 }
 $("bYkShow").addEventListener("click", ykShow);
+/* ---------- v1.30: Ertrag, Satellit und Drohne zur Zonenbildung kombinieren ----------
+   Gemeinsames Raster 5 m über der Feldgrenze (lon/lat), jede Karte relativ zum eigenen Feldmittel (= 100 %), gewichtetes Mittel. */
+const KB = { lat:null, sig:"", layers:[], lastTitle:"" };
+const KB_W = { ertrag:50, s2:30, drone:20 };
+function kbLattice(){
+  const f = feat(S.field), sig = JSON.stringify(S.field.geometry || S.field).length + ":" + turf.bbox(f).map(v => v.toFixed(6)).join(",");
+  if (KB.lat && KB.sig===sig) return KB.lat;
+  if (KB.layers.length) toast("Die Feldgrenze hat geändert – die gemerkten Karten zur Kombination wurden entfernt.");
+  const [x0, y0, x1, y1] = turf.bbox(f), latC = (y0 + y1) / 2;
+  const dlat = 5 / 111132.954, dlon = 5 / (111319.49 * Math.cos(latC * Math.PI / 180));
+  const lon0 = x0 - dlon, lat0 = y1 + dlat, w = Math.ceil((x1 - lon0) / dlon) + 2, h = Math.ceil((lat0 - y0) / dlat) + 2;
+  const inField = new Uint8Array(w*h);
+  for (let j=0;j<h;j++) for (let i=0;i<w;i++) if (turf.booleanPointInPolygon([lon0 + (i+.5)*dlon, lat0 - (j+.5)*dlat], f)) inField[j*w+i] = 1;
+  KB.lat = { lon0, lat0, dlon, dlat, w, h, inField }; KB.sig = sig; KB.layers = [];
+  return KB.lat;
+}
+// Quelle (beliebiges Raster mit corner(i,j)) auf das gemeinsame Raster bringen: grobe Zellen füllen alle Zielzellen, deren Mitte sie decken; feine werden gemittelt
+function kbResample(src, T){
+  const g = src.grid, S1 = new Float64Array(T.w*T.h), N = new Float32Array(T.w*T.h);
+  for (let j=0;j<g.h;j++) for (let i=0;i<g.w;i++){
+    const v = g.vals[j*g.w+i]; if (!(v===v) || v==null) continue;
+    const c = [g.corner(i,j), g.corner(i+1,j), g.corner(i+1,j+1), g.corner(i,j+1)];
+    const xs = c.map(p => (p[0] - T.lon0) / T.dlon - .5), ys = c.map(p => (T.lat0 - p[1]) / T.dlat - .5);
+    const ia = Math.ceil(Math.min(...xs)), ib = Math.floor(Math.max(...xs)), ja = Math.ceil(Math.min(...ys)), jb = Math.floor(Math.max(...ys));
+    if (ia <= ib && ja <= jb){
+      for (let jj=Math.max(0,ja); jj<=Math.min(T.h-1,jb); jj++) for (let ii=Math.max(0,ia); ii<=Math.min(T.w-1,ib); ii++){ const k = jj*T.w+ii; S1[k] += v; N[k]++; }
+    } else {
+      const ii = Math.round(xs.reduce((a,b)=>a+b,0)/4), jj = Math.round(ys.reduce((a,b)=>a+b,0)/4);
+      if (ii>=0 && jj>=0 && ii<T.w && jj<T.h){ const k = jj*T.w+ii; S1[k] += v; N[k]++; }
+    }
+  }
+  const out = new Float32Array(T.w*T.h).fill(NaN); let s = 0, n = 0;
+  for (let k=0;k<out.length;k++) if (T.inField[k] && N[k]){ out[k] = S1[k]/N[k]; s += out[k]; n++; }
+  if (!n) return null;
+  const m = s/n; if (!(Math.abs(m) > 1e-9)) return null;
+  for (let k=0;k<out.length;k++) if (out[k]===out[k]) out[k] = out[k]/m*100;   // relativ zum Feldmittel
+  // fehlende Zellen am Rand (Raster der Quelle endet knapp vor der Grenze) mit Nachbarn auffüllen
+  for (let pass=0; pass<2; pass++){ const cp = out.slice(); for (let k=0;k<out.length;k++){ if (!T.inField[k] || out[k]===out[k]) continue; const i = k % T.w, j = (k-i)/T.w; let ss=0, nn=0;
+      for (let dj=-1;dj<=1;dj++) for (let di=-1;di<=1;di++){ const a=i+di, b=j+dj; if (a<0||b<0||a>=T.w||b>=T.h) continue; const v = cp[b*T.w+a]; if (v===v){ ss+=v; nn++; } } if (nn>=3) out[k] = ss/nn; } }
+  return { vals:out, n };
+}
+function kbSrc(){ return s2Data.src==="ertrag" ? "ertrag" : s2Data.src==="drone" ? "drone" : "s2"; }
+$("bKbAdd").addEventListener("click", () => {
+  if (!s2Data || !S.field) return;
+  const T = kbLattice(), r = kbResample(s2Data, T);
+  if (!r){ toast("Diese Karte deckt das Feld nicht ab."); return; }
+  const src = kbSrc(), label = KB.lastTitle || s2Data.idx;
+  if (KB.layers.some(l => l.label===label)){ toast("Diese Karte ist schon gemerkt."); return; }
+  KB.layers.push({ id:"k" + Date.now().toString(36), label, src, vals:r.vals, n:r.n, w:KB_W[src] });
+  $("bKbAdd").textContent = "✓ Gemerkt"; $("bKbAdd").disabled = true;
+  kbUI(); toast(`Zur Kombination gemerkt (${KB.layers.length})`);
+});
+function kbCorr(a, b){
+  let n=0, sa=0, sb=0, saa=0, sbb=0, sab=0;
+  for (let k=0;k<a.length;k++){ const x=a[k], y=b[k]; if (x!==x || y!==y) continue; n++; sa+=x; sb+=y; saa+=x*x; sbb+=y*y; sab+=x*y; }
+  if (n<10) return null; const cv = sab/n - sa/n*sb/n, va = saa/n - (sa/n)**2, vb = sbb/n - (sb/n)**2;
+  return va>0 && vb>0 ? cv/Math.sqrt(va*vb) : null;
+}
+const KB_SRC = { ertrag:"Ertrag", s2:"Satellit", drone:"Drohne" };
+function kbUI(){
+  if (KB.layers.length && S.field){ const f = feat(S.field), sig = JSON.stringify(S.field.geometry || S.field).length + ":" + turf.bbox(f).map(v => v.toFixed(6)).join(","); if (sig!==KB.sig){ KB.layers = []; KB.lat = null; } }
+  const L = KB.layers;
+  $("kbInfo").textContent = L.length ? `${L.length} Karte${L.length>1 ? "n" : ""}` : "";
+  $("kbNote").hidden = L.length > 0;
+  $("kbList").innerHTML = L.map((l, q) => `<div class="kbi"><div class="n">${jdEsc(l.label)}<span>${KB_SRC[l.src]}</span></div>
+    <label class="status">Gewicht <input type="number" min="0" max="100" step="5" value="${l.w}" data-kbw="${q}"></label><button class="ghost" data-kbx="${q}" title="Entfernen">✕</button></div>`).join("");
+  $("kbRow").hidden = !L.length; $("bKbShow").disabled = L.length < 2;
+  // Übereinstimmung der Karten (Korrelation je Paar)
+  const pr = [];
+  for (let a=0;a<L.length;a++) for (let b=a+1;b<L.length;b++){ const r = kbCorr(L[a].vals, L[b].vals); if (r!=null) pr.push(r); }
+  if (!pr.length){ $("kbAgree").textContent = L.length===1 ? "Mindestens zwei Karten merken." : ""; return; }
+  const m = pr.reduce((s,v)=>s+v,0)/pr.length, txt = m>=.6 ? "gut" : m>=.3 ? "mittel" : m>=0 ? "schwach" : "gegenläufig";
+  $("kbAgree").innerHTML = `Übereinstimmung der Karten: <b>${txt}</b> (Ø r = ${fmt(m,2)})${m<.3 ? " – die Karten zeigen unterschiedliche Muster (Messfehler, einmalige Störung oder von Jahr zu Jahr wechselnde Stellen). Gewichte bewusst wählen." : ""}`;
+}
+$("kbList").addEventListener("input", e => { const i = e.target.dataset.kbw; if (i==null) return; KB.layers[+i].w = Math.max(0, +e.target.value || 0); });
+$("kbList").addEventListener("click", e => { const b = e.target.closest("[data-kbx]"); if (!b) return; KB.layers.splice(+b.dataset.kbx, 1); kbUI(); });
+$("bKbClear").addEventListener("click", () => { KB.layers = []; kbUI(); });
+$("bKbShow").addEventListener("click", () => {
+  if (!S.field){ toast("Zuerst die Feldgrenze laden."); return; }
+  kbUI(); const L = KB.layers.filter(l => l.w > 0); if (L.length < 1){ toast("Alle Gewichte sind 0."); return; }
+  const T = KB.lat, vals = new Float32Array(T.w*T.h).fill(NaN); let nIn = 0, nOk = 0;
+  for (let k=0;k<vals.length;k++){
+    if (!T.inField[k]) continue; nIn++;
+    let s = 0, ws = 0; for (const l of L){ const v = l.vals[k]; if (v===v){ s += v*l.w; ws += l.w; } }
+    if (ws){ vals[k] = s/ws; nOk++; }
+  }
+  const ok = Array.from(vals).filter(v => v===v).sort((a,b) => a-b), q = p => ok.length ? ok[Math.min(ok.length-1, Math.floor(ok.length*p))] : NaN;
+  s2Sel = null; if (s2Items.length) s2RenderList();
+  s2Data = { grid:{ w:T.w, h:T.h, vals, inField:T.inField, corner:(i,j) => [T.lon0 + i*T.dlon, T.lat0 - j*T.dlat] }, nIn, nOk,
+    mean: ok.length ? ok.reduce((s,v)=>s+v,0)/ok.length : NaN, p02:q(.02), p98:q(.98), min:ok[0], max:ok[ok.length-1],
+    idx:"Kombiniert %", res:5, date:Date.now(), src:"komb" };
+  const wsum = L.reduce((s,l)=>s+l.w,0);
+  idxShow(`Kombiniert · ${L.map(l => `${KB_SRC[l.src]} ${Math.round(l.w/wsum*100)} %`).join(" · ")}`);
+  $("s2Stat").textContent = `${nOk} Zellen à 5 m (${nIn ? Math.round(nOk/nIn*100) : 0} % des Feldes) · Ø ${fmt(s2Data.mean,0)} % · Bereich ${fmt(s2Data.min,0)} bis ${fmt(s2Data.max,0)} % · ${L.map(l => l.label).join(" + ")}`;
+});
+
 function jdUI(){
   const ok = DBX.configured(), on = DBX.hasSession(), st = JD.stamm;
   $("bJdLogin").hidden = !ok || on; $("bJdLoad").hidden = !on; $("bJdReq").hidden = !on; $("bJdLogout").hidden = !on;
