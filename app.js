@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '129', APP_STAND = '15.11.2026';
+const APP_VERSION = '130', APP_STAND = '16.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -666,6 +666,7 @@ const App = {
     $('#content').innerHTML = v.content();
     vzApply();
     if (v.after) v.after();
+    dfitUpd();
     stickyUpd();
     renderSelbar();
     hdrUpdate();
@@ -1730,6 +1731,7 @@ function vzApply(z) {
   c.style.removeProperty('zoom'); // früher (v102): ganzer Inhaltsbereich
   if (v === 1) c.style.removeProperty('--vz'); else c.style.setProperty('--vz', v); // nur Daten: Tabellen und Listen (styles.css)
   const l = $('#hdrZoomV'); if (l) l.textContent = Math.round((App.view === 'plan' ? App.zoom : v) * 100) + ' %';
+  dfitLater();
 }
 function vzSet(z) {
   z = Math.round(Math.max(VZ_MIN, Math.min(VZ_MAX, z)) * 100) / 100;
@@ -1781,6 +1783,22 @@ function stickyUpd() {
     if (v) el.style.setProperty('--sty', v + 'px'); else el.style.removeProperty('--sty');
   });
 }
+/* Bericht und Abrechnung (v129): Tabellenrahmen .dfit so hoch wie der restliche Platz im Fenster – die Seite scrollt nicht mehr, nur die Tabelle.
+   Platz = Fensterhöhe − Oberkante des Rahmens − Inhalt darunter (in Fenster-Pixeln, umgerechnet mit der Skalierung); bleibt zu wenig Platz (z.B. Summen aufgeklappt), mind. 240 px und die Seite scrollt wie bisher. */
+function dfitUpd() {
+  const el = $('.dfit'); if (!el || el.closest('.jdbfs-body')) return;
+  if ((window.innerWidth || 0) < 900) { el.style.removeProperty('max-height'); return; }
+  const st = el.scrollTop, sl = el.scrollLeft;
+  el.style.maxHeight = 'none';
+  const r = el.getBoundingClientRect(), k = el.offsetHeight ? r.height / el.offsetHeight : UIZ(); // Fenster-Pixel je CSS-Pixel des Rahmens
+  const unten = Math.max(0, document.body.getBoundingClientRect().bottom - r.bottom), frei = window.innerHeight - (r.top + scrollY) - unten - 4;
+  if (r.height > frei) el.style.maxHeight = Math.max(240, Math.floor(frei / k)) + 'px'; else el.style.removeProperty('max-height');
+  el.scrollTop = st; el.scrollLeft = sl;
+}
+var _dfRaf = 0;
+function dfitLater() { if (!_dfRaf) _dfRaf = requestAnimationFrame(() => { _dfRaf = 0; dfitUpd(); stickyUpd(); }); }
+addEventListener('resize', dfitLater);
+document.addEventListener('toggle', dfitLater, true);
 let _stRaf = 0;
 addEventListener('scroll', () => { if (!_stRaf) _stRaf = requestAnimationFrame(() => { _stRaf = 0; stickyUpd(); }); }, { passive: true });
 addEventListener('resize', () => stickyUpd());
@@ -3917,6 +3935,8 @@ function jdbTable(list, { print, all } = {}) {
   const groups = groupBy(list.slice().sort((a, b) => String(jdbGroupKey(a, g)).localeCompare(String(jdbGroupKey(b, g)), 'de') * (g === 'monat' ? -1 : 1)), r => jdbGroupKey(r, g));
   return `<table class="${tcls}"${tw}>${colg}${head}${groups.map(([k, l]) => `<tbody class="pblk"><tr class="gk"><td colspan="${cols.length + (ck ? 1 : 0)}">${esc(jdbGroupLabel(k, g))} · ${l.length} ${l.length === 1 ? 'Arbeitsgang' : 'Arbeitsgänge'} · ${fmtNum(jdbHaSum(l))} ha</td></tr>${l.map(row).join('')}</tbody>`).join('')}${tot}</table>`;
 }
+// Bildschirm-Pixel je CSS-Pixel der Tabelle: Gesamtskalierung (UIZ) × Datenzoom der Tabelle (--vz, z.B. 115 %) – v129: vorher nur UIZ → Spalte sprang, Tabelle wurde zu breit und alle Spalten wuchsen mit
+const colZ = t => UIZ() * (parseFloat(getComputedStyle(t).zoom) || 1);
 // Spalten verschieben (Kopf ziehen) und Breite ändern (rechter Rand) – am PC mit der Maus
 function jdbColsAttach() {
   const t = $('.jdbfix'); if (!t) return;
@@ -3934,10 +3954,10 @@ function jdbColsAttach() {
   });
   $$('.jdbfix .cres').forEach(h => h.addEventListener('pointerdown', e => {
     e.preventDefault(); e.stopPropagation();
-    const id = h.dataset.col, col = t.querySelector(`col[data-col="${id}"]`), x0 = e.clientX, w0 = col.getBoundingClientRect().width / UIZ(), tw0 = t.getBoundingClientRect().width / UIZ();
+    const id = h.dataset.col, col = t.querySelector(`col[data-col="${id}"]`), x0 = e.clientX, k = colZ(t), w0 = parseFloat(col.style.width) || col.getBoundingClientRect().width / k, tw0 = parseFloat(t.style.width) || t.getBoundingClientRect().width / k;
     h.setPointerCapture(e.pointerId); document.body.classList.add('cresizing');
-    const mv = ev => { const w = Math.max(40, Math.round(w0 + (ev.clientX - x0) / UIZ())); col.style.width = w + 'px'; t.style.width = (tw0 + w - w0) + 'px'; };
-    const up = ev => { h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); document.body.classList.remove('cresizing'); const c = jdbColCfg(); c.w[id] = Math.max(40, Math.round(w0 + (ev.clientX - x0) / UIZ())); jdbColSave(c); App.noClickUntil = Date.now() + 300; };
+    const mv = ev => { const w = Math.max(40, Math.round(w0 + (ev.clientX - x0) / k)); col.style.width = w + 'px'; t.style.width = (tw0 + w - w0) + 'px'; };
+    const up = ev => { h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); document.body.classList.remove('cresizing'); const c = jdbColCfg(); c.w[id] = Math.max(40, Math.round(w0 + (ev.clientX - x0) / k)); jdbColSave(c); App.noClickUntil = Date.now() + 300; };
     h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up);
   }));
 }
@@ -4094,7 +4114,7 @@ function jdBerichtView() {
         ${list.length ? `<details class="panel jdbsumbox" ${J.sumOpen ? 'open' : ''}><summary data-act="jbSumToggle">Summen pro Kunde und Arbeit</summary><div class="tscroll dscroll" style="margin-top:8px">${J.sumOpen ? jdbSummen(list) : ''}</div>${J.sumOpen ? '<div class="btns" style="margin-top:8px"><button class="btn" data-act="jbSumPrint">Summen drucken / PDF</button></div>' : ''}</details>` : ''}
         ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-act="jbPrint">Drucken / PDF</button><button class="btn" data-act="jbCsv">Excel (CSV)</button><button class="btn" data-act="jbCols">Spalten…</button></div>
         ${jdbSelBar(list)}
-        <div class="panel tscroll dscroll">${jdbTable(shown, { all: list })}</div>
+        <div class="panel tscroll dscroll dfit">${jdbTable(shown, { all: list })}</div>
         ${list.length > shown.length ? `<div class="btns" style="margin-top:10px"><button class="btn" data-act="jbMore">Weitere ${Math.min(300, list.length - shown.length)} anzeigen</button></div>` : ''}` : '<div class="empty">Keine Arbeitsgänge für diese Auswahl.</div>'}`;
       if (!J.fs) return inner;
       return `<div class="fsview jdbfs"><div class="fsbar"><b class="lbl jdbfs-t">Daten Operations Center John Deere</b>
@@ -4317,10 +4337,10 @@ function abColsAttach() {
   });
   $$('.abfix .cres').forEach(h => h.addEventListener('pointerdown', e => {
     e.preventDefault(); e.stopPropagation();
-    const id = h.dataset.col, col = t.querySelector(`col[data-col="${id}"]`), x0 = e.clientX, w0 = col.getBoundingClientRect().width / UIZ(), tw0 = t.getBoundingClientRect().width / UIZ();
+    const id = h.dataset.col, col = t.querySelector(`col[data-col="${id}"]`), x0 = e.clientX, k = colZ(t), w0 = parseFloat(col.style.width) || col.getBoundingClientRect().width / k, tw0 = parseFloat(t.style.width) || t.getBoundingClientRect().width / k;
     h.setPointerCapture(e.pointerId); document.body.classList.add('cresizing');
-    const mv = ev => { const w = Math.max(40, Math.round(w0 + (ev.clientX - x0) / UIZ())); col.style.width = w + 'px'; t.style.width = (tw0 + w - w0) + 'px'; };
-    const up = ev => { h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); document.body.classList.remove('cresizing'); const c = abColCfg(); c.w[id] = Math.max(40, Math.round(w0 + (ev.clientX - x0) / UIZ())); abColSave(c); App.noClickUntil = Date.now() + 300; };
+    const mv = ev => { const w = Math.max(40, Math.round(w0 + (ev.clientX - x0) / k)); col.style.width = w + 'px'; t.style.width = (tw0 + w - w0) + 'px'; };
+    const up = ev => { h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); document.body.classList.remove('cresizing'); const c = abColCfg(); c.w[id] = Math.max(40, Math.round(w0 + (ev.clientX - x0) / k)); abColSave(c); App.noClickUntil = Date.now() + 300; };
     h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up);
   }));
 }
@@ -4459,7 +4479,7 @@ function abView() {
         ${list.length ? `<details class="panel jdbsumbox" ${A.sumOpen ? 'open' : ''}><summary data-ab="sumToggle">Summen pro Kunde und Arbeit</summary><div class="tscroll dscroll" style="margin-top:8px">${A.sumOpen ? abSummen(list) : ''}</div>${A.sumOpen ? '<div class="btns" style="margin-top:8px"><button class="btn" data-ab="sumPrint">Summen drucken / PDF</button></div>' : ''}</details>` : ''}
         ${list.length ? `<div class="btns" style="margin-bottom:10px"><button class="btn primary" data-ab="print">Drucken / PDF</button><button class="btn" data-ab="csv">Excel (CSV)</button><button class="btn" data-ab="cols">Spalten…</button></div>
         ${abSelBar(list)}
-        <div class="panel tscroll dscroll">${abTable(shown, { all: list })}</div>
+        <div class="panel tscroll dscroll dfit">${abTable(shown, { all: list })}</div>
         ${list.length > shown.length ? `<div class="btns" style="margin-top:10px"><button class="btn" data-ab="more">Weitere ${Math.min(300, list.length - shown.length)} anzeigen</button></div>` : ''}` : '<div class="empty">Keine Einträge für diese Auswahl.</div>'}`;
       if (!A.fs) return inner;
       return `<div class="fsview jdbfs"><div class="fsbar"><b class="lbl jdbfs-t">Abrechnung</b>
