@@ -6,7 +6,7 @@
    Dazu: tägliche Datensicherung die IM-Verwaltung-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '62', STAND = '16.11.2026'; // v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
+const VERSION = '63', STAND = '16.11.2026'; // v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -1352,7 +1352,7 @@ async function runUpload(n) {
       let c;
       try { c = await jdSend('POST', url, JSON.stringify(body), ACCEPT); }
       catch (e) {
-        if (e.status !== 400) throw e;
+        if (e.status !== 400 || !/geojson|polygon|ring|point/i.test(e.message)) throw e;   // z.B. «Boundary name must be unique» ohne zweiten Versuch
         log(`Feldgrenze: John Deere lehnt geschlossene Ringe ab (${e.message}) – zweiter Versuch ohne Schlusspunkt`);
         try { c = await jdSend('POST', url, JSON.stringify(mk(false)), ACCEPT); }
         catch (e2) { throw new Error(e.message + (e2.message !== e.message ? ' · ohne Schlusspunkt: ' + e2.message : '')); }

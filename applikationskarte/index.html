@@ -137,7 +137,7 @@ aside section.collapsed{padding-block:11px}
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.22 · by Andreas Indermühle</span></div>
+    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.23 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -394,7 +394,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.22";
+const VERSION = "1.23";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -2200,6 +2200,9 @@ async function sendRx(){
   const blob = await zip.generateAsync({ type:"blob" });
   await upSend({ art:"rx", name:rx.base + ".zip", kunde:S.kunde, betrieb:S.betrieb, feld:S.feld, feldId:JD.field ? JD.field.id : null, zonen:rx.parts.length }, blob);
 }
+// John Deere verlangt pro Feld eindeutige Grenznamen
+function grzNames(){ return (((JD.geo && JD.geo.fields) || {})[JD.field && JD.field.id] || []).map(g => String(g.name || "").trim().toLowerCase()); }
+function grzFreeName(n){ const used = grzNames(); if (!used.includes(n.toLowerCase())) return n; let k = 2; while (used.includes((n + " (" + k + ")").toLowerCase())) k++; return n + " (" + k + ")"; }
 function grzSaveOpen(){
   stopEdit();
   if (!S.field){ toast("Zuerst eine Feldgrenze zeichnen oder laden."); return; }
@@ -2207,7 +2210,7 @@ function grzSaveOpen(){
   if (!JD.field){ toast("Zuerst im Abschnitt Auftrag ein Feld aus der MyJohnDeere-Liste wählen – dort wird die Grenze gespeichert."); $("iFeld").focus(); return; }
   const c = jdClients().find(x => x.id===JD.field.client);
   $("grzZiel").innerHTML = `Ziel in MyJohnDeere: <b>${jdEsc(c ? c.name : S.kunde)} › ${jdEsc(JD.field.name)}</b> · neue Grenze ${fmt(areaHa(feat(S.field)),2)} ha`;
-  $("grzName").value = "IM-Applikationskarten " + new Date().toLocaleDateString("de-CH");
+  $("grzName").value = grzFreeName("IM-Applikationskarten " + new Date().toLocaleDateString("de-CH"));
   $("grzSaveRow").hidden = false; $("grzName").focus(); $("grzName").select();
 }
 async function grzSaveDo(){
@@ -2217,10 +2220,13 @@ async function grzSaveDo(){
   try { f = turf.rewind(turf.cleanCoords(f), { reverse:false }); } catch(e){ console.warn(e); }
   let kinks = 0; try { kinks = turf.kinks(f).features.length; } catch(e){}
   if (kinks){ toast(`Die Feldgrenze überschneidet sich selbst (${kinks} Stelle${kinks>1?"n":""}). Bitte mit «Bearbeiten» korrigieren, dann nochmals speichern.`); return; }
+  const nm = ($("grzName").value.trim() || "IM-Applikationskarten").slice(0, 100);
+  if (grzNames().includes(nm.toLowerCase())){ const v = grzFreeName(nm); $("grzName").value = v; $("grzName").focus(); $("grzName").select();
+    toast(`Beim Feld ${JD.field.name} gibt es schon eine Grenze «${nm}» – John Deere verlangt eindeutige Namen. Vorschlag: «${v}». Nochmals auf Speichern klicken.`); return; }
   const g = f.geometry, r7 = v => Math.round(v * 1e7) / 1e7;
   const geo = (g.type==="Polygon" ? [g.coordinates] : g.coordinates).map(poly => poly.map(ring => ring.map(([x, y]) => [r7(x), r7(y)])));
   const ok = await upSend({ art:"grenze", name:JD.field.name, feld:JD.field.name, feldId:JD.field.id, kunde:S.kunde,
-    grenze:{ name:($("grzName").value.trim() || "IM-Applikationskarten").slice(0, 100), aktiv:$("cGrzAktiv").checked, geo } });
+    grenze:{ name:nm, aktiv:$("cGrzAktiv").checked, geo } });
   if (ok) $("grzSaveRow").hidden = true;
 }
 $("bSendOC").addEventListener("click", sendRx);
