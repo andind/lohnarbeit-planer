@@ -158,7 +158,7 @@ dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:upper
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.26 · by Andreas Indermühle</span></div>
+    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.27 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -423,7 +423,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.26";
+const VERSION = "1.27";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -1572,14 +1572,35 @@ function idxShow(title){
   if (!$("s2Lo").value) { $("s2Lo").value = s2Round(S.grundrate*1.15); $("s2Hi").value = s2Round(S.grundrate*0.85); }
   $("s2Repl").hidden = true;
 }
+function s2FillEdge(grid, cls, n, passes){
+  const { w, h } = grid;
+  for (let p=0;p<passes;p++){
+    const nx = cls.slice(); let any = false;
+    for (let j=0;j<h;j++) for (let i=0;i<w;i++){
+      const k = j*w+i; if (cls[k]>=0) continue;
+      const cnt = new Array(n).fill(0); let best = -1;
+      for (let dj=-1;dj<=1;dj++) for (let di=-1;di<=1;di++){
+        if (!di && !dj) continue; const ii=i+di, jj=j+dj; if (ii<0||jj<0||ii>=w||jj>=h) continue;
+        const c = cls[jj*w+ii]; if (c>=0){ cnt[c] += (di && dj) ? 1 : 2; if (best<0 || cnt[c]>cnt[best]) best = c; }
+      }
+      if (best>=0){ nx[k] = best; any = true; }
+    }
+    cls.set ? cls.set(nx) : nx.forEach((v,k)=>cls[k]=v);
+    if (!any) break;
+  }
+}
 function s2Round(v){ return v>=50 ? Math.round(v) : Math.round(v*10)/10; }
 function s2MakeZones(){
   if (!s2Data) return;
   const n = +$("s2N").value, passes = +$("s2Smooth").value;
   const lo = num($("s2Lo").value), hi = num($("s2Hi").value);
   const { cls, breaks } = s2Classify(s2Data.grid, n, passes);
-  // Pixel ausserhalb des Feldes nie einer Zone zuordnen
-  for (let k=0;k<cls.length;k++) if (!s2Data.grid.inField[k]) cls[k] = -1;
+  // Pixel ausserhalb des Feldes zuerst leeren …
+  const g0 = s2Data.grid;
+  for (let k=0;k<cls.length;k++) if (!g0.inField[k]) cls[k] = -1;
+  // … dann leere Zellen am Rand (und verdeckte Stellen) der häufigsten Nachbarzone zuschlagen, damit am Feldrand keine
+  // Zwickel mit Grundrate übrig bleiben (Zellmitte knapp ausserhalb der Grenze). Die Zonen werden danach auf die Feldgrenze zugeschnitten.
+  s2FillEdge(g0, cls, n, 3);
   const mps = s2ClassPolys(s2Data.grid, cls, n);
   stopEdit(); endDraw();
   zoneLayers.forEach(l=>map.removeLayer(l)); zoneLayers.clear();
