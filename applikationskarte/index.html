@@ -137,7 +137,7 @@ aside section.collapsed{padding-block:11px}
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.21 · by Andreas Indermühle</span></div>
+    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.22 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -394,7 +394,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.21";
+const VERSION = "1.22";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -1216,31 +1216,70 @@ function s2Classify(grid, n, passes){
   grid.vals.forEach((x,k) => { if (isNaN(x)) { cls[k]=-1; return; } let c=0; while (c<br.length && x>=br[c]) c++; cls[k]=c; });
   return { cls: s2Smooth(grid, cls, passes), breaks: br };
 }
-// Zeilenweise Läufe gleicher Klasse zu Rechtecken, Rechtecke über Zeilen zusammenfassen, dann vereinigen
+// Umriss jeder Klasse exakt auf dem Pixelraster verfolgen (keine inneren Nähte)
+// Gitterkoordinaten: Ecke (i,j), i nach rechts, j nach unten. Kanten so gerichtet, dass die Zelle rechts liegt.
 function s2ClassPolys(grid, cls, n){
-  const { w, h } = grid;
-  const out = [];
+  const { w, h } = grid, out = [];
+  const inC = (i, j, c) => i>=0 && j>=0 && i<w && j<h && cls[j*w+i]===c;
   for (let c=0;c<n;c++){
-    // Läufe je Zeile
-    let open = new Map(); const rects = [];
-    for (let j=0;j<h;j++){
-      const runs = [];
-      let i=0; while (i<w){ if (cls[j*w+i]===c){ let e=i; while (e+1<w && cls[j*w+e+1]===c) e++; runs.push([i,e]); i=e+1; } else i++; }
-      const next = new Map();
-      runs.forEach(([a,b]) => { const key=a+":"+b; const r = open.get(key); if (r){ r.j1=j; next.set(key,r); open.delete(key); } else { const nr={a,b,j0:j,j1:j}; next.set(key,nr); } });
-      open.forEach(r=>rects.push(r)); open = next;
+    const edges = new Map(); let cnt = 0;   // Startpunkt "i,j" → Liste von Endpunkten
+    const add = (a, b, c2, d) => { const k = a+","+b; (edges.get(k) || edges.set(k, []).get(k)).push([c2, d]); cnt++; };
+    for (let j=0;j<h;j++) for (let i=0;i<w;i++){
+      if (cls[j*w+i]!==c) continue;
+      if (!inC(i, j-1, c)) add(i, j, i+1, j);         // oben, nach rechts
+      if (!inC(i+1, j, c)) add(i+1, j, i+1, j+1);     // rechts, nach unten
+      if (!inC(i, j+1, c)) add(i+1, j+1, i, j+1);     // unten, nach links
+      if (!inC(i-1, j, c)) add(i, j+1, i, j);         // links, nach oben
     }
-    open.forEach(r=>rects.push(r));
-    if (!rects.length){ out.push(null); continue; }
-    const polys = rects.map(r => {
-      const A=grid.corner(r.a,r.j0), B=grid.corner(r.b+1,r.j0), C=grid.corner(r.b+1,r.j1+1), D=grid.corner(r.a,r.j1+1);
-      return [[A,D,C,B,A]];
+    if (!cnt){ out.push(null); continue; }
+    const rings = [];
+    const take = (k, from) => {
+      const l = edges.get(k); if (!l || !l.length) return null;
+      let idx = 0;
+      if (l.length > 1 && from){   // Berührung über Eck: immer rechts abbiegen → getrennte Ringe
+        const [px, py] = k.split(",").map(Number), din = [px-from[0], py-from[1]];
+        const rank = e => { const d = [e[0]-px, e[1]-py]; const cr = din[0]*d[1] - din[1]*d[0]; return cr > 0 ? 0 : cr === 0 ? 1 : 2; };   // y nach unten: cr>0 = rechts
+        idx = l.map((e, q) => [rank(e), q]).sort((a, b) => a[0]-b[0])[0][1];
+      }
+      const e = l.splice(idx, 1)[0]; if (!l.length) edges.delete(k); return e;
+    };
+    for (const k0 of [...edges.keys()]){
+      while (edges.has(k0)){
+        const start = k0.split(",").map(Number), ring = [start];
+        let cur = start, prev = null, guard = 0;
+        while (guard++ < 1e7){
+          const nx = take(cur[0]+","+cur[1], prev); if (!nx) break;
+          prev = cur; cur = nx;
+          if (cur[0]===start[0] && cur[1]===start[1]) { ring.push(cur); break; }
+          ring.push(cur);
+        }
+        // gerade Strecken auf Eckpunkte reduzieren
+        const pts = ring.slice(0, -1), m = pts.length, r = [];
+        for (let q=0;q<m;q++){
+          const a = pts[(q-1+m)%m], b = pts[q], d = pts[(q+1)%m];
+          if ((b[0]-a[0])*(d[1]-b[1]) - (b[1]-a[1])*(d[0]-b[0]) !== 0) r.push(b);
+        }
+        if (r.length >= 3){ r.push(r[0]); rings.push(r); }
+      }
+    }
+    // Aussenringe (Fläche > 0, im Uhrzeigersinn auf dem Bildschirm) und Löcher trennen
+    const area = r => { let s=0; for (let q=0;q<r.length-1;q++) s += r[q][0]*r[q+1][1] - r[q+1][0]*r[q][1]; return s/2; };
+    const inside = (p, r) => { let ins=false; for (let q=0, z=r.length-2; q<r.length-1; z=q++){ const [xi, yi] = r[q], [xj, yj] = r[z]; if (((yi>p[1])!==(yj>p[1])) && (p[0] < (xj-xi)*(p[1]-yi)/(yj-yi)+xi)) ins = !ins; } return ins; };
+    const outers = [], holes = [];
+    rings.forEach(r => { const a = area(r); (a > 0 ? outers : holes).push({ r, a:Math.abs(a) }); });
+    const polys = outers.map(o => ({ o, holes:[] }));
+    holes.forEach(hh => {
+      // Punkt sicher im Loch: Mitte der Zelle links der ersten Kante
+      const a = hh.r[0], b = hh.r[1], dx = Math.sign(b[0]-a[0]), dy = Math.sign(b[1]-a[1]);
+      const p = [a[0] + dx*0.5 + dy*0.5, a[1] + dy*0.5 - dx*0.5];
+      let best = null; polys.forEach(P => { if (P.o.a > hh.a && inside(p, P.o.r) && (!best || P.o.a < best.o.a)) best = P; });
+      if (best) best.holes.push(hh.r);
     });
-    out.push({ type:"Feature", properties:{}, geometry:{ type:"MultiPolygon", coordinates:polys } });
+    const toLL = r => r.map(([i, j]) => grid.corner(i, j));
+    out.push({ type:"Feature", properties:{}, geometry:{ type:"MultiPolygon", coordinates:polys.map(P => [toLL(P.o.r), ...P.holes.map(toLL)]) } });
   }
   return out;
 }
-// Vereinigung in Baumform (schneller als nacheinander)
 function s2UnionAll(feats){
   let list = feats.filter(Boolean);
   if (!list.length) return null;
@@ -1250,11 +1289,7 @@ function s2UnionAll(feats){
   }
   return list[0];
 }
-function s2Dissolve(mp){
-  if (!mp) return null;
-  const parts = mp.geometry.coordinates.map(p => turf.polygon(p));
-  return s2UnionAll(parts);
-}
+function s2Dissolve(mp){ return mp || null; }   // seit v1.22: Umrisse kommen bereits verschmolzen aus s2ClassPolys
 
 /* ---------- Sentinel-2 (Element84 Earth Search, AWS Open Data) ---------- */
 const S2_STAC = "https://earth-search.aws.element84.com/v1/search";
