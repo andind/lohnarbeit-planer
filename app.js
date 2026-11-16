@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '131', APP_STAND = '16.11.2026';
+const APP_VERSION = '132', APP_STAND = '16.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -3910,8 +3910,7 @@ const JDB_COLS = [
   { id: 'ha', l: 'ha bedeckt', w: 84, n: 1, v: r => r.ha != null ? fmtNum(r.ha) : '', csv: r => r.ha ?? '',
     html: r => r.ha != null ? `<b title="aus der Bedeckungskarte, ohne Überlappungen (jede Stelle einmal gezählt)">${fmtNum(r.ha)}</b>` : '' },
   { id: 'haM', l: 'ha Maschine', w: 88, n: 1, v: r => r.haM != null ? fmtNum(r.haM) : '', csv: r => r.haM ?? '',
-    html: r => r.haM != null ? `<span class="nr" title="Fläche der Maschine (nur zur Information${r.quelle ? ', Quelle: ' + r.quelle : ''})">${fmtNum(r.haM)}</span>` : '' },
-  { id: 'quelle', l: 'Flächen-Quelle', w: 118, v: r => r.quelle || '', html: r => r.quelle ? `<span class="fq fq-${r.quelle === 'Bedeckungskarte' ? 'b' : 'm'}">${esc(r.quelle)}</span>` : '<span class="nr">–</span>' },
+    html: r => r.haM != null ? `<span class="nr" title="Fläche der Maschine (nur zur Information, mit Überlappungen)">${fmtNum(r.haM)}</span>` : '' },
   { id: 'maschine', l: 'Maschine', w: 140, v: r => r.maschine },
   { id: 'fahrer', l: 'Fahrer', w: 120, v: r => r.fahrer },
   { id: 'kultur', l: 'Kultur', w: 110, v: r => r.kultur },
@@ -3922,13 +3921,12 @@ const JDB_COLS = [
 ];
 // B = Fläche aus der Bedeckungskarte berechnet (NAS-Dienst, ohne Überlappungen)
 const BED_MARK = '<span class="bedm" title="aus der Bedeckungskarte berechnet (ohne Überlappungen)">B</span>';
-const JDB_DEF = { order: ['beginn', 'ende', 'dauer', 'arbeit', 'kunde', 'feld', 'ha', 'haM', 'quelle', 'maschine', 'kultur', 'produkte', 'menge', 'gesamt', 'abr'], w: {} };
+const JDB_DEF = { order: ['beginn', 'ende', 'dauer', 'arbeit', 'kunde', 'feld', 'ha', 'haM', 'maschine', 'kultur', 'produkte', 'menge', 'gesamt', 'abr'], w: {} };
 function jdbColCfg() {
   let c; try { c = JSON.parse(ls('lp_jdbcols') || 'null'); } catch { c = null; }
   if (!c || !Array.isArray(c.order)) c = JSON.parse(JSON.stringify(JDB_DEF));
   c.order = c.order.map(id => id === 'haB' ? 'haM' : id); // v121 «ha bedeckt» → v122 «ha Maschine» (bedeckt ist jetzt Spalte «ha»)
   c.order = c.order.filter(id => JDB_COLS.some(x => x.id === id)); c.w = c.w || {};
-  if (!(c.known || []).includes('quelle') && !c.order.includes('quelle')) { const i = c.order.indexOf('ha'); c.order.splice(i < 0 ? c.order.length : i + 1, 0, 'quelle'); } // neue Spalte einmal einblenden
   if (!(c.known || []).includes('haM') && !c.order.includes('haM')) { const i = c.order.indexOf('ha'); c.order.splice(i < 0 ? c.order.length : i + 1, 0, 'haM'); }
   if (!(c.known || []).includes('gesamt') && !c.order.includes('gesamt')) { const i = c.order.indexOf('menge'); c.order.splice(i < 0 ? c.order.length : i + 1, 0, 'gesamt'); }
   c.known = JDB_COLS.map(x => x.id);
@@ -4394,8 +4392,8 @@ function abPrint() {
     ${abTable(list, { print: true })}</div>`, { noTitle: true });
 }
 function abCsv() {
-  const rows = [['Datum', 'Herkunft', 'Auftrag-Nr', 'Beginn (JD)', 'Ende (JD)', 'Arbeit', 'Kunde', 'Feld', 'Fläche Planung ha', 'Fläche effektiv ha', 'Fläche effektiv genau', 'Fläche Bericht (bedeckt) ha', 'Fläche Maschine ha', 'Flächen-Quelle JD', 'Fläche Auftrag ha', 'Fläche Auftrag Herkunft', 'Stunden Auftrag', 'Dauer JD h', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Gesamtmenge', 'Bemerkung', 'Abgerechnet', 'Abgerechnet am', 'Auftrag-ID', 'JD-ID']];
-  abList().forEach(r => rows.push([r.d, AB_SRC[r.src], r.nr, jdbDT(r.start), jdbDT(r.end), r.arbeit, r.kunde, r.feld, r.haG ?? '', r.haE ?? '', r.genau ? 'ja' : '', r.haB ?? '', r.haJ ?? '', r.quelle || '', r.ha ?? '', { genau: 'effektiv genau (✓)', bed: 'Bericht bedeckt (B)', eff: 'effektiv (E)', geplant: 'Planung (P)' }[r.haQ] || '', r.std != null ? r2(r.std) : '', r.dauer != null ? r2(r.dauer) : '', r.maschine, r.fahrer, r.kultur, r.produkte, r.gesamt, r.notiz, r.abr ? 'ja' : 'nein', r.am || '', r.oid, r.jid]));
+  const rows = [['Datum', 'Herkunft', 'Auftrag-Nr', 'Beginn (JD)', 'Ende (JD)', 'Arbeit', 'Kunde', 'Feld', 'Fläche Planung ha', 'Fläche effektiv ha', 'Fläche effektiv genau', 'Fläche Bericht (bedeckt) ha', 'Fläche Maschine ha', 'Fläche Auftrag ha', 'Fläche Auftrag Herkunft', 'Stunden Auftrag', 'Dauer JD h', 'Maschine', 'Fahrer', 'Kultur', 'Produkte', 'Gesamtmenge', 'Bemerkung', 'Abgerechnet', 'Abgerechnet am', 'Auftrag-ID', 'JD-ID']];
+  abList().forEach(r => rows.push([r.d, AB_SRC[r.src], r.nr, jdbDT(r.start), jdbDT(r.end), r.arbeit, r.kunde, r.feld, r.haG ?? '', r.haE ?? '', r.genau ? 'ja' : '', r.haB ?? '', r.haJ ?? '', r.ha ?? '', { genau: 'effektiv genau (✓)', bed: 'Bericht bedeckt (B)', eff: 'effektiv (E)', geplant: 'Planung (P)' }[r.haQ] || '', r.std != null ? r2(r.std) : '', r.dauer != null ? r2(r.dauer) : '', r.maschine, r.fahrer, r.kultur, r.produkte, r.gesamt, r.notiz, r.abr ? 'ja' : 'nein', r.am || '', r.oid, r.jid]));
   const A = App.abr;
   download(`Abrechnung_${A.von || 'alle'}_${A.bis || ''}.csv`, '﻿' + rows.map(r => r.map(csvCell).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
 }

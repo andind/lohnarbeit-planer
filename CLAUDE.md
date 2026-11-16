@@ -82,7 +82,7 @@ Programmname seit 15.11.2026 (v129) «IM-Verwaltung» (passend zu IM-Vermietung 
   Spaltenbreite ziehen: Umrechnung mit `colZ(t)` = UIZ × Datenzoom der Tabelle (v130; vorher nur UIZ → bei 115 % sprang die Spalte und alle Spalten wurden breiter).
 - Flächen in Bericht und Abrechnung **nie aus Feldgrenzen**. Seit v122 ist die **bedeckte Fläche** (Bedeckungskarte, NAS `haB`) die Standardfläche:
   **Bericht** (`jdbRow`): `ha` = bedeckt (Spalte «ha bedeckt», Summen), `haM` = Maschinenfläche nur zur Information (Spalte «ha Maschine», grau;
-  leer, wenn der NAS nur den Ersatzwert aus der Bedeckungskarte hatte). Arbeitsgänge ohne Bedeckung standardmässig ausgeblendet (Filter «Ohne Bedeckung», `J.bed`, `lp_jdbbed`).
+  leer, wenn der NAS nur den Ersatzwert aus der Bedeckungskarte hatte). Arbeitsgänge ohne Bedeckung standardmässig ausgeblendet (Filter «Ohne Bedeckung», `J.bed`, `lp_jdbbed`). Spalte «Flächen-Quelle» (Herkunft der Maschinenfläche) in v132 entfernt – war irreführend («Maschine», obwohl bedeckt verrechnet wird); auch nicht mehr im Abrechnungs-CSV.
   **Abrechnung** (`abRow`): Spalten «ha Planung» (`haG`), «ha effektiv» (`haE`), «ha Bericht» (`haB` = bedeckt), «ha Maschine» (`haJ`, nur Info), «ha Auftrag» (`ha`) =
   **1. effektiv genau (✓), 2. Bericht bedeckt (B), 3. effektiv ohne «genau» (E), 4. Planung (P)** (v123); Markierung **nur** in «ha Auftrag» (`haQ` genau/bed/eff/geplant).
   Einträge «nur JD» ohne Bedeckung standardmässig ausgeblendet (Filter «Bericht ohne Bedeckung», `A.bed`, `lp_abrbed`). Spalten-Einstellungen werden umgestellt
