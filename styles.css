@@ -1281,3 +1281,14 @@ body.fsmode #selbar { left: 12px; }
 /* v134: Knopf «In IM-Applikationskarten öffnen» unter der Feldauswahl im Auftrag */
 .fld .akbtn { margin-top: 6px; align-self: flex-start; width: auto; }
 .grzpick .grzakt { margin-left: auto; padding: 4px 10px; min-height: 0; font-size: 13px; }
+/* v135: Vermessung zum Vergleich auf der Karte der virtuellen Feldgrenze */
+.bedmap svg path.vm { fill: rgba(43,140,255,.12); stroke: #2b8cff; stroke-width: 2.5; stroke-dasharray: 7 4; }
+.bedleg { align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+.bedleg .sw { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.bedleg .sw.bed { background: rgba(255,214,0,.45); border: 2px solid #ffd600; }
+.bedleg .sw.vm { background: rgba(43,140,255,.15); border: 2px dashed #2b8cff; }
+.bedsel { display: inline-flex; align-items: center; gap: 6px; }
+.bedsel select { width: auto; min-width: 180px; padding: 4px 8px; min-height: 0; }
+.grz tr[data-gsel] { cursor: pointer; }
+.grz tr.grz-sel td { background: rgba(43,140,255,.12); }
+.grz tr.grz-sel td:first-child { box-shadow: inset 3px 0 0 #2b8cff; }

@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '134', APP_STAND = '16.11.2026';
+const APP_VERSION = '135', APP_STAND = '17.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -3666,7 +3666,7 @@ function grenzenInner(f, arch) {
   const canAkt = !!(f.jdId && Auth.configured() && Auth.hasSession()), mitA = canAkt && L.some(x => x.id && !x.aktiv && !x.archiviert);
   const aktCell = x => !mitA ? '' : `<td>${x.id && !x.aktiv && !x.archiviert ? (GRZ_PENDING.has(x.id) ? '<span class="nr">wird aktiv gesetzt …</span>' : `<button type="button" class="btn mini" data-act="grzAktiv" data-id="${esc(f.id)}" data-gid="${esc(x.id)}" title="In MyJohnDeere als aktive Feldgrenze setzen (die bisher aktive wird inaktiv)">Aktiv setzen</button>`) : ''}</td>`;
   return `<div class="grzwrap"><table class="btab kv grz"><thead><tr><th>Vermessung</th><th class="n">Fläche</th><th class="n">bearbeitbar</th>${mitQ ? '<th>Quelle</th>' : ''}${mitS ? '<th>Signal</th>' : ''}${mitE ? '<th>Erstellt</th>' : ''}${mitG || !mitE ? '<th>Geändert</th>' : ''}${mitA ? '<th></th>' : ''}</tr></thead><tbody>
-    ${L.map(x => `<tr class="${x.aktiv ? 'grz-akt' : ''}${x.archiviert ? ' grz-arch' : ''}"><td>${esc(x.name || '(ohne Namen)')}${x.aktiv ? ' <span class="badge geplant">aktiv</span>' : ''}${x.archiviert ? ' <span class="nr">archiviert</span>' : ''}</td>
+    ${L.map(x => `<tr class="${x.aktiv ? 'grz-akt' : ''}${x.archiviert ? ' grz-arch' : ''}" data-gsel="${esc(x.id || x.name || '')}"><td>${esc(x.name || '(ohne Namen)')}${x.aktiv ? ' <span class="badge geplant">aktiv</span>' : ''}${x.archiviert ? ' <span class="nr">archiviert</span>' : ''}</td>
       <td class="n">${x.ha != null ? fmtNum(x.ha) + ' ha' : ''}</td><td class="n">${x.bha != null ? fmtNum(x.bha) + ' ha' : ''}</td>
       ${mitQ ? `<td title="${esc(x.quelle || '')}">${esc(grzQuelle(x.quelle))}</td>` : ''}${mitS ? `<td title="${esc(x.signal || '')}">${x.signal ? `<span class="sig ${grzRtk(x.signal) ? 'sig-rtk' : ''}">${esc(grzSignal(x.signal))}</span>` : ''}</td>` : ''}
       ${mitE ? `<td>${dd(x.erstellt)}</td>` : ''}${mitG || !mitE ? `<td>${x.geaendert && String(x.geaendert) !== String(x.erstellt || '') ? dd(x.geaendert) : ''}</td>` : ''}${aktCell(x)}</tr>`).join('')}</tbody></table></div>${grzArchLink(f, arch)}
@@ -3874,7 +3874,7 @@ function jdbApply(d, src) {
   jdbCache(rows, App.jdb.meta); return true;
 }
 async function jdbLoad(silent) {
-  bedGrzCache = null; // virtuelle Feldgrenzen beim nächsten Öffnen neu holen
+  bedGrzCache = null; fgGeoCache = null; // virtuelle Feldgrenzen / Vermessungs-Geometrie beim nächsten Öffnen neu holen
   const J = App.jdb;
   if (!Auth.configured() || !Auth.hasSession()) { if (!silent) toast('Zuerst mit Dropbox verbinden (Mehr › Dropbox)'); return; }
   J.loading = true; if (App.view === 'jdbericht' || App.view === 'abrechnung') App.render();
@@ -4072,10 +4072,11 @@ function jdbDetail(id) {
   const r = (App.jdb.rows || []).find(x => x.id === id); if (!r) return;
   const kv = (k, v) => v ? `<tr><td class="nr">${esc(k)}</td><td>${esc(v)}</td></tr>` : '';
   const dt = s => s ? new Date(s).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '';
+  const rFe = feldFuer({ fid: r.fid, kunde: r.kunde, feld: r.feld });
   const body = `<table class="btab kv">${kv('Arbeit', r.arbeit)}${kv('Kunde', r.kunde)}${kv('Feld', r.feld)}${kv('Fläche bedeckt', r.ha != null ? fmtNum(r.ha) + ' ha (Bedeckungskarte, ohne Überlappungen)' : 'keine Bedeckungskarte')}${kv('Fläche Maschine', r.haM != null ? fmtNum(r.haM) + ' ha (nur zur Information)' : '')}${kv('Abgerechnet', jdbAbr(r.id) ? fmtDate(jdbAbr(r.id).am, { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'offen')}${kv('Beginn', dt(r.start))}${kv('Ende', dt(r.end))}${kv('Dauer', r.dauer != null ? hrs(r.dauer) : '')}
     ${kv('Maschine', r.maschine)}${kv('Fahrer', r.fahrer)}${kv('Kultur', r.kultur)}${kv('Saison', r.saison)}${kv('Produkte', jdbProdTxt(r))}${kv('Sorten', r.sorten)}${kv('Menge/ha', r.menge)}${kv('Gesamtmenge', jdbGesTxt(r))}</table>
-    ${r.grzB ? `<div class="fld" style="margin-top:12px"><span>Virtuelle Feldgrenze (aus der Bedeckungskarte)</span></div><div class="bedgrz" data-id="${esc(r.id)}"><span class="nr">wird geladen …</span></div>` : ''}
-    <div class="fld" style="margin-top:12px"><span>Vermessungen des Feldes${r.feld ? ` «${esc(r.feld)}»` : ''}</span></div>${grenzenHtml(feldFuer({ fid: r.fid, kunde: r.kunde, feld: r.feld }))}
+    ${r.grzB ? `<div class="fld" style="margin-top:12px"><span>Virtuelle Feldgrenze (aus der Bedeckungskarte)</span></div><div class="bedgrz" data-id="${esc(r.id)}" data-fid="${esc((rFe || {}).id || '')}"><span class="nr">wird geladen …</span></div>` : ''}
+    <div class="fld" style="margin-top:12px"><span>Vermessungen des Feldes${r.feld ? ` «${esc(r.feld)}»` : ''}</span></div>${grenzenHtml(rFe)}
     ${r.details.map(m => `<div class="fld" style="margin-top:12px"><span>${esc(m.n)}</span></div><table class="btab kv">${m.v.map(([k, v]) => kv(k, v)).join('')}</table>`).join('')}
     <p class="nr" style="margin-top:12px">Quelle: MyJohnDeere · ID ${esc(r.id)}</p>`;
   const ab = jdbAbr(r.id);
@@ -4088,12 +4089,20 @@ async function bedGrz(id) {
   if (!bedGrzCache) { try { const d = await Drive.readJson('/jd-grenzen.json'); bedGrzCache = d && d.format === 'jd-grenzen' ? d.ops || {} : {}; } catch { bedGrzCache = null; return null; } }
   return bedGrzCache[id] || null;
 }
+/* v135: Geometrie der Vermessungen (NAS-Dienst ab v59: /jd-feldgrenzen.json, je MyJohnDeere-Feld-ID) – zum Vergleich auf der Karte, erst bei Bedarf geladen */
+let fgGeoCache = null;
+async function fgGeo(jdId) {
+  if (!jdId) return [];
+  if (!fgGeoCache) { try { const d = await Drive.readJson('/jd-feldgrenzen.json'); fgGeoCache = d && d.format === 'jd-feldgrenzen' ? d.fields || {} : {}; } catch { fgGeoCache = null; return []; } }
+  return (fgGeoCache[jdId] || []).filter(x => Array.isArray(x.geo) && x.geo.length);
+}
+const fgKey = x => x.id || x.name || '';
 /* Kartenhintergrund ohne Bibliothek: Kacheln von swisstopo (Web-Mercator, EPSG:3857) + Grenze als SVG darüber (v125) */
 const BED_LAYER = { luft: ['ch.swisstopo.swissimage', 'jpeg', 'Luftbild', 19], karte: ['ch.swisstopo.pixelkarte-farbe', 'jpeg', 'Landeskarte', 18] };
 const merc = (lon, lat, z) => { const n = 256 * 2 ** z, s = Math.sin(lat * Math.PI / 180); return [(lon + 180) / 360 * n, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n]; };
-function bedGrzMap(box, g) {
+function bedGrzMap(box, g, g2) {
   const W = Math.max(260, Math.min(760, box.clientWidth || 600)), H = Math.round(Math.min(440, Math.max(220, W * 0.62)));
-  const L = BED_LAYER[box.dataset.l || ls('lp_bedlayer') || 'luft'] || BED_LAYER.luft, all = g.flat(2);
+  const L = BED_LAYER[box.dataset.l || ls('lp_bedlayer') || 'luft'] || BED_LAYER.luft, all = g.concat(g2 || []).flat(2);
   const lon0 = Math.min(...all.map(p => p[0])), lon1 = Math.max(...all.map(p => p[0])), lat0 = Math.min(...all.map(p => p[1])), lat1 = Math.max(...all.map(p => p[1]));
   let zFit = L[3]; for (; zFit > 8; zFit--) { const a = merc(lon0, lat1, zFit), b = merc(lon1, lat0, zFit); if (b[0] - a[0] <= W - 40 && b[1] - a[1] <= H - 40) break; }
   const z = Math.max(8, Math.min(L[3], zFit + (+box.dataset.dz || 0)));
@@ -4101,18 +4110,35 @@ function bedGrzMap(box, g) {
   let tiles = '';
   for (let tx = Math.floor(ox / 256); tx * 256 < ox + W; tx++) for (let ty = Math.floor(oy / 256); ty * 256 < oy + H; ty++)
     tiles += `<img src="https://wmts.geo.admin.ch/1.0.0/${L[0]}/default/current/3857/${z}/${tx}/${ty}.${L[1]}" style="left:${Math.round(tx * 256 - ox)}px;top:${Math.round(ty * 256 - oy)}px" alt="" loading="lazy" draggable="false">`;
-  const d = g.map(poly => poly.map(r => 'M' + r.map(p => { const q = merc(p[0], p[1], z); return `${(q[0] - ox).toFixed(1)},${(q[1] - oy).toFixed(1)}`; }).join('L') + 'Z').join('')).join('');
-  return `<div class="bedmap" style="width:${W}px;height:${H}px">${tiles}<svg width="${W}" height="${H}"><path d="${d}" fill-rule="evenodd"/></svg>
+  const pth = gg => gg.map(poly => poly.map(r => 'M' + r.map(p => { const q = merc(p[0], p[1], z); return `${(q[0] - ox).toFixed(1)},${(q[1] - oy).toFixed(1)}`; }).join('L') + 'Z').join('')).join('');
+  return `<div class="bedmap" style="width:${W}px;height:${H}px">${tiles}<svg width="${W}" height="${H}"><path d="${pth(g)}" fill-rule="evenodd"/>${g2 && g2.length ? `<path class="vm" d="${pth(g2)}" fill-rule="evenodd"/>` : ''}</svg>
     <div class="bedmap-ctl"><button type="button" data-act="bedMap" data-id="${esc(box.dataset.id)}" data-dz="1" title="Vergrössern">+</button><button type="button" data-act="bedMap" data-id="${esc(box.dataset.id)}" data-dz="-1" title="Verkleinern">−</button></div>
     <div class="bedmap-lay">${Object.entries(BED_LAYER).map(([k, v]) => `<button type="button" data-act="bedMap" data-id="${esc(box.dataset.id)}" data-l="${k}" class="${L === v ? 'on' : ''}">${v[2]}</button>`).join('')}</div>
     <div class="bedmap-attr">© swisstopo</div></div>`;
 }
 async function bedGrzFill(box) {
   const id = box.dataset.id, r = (App.jdb.rows || []).find(x => x.id === id), g = await bedGrz(id);
+  const fe = box.dataset.fid ? feldById(box.dataset.fid) : null, V = fe ? await fgGeo(fe.jdId) : [];
   if (!box.isConnected) return;
   if (!g) { box.innerHTML = '<span class="nr">Keine virtuelle Feldgrenze gefunden (jd-grenzen.json im Dropbox-Ordner fehlt oder ist noch nicht nachgeführt).</span>'; return; }
-  box.innerHTML = `${bedGrzMap(box, g)}<div class="btns" style="margin-top:6px"><button type="button" class="btn small" data-act="bedGrzGeo" data-id="${esc(id)}" title="Virtuelle Feldgrenze als GeoJSON-Datei speichern – z. B. für das Programm «Applikationskarte» (Feldgrenze laden)">⬇ Als GeoJSON speichern</button>
-    <span class="nr">${r && r.ha != null ? fmtNum(r.ha) + ' ha bedeckt' : ''}${g.length > 1 ? ` · ${g.length} Teile` : ''}${g.some(p => p.length > 1) ? ' · mit Aussparungen' : ''}</span></div>`;
+  // v135: zusätzlich eine Vermessung des Feldes anzeigen (Standard: die aktive; «-» = keine)
+  const Vs = V.filter(x => !x.archiviert || fgKey(x) === box.dataset.g).sort((a, b) => (b.aktiv - a.aktiv) || String(a.name).localeCompare(String(b.name), 'de'));
+  if (box.dataset.g == null) { const a = Vs.find(x => x.aktiv); box.dataset.g = a ? fgKey(a) : '-'; }
+  const v = Vs.find(x => fgKey(x) === box.dataset.g) || null;
+  const diff = v && v.ha != null && r && r.ha != null ? r.ha - v.ha : null;
+  box.innerHTML = `${bedGrzMap(box, g, v ? v.geo : null)}<div class="btns bedleg" style="margin-top:6px"><button type="button" class="btn small" data-act="bedGrzGeo" data-id="${esc(id)}" title="Virtuelle Feldgrenze als GeoJSON-Datei speichern – z. B. für das Programm «Applikationskarte» (Feldgrenze laden)">⬇ Als GeoJSON speichern</button>
+    <span class="nr"><i class="sw bed"></i>${r && r.ha != null ? fmtNum(r.ha) + ' ha bedeckt' : 'bedeckt'}${g.length > 1 ? ` · ${g.length} Teile` : ''}${g.some(p => p.length > 1) ? ' · mit Aussparungen' : ''}</span>
+    ${Vs.length ? `<label class="nr bedsel"><i class="sw vm"></i>Feldgrenze: <select class="input">${['<option value="-">— keine —</option>', ...Vs.map(x => `<option value="${esc(fgKey(x))}" ${v === x ? 'selected' : ''}>${esc(x.name || '(ohne Namen)')}${x.ha != null ? ' · ' + fmtNum(x.ha) + ' ha' : ''}${x.aktiv ? ' (aktiv)' : ''}${x.archiviert ? ' (archiviert)' : ''}</option>`)].join('')}</select></label>
+      ${diff != null ? `<span class="nr" title="bedeckte Fläche minus Fläche der Vermessung">Differenz ${diff > 0 ? '+' : ''}${fmtNum(Math.round(diff * 100) / 100)} ha</span>` : ''}`
+    : `<span class="nr">${fe && fe.jdId ? 'Keine Vermessung mit Geometrie (jd-feldgrenzen.json, NAS-Dienst ab v59).' : ''}</span>`}</div>`;
+  const sel = box.querySelector('.bedsel select'); if (sel) sel.addEventListener('change', () => { box.dataset.g = sel.value; bedGrzFill(box); });
+  // Zeile in der Vermessungsliste darunter antippen = auf der Karte zeigen
+  const host = box.closest('.dlg, #dlg, body').querySelector(`.grzhost[data-fid="${CSS.escape(box.dataset.fid || '')}"]`);
+  if (host) {
+    host.querySelectorAll('tr[data-gsel]').forEach(tr => tr.classList.toggle('grz-sel', tr.dataset.gsel === box.dataset.g));
+    if (!host._bedSel) { host._bedSel = true; host.addEventListener('click', e => { const tr = e.target.closest('tr[data-gsel]'); if (!tr || e.target.closest('button,a')) return;
+      const b = document.querySelector(`.bedgrz[data-fid="${CSS.escape(host.dataset.fid)}"]`); if (!b) return; b.dataset.g = b.dataset.g === tr.dataset.gsel ? '-' : tr.dataset.gsel; bedGrzFill(b); }); }
+  }
 }
 function bedMapAct(t) {
   const box = t.closest('.bedgrz'); if (!box) return;
@@ -4460,7 +4486,7 @@ function abDetail(id) {
   const fe = abFeld(o, j);
   const feLbl = fe ? fe.name : ((j && j.feld) || (o && aFeld(o)) || '');
   const body = `<div class="abdet"><div><h4>Auftrag (Planer)</h4>${left}</div><div><h4>Arbeitsgang (MyJohnDeere)</h4>${right}</div></div>
-    ${j && j.grzB ? `<h4 style="margin:14px 0 6px">Virtuelle Feldgrenze (aus der Bedeckungskarte)</h4><div class="bedgrz" data-id="${esc(j.id)}"><span class="nr">wird geladen …</span></div>` : ''}
+    ${j && j.grzB ? `<h4 style="margin:14px 0 6px">Virtuelle Feldgrenze (aus der Bedeckungskarte)</h4><div class="bedgrz" data-id="${esc(j.id)}" data-fid="${esc((fe || {}).id || '')}"><span class="nr">wird geladen …</span></div>` : ''}
     <h4 style="margin:14px 0 6px">Vermessungen des Feldes${feLbl ? ` «${esc(feLbl)}»` : ''}</h4>${grenzenHtml(fe)}
     ${o && j ? `<p class="nr" style="margin-top:10px">${o.jdLink ? 'Von Hand verknüpft.' : 'Automatisch verbunden (Kunde, Datum, Arbeit, Feld).'} <a href="#" data-ab="unlink" data-id="${esc(r.id)}">Verknüpfung lösen</a></p>` : ''}`;
   setTimeout(() => { const b = $('#dlg .bedgrz'); if (b) bedGrzFill(b); }, 0);
