@@ -3,7 +3,7 @@
   "short_name": "IM-Applikationskarten",
   "description": "Applikationskarten und Feldgrenzen für John Deere erstellen – Indermühle Lohnarbeiten",
   "lang": "de-CH",
-  "id": "./",
+  "id": "/lohnarbeit-planer/applikationskarte/",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

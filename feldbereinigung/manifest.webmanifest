@@ -3,7 +3,7 @@
   "short_name": "IM-Feldbereinigung",
   "description": "Felder und Feldgrenzen im John Deere Operations Center aufräumen – Indermühle Lohnarbeiten",
   "lang": "de-CH",
-  "id": "./",
+  "id": "/lohnarbeit-planer/feldbereinigung/",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
