@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '137', APP_STAND = '18.11.2026';
+const APP_VERSION = '138', APP_STAND = '18.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -3870,8 +3870,24 @@ const jdbProdTxt = r => jdbSplit(r.produkte, true).map(p => isPsm(p.n) || !p.v ?
 const jdbGesTxt = r => jdbSplit(r.gesamt).filter(g => !isPsm(g.n)).map(g => g.v ? `${g.n} ${g.v}` : g.n).join(', ');
 function jdbApply(d, src) {
   if (!d || d.format !== 'jd-arbeiten' || !Array.isArray(d.operations)) { toast('Keine gültige Datei mit Arbeitsdaten (jd-arbeiten.json)'); return false; }
-  const rows = d.operations.map(jdbRow).filter(r => r.d);
-  App.jdb.rows = rows; App.jdb.meta = { stand: d.stand, org: d.org?.name || '', seit: d.seit, src, n: rows.length, dienst: d.dienst || '', bedeckung: d.bedeckung || null };
+  const all = d.operations.map(jdbRow).filter(r => r.d);
+  // v138: MyJohnDeere liefert denselben Arbeitsgang teils doppelt (gleiche Art, Zeit, Kunde, Feld; nur einer mit Bedeckungskarte) → nur einen behalten
+  const best = new Map(), alias = {}, sc = r => (r.ha != null ? 4 : 0) + (r.grzB ? 2 : 0) + (jdbAbr(r.id) ? 1 : 0);
+  for (const r of all) {
+    if (!r.start || !r.end) { best.set(r.id, r); continue; }
+    const k = [r.type, r.start, r.end, norm(r.kunde), r.fid || norm(r.feld)].join('|'), b = best.get(k);
+    if (!b) best.set(k, r); else if (sc(r) > sc(b)) { alias[b.id] = r.id; best.set(k, r); } else alias[r.id] = b.id;
+  }
+  for (const [a, b] of Object.entries(alias)) { let t = b; while (alias[t]) t = alias[t]; alias[a] = t; }
+  const rows = [...best.values()], dup = all.length - rows.length;
+  // Markierung «abgerechnet» und Korrekturen eines weggelassenen Doppels auf den behaltenen Arbeitsgang übertragen
+  const mig = []; for (const [a, b] of Object.entries(alias)) {
+    const ab = Store.get('einstellungen', 'jdabr-' + a), kb = Store.get('einstellungen', 'jdkorr-' + a);
+    if (ab && !Store.get('einstellungen', 'jdabr-' + b)) mig.push({ ...ab, id: 'jdabr-' + b });
+    if (kb && !Store.get('einstellungen', 'jdkorr-' + b)) mig.push({ ...kb, id: 'jdkorr-' + b });
+  }
+  if (mig.length) setTimeout(() => Store.putMany('einstellungen', mig), 0);
+  App.jdb.rows = rows; App.jdb.meta = { stand: d.stand, org: d.org?.name || '', seit: d.seit, src, n: rows.length, dup, alias, dienst: d.dienst || '', bedeckung: d.bedeckung || null };
   jdbCache(rows, App.jdb.meta); return true;
 }
 async function jdbLoad(silent) {
@@ -4239,7 +4255,7 @@ function jdBerichtView() {
           </div>` : ''}</div>`; };
       const shown = list.slice(0, J.limit || 300), m = J.meta || {};
       const inner = `<p class="nr" style="margin-top:0">${m.n || all.length} Arbeitsgänge${m.org ? ' · ' + esc(m.org) : ''}${m.stand ? ` · Stand ${esc(new Date(m.stand).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }))}` : ''}${m.seit ? ` · ab ${fmtDate(m.seit, { day: '2-digit', month: '2-digit', year: 'numeric' })}` : ''}
-          ${(() => { const q = { m: 0, b: 0, o: 0 }; all.forEach(r => r.ha != null ? q.b++ : q.o++); return ` · ${q.b} mit Bedeckung, ${q.o} ohne`; })()}${m.bedeckung && m.bedeckung.gestoppt ? ' · <span style="color:var(--danger)">Bedeckungskarte: Abfrage abgebrochen – siehe NAS-Dienst</span>' : ''}
+          ${(() => { const q = { m: 0, b: 0, o: 0 }; all.forEach(r => r.ha != null ? q.b++ : q.o++); return ` · ${q.b} mit Bedeckung, ${q.o} ohne${m.dup ? ` · <span title="Von MyJohnDeere doppelt gelieferte Arbeitsgänge (gleiche Art, Zeit, Kunde und Feld) – nur einer wird gezeigt, bevorzugt der mit Bedeckungskarte">${m.dup} doppelt geliefert, zusammengefasst</span>` : ''}`; })()}${m.bedeckung && m.bedeckung.gestoppt ? ' · <span style="color:var(--danger)">Bedeckungskarte: Abfrage abgebrochen – siehe NAS-Dienst</span>' : ''}
           · <a href="#" data-act="jbLoad">${J.loading ? 'lädt…' : 'neu laden'}</a> · <a href="#" data-act="jbFile">Datei wählen</a></p>
         <div class="panel jfilter"><div class="jfgrid">
           <label class="fld"><span>Von</span><input class="input" type="date" data-in="jb" data-k="von" value="${esc(J.von)}"></label>
@@ -4307,7 +4323,8 @@ function abRows() {
   if (A._ver === ver && A._rows) return A._rows;
   const jById = new Map(jd.map(r => [r.id, r])), usedJ = new Set(), pair = new Map();
   // 1) manuelle Verknüpfungen
-  orders.forEach(o => { if (o.jdLink && jById.has(o.jdLink) && !usedJ.has(o.jdLink)) { pair.set(o.id, o.jdLink); usedJ.add(o.jdLink); } });
+  const al = (App.jdb.meta && App.jdb.meta.alias) || {}; // v138: Verknüpfung mit einem zusammengefassten Doppel zeigt auf den behaltenen Arbeitsgang
+  orders.forEach(o => { const l = o.jdLink && (jById.has(o.jdLink) ? o.jdLink : al[o.jdLink]); if (l && jById.has(l) && !usedJ.has(l)) { pair.set(o.id, l); usedJ.add(l); } });
   // 2) automatisch: bestes Paar zuerst
   const cand = [];
   // Index: Kunde → Tag → Arbeitsgänge
@@ -4326,7 +4343,7 @@ function abRows() {
       let s = 3 - dd; if (cat && rc && (cat === rc || (cat === 'application' && rc === 'fertilizing'))) s += 2;
       const rf = r._fk; if (feld && rf && (feld === rf || feld.includes(rf) || rf.includes(feld))) s += 2;
       { const rh = r.ha ?? r.haM; if (o.flaeche && rh) { const q = Math.min(o.flaeche, rh) / Math.max(o.flaeche, rh); if (q > 0.8) s += 1; } }
-      if (s >= 3) cand.push({ o: o.id, j: r.id, s });
+      if (s >= 3) cand.push({ o: o.id, j: r.id, s: s + (r.ha != null ? 0.5 : 0) }); // bei Gleichstand den Arbeitsgang mit Bedeckungskarte nehmen (v138)
     });
   });
   cand.sort((x, y) => y.s - x.s).forEach(c => { if (pair.has(c.o) || usedJ.has(c.j)) return; pair.set(c.o, c.j); usedJ.add(c.j); });
