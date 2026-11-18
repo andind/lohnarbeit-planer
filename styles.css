@@ -1292,3 +1292,7 @@ body.fsmode #selbar { left: 12px; }
 .grz tr[data-gsel] { cursor: pointer; }
 .grz tr.grz-sel td { background: rgba(43,140,255,.12); }
 .grz tr.grz-sel td:first-child { box-shadow: inset 3px 0 0 #2b8cff; }
+/* v137: von Hand korrigierte Arbeitsgänge */
+.korrm { color: #b26a00; font-size: .85em; }
+.korrhint { margin: 0 0 8px; padding: 6px 10px; border-radius: 6px; background: #fff4e0; color: #7a4a00; font-size: 13px; }
+@media print { .korrm { display: none !important; } }

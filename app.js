@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '136', APP_STAND = '18.11.2026';
+const APP_VERSION = '137', APP_STAND = '18.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -649,6 +649,7 @@ const App = {
   alimit: 150,
   go(v) { if (v === 'verwaltung') v = VERW.includes(ls('lp_verw')) ? ls('lp_verw') : 'jdbericht'; this.view = v; ls('lp_view', v); this.lastView = null; this.tlScroll = null; window.scrollTo(0, 0); this.render(); },
   render() {
+    jdbKorrSync(); // v137: von Hand korrigierte Arbeitsgänge (Kunde/Feld/Kultur)
     if (this.view === 'rueben' && !rsOn()) this.view = 'auftraege';
     if (this.view === 'betrieb' && typeof ebOn === 'function' && !ebOn()) this.view = 'auftraege'; // Modul «Eigener Betrieb» (betrieb.js)
     rsNav();
@@ -3913,6 +3914,63 @@ const jdbGroupKey = (r, g) => g === 'monat' ? r.d.slice(0, 7) : (r[g] || '');
 const jdbGroupLabel = (k, g) => g === 'monat' && k ? `${MONATE_LANG[+k.slice(5, 7) - 1]} ${k.slice(0, 4)}` : (k || '–');
 const jdbList = () => { const J = App.jdb; return (J.rows || []).filter(jdbFilter(J)).sort((a, b) => J.sort === 'asc' ? a.start.localeCompare(b.start) : b.start.localeCompare(a.start)); };
 const jdbHaSum = l => r2(l.reduce((s, r) => s + (r.ha || 0), 0));
+/* ---------- v137: Korrektur eines Arbeitsgangs (Kunde, Feld, Kultur) – nur in der IM-Verwaltung, MyJohnDeere bleibt unverändert ----------
+   Gespeichert in «einstellungen» als jdkorr-<Arbeitsgang-ID> (synchronisiert), nur die geänderten Werte; Original in r._o. */
+const JDB_KORR = 'jdkorr-';
+const jdbKorr = id => Store.get('einstellungen', JDB_KORR + id);
+var _korrV = -1, _korrRows = null;
+function jdbKorrSync() {
+  const rows = App.jdb && App.jdb.rows; if (!rows || (_korrV === Store.v && _korrRows === rows)) return;
+  _korrV = Store.v; _korrRows = rows;
+  for (const r of rows) {
+    if (!r._o) r._o = { kunde: r.kunde, feld: r.feld, fid: r.fid, kultur: r.kultur };
+    const k = jdbKorr(r.id), o = r._o, v = key => k && k[key] != null ? k[key] : o[key];
+    r.kunde = v('kunde'); r.feld = v('feld'); r.fid = v('fid'); r.kultur = v('kultur'); r.korr = k ? 1 : 0;
+  }
+}
+const jdbKundeOf = r => Store.all('kunden').find(k => norm(k.jdName || k.name) === norm(r.kunde) || norm(k.name) === norm(r.kunde)) || null;
+function jdbKorrDialog(id, back) {
+  jdbKorrSync();
+  const r = (App.jdb.rows || []).find(x => x.id === id); if (!r) return;
+  const o = r._o || r, k0 = jdbKundeOf(r), dd = fmtDate(r.d, { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const kunden = Store.all('kunden').filter(k => k.aktiv !== false || (k0 && k.id === k0.id)).sort((a, b) => String(a.name).localeCompare(String(b.name), 'de'));
+  const kul = [...new Set([...kuExactNames(), ...(App.jdb.rows || []).map(x => x.kultur).filter(Boolean)])].sort((a, b) => a.localeCompare(b, 'de'));
+  const body = `<p class="nr" style="margin-top:0">${esc(r.arbeit)} vom ${esc(dd)}${r.maschine ? ' · ' + esc(r.maschine) : ''}${r.ha != null ? ' · ' + fmtNum(r.ha) + ' ha' : ''}</p>
+    <table class="btab kv"><tr><td class="nr">MyJohnDeere</td><td>${esc(o.kunde || '–')} · ${esc(o.feld || '–')} · ${esc(o.kultur || '–')}</td></tr></table>
+    <label class="fld"><span>Kunde</span><select name="kunde" class="input" required>${k0 ? '' : `<option value="" selected>— ${esc(r.kunde || 'unbekannt')} (nicht in den Stammdaten) —</option>`}${kunden.map(k => `<option value="${k.id}" ${k0 && k.id === k0.id ? 'selected' : ''}>${esc(k.name)}</option>`).join('')}</select></label>
+    <label class="fld"><span>Feld</span><select name="feld" class="input"></select></label>
+    <label class="fld"><span>Kultur</span><input name="kultur" class="input" list="jdkorr-kul" value="${esc(r.kultur || '')}" autocomplete="off"><datalist id="jdkorr-kul">${kul.map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>
+    <p class="nr">Die Änderung gilt nur in der IM-Verwaltung (Bericht, Abrechnung, Auswertungen). In MyJohnDeere bleibt der Arbeitsgang unverändert – dort bei Bedarf von Hand korrigieren.</p>`;
+  const foot = `${r.korr ? '<button type="button" class="btn" data-korr="reset">Auf MyJohnDeere zurücksetzen</button>' : ''}<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">Speichern</button>`;
+  const ask = (lines, reset) => confirm(`${reset ? 'Korrektur entfernen und wieder die Angaben aus MyJohnDeere verwenden?' : 'Arbeitsgang wirklich ändern?'}\n\n${r.arbeit} vom ${dd}\n${lines.join('\n')}\n\nGilt nur in der IM-Verwaltung – MyJohnDeere bleibt unverändert.`);
+  Dlg.open('Arbeitsgang korrigieren', body, foot, fd => {
+    const kid = fd.get('kunde'), kk = kid ? Store.get('kunden', kid) : null, fe = fd.get('feld') ? feldById(fd.get('feld')) : null;
+    const neu = { kunde: kk ? (kk.jdName || kk.name) : r.kunde, feld: fe ? (fe.jdName || fe.name) : (fd.get('feld') === '' && kk && (!k0 || kk.id !== k0.id) ? '' : r.feld), fid: fe ? (fe.jdId || '') : (fd.get('feld') === '' && kk && (!k0 || kk.id !== k0.id) ? '' : r.fid), kultur: String(fd.get('kultur') || '').trim() };
+    const lab = { kunde: 'Kunde', feld: 'Feld', kultur: 'Kultur' };
+    const lines = ['kunde', 'feld', 'kultur'].filter(x => norm(neu[x]) !== norm(r[x])).map(x => `${lab[x]}: ${r[x] || '–'} → ${neu[x] || '–'}`);
+    if (!lines.length) { toast('Keine Änderung'); return; }
+    if (!ask(lines)) return false;
+    const rec = { id: JDB_KORR + id, jdkorr: true, am: todayIso() };
+    ['kunde', 'feld', 'fid', 'kultur'].forEach(x => { if (String(neu[x] ?? '') !== String(o[x] ?? '')) rec[x] = neu[x]; });
+    if (Object.keys(rec).length > 3) Store.put('einstellungen', rec); else if (r.korr) Store.put('einstellungen', { id: JDB_KORR + id, del: true });
+    toast('Arbeitsgang korrigiert');
+  });
+  Dlg.afterSave = back || null;
+  const F = Dlg.form, ks = F.querySelector('[name=kunde]'), fs = F.querySelector('[name=feld]');
+  const fill = () => {
+    const kid = ks.value, L = kid ? Store.all('felder').filter(f => f.kunde === kid).sort((a, b) => String(a.name).localeCompare(String(b.name), 'de')) : [];
+    const same = !kid || (k0 && kid === k0.id), cur = same ? Store.all('felder').find(f => (r.fid && f.jdId === r.fid) || norm(f.jdName || f.name) === norm(r.feld)) : null;
+    fs.innerHTML = (same && !cur ? `<option value="">— ${esc(r.feld || 'kein Feld')} (unverändert) —</option>` : !same ? '<option value="">— kein Feld —</option>' : '')
+      + L.map(f => `<option value="${f.id}" ${cur && f.id === cur.id ? 'selected' : ''}>${esc(f.name)}${f.flaeche != null ? ' · ' + fmtNum(f.flaeche) + ' ha' : ''}</option>`).join('');
+  };
+  fill(); ks.addEventListener('change', fill);
+  const rb = F.querySelector('[data-korr=reset]');
+  if (rb) rb.addEventListener('click', () => {
+    const lines = ['kunde', 'feld', 'kultur'].filter(x => norm(o[x]) !== norm(r[x])).map(x => `${({ kunde: 'Kunde', feld: 'Feld', kultur: 'Kultur' })[x]}: ${r[x] || '–'} → ${o[x] || '–'}`);
+    if (!ask(lines, true)) return;
+    Store.put('einstellungen', { id: JDB_KORR + id, del: true }); Dlg.close(); toast('Angaben aus MyJohnDeere wiederhergestellt'); if (back) setTimeout(back, 0);
+  });
+}
 /* ---------- Abgerechnet: Markierung je Arbeitsgang, gespeichert in den Planer-Daten (synchronisiert) ---------- */
 const JDB_ABR = 'jdabr-';
 const jdbAbr = id => Store.get('einstellungen', JDB_ABR + id);
@@ -3950,7 +4008,7 @@ const JDB_COLS = [
   { id: 'ende', l: 'Ende', w: 118, v: r => jdbDT(r.end), csv: r => jdbDT(r.end) },
   { id: 'dauer', l: 'Dauer', w: 64, n: 1, v: r => r.dauer != null ? hrs(r.dauer) : '', csv: r => r.dauer != null ? r2(r.dauer) : '' },
   { id: 'arbeit', l: 'Arbeit', w: 130, v: r => r.arbeit },
-  { id: 'kunde', l: 'Kunde', w: 150, v: r => r.kunde },
+  { id: 'kunde', l: 'Kunde', w: 150, v: r => r.kunde, html: r => `${esc(r.kunde)}${r.korr ? ' <span class="korrm" title="Von Hand korrigiert (Kunde, Feld oder Kultur) – gilt nur in der IM-Verwaltung">✎</span>' : ''}` },
   { id: 'feld', l: 'Feld', w: 130, v: r => r.feld, html: r => r.feld ? `<span class="fldlink" data-act="jbGrz" data-id="${esc(r.id)}" title="Vermessungen anzeigen">${esc(r.feld)}</span>` : '' },
   { id: 'ha', l: 'ha bedeckt', w: 84, n: 1, v: r => r.ha != null ? fmtNum(r.ha) : '', csv: r => r.ha ?? '',
     html: r => r.ha != null ? `<b title="aus der Bedeckungskarte, ohne Überlappungen (jede Stelle einmal gezählt)">${fmtNum(r.ha)}</b>` : '' },
@@ -4081,7 +4139,7 @@ function jdbDetail(id) {
     <p class="nr" style="margin-top:12px">Quelle: MyJohnDeere · ID ${esc(r.id)}</p>`;
   const ab = jdbAbr(r.id);
   setTimeout(() => { const b = $('#dlg .bedgrz'); if (b) bedGrzFill(b); }, 0);
-  Dlg.open('Arbeitsgang', body, `${ab ? `<span class="badge verrechnet">✓ abgerechnet ${fmtDate(ab.am, { day: '2-digit', month: '2-digit', year: 'numeric' })}</span><button type="button" class="btn" data-act="jbMarkOne" data-id="${esc(r.id)}" data-v="0">Wieder offen</button>` : `<button type="button" class="btn primary" data-act="jbMarkOne" data-id="${esc(r.id)}" data-v="1">✓ Als abgerechnet markieren</button>`}<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
+  Dlg.open('Arbeitsgang', body.replace('<table class="btab kv">', `${r.korr ? '<p class="korrhint">✎ Von Hand korrigiert (gilt nur in der IM-Verwaltung).</p>' : ''}<div class="btns" style="margin:0 0 8px"><button type="button" class="btn small" data-act="jbKorr" data-id="${esc(r.id)}" title="Kunde, Feld oder Kultur ändern, wenn MyJohnDeere den Arbeitsgang falsch zugeordnet hat">✎ Kunde / Feld / Kultur ändern</button></div><table class="btab kv">`), `${ab ? `<span class="badge verrechnet">✓ abgerechnet ${fmtDate(ab.am, { day: '2-digit', month: '2-digit', year: 'numeric' })}</span><button type="button" class="btn" data-act="jbMarkOne" data-id="${esc(r.id)}" data-v="0">Wieder offen</button>` : `<button type="button" class="btn primary" data-act="jbMarkOne" data-id="${esc(r.id)}" data-v="1">✓ Als abgerechnet markieren</button>`}<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
 }
 /* Virtuelle Feldgrenzen aus den Bedeckungskarten: eigene Datei jd-grenzen.json (NAS-Dienst ab v53), erst bei Bedarf geladen */
 let bedGrzCache = null;
@@ -4293,7 +4351,7 @@ function abRow(o, j, km) {
   const d = o ? (o.erledigtAm || o.datum) : j.d;
   const abJ = j ? jdbAbr(j.id) : null, abO = o && statusOf(o) === 'verrechnet';
   const abr = o ? abO : !!abJ, am = o ? (o.verrechnetAm || (abJ && abJ.am) || '') : (abJ ? abJ.am : '');
-  return { id: o ? 'o:' + o.id : 'j:' + j.id, oid: o ? o.id : '', jid: j ? j.id : '', src: o && j ? 'beide' : o ? 'planer' : 'jd', d, start: j ? j.start : '', end: j ? j.end : '',
+  return { korr: j ? j.korr || 0 : 0, id: o ? 'o:' + o.id : 'j:' + j.id, oid: o ? o.id : '', jid: j ? j.id : '', src: o && j ? 'beide' : o ? 'planer' : 'jd', d, start: j ? j.start : '', end: j ? j.end : '',
     dauer: j ? j.dauer : null, std: o ? (o.stundenEff ?? dauerOf(o) ?? null) : null, nr: o ? o.nr || '' : '',
     kunde: k ? k.name : (j ? j.kunde : ''), feld: (o && aFeld(o)) || (j ? j.feld : ''), arbeit: o ? o.arbeit || '' : j.arbeit, kultur: (o && o.kultur) || (j ? j.kultur : ''),
     haP, haE, haG, genau, haJ, haB, ha, haQ, quelle: j ? j.quelle : '', maschine: (m && m.name) || (j ? j.maschine : ''), fahrer: j ? j.fahrer : '',
@@ -4357,7 +4415,7 @@ const AB_COLS = [
   { id: 'beginn', l: 'Beginn (JD)', w: 118, v: r => jdbDT(r.start) },
   { id: 'ende', l: 'Ende (JD)', w: 118, v: r => jdbDT(r.end) },
   { id: 'arbeit', l: 'Arbeit', w: 130, v: r => r.arbeit },
-  { id: 'kunde', l: 'Kunde', w: 150, v: r => r.kunde },
+  { id: 'kunde', l: 'Kunde', w: 150, v: r => r.kunde, html: r => `${esc(r.kunde)}${r.korr ? ' <span class="korrm" title="Arbeitsgang von Hand korrigiert (Kunde, Feld oder Kultur) – gilt nur in der IM-Verwaltung">✎</span>' : ''}` },
   { id: 'feld', l: 'Feld', w: 130, v: r => r.feld, html: r => r.feld ? `<span class="fldlink" data-ab="grz" data-id="${esc(r.id)}" title="Vermessungen anzeigen">${esc(r.feld)}</span>` : '' },
   { id: 'haG', l: 'ha Planung', w: 88, n: 1, v: r => r.haG != null ? fmtNum(r.haG) : '', csv: r => r.haG ?? '' },
   { id: 'haE', l: 'ha effektiv', w: 80, n: 1, v: r => r.haE != null ? fmtNum(r.haE) : '', csv: r => r.haE ?? '' },
@@ -4485,7 +4543,7 @@ function abDetail(id) {
     : `<p class="nr">Kein Auftrag im Planer verbunden.</p>${j ? `<div class="btns"><button type="button" class="btn small" data-ab="linkPick" data-id="${esc(r.id)}">Mit Auftrag verknüpfen…</button></div>` : ''}`;
   const right = j ? `<table class="btab kv">${kv('Arbeit', j.arbeit)}${kv('Kunde (JD)', j.kunde)}${kv('Feld', j.feld)}${kv('Fläche bedeckt', j.ha != null ? fmtNum(j.ha) + ' ha (Bedeckungskarte)' : 'keine Bedeckungskarte')}${kv('Fläche Maschine', j.haM != null ? fmtNum(j.haM) + ' ha (nur zur Information)' : '')}${kv('Beginn', dt(j.start))}${kv('Ende', dt(j.end))}${kv('Dauer', j.dauer != null ? hrs(r2(j.dauer)) : '')}
       ${kv('Maschine', j.maschine)}${kv('Fahrer', j.fahrer)}${kv('Kultur', j.kultur)}${kv('Produkte', jdbProdTxt(j))}${kv('Sorten', j.sorten)}${kv('Gesamtmenge', jdbGesTxt(j))}</table>
-      <div class="btns" style="margin-top:8px"><button type="button" class="btn small" data-ab="jdDetail" data-id="${esc(j.id)}">Alle Messwerte</button></div>`
+      ${j.korr ? '<p class="korrhint">✎ Von Hand korrigiert (gilt nur in der IM-Verwaltung).</p>' : ''}<div class="btns" style="margin-top:8px"><button type="button" class="btn small" data-ab="jdDetail" data-id="${esc(j.id)}">Alle Messwerte</button><button type="button" class="btn small" data-ab="jdKorr" data-id="${esc(j.id)}" title="Kunde, Feld oder Kultur ändern, wenn MyJohnDeere den Arbeitsgang falsch zugeordnet hat">✎ Kunde / Feld / Kultur ändern</button></div>`
     : `<p class="nr">Kein Arbeitsgang aus MyJohnDeere verbunden.</p>${o ? `<div class="btns"><button type="button" class="btn small" data-ab="linkPick" data-id="${esc(r.id)}">Mit Arbeitsgang verknüpfen…</button></div>` : ''}`;
   const fe = abFeld(o, j);
   const feLbl = fe ? fe.name : ((j && j.feld) || (o && aFeld(o)) || '');
@@ -4624,6 +4682,7 @@ document.addEventListener('click', e => {
     case 'selNone': S.clear(); App.render(); break;
     case 'openOrder': Dlg.close(); orderDialog(id); break;
     case 'jdDetail': jdbDetail(id); break;
+    case 'jdKorr': jdbKorrDialog(id, () => { const ar = abRows().find(x => x.jid === id); if (ar) abDetail(ar.id); }); break;
     case 'linkPick': abLinkPick(id); break;
     case 'unlink': abUnlink(id); break;
   }
@@ -5912,6 +5971,7 @@ document.addEventListener('click', async e => {
     case 'jbGrz': jdbGrenzen(id); break;
     case 'bedGrzGeo': bedGrzGeo(id); break;
     case 'bedMap': bedMapAct(t); break;
+    case 'jbKorr': jdbKorrDialog(id, () => jdbDetail(id)); break;
     case 'jbMark': jdbMarkSel(t.dataset.v === '1'); break;
     case 'jbMarkOne': { const on = t.dataset.v === '1'; jdbMark([id], on); toast(on ? 'Als abgerechnet markiert' : 'Wieder offen'); jdbDetail(id); break; }
     case 'jbSelAllList': { const S = App.jdbSel || (App.jdbSel = new Set()); jdbList().forEach(r => S.add(r.id)); App.render(); break; }
