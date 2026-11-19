@@ -53,7 +53,7 @@ function zahlTeile(r, z) {
 function buchungen(L) {
   const B = buchCfg(), out = [];
   L.forEach(({ r, z }) => {
-    const kn = kName(r.kunde).slice(0, 40), beleg = String(r.nr).slice(0, 10);
+    const kn = kName(r.kunde).slice(0, 40), beleg = ('IM-' + r.nr).slice(0, 10); // Beleg in AgroOffice: IM-<Rechnungs-Nr.>
     // mit Hilfskonto: Bank an Hilfskonto (Total), dann Hilfskonto an Ertrag; ohne: direkt Bank an Ertrag je Konto/MWST-Satz
     const zk = zKontoOf(z), gegen = B.hilfs || zk;
     if (B.hilfs) out.push({ datum: z.datum, beleg, soll: zk, haben: B.hilfs, betrag: r2(+z.betrag), satz: null, text: `Zahlung Rg ${r.nr} ${kn}`, zid: z.id });
