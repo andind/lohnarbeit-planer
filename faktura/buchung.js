@@ -53,14 +53,15 @@ function zahlTeile(r, z) {
 function buchungen(L) {
   const B = buchCfg(), out = [];
   L.forEach(({ r, z }) => {
-    const kn = kName(r.kunde).slice(0, 40), beleg = ('IM-' + r.nr).slice(0, 10); // Beleg in AgroOffice: IM-<Rechnungs-Nr.>
+    // AgroOffice liest die Beleg-Nr. nur als Zahl («IM-2» wurde zu 0, 19.11.2026) → Beleg = Rechnungs-Nr., «IM-<Nr.>» am Anfang des Buchungstexts
+    const kn = kName(r.kunde).slice(0, 40), beleg = String(r.nr).replace(/\D/g, '').slice(0, 10), im = 'IM-' + r.nr;
     // mit Hilfskonto: Bank an Hilfskonto (Total), dann Hilfskonto an Ertrag; ohne: direkt Bank an Ertrag je Konto/MWST-Satz
     const zk = zKontoOf(z), gegen = B.hilfs || zk;
-    if (B.hilfs) out.push({ datum: z.datum, beleg, soll: zk, haben: B.hilfs, betrag: r2(+z.betrag), satz: null, text: `Zahlung Rg ${r.nr} ${kn}`, zid: z.id });
+    if (B.hilfs) out.push({ datum: z.datum, beleg, soll: zk, haben: B.hilfs, betrag: r2(+z.betrag), satz: null, text: `${im} Zahlung ${kn}`, zid: z.id });
     zahlTeile(r, z).forEach(t => {
       const neg = t.b < 0, b = Math.abs(t.b);
       out.push({ datum: z.datum, beleg, soll: neg ? t.konto : gegen, haben: neg ? gegen : t.konto, betrag: b, satz: t.satz, mwst: t.satz ? r2(b * t.satz / (100 + t.satz)) : 0,
-        code: t.satz ? (B.codes[String(t.satz)] || '') : '', steuerSeite: neg ? 'soll' : 'haben', text: `${B.hilfs ? '' : 'Zahlung '}Rg ${r.nr} ${kn}${t.ueber ? ' Überzahlung' : ''}`, zid: z.id });
+        code: t.satz ? (B.codes[String(t.satz)] || '') : '', steuerSeite: neg ? 'soll' : 'haben', text: `${im} ${B.hilfs ? '' : 'Zahlung '}${kn}${t.ueber ? ' Überzahlung' : ''}`, zid: z.id });
     });
   });
   return out;
