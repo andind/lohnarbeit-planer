@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken) wie IM-Vermietung: Daten lokal im Browser + Abgleich mit Dropbox (/faktura.json). */
 'use strict';
 
-const APP_VERSION = '1.28', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.29', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/faktura.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'artikel', 'rechnungen', 'einstellungen'];
 const EINHEITEN = ['ha', 'h', 'Stk', 'Pausch.', 'km', 'm³', 't', 'kg', 'l', 'a'];
@@ -178,17 +178,17 @@ function calc(r) {
     const typ = p.typ || 'pos';
     if (typ === 'pos') {
       const b = r2((p.menge ?? 1) * (p.preis || 0) * (1 - (p.rabatt || 0) / 100));
-      rows.push(Object.assign({}, p, { betrag: b, parts: [{ satz: +p.mwst || 0, konto: p.konto || '', art: p.art || '', b }] })); return;
+      rows.push(Object.assign({}, p, { betrag: b, parts: [{ satz: +p.mwst || 0, konto: p.konto || '', art: p.art || '', code: p.code || '', b }] })); return;
     }
     if (typ === 'zws') { rows.push(Object.assign({}, p, { betrag: null, zws: sumOf(open, i) })); closed = [open, i]; open = i + 1; return; }
     if (typ === 'rabatt') {
       // Block: direkt nach einer Zwischensumme (nur Text/Rabatt dazwischen) gilt der abgeschlossene Block, sonst der offene
       const nurText = closed && rows.slice(closed[1] + 1, i).every(x => ['text', 'titel', 'rabatt'].includes(x.typ));
       const [a, b] = p.bereich === 'alle' ? [0, i] : (nurText && !rows.slice(open, i).some(x => (x.typ || 'pos') === 'pos') ? closed : [open, i]);
-      const M = new Map(); rows.slice(a, b).forEach(x => (x.parts || []).forEach(t => { const k = t.satz + '|' + t.konto + '|' + (t.konto ? '' : t.art); const m = M.get(k) || { satz: t.satz, konto: t.konto, art: t.art, b: 0 }; m.b += t.b; M.set(k, m); }));
+      const M = new Map(); rows.slice(a, b).forEach(x => (x.parts || []).forEach(t => { const k = t.satz + '|' + t.konto + '|' + (t.konto ? '' : t.art) + '|' + (t.code || ''); const m = M.get(k) || { satz: t.satz, konto: t.konto, art: t.art, code: t.code || '', b: 0 }; m.b += t.b; M.set(k, m); }));
       const base = r2([...M.values()].reduce((s, m) => s + m.b, 0));
       const tot = base ? -r2(p.proz != null && p.proz !== '' ? base * (+p.proz || 0) / 100 : Math.min(Math.abs(+p.betrag || 0), Math.abs(base)) * Math.sign(base)) : 0;
-      let rest = tot; const P = [...M.values()].filter(m => m.b).map((m, k, A) => { const v = k === A.length - 1 ? r2(rest) : r2(tot * m.b / base); rest = r2(rest - v); return { satz: m.satz, konto: m.konto, art: m.art, b: v }; });
+      let rest = tot; const P = [...M.values()].filter(m => m.b).map((m, k, A) => { const v = k === A.length - 1 ? r2(rest) : r2(tot * m.b / base); rest = r2(rest - v); return { satz: m.satz, konto: m.konto, art: m.art, code: m.code, b: v }; });
       rows.push(Object.assign({}, p, { betrag: tot, basis: base, parts: P })); return;
     }
     rows.push(Object.assign({}, p, { betrag: null }));

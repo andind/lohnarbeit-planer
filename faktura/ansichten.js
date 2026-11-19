@@ -117,11 +117,11 @@ function edPaper(r) {
     return `<tr class="edrow${S.has(p.id) ? ' psel' : ''}${p.zu ? ' esub' : ''}" data-act="edPos" data-i="${i}">
       <td class="cs"><input type="checkbox" data-act="edSel" data-id="${p.id}" ${S.has(p.id) ? 'checked' : ''} title="ankreuzen – z. B. für Zusatzposten oder Teil-Abschluss"></td>
       <td class="ecd">${p.datum ? fmtDate(p.datum) : ''}</td>
-      <td><div class="ebez">${esc(p.bez || '').replace(/\n/g, '<br>') || '<span class="edempty">(ohne Bezeichnung)</span>'}${ohneArt ? ' <span class="chip warn small" title="Kein Artikel gewählt">ohne Art.-Nr.</span>' : ` <span class="eart">${esc(p.art)}</span>`}</div>${b ? `<div class="ebeschr">${esc(b).replace(/\n/g, '<br>')}</div>` : ''}${p.bem ? `<div class="ebem">${esc(p.bem).replace(/\n/g, '<br>')}</div>` : ''}${p.rabatt ? `<div class="erabp">Rabatt ${fmtNum(+p.rabatt)} % auf CHF ${chf(posBrutto(p))}: ${chf(posRabCHF(p))}</div>` : ''}</td>
+      <td><div class="ebez">${esc(p.bez || '').replace(/\n/g, '<br>') || '<span class="edempty">(ohne Bezeichnung)</span>'}${ohneArt ? ' <span class="chip warn small" title="Kein Artikel gewählt">ohne Art.-Nr.</span>' : ` <span class="eart">${esc(p.art)}</span>`}</div>${b ? `<div class="ebeschr">${esc(b).replace(/\n/g, '<br>')}</div>` : ''}${p.bem ? `<div class="ebem">${esc(p.bem).replace(/\n/g, '<br>')}</div>` : ''}${p.konto || p.code ? `<div class="ebuch">${[p.konto ? 'Konto ' + esc(p.konto) : '', p.code ? 'MWST-Code ' + esc(p.code) : ''].filter(Boolean).join(' · ')}</div>` : ''}${p.rabatt ? `<div class="erabp">Rabatt ${fmtNum(+p.rabatt)} % auf CHF ${chf(posBrutto(p))}: ${chf(posRabCHF(p))}</div>` : ''}</td>
       <td class="n nowrap">${p.menge != null && p.menge !== '' ? qtyTxt(p.menge) : ''} ${esc(p.einh || '')}</td>
       <td class="n nowrap">${p.preis != null && p.preis !== '' ? chf(p.preis) : '<span class="edempty">–</span>'}</td>
       <td class="n nowrap emw">${p.mwst != null ? mwstTxt(p.mwst) : ''}</td>
-      <td class="n nowrap eb">${chf(betrag)}</td>${btns}</tr>`;
+      <td class="n nowrap eb${betrag < 0 ? ' eneg' : ''}">${chf(betrag)}</td>${btns}</tr>`;
   }).join('');
   return `<div class="edpaper">
     <div class="edhead">
@@ -198,6 +198,11 @@ function posDialog(i, { neu = false } = {}) {
       <label class="fld"><span>Einheit</span><input class="input" name="einh" list="einhList" value="${esc(p.einh || '')}"></label>
       <label class="fld"><span>Preis</span><input class="input n" name="preis" inputmode="decimal" value="${p.preis ?? ''}"></label>
       <label class="fld"><span>MWST</span><select class="input" name="mwst">${mwstOpts(p.mwst)}</select></label></div>
+    <details class="help" ${p.konto || p.code ? 'open' : ''}><summary>Buchhaltung: Konto und MWST-Code (für AgroOffice, z. B. Gutschrift Saatgutreste)</summary>
+      <div class="two"><label class="fld"><span>Konto <span class="muted small">(leer = vom Artikel)</span></span><input class="input" name="konto" inputmode="numeric" value="${esc(p.konto || '')}" placeholder="${esc(artByNr(p.art)?.konto || (typeof buchCfg === 'function' ? buchCfg().kontoStd || '' : ''))}"></label>
+        <label class="fld"><span>MWST-Code <span class="muted small">(leer = Standard des Satzes)</span></span><input class="input" name="code" list="codeList" value="${esc(p.code || '')}" placeholder="${esc(typeof buchCfg === 'function' ? (buchCfg().codes[String(p.mwst)] || '') : '')}"></label></div>
+      <datalist id="codeList">${typeof buchCfg === 'function' ? [...new Set([...Object.values(buchCfg().codes), ...Store.all('rechnungen').flatMap(x => (x.pos || []).map(q => q.code)).filter(Boolean)])].map(c => `<option value="${esc(c)}">`).join('') : ''}</datalist>
+      <div class="hint">Gutschrift: Menge oder Preis negativ eintragen (z. B. Menge -3). Satz, Konto und Code gelten nur für diese Position.</div></details>
     <div class="two"><label class="fld"><span>Rabatt % <span class="muted small">(nur diese Position)</span></span><input class="input n" name="rabatt" inputmode="decimal" value="${p.rabatt || ''}" placeholder="0"></label>
       <label class="fld"><span>Zusatz zu <span class="muted small">(z. B. Strohhäckseln, Saatgut zum Auftrag)</span></span><select class="input" name="zu"><option value="">– eigene Position –</option>${r.pos.filter(q => q !== p && (q.typ || 'pos') === 'pos' && !q.zu).map(q => `<option value="${q.id}" ${p.zu === q.id ? 'selected' : ''}>${esc([q.datum ? fmtDate(q.datum) : '', String(q.bez || '').split('\n')[0], q.bem].filter(Boolean).join(' · ').slice(0, 80))}</option>`).join('')}</select></label></div>
     <div class="pdbetrag">Betrag: <b id="pdBetrag">CHF ${chf(calc({ pos: [p] }).rows[0].betrag)}${p.rabatt ? ` (Rabatt ${chf(posRabCHF(p))})` : ''}</b></div>`,
@@ -208,8 +213,9 @@ function posDialog(i, { neu = false } = {}) {
         r.pos.splice(i, 1); rechnungDialog(null, { keep: true }); return false; }
       const a = artByNr(String(fd.get('art') || '').trim());
       Object.assign(p, { art: String(fd.get('art') || '').trim(), datum: String(fd.get('datum') || ''), bez: String(fd.get('bez') || ''), bem: String(fd.get('bem') || '').trim(), menge: num(fd.get('menge')), einh: String(fd.get('einh') || '').trim(), preis: num(fd.get('preis')), mwst: num(fd.get('mwst')) });
-      if (a && a.konto) p.konto = a.konto;
+      if (a && a.konto && !String(fd.get('konto') || '').trim()) p.konto = a.konto;
       const rb = num(fd.get('rabatt')); if (rb) p.rabatt = rb; else delete p.rabatt;
+      const kt = String(fd.get('konto') || '').trim(), cd = String(fd.get('code') || '').trim(); if (kt) p.konto = kt; else if (!a || !a.konto) delete p.konto; if (cd) p.code = cd; else delete p.code;
       const zu = String(fd.get('zu') || ''); if (zu && zu !== p.id) { p.zu = zu; r.pos.forEach(q => { if (q.zu === p.id) delete q.zu; }); } else delete p.zu; posOrdnen(r);
       rechnungDialog(null, { keep: true }); return false; } });
   App.dlgBack = back;

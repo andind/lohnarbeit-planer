@@ -390,3 +390,6 @@ table.edpos { width: 100%; border-collapse: collapse; margin-top: 6px; }
 .edpos tr.ezws td { font-weight: 700; border-top: 1.5px solid #111; }
 .edpos tr.erab td { color: #8a1f17; }
 .edpos .erabp { color: #8a1f17; font-size: 12px; font-weight: 600; }
+
+.edpos .ebuch { font-size: 11.5px; color: #6b726c; margin-top: 2px; }
+.edpos .eneg { color: #8a1f17; }
