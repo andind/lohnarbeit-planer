@@ -105,7 +105,7 @@ function rechnungDialog(id, { keep = false } = {}) {
       : `<tr class="${(App.edSel || new Set()).has(p.id) ? 'psel' : ''}"><td class="cs"><input type="checkbox" data-act="edSel" data-id="${p.id}" ${(App.edSel || new Set()).has(p.id) ? 'checked' : ''}></td>
         <td><input class="input" type="date" data-in="edp" data-i="${i}" data-f="datum" value="${esc(p.datum || '')}" title="Auftragsdatum – leer bei Zusatzpositionen"></td>
         <td><input class="input" list="artList" data-in="edp" data-i="${i}" data-f="art" value="${esc(p.art || '')}"></td>
-        <td><textarea class="input" rows="1" data-in="edp" data-i="${i}" data-f="bez">${esc(p.bez)}</textarea><input class="input pbem" data-in="edp" data-i="${i}" data-f="bem" value="${esc(p.bem || '')}" placeholder="Bemerkung (z. B. Kultur, Feld)"></td>
+        <td><textarea class="input" rows="1" data-in="edp" data-i="${i}" data-f="bez">${esc(p.bez)}</textarea>${posBeschr(p, r) ? `<div class="small muted pbeschr" title="Beschreibung aus dem Artikel">${esc(posBeschr(p, r)).replace(/\n/g, '<br>')}</div>` : ''}<input class="input pbem" data-in="edp" data-i="${i}" data-f="bem" value="${esc(p.bem || '')}" placeholder="Bemerkung (z. B. Kultur, Feld)"></td>
         <td><input class="input n" inputmode="decimal" data-in="edp" data-i="${i}" data-f="menge" value="${p.menge ?? ''}"></td>
         <td><input class="input" list="einhList" data-in="edp" data-i="${i}" data-f="einh" value="${esc(p.einh || '')}"></td>
         <td><input class="input n" inputmode="decimal" data-in="edp" data-i="${i}" data-f="preis" value="${p.preis ?? ''}"></td>
@@ -365,7 +365,7 @@ function viewStamm() {
     const q = fold(App.f.a.q), L = artSorted().filter(a => !q || fold([a.artNr, a.bez].join(' ')).includes(q));
     return { tb: `<h1>Stammdaten</h1>${seg}<button class="btn primary" data-act="newA">＋ Artikel</button>`, html: `<div class="filters"><input class="input search" type="search" placeholder="Suchen…" data-in="aq" value="${esc(App.f.a.q)}"><span class="lbl">${L.length} Artikel</span></div>
       <div class="dscroll"><table class="dtab"><thead><tr><th>Art.-Nr.</th><th>Bezeichnung</th><th>Einheit</th><th class="n">Preis CHF</th><th class="n">MWST</th><th>Konto</th><th>Arbeiten (IM-Verwaltung)</th></tr></thead><tbody>
-      ${L.map(a => `<tr class="click ${a.aktiv === false ? 'off' : ''}" data-act="editA" data-id="${a.id}"><td>${esc(a.artNr)}</td><td>${esc(a.bez)}</td><td>${esc(a.einheit || '')}</td><td class="n">${a.preis != null ? chf(a.preis) : ''}</td><td class="n">${a.mwst != null ? mwstTxt(a.mwst) : ''}</td><td>${a.konto ? esc(a.konto) : '<span class="small muted">' + esc(buchCfg().kontoStd) + ' (Std.)</span>'}</td><td class="small">${esc((a.arbeiten || []).join(', '))}</td></tr>`).join('')}</tbody></table>${L.length ? '' : '<div class="empty">Noch keine Artikel</div>'}</div>` };
+      ${L.map(a => `<tr class="click ${a.aktiv === false ? 'off' : ''}" data-act="editA" data-id="${a.id}"><td>${esc(a.artNr)}</td><td>${esc(a.bez)}${a.beschr ? `<div class="small muted">${esc(a.beschr)}</div>` : ''}</td><td>${esc(a.einheit || '')}</td><td class="n">${a.preis != null ? chf(a.preis) : ''}</td><td class="n">${a.mwst != null ? mwstTxt(a.mwst) : ''}</td><td>${a.konto ? esc(a.konto) : '<span class="small muted">' + esc(buchCfg().kontoStd) + ' (Std.)</span>'}</td><td class="small">${esc((a.arbeiten || []).join(', '))}</td></tr>`).join('')}</tbody></table>${L.length ? '' : '<div class="empty">Noch keine Artikel</div>'}</div>` };
   }
   const f = App.f.k, q = fold(f.q), cnt = new Map(); Store.all('rechnungen').forEach(r => cnt.set(r.kunde, (cnt.get(r.kunde) || 0) + 1));
   const L = kundenSorted().filter(k => (f.alle || k.aktiv !== false) && (!q || fold([k.nr, k.name, k.ort, k.strasse].join(' ')).includes(q)));
@@ -416,6 +416,7 @@ function artikelDialog(id) {
   const a = id ? Store.get('artikel', id) : { id: uid(), aktiv: true, mwst: Store.cfg().mwstDef }; if (!a) return;
   openDlg(id ? 'Artikel bearbeiten' : 'Neuer Artikel', `
     <div class="two" style="grid-template-columns:1fr 3fr"><label class="fld"><span>Art.-Nr.</span><input class="input" name="artNr" value="${esc(a.artNr || '')}" autofocus></label><label class="fld"><span>Bezeichnung *</span><input class="input" name="bez" value="${esc(a.bez || '')}"></label></div>
+    <label class="fld"><span>Beschreibung <span class="muted small">(optional – wird auf der Rechnung unter der Bezeichnung gedruckt)</span></span><textarea class="input" name="beschr" rows="2" placeholder="z. B. inkl. Fahrer und Diesel, Mindestverrechnung 1 h">${esc(a.beschr || '')}</textarea></label>
     <div class="three"><label class="fld"><span>Einheit</span><input class="input" name="einheit" list="einhList2" value="${esc(a.einheit || '')}"><datalist id="einhList2">${EINHEITEN.map(e => `<option value="${e}">`).join('')}</datalist></label>
       <label class="fld"><span>Preis CHF</span><input class="input" name="preis" inputmode="decimal" value="${a.preis ?? ''}"></label>
       <label class="fld"><span>MWST</span><select class="input" name="mwst">${mwstOpts(a.mwst)}</select></label></div>
@@ -427,7 +428,7 @@ function artikelDialog(id) {
     { onSubmit: (fd, btn) => {
       if (btn === 'del') { if (!confirm('Artikel löschen?')) return false; Store.remove('artikel', a.id); return; }
       const arb = [...new Set([...fd.getAll('arb'), ...String(fd.get('arbNeu') || '').split(',').map(t => t.trim()).filter(Boolean)])];
-      const x = Object.assign({}, a, { arbeiten: arb, artNr: String(fd.get('artNr') || '').trim(), bez: String(fd.get('bez') || '').trim(), einheit: String(fd.get('einheit') || '').trim(), preis: num(fd.get('preis')), mwst: num(fd.get('mwst')) ?? 0, konto: String(fd.get('konto') || '').replace(/\D/g, ''), aktiv: !!fd.get('aktiv') });
+      const x = Object.assign({}, a, { arbeiten: arb, artNr: String(fd.get('artNr') || '').trim(), bez: String(fd.get('bez') || '').trim(), beschr: String(fd.get('beschr') || '').trim(), einheit: String(fd.get('einheit') || '').trim(), preis: num(fd.get('preis')), mwst: num(fd.get('mwst')) ?? 0, konto: String(fd.get('konto') || '').replace(/\D/g, ''), aktiv: !!fd.get('aktiv') });
       if (!x.bez) { toast('Bezeichnung fehlt'); return false; }
       if (x.artNr && Store.all('artikel').some(o => o.id !== x.id && nrKey(o.artNr) === nrKey(x.artNr))) { toast('Art.-Nr. gibt es schon'); return false; }
       if (!x.arbeiten.length) delete x.arbeiten;

@@ -227,7 +227,7 @@ async function imvLinkDialog(nurOffen = true) {
 }
 
 /* ---------- Artikel übernehmen ---------- */
-const ART_F = [['artNr', 'Art.-Nr.', /^art(ikel)?[-\s.]*(nr|nummer)\.?$|^nr\.?$|^artikel$/i], ['bez', 'Bezeichnung', /bezeichnung|maschine|name|text/i], ['einheit', 'Einheit', /^einh/i],
+const ART_F = [['artNr', 'Art.-Nr.', /^art(ikel)?[-\s.]*(nr|nummer)\.?$|^nr\.?$|^artikel$/i], ['bez', 'Bezeichnung', /bezeichnung|maschine|name|^text$/i], ['beschr', 'Beschreibung', /beschreib|zusatz|langtext/i], ['einheit', 'Einheit', /^einh/i],
   ['preis', 'Preis', /^(preis|ansatz)/i], ['mwst', 'MWST-Satz', /mwst|mwst-satz|ust|steuer/i], ['konto', 'Konto', /^(konto|ertragskonto|kto)/i]];
 // MWST-Satz aus Text («2.6%», «8.0%») – alte Sätze werden auf die seit 2024 gültigen umgestellt
 function mwstParse(v) { if (v == null || String(v).trim() === '') return 0; let m = num(String(v).replace('%', '')); if (m == null) return 0; if (m > 0 && m < 1) m = r2(m * 100); return ({ 8: 8.1, 7.7: 8.1, 7.6: 8.1, 2.5: 2.6, 2.4: 2.6, 3.7: 3.8, 3.5: 3.8 })[m] ?? m; }
@@ -235,7 +235,7 @@ async function impArtFile(file) {
   let rows; try { rows = await readTable(file); } catch (e) { toast('Datei nicht lesbar: ' + e.message, 6000); return; }
   mapDialog('Artikel', rows, ART_F, detectCols(rows, ART_F), ({ hi, map }) => {
     artMerge(rows.slice(hi + 1).map(r => { const g = f => String(pick(r, map, f) ?? '').trim(); if (!g('artNr') && !g('bez')) return null;
-      return { artNr: g('artNr'), bez: g('bez'), einheit: g('einheit'), preis: num(g('preis')), mwst: map.mwst != null ? mwstParse(g('mwst')) : undefined, konto: g('konto').replace(/\D/g, '') }; }).filter(Boolean), file.name);
+      return { artNr: g('artNr'), bez: g('bez'), beschr: g('beschr'), einheit: g('einheit'), preis: num(g('preis')), mwst: map.mwst != null ? mwstParse(g('mwst')) : undefined, konto: g('konto').replace(/\D/g, '') }; }).filter(Boolean), file.name);
   }, ['bez']);
 }
 async function impArtVm() {
@@ -247,8 +247,8 @@ async function impArtVm() {
 function artMerge(L, quelle) {
   const c = Store.cfg(); let neu = 0, upd = 0; const out = [];
   L.forEach(n => { const a = n.artNr ? artByNr(n.artNr) : Store.all('artikel').find(x => fold(x.bez) === fold(n.bez));
-    if (a) { const x = clone(a); let ch = false; ['bez', 'einheit'].forEach(f => { if (n[f] && !x[f]) { x[f] = n[f]; ch = true; } }); if (n.preis != null && n.preis !== x.preis) { x.preis = n.preis; ch = true; } if (n.mwst != null && n.mwst !== x.mwst) { x.mwst = n.mwst; ch = true; } if (n.konto && n.konto !== x.konto) { x.konto = n.konto; ch = true; } if (ch) { out.push(x); upd++; } }
-    else { out.push({ id: uid(), artNr: n.artNr, bez: n.bez, einheit: n.einheit || '', preis: n.preis, mwst: n.mwst ?? c.mwstDef, konto: n.konto || '', aktiv: true }); neu++; } });
+    if (a) { const x = clone(a); let ch = false; ['bez', 'einheit', 'beschr'].forEach(f => { if (n[f] && !x[f]) { x[f] = n[f]; ch = true; } }); if (n.preis != null && n.preis !== x.preis) { x.preis = n.preis; ch = true; } if (n.mwst != null && n.mwst !== x.mwst) { x.mwst = n.mwst; ch = true; } if (n.konto && n.konto !== x.konto) { x.konto = n.konto; ch = true; } if (ch) { out.push(x); upd++; } }
+    else { out.push({ id: uid(), artNr: n.artNr, bez: n.bez, ...(n.beschr ? { beschr: n.beschr } : {}), einheit: n.einheit || '', preis: n.preis, mwst: n.mwst ?? c.mwstDef, konto: n.konto || '', aktiv: true }); neu++; } });
   if (!out.length) { toast(`${quelle}: nichts Neues`); return; }
   if (!confirm(`${quelle}: ${neu} neue Artikel, ${upd} Preise/Angaben aktualisieren?`)) return;
   Store.putMany('artikel', out); toast(`${neu + upd} Artikel übernommen`);

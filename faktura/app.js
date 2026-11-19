@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken) wie IM-Vermietung: Daten lokal im Browser + Abgleich mit Dropbox (/faktura.json). */
 'use strict';
 
-const APP_VERSION = '1.17', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.18', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/faktura.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'artikel', 'rechnungen', 'einstellungen'];
 const EINHEITEN = ['ha', 'h', 'Stk', 'Pausch.', 'km', 'm³', 't', 'kg', 'l', 'a'];
@@ -205,8 +205,11 @@ function zuruecknehmen(r) {
   r.nrRes = r.nr; r.nr = ''; r.ref = ''; r.abgeschlossen = ''; r.faellig = ''; r.mahnungen = [];
   return r;
 }
+// Artikelbeschreibung einer Position (v1.18): im Entwurf aus dem Artikel, beim Abschliessen in die Position übernommen (bleibt dann fest)
+const posBeschr = (p, r) => p.beschr != null ? p.beschr : (r && r.nr) ? '' : ((p.art && artByNr(p.art)) || {}).beschr || '';
 function abschliessen(r) {
   const c = Store.cfg();
+  (r.pos || []).forEach(p => { if ((p.typ || 'pos') === 'pos' && p.beschr == null) { const b = posBeschr(p, null); if (b) p.beschr = b; } });
   r.nr = r.nrRes || nextNr(); delete r.nrRes; // zurückgenommene Rechnung behält ihre Nummer (und damit die QR-Referenz)
   r.ref = SwissQR.isQrIban(c.iban) ? SwissQR.makeRef(c.refPrefix, r.nr) : '';
   r.faellig = addDays(r.datum, r.frist ?? c.frist);
