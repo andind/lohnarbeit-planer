@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '143', APP_STAND = '19.11.2026';
+const APP_VERSION = '144', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1183,7 +1183,7 @@ const Dlg = {
     const nf = this.form.cloneNode(false); this.form.replaceWith(nf); this.form = nf;
     this.form.innerHTML = `<div class="dh"><h2>${title}</h2><button type="button" class="x" data-act="close" aria-label="Schliessen">×</button></div>
       <div class="db">${body}</div><div class="df">${footer}</div>`;
-    this.onSubmit = onSubmit; this.afterSave = null;
+    this.onSubmit = onSubmit; this.afterSave = null; this.el.classList.remove('dlgwide');
     if (!this.el.open) this.el.showModal();
     this.form.querySelector('.db').scrollTop = 0;
     const first = this.form.querySelector('[autofocus]'); if (first && matchMedia('(pointer:fine)').matches) first.focus();
@@ -1230,6 +1230,8 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
       <label class="fld"><span>Fläche (ha)</span><input class="input" name="flaeche" inputmode="decimal" value="${a.flaeche ?? ''}" placeholder="z.B. 4.5"></label>
       <label class="fld"><span>Wunschdatum</span><input class="input" type="date" name="wunsch" value="${a.wunsch || ''}"></label>
     </div>
+    <div class="strohbox" id="strohBox" ${isDresch(a.arbeit) ? '' : 'hidden'}><label class="tog"><input type="checkbox" name="stroh" ${a.stroh ? 'checked' : ''}> Strohhäckseln</label>
+      <label class="fld"><span>Fläche Strohhäckseln (ha)</span><input class="input" name="strohHa" inputmode="decimal" value="${a.strohHa ?? ''}" placeholder="${a.flaeche != null ? fmtNum(a.flaeche) + ' = Auftragsfläche' : 'gleich wie Auftrag'}" ${a.stroh ? '' : 'disabled'}></label></div>
     <label class="fld" id="vmBox" ${a.datum ? 'hidden' : ''}><span>Maschine (Vorauswahl)</span><select class="input" name="vmasch"></select><div class="sub2" id="vmHint">Wird beim Einplanen vorgeschlagen; in der Planung bei «Noch nicht eingeplant» angezeigt und filterbar.</div></label>
     ${typeof vbInfoHtml === 'function' && a.vbInfo ? vbInfoHtml(a.vbInfo) : ''}
     ${sprayBox(a)}
@@ -1271,6 +1273,8 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
       kunde: kunde.id, arbeit: fd.get('arbeit'), kultur: typeof kuOrderValue === 'function' ? kuOrderValue(fd) : fd.get('kultur'),
       flaeche: num(fd.get('flaeche')), wunsch: fd.get('wunsch'), notiz: fd.get('notiz').trim(), kfeld: fd.get('kfeld') || ''
     });
+    // v144: Strohhäckseln (nur bei Dreschen), Fläche leer = Auftragsfläche
+    if (isDresch(o.arbeit) && fd.get('stroh')) { o.stroh = true; const sh = num(fd.get('strohHa')); if (sh != null) o.strohHa = sh; else delete o.strohHa; } else { delete o.stroh; delete o.strohHa; }
     if (isSpray(o) && kuNeedsExact(o.kultur)) { toast(`Für Pflanzenschutz die genaue Kultur wählen (${kuForms(kuOber(o.kultur)).map(k => k.name).join(', ')}).`, 5000); return false; }
     if (planOpen && fd.get('datum')) {
       const m = maschine(fd.get('maschine')); const manual = num(fd.get('dauer'));
@@ -1324,6 +1328,10 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
     $('#kHint', f).textContent = !t || findKunde(t) || !$('#kSug', f).hidden ? '' : 'Kein ähnlicher Kunde gefunden. Neue Kunden werden in MyJohnDeere erfasst.';
   };
   wireKundeSuggest(f, checkKunde);
+  { // v144: Strohhäckseln nur bei Dreschen anzeigen; Fläche erst mit Haken
+    const sb = $('#strohBox', f), upd = () => { sb.hidden = !isDresch(f.arbeit.value); f.strohHa.disabled = !f.stroh.checked; const fl = num(f.flaeche.value); f.strohHa.placeholder = fl != null ? fmtNum(fl) + ' = Auftragsfläche' : 'gleich wie Auftrag'; };
+    f.arbeit.addEventListener('change', upd); f.stroh.addEventListener('change', upd); f.flaeche.addEventListener('input', upd);
+  }
   const fillVm = () => { const cur = f.vmasch.value || a.maschine || ''; f.vmasch.innerHTML = machineOptions(f.wunsch.value || todayIso(), f.arbeit.value.trim(), cur); f.vmasch.value = cur; if (f.vmasch.value !== cur) f.vmasch.value = ''; };
   // neuer Auftrag: einzige für die Arbeit hinterlegte Maschine automatisch vorauswählen (solange nicht von Hand gewählt)
   let vmTouched = !isNew || !!a.maschine;
@@ -2095,27 +2103,98 @@ function fakturaAbrT(k, rows) {
   T.refs = rows.map(r => ({ app: 'imv', id: r.oid || '', jd: r.jid || '', nr: r.nr || '' }));
   return T;
 }
+/* v144: Sendefenster – vor dem Senden je Eintrag Menge, Artikel, Preis und Bemerkung (Kultur) bearbeiten, je Kunde den Kunden in IM-Faktura wählen;
+   bei Dreschen/Ernte zusätzlich Strohhäckseln (Fläche = Auftragsfläche, änderbar). Kunden und Artikel aus /faktura.json (nur lesen). */
+const isDresch = s => /dresch|ernte|mähdrusch/i.test(s || '');
+async function fkLoad() {
+  try { const d = await Drive.readJson('/faktura.json'); return { ok: !!d, kunden: ((d && d.kunden) || []).filter(x => !x.del && x.aktiv !== false).sort((a, b) => String(a.name).localeCompare(String(b.name), 'de')), artikel: ((d && d.artikel) || []).filter(x => !x.del).sort((a, b) => String(a.artNr).localeCompare(String(b.artNr), 'de', { numeric: true })) }; }
+  catch { return { ok: false, kunden: [], artikel: [] }; }
+}
 async function fakturaAbrSend(einzeln) { // einzeln (v142): ein Eintrag aus dem Fenster «Abrechnung – Eintrag» / «Arbeitsgang»
   const S = App.abrSel || new Set(), rows = einzeln ? [einzeln] : abList().filter(r => S.has(r.id)); if (!rows.length) return false;
-  const noK = rows.filter(r => !r.kid);
-  if (noK.length) { toast(`${noK.length} ${noK.length === 1 ? 'Eintrag hat' : 'Einträge haben'} keinen Kunden aus den Stammdaten («${noK[0].kunde || '–'}») – zuerst mit «✎ Kunde / Feld / Kultur ändern» zuordnen.`, 6000); return false; }
-  const G = groupBy(rows, r => r.kid), Ts = G.map(([kid, l]) => fakturaAbrT(Store.get('kunden', kid) || { id: kid }, l));
-  const fehlt = Ts.reduce((s, T) => s + T.pos.filter(p => p.menge == null || p.preis == null).length, 0);
-  const abr = rows.filter(r => r.abr).length, dop = rows.filter(r => (r.oid && (Store.get('auftraege', r.oid) || {}).fakt) || (r.jid && (jdbAbr(r.jid) || {}).fakt)).length;
-  if (!confirm(`${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'} von ${G.length} ${G.length === 1 ? 'Kunde' : 'Kunden'} an IM-Faktura senden?\n\nJe Eintrag eine Position (in IM-Faktura mit Σ zusammenfassbar). Danach als abgerechnet markiert.`
-    + (dop ? `\n\n⚠ ${dop} davon wurden schon einmal gesendet.` : abr ? `\n\n⚠ ${abr} davon sind schon als abgerechnet markiert.` : '')
-    + (fehlt ? `\n\n⚠ Bei ${fehlt} ${fehlt === 1 ? 'Position fehlt' : 'Positionen fehlen'} Menge oder Preis (Maschine › Ansatz) – in IM-Faktura ergänzen.` : ''))) return false;
-  try {
-    if (!await fakturaWrite(Ts)) return false;
-    G.forEach(([, l], i) => fakturaMark(l.map(r => r.oid).filter(Boolean), l.map(r => r.jid).filter(Boolean), Ts[i]));
-    if (!einzeln) S.clear(); toast(`📤 ${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'} an IM-Faktura gesendet (${G.length} ${G.length === 1 ? 'Kunde' : 'Kunden'})`, 4000); App.render();
-    return true;
-  } catch (e) { faktErr(e); return false; }
+  if (!Auth.hasSession()) { toast('Für die Übergabe an IM-Faktura mit Dropbox anmelden.', 4000); return false; }
+  toast('Kunden und Artikel aus IM-Faktura werden geladen …', 1500);
+  const FK = await fkLoad(), G = groupBy(rows, r => r.kid || '?' + norm(r.kunde));
+  const artOf = nr => FK.artikel.find(a => String(a.artNr) === String(nr)) || null;
+  const strohArt = FK.artikel.find(a => /stroh/i.test(a.bez || '') && /häcks|hacks|häck/i.test(a.bez || '')) || FK.artikel.find(a => /stroh/i.test(a.bez || '')) || null;
+  const artOpts = cur => `<option value="">— ohne Artikel —</option>${cur && !artOf(cur) ? `<option value="${esc(cur)}" selected>${esc(cur)} (nicht in IM-Faktura)</option>` : ''}${FK.artikel.map(a => `<option value="${esc(a.artNr)}" ${String(a.artNr) === String(cur) ? 'selected' : ''}>${esc(a.artNr)} – ${esc(a.bez || '')}${a.preis != null ? ` · ${fmtNum(a.preis)}/${esc(a.einheit || '')}` : ''}</option>`).join('')}`;
+  const nIn = (name, v, w = 80) => `<input class="input fkn" name="${name}" inputmode="decimal" value="${v ?? ''}" style="width:${w}px">`;
+  const L = []; // je Eintrag: Vorbelegung
+  const body = G.map(([kid, l], gi) => {
+    const k = Store.get('kunden', kid) || { id: '', name: l[0].kunde || '' };
+    const fk0 = FK.kunden.find(x => k.id && (x.imvIds || []).includes(k.id)) || (k.nr && FK.kunden.find(x => String(x.nr || '') === String(k.nr))) || FK.kunden.find(x => norm(x.name) === norm(k.name)) || null;
+    return `<div class="fkgrp"><div class="fkhead"><b>${esc(k.name || '–')}</b>${k.id ? '' : ' <span class="nr">(nicht in den Stammdaten)</span>'}
+      <label class="fld fkk"><span>Kunde in IM-Faktura</span><select class="input" name="fk_${gi}"><option value="">${FK.ok ? '— automatisch zuordnen bzw. neu anlegen —' : '— IM-Faktura nicht lesbar: automatisch —'}</option>${FK.kunden.map(x => `<option value="${esc(x.id)}" ${fk0 && x.id === fk0.id ? 'selected' : ''}>${esc(x.name)}${x.nr ? ' · ' + esc(x.nr) : ''}${x.ort ? ' · ' + esc(x.ort) : ''}</option>`).join('')}</select></label></div>
+      <div class="tscroll"><table class="btab fktab"><thead><tr><th>Eintrag</th><th class="r">Menge</th><th>Einh.</th><th>Artikel</th><th class="r">Preis</th><th class="r">Betrag</th><th>Bemerkung (auf der Rechnung)</th></tr></thead><tbody>
+      ${l.map(r => {
+        const j = L.length, o = r.oid ? Store.get('auftraege', r.oid) : null, spray = !!(o && isSpray(o)), m = fakturaMasch(o, r);
+        const einh = spray ? 'ha' : m.einheit === 'h' ? 'h' : 'ha', menge = einh === 'h' ? (r.std ?? r.dauer ?? null) : r.ha;
+        const art = m.artNr || '', a0 = artOf(art), preis = spray ? (fakturaSpray(o, k, r.ha ?? flOf(o)).preisHa || null) : (m.ansatz ?? (a0 && a0.preis) ?? null);
+        const dresch = isDresch(r.arbeit), stroh = !!(o && o.stroh), strohHa = (o && o.strohHa) ?? r.ha;
+        L.push({ r, o, k, gi, spray, dresch });
+        const sent = (o && o.fakt) || (r.jid && (jdbAbr(r.jid) || {}).fakt);
+        return `<tr data-j="${j}"><td>${esc(fmtDate(r.d, { day: '2-digit', month: '2-digit', year: '2-digit' }))} ${esc(r.arbeit || '')}${r.feld ? ' – ' + esc(r.feld) : ''}${sent ? ' <span class="chip warn small" title="wurde schon einmal an IM-Faktura gesendet">schon gesendet</span>' : r.abr ? ' <span class="chip small">abgerechnet</span>' : ''}${spray ? '<div class="nr">Pflanzenschutzmittel werden mit der Fläche berechnet</div>' : ''}</td>
+          <td class="r">${nIn('m_' + j, menge != null ? r2(menge) : '')}</td><td><input class="input" name="e_${j}" value="${esc(einh)}" style="width:52px"></td>
+          <td><select class="input fka" name="a_${j}" data-p="p_${j}" data-e="e_${j}">${artOpts(art)}</select></td>
+          <td class="r">${nIn('p_' + j, preis != null ? preis : '')}</td><td class="r fkb" data-b="${j}"></td>
+          <td><input class="input" name="b_${j}" value="${esc(r.kultur || '')}" placeholder="z. B. Kultur"></td></tr>
+        ${dresch ? `<tr class="fkstroh" data-j="${j}s"><td><label class="tog"><input type="checkbox" name="s_${j}" ${stroh ? 'checked' : ''}> + Strohhäckseln</label></td>
+          <td class="r">${nIn('sm_' + j, strohHa != null ? r2(strohHa) : '')}</td><td>ha</td><td><select class="input fka" name="sa_${j}" data-p="sp_${j}">${artOpts(strohArt ? strohArt.artNr : '')}</select></td>
+          <td class="r">${nIn('sp_' + j, strohArt && strohArt.preis != null ? strohArt.preis : '')}</td><td class="r fkb" data-b="${j}s"></td><td class="nr">Fläche aus dem Auftrag, änderbar</td></tr>` : ''}`;
+      }).join('')}</tbody></table></div></div>`;
+  }).join('');
+  const hint = FK.ok ? '' : '<div class="hint warn" style="margin-bottom:8px">IM-Faktura-Daten (faktura.json) konnten nicht gelesen werden – Kunde und Artikel werden in IM-Faktura zugeordnet.</div>';
+  Dlg.open(`An IM-Faktura senden – ${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'}`, hint + body + '<p class="nr">Je Kunde eine Übergabe; sie erscheint in IM-Faktura unter Entwürfe. Die Bemerkung steht als zweite Zeile unter der Position. Danach werden die Einträge als abgerechnet markiert.</p>',
+    `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">📤 Senden</button>`, fd => {
+      const v = n => num(fd.get(n)), t = n => String(fd.get(n) || '').trim();
+      const Ts = G.map(([kid, l], gi) => {
+        const k = Store.get('kunden', kid) || { id: '', name: l[0].kunde || '' }, T = fakturaT(k, 'Lohnarbeiten'), fkId = t('fk_' + gi), ps = [];
+        if (fkId) { const fk = FK.kunden.find(x => x.id === fkId); T.kunde.fkId = fkId; if (fk) { T.kunde.name = fk.name; T.kunde.nr = fk.nr || T.kunde.nr; } }
+        L.forEach((x, j) => {
+          if (x.gi !== gi) return;
+          const r = x.r, dt = fmtDate(r.d, { day: '2-digit', month: '2-digit', year: '2-digit' }), bem = t('b_' + j), menge = v('m_' + j), preis = v('p_' + j), art = t('a_' + j), einh = t('e_' + j) || 'ha';
+          const txt = (base, b) => base + (b ? '\n' + b : '');
+          if (x.spray) {
+            const sp = fakturaSpray(x.o, k, menge ?? 0);
+            T.pos.push({ kind: 'arbeit', art, bez: txt(`${dt} Spritzen${r.feld ? ' – ' + r.feld : ''}`, bem), grp: 'Spritzarbeiten', menge, einh, preis });
+            sp.mittel.forEach(mm => T.pos.push({ kind: 'psm', bez: mm.name + (mm.zul ? ` (${mm.zul})` : ''), grp: 'Pflanzenschutzmittel', menge: mm.menge, einh: mm.einh, preis: mm.preis || null }));
+            ps.push(...sp.rows);
+          } else T.pos.push({ kind: 'arbeit', art, bez: txt(`${dt} ${r.arbeit || ''}${r.feld ? ' – ' + r.feld : ''}`, bem), grp: r.arbeit || '', menge, einh, preis });
+          if (x.dresch && fd.get('s_' + j)) T.pos.push({ kind: 'arbeit', art: t('sa_' + j), bez: `${dt} Strohhäckseln${r.feld ? ' – ' + r.feld : ''}`, grp: 'Strohhäckseln', menge: v('sm_' + j), einh: 'ha', preis: v('sp_' + j) });
+        });
+        if (ps.length) T.beilage = { titel: 'Detailabrechnung Pflanzenschutz', cols: PS_COLS, rows: ps, total: r2(ps.reduce((a, x) => a + (+x[6] || 0), 0)) };
+        T.refs = l.map(r => ({ app: 'imv', id: r.oid || '', jd: r.jid || '', nr: r.nr || '' }));
+        return T;
+      });
+      // Strohhäckseln im Auftrag merken (Haken und Fläche)
+      const oc = L.filter(x => x.o && x.dresch).map((x, _) => { const j = L.indexOf(x), on = !!fd.get('s_' + j), ha = v('sm_' + j); const o = { ...x.o };
+        if (on) { o.stroh = true; o.strohHa = ha != null && ha !== x.r.ha ? ha : null; if (o.strohHa == null) delete o.strohHa; } else { delete o.stroh; delete o.strohHa; } return o; })
+        .filter(o => JSON.stringify([o.stroh, o.strohHa]) !== JSON.stringify([Store.get('auftraege', o.id).stroh, Store.get('auftraege', o.id).strohHa]));
+      (async () => {
+        try {
+          if (!await fakturaWrite(Ts)) return;
+          if (oc.length) Store.putMany('auftraege', oc);
+          G.forEach(([, l], i) => fakturaMark(l.map(r => r.oid).filter(Boolean), l.map(r => r.jid).filter(Boolean), Ts[i]));
+          if (!einzeln) S.clear(); Dlg.close();
+          toast(`📤 ${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'} an IM-Faktura gesendet (${G.length} ${G.length === 1 ? 'Kunde' : 'Kunden'})`, 4000); App.render();
+        } catch (e) { faktErr(e); }
+      })();
+      return false;
+    });
+  Dlg.el.classList.add('dlgwide');
+  const F = Dlg.form, betr = () => F.querySelectorAll('.fkb').forEach(td => { const b = td.dataset.b, s = b.endsWith('s'), j = parseInt(b);
+    const on = !s || F.querySelector(`[name=s_${j}]`).checked, m = num(F.querySelector(`[name=${s ? 'sm_' : 'm_'}${j}]`).value), p = num(F.querySelector(`[name=${s ? 'sp_' : 'p_'}${j}]`).value);
+    td.textContent = on && m != null && p != null ? fmtNum(round05(m * p)) : on ? '–' : ''; td.classList.toggle('warnc', on && (m == null || p == null)); });
+  F.addEventListener('input', betr); F.addEventListener('change', e => {
+    const a = e.target.closest('select.fka'); if (a) { const x = artOf(a.value); if (x) { if (x.preis != null) F.querySelector(`[name=${a.dataset.p}]`).value = x.preis; if (a.dataset.e && x.einheit) F.querySelector(`[name=${a.dataset.e}]`).value = x.einheit; } }
+    betr(); });
+  betr();
+  return true;
 }
 // v142: einzelner Eintrag aus dem Detailfenster (Abrechnung › Eintrag oder Bericht › Arbeitsgang)
 async function fakturaEinzeln(abId) {
   const r = abRows().find(x => abId.startsWith('jid:') ? x.jid === abId.slice(4) : x.id === abId); if (!r) { toast('Eintrag nicht gefunden'); return; }
-  if (await fakturaAbrSend(r)) Dlg.close();
+  await fakturaAbrSend(r);
 }
 const FAKT_BTN = id => `<button type="button" class="btn" data-ab="faktOne" data-id="${esc(id)}" title="Diesen Eintrag an IM-Faktura übergeben (erscheint dort in den Entwürfen des Kunden), danach als abgerechnet markiert">📤 An IM-Faktura</button>`;
 /* ================= Modul Spritzen ================= */
