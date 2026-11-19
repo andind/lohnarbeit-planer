@@ -31,7 +31,9 @@ Zahlungsabgleich (camt.054) und Mahnungen. Eigene Daten (`faktura.json`), unabh�
 - **Mehr › Daten**: Rechnungsjournal als Excel (Netto/MWST je Satz, bezahlt, offen – für die Buchhaltung), Datensicherung.
 
 ## Entwürfe und Eingang (ab v1.8)
-- **IM-Verwaltung** (ab v139): Auftrag anklicken, korrigieren, «📤 An IM-Faktura». Der Auftrag wird gespeichert, übermittelt und auf «verrechnet» gestellt. Spritzaufträge kommen mit Arbeit und Pflanzenschutzmitteln, die Detailabrechnung als Beilage.
+- **IM-Verwaltung** (ab v140):
+  - *Spritzen › Abrechnung*: Kunde wählen › «📤 An IM-Faktura» (oder in der Übersicht «📤 Alle offenen an IM-Faktura»). Arbeit und Mittel kommen zusammengefasst, die Detailabrechnung als Beilage. Die Aufträge werden «verrechnet».
+  - *Verwaltung › Abrechnung*: Einträge ankreuzen (vorher bei Bedarf korrigieren) › «📤 An IM-Faktura». Je Eintrag eine Position, danach «abgerechnet».
 - **IM-Vermietung** (ab v1.14): Abrechnung › Zeilen auswählen › «📤 An IM-Faktura» – je Kunde eine Zeile Art. 100 «Maschinenmiete gemäss Rapport», der Rapport als Beilage.
 - Die Übergaben liegen in Dropbox `/faktura-eingang/`. IM-Faktura holt sie beim Start, alle paar Minuten und mit «Eingang prüfen» ab (Dropbox-Anmeldung nötig) und hängt sie an den offenen Entwurf des Kunden an (sonst neuer Entwurf). Fehlende Kunden werden angelegt.
 - Reiter **Entwürfe**: Hinweise (ohne Preis, ohne Kunde …), Σ fasst gleiche Positionen zusammen. Beilagen werden hinter der Rechnung gedruckt und lassen sich im Editor entfernen.

@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '139', APP_STAND = '19.11.2026';
+const APP_VERSION = '140', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1259,9 +1259,8 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
           <label class="fld"><span>Stunden eff.</span><input class="input" name="stundenEff" inputmode="decimal" value="${a.stundenEff ?? ''}"></label>
         </div></div>
     </div>`}
-    ${a.fakt ? `<p class="nr">📤 An IM-Faktura gesendet am ${fmtDate(a.fakt.am.slice(0, 10))}</p>` : ''}
     <p class="nr">Auftrag ${esc(a.nr || '')}</p>`;
-  const footer = saveFooter(isNew ? '' : `<button type="button" class="btn danger" data-act="delOrder" data-id="${a.id}">Löschen</button><button type="button" class="btn" data-act="dupOrder" data-id="${a.id}">Kopie</button>${done ? `<button type="button" class="btn ${a.fakt ? '' : 'primary'}" data-act="toFaktura" data-id="${a.id}" title="Speichern und als Abrechnung an IM-Faktura senden (erscheint dort in den Entwürfen)">📤 An IM-Faktura</button>` : ''}`);
+  const footer = saveFooter(isNew ? '' : `<button type="button" class="btn danger" data-act="delOrder" data-id="${a.id}">Löschen</button><button type="button" class="btn" data-act="dupOrder" data-id="${a.id}">Kopie</button>`);
 
   Dlg.open(isNew ? (vorlage ? (vTitel || 'Spritzauftrag erfassen') : 'Neuer Auftrag') : 'Auftrag', body, footer, fd => {
     const kTxt = (fd.get('kunde') || '').trim();
@@ -1995,45 +1994,120 @@ function exportCsv() {
   if (mark) { list.forEach(a => { if (statusOf(a) === 'erledigt') { a.status = 'verrechnet'; a.upd = Date.now(); } }); Store.save(); Sync.schedule(); App.render(); }
   toast(`${list.length} Aufträge exportiert`);
 }
-/* ================= An IM-Faktura senden (v139) =================
-   Ein erledigter Auftrag wird geöffnet, geprüft und mit «📤 An IM-Faktura» als Übergabe-Datei nach Dropbox /faktura-eingang/<id>.json gelegt.
-   IM-Faktura übernimmt ihn als Positionen in den Rechnungsentwurf des Kunden (Reiter Entwürfe). Der Auftrag wird «verrechnet», o.fakt = {am, id}. */
+/* ================= An IM-Faktura senden (v139/v140) =================
+   Aus Spritzen › Abrechnung (pro Kunde, Arbeit und Mittel zusammengefasst, Detailabrechnung als Beilage) und
+   Verwaltung › Abrechnung (angekreuzte Einträge, je Eintrag eine Position) wird je Kunde eine Übergabe-Datei
+   nach Dropbox /faktura-eingang/<id>.json gelegt. IM-Faktura übernimmt sie in den Rechnungsentwurf des Kunden (Reiter Entwürfe).
+   Gesendete Aufträge werden «verrechnet» (o.fakt = {am, id}), Arbeitsgänge «abgerechnet» (jdabr-… mit fakt). */
+const FAKT_PATH = '/faktura-eingang';
+const PS_COLS = [['Datum', '', 'cd'], ['Parzelle / Kultur', ''], ['Position', ''], ['Menge', 'q', 'cm'], ['Einheit', '', 'ce'], ['Ansatz', 'chf', 'cp'], ['Betrag CHF', 'chf', 'cb']];
 function fakturaKunde(k) { return { nr: k.nr || '', name: k.name || '', anrede: k.anrede || '', adresse: k.adresse || '', plz: k.plz || '', ort: k.ort || '', mail: k.mail || '', tel: k.tel || k.handy || '' }; }
-function fakturaHa(o) { try { const r = abRows().find(x => x.oid === o.id); if (r && r.ha != null) return r.ha; } catch { } return o.flaecheEff ?? o.flaeche ?? null; }
-function fakturaUebergabe(o) {
-  const k = Store.get('kunden', o.kunde) || {}, m = maschine(o.maschine) || {}, d = dOf(o), feld = aFeld(o);
-  const T = { v: 1, id: 'imv-' + o.id + '-' + Date.now().toString(36), app: 'IM-Verwaltung', appVer: APP_VERSION, am: new Date().toISOString(), kunde: fakturaKunde(k), pos: [], beilage: null, refs: [{ app: 'imv', id: o.id, nr: o.nr || '' }] };
-  if (isSpray(o)) {
-    const fl = flOf(o), preisHa = (k.preisSpritze || 0) + (k.preisFahrer || 0) + (k.preisTraktor || 0), zu = k.zuschlag || 0;
-    const cols = [['Datum', '', 'cd'], ['Parzelle / Kultur', ''], ['Position', ''], ['Menge', 'q', 'cm'], ['Einheit', '', 'ce'], ['Ansatz', 'chf', 'cp'], ['Betrag CHF', 'chf', 'cb']];
-    const rows = [], parz = [feld, o.kultur].filter(Boolean).join(' · ');
-    T.pos.push({ kind: 'arbeit', art: m.artNr || '', bez: `${fmtDate(d)} Spritzen${parz ? ' – ' + parz : ''}`, grp: 'Spritzarbeiten', menge: r2(fl), einh: 'ha', preis: preisHa || null });
-    rows.push([fmtDate(d), parz, 'Arbeit Spritzen', r2(fl), 'ha', preisHa, round05(fl * preisHa)]);
-    prodList(o).forEach(p => { const pr = prodAt(prodOf(p), d) || {}, preis = pr.preis || 0, preisZ = round05(preis * zu + preis), menge = r2((p.menge || 0) * fl), einh = p.einheit || pr.einheit || prodUnit(p.name) || '';
-      T.pos.push({ kind: 'psm', bez: p.name, grp: p.name, menge, einh, preis: preisZ || null });
-      rows.push(['', '', p.name + (pr.zulassung ? ` (${pr.zulassung})` : ''), menge, einh, preisZ, round05(menge * preisZ)]); });
-    T.beilage = { titel: 'Detailabrechnung Pflanzenschutz', cols, rows, total: r2(rows.reduce((s, x) => s + (+x[6] || 0), 0)) };
-    T.betreff = 'Spritzarbeiten';
-  } else {
-    const einh = m.einheit === 'h' ? 'h' : 'ha', menge = einh === 'h' ? (o.stundenEff ?? dauerOf(o) ?? null) : fakturaHa(o);
-    const txt = [o.arbeit, o.kultur].filter(Boolean).join(', ') + (feld ? ' – ' + feld : '');
-    T.pos.push({ kind: 'arbeit', art: m.artNr || '', bez: `${fmtDate(d)} ${txt}`, grp: o.arbeit || '', menge: menge != null ? r2(menge) : null, einh, preis: m.ansatz ?? null });
-    if (o.notiz && /rechnung|faktura/i.test(o.notiz)) T.pos.push({ kind: 'text', bez: o.notiz });
-  }
+const fakturaId = kid => 'imv-' + (kid || 'k') + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+function fakturaT(k, betreff) { return { v: 1, id: fakturaId(k.id), app: 'IM-Verwaltung', appVer: APP_VERSION, am: new Date().toISOString(), betreff, kunde: fakturaKunde(k), pos: [], beilage: null, refs: [] }; }
+// Maschine eines Eintrags: aus dem Auftrag, sonst über den Namen aus MyJohnDeere, sonst über die Arbeitsart
+function fakturaMasch(o, r) {
+  const m = o && maschine(o.maschine); if (m) return m;
+  const all = Store.all('maschinen'), nm = norm((r && r.maschine || '').split(', ')[0]);
+  return (nm && all.find(x => norm(x.name) === nm || (x.kurz && norm(x.kurz) === nm))) || (r && r.arbeit && all.find(x => x.aktiv !== false && (x.arbeitsarten || []).includes(r.arbeit))) || {};
+}
+// Spritzauftrag als Zeilen (Arbeit + Mittel mit Zuschlag), Fläche fl
+function fakturaSpray(o, k, fl) {
+  const preisHa = (k.preisSpritze || 0) + (k.preisFahrer || 0) + (k.preisTraktor || 0), zu = k.zuschlag || 0, d = dOf(o);
+  const parz = [aFeld(o), o.kultur].filter(Boolean).join(' · ');
+  const arbeit = { menge: r2(fl), preis: preisHa, betrag: round05(fl * preisHa) };
+  const mittel = prodList(o).map(p => { const pr = prodAt(prodOf(p), d) || {}, preis = pr.preis || 0, preisZ = round05(preis * zu + preis), menge = r2((p.menge || 0) * fl);
+    return { name: p.name, zul: pr.zulassung || '', menge, einh: p.einheit || pr.einheit || prodUnit(p.name) || '', preis: preisZ, betrag: round05(menge * preisZ) }; });
+  const rows = [[fmtDate(d, { day: '2-digit', month: '2-digit', year: '2-digit' }), parz, 'Arbeit Spritzen', arbeit.menge, 'ha', preisHa, arbeit.betrag],
+    ...mittel.map(m => ['', '', m.name + (m.zul ? ` (${m.zul})` : ''), m.menge, m.einh, m.preis, m.betrag])];
+  return { d, parz, preisHa, arbeit, mittel, rows };
+}
+// Mittel über mehrere Aufträge zusammenfassen (gleicher Name, Einheit und Ansatz)
+function fakturaMittelSum(list) {
+  const M = new Map(); list.forEach(m => { const key = m.name + '|' + m.einh + '|' + m.preis; const x = M.get(key) || { ...m, menge: 0 }; x.menge = r2(x.menge + m.menge); M.set(key, x); });
+  return [...M.values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+}
+async function fakturaWrite(Ts) {
+  if (!Auth.hasSession()) { toast('Für die Übergabe an IM-Faktura mit Dropbox anmelden.', 4000); return false; }
+  for (const T of Ts) await Drive.writeJson(`${FAKT_PATH}/${T.id}.json`, T);
+  return true;
+}
+// Gesendete markieren: Aufträge verrechnet, Arbeitsgänge abgerechnet
+function fakturaMark(oids, jids, T) {
+  const now = todayIso(), f = { am: T.am, id: T.id };
+  const oc = oids.map(id => Store.get('auftraege', id)).filter(Boolean).map(o => ({ ...o, status: 'verrechnet', verrechnetAm: o.verrechnetAm || now, fakt: f }));
+  const ec = jids.map(j => ({ ...(jdbAbr(j) || {}), id: JDB_ABR + j, jdabr: true, am: (jdbAbr(j) || {}).am || now, fakt: f }));
+  if (ec.length) Store.putMany('einstellungen', ec);
+  if (oc.length) Store.putMany('auftraege', oc);
+}
+const faktErr = e => toast('Senden an IM-Faktura fehlgeschlagen: ' + (e && e.message || e), 6000);
+
+/* ---------- Spritzen › Abrechnung: pro Kunde, zusammengefasst ---------- */
+function fakturaSpritzT(b, von, bis, L) {
+  const T = fakturaT(b.k, 'Spritzarbeiten'), zr = `${fmtDate(von, { day: '2-digit', month: '2-digit', year: 'numeric' })} – ${fmtDate(bis, { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
+  const X = L.map(r => fakturaSpray(r.a, b.k, r.fl)), m0 = L[0] ? fakturaMasch(L[0].a, { arbeit: L[0].a.arbeit }) : {};
+  const ha = r2(X.reduce((s, x) => s + x.arbeit.menge, 0));
+  T.pos.push({ kind: 'arbeit', art: m0.artNr || '', bez: `Spritzarbeiten ${zr} gemäss Detailabrechnung (${L.length} ${L.length === 1 ? 'Auftrag' : 'Aufträge'})`, grp: 'Spritzarbeiten', menge: ha, einh: 'ha', preis: b.preisHa || null });
+  fakturaMittelSum(X.flatMap(x => x.mittel)).forEach(m => T.pos.push({ kind: 'psm', bez: m.name + (m.zul ? ` (${m.zul})` : ''), grp: 'Pflanzenschutzmittel', menge: m.menge, einh: m.einh, preis: m.preis || null }));
+  const rows = X.flatMap(x => x.rows);
+  T.beilage = { titel: 'Detailabrechnung Pflanzenschutz', untertitel: `Spritzarbeiten ${zr}`, cols: PS_COLS, rows, total: r2(rows.reduce((s, x) => s + (+x[6] || 0), 0)) };
+  T.refs = L.map(r => ({ app: 'imv', id: r.a.id, nr: r.a.nr || '' }));
   return T;
 }
-async function fakturaSend(id) {
-  const o = Store.get('auftraege', id); if (!o) return;
-  if (!['erledigt', 'verrechnet'].includes(statusOf(o))) { toast('Nur erledigte Aufträge – zuerst «Erledigt melden».', 4000); return; }
-  if (!Auth.hasSession()) { toast('Für die Übergabe an IM-Faktura mit Dropbox anmelden.', 4000); return; }
-  if (o.fakt && !confirm(`Dieser Auftrag wurde am ${fmtDate(o.fakt.am.slice(0, 10))} schon an IM-Faktura gesendet. Nochmals senden? (Er erscheint dann doppelt im Rechnungsentwurf.)`)) return;
-  const T = fakturaUebergabe(o);
-  if (T.pos.some(p => p.kind !== 'text' && (p.menge == null || p.preis == null)) && !confirm('Für eine Position fehlt Menge oder Preis (Maschine › Ansatz bzw. Kundenpreise Spritzen). Trotzdem senden und in IM-Faktura ergänzen?')) return;
+async function fakturaSpritzSend(all) {
+  const S = App.spray, ks = all ? billKunden(S).map(k => k.id) : [S.ak];
+  const bs = ks.map(id => billing(id, S.av, S.ab, S.ag)).filter(b => b.rows.length);
+  const sel = bs.map(b => ({ b, L: b.rows.filter(r => statusOf(r.a) === 'erledigt') })).filter(x => x.L.length);
+  if (!sel.length) {
+    if (all || !bs.length) { toast('Keine offenen (erledigten, nicht verrechneten) Spritzaufträge im Zeitraum.', 4000); return; }
+    if (!confirm('Alle Aufträge dieser Abrechnung sind schon verrechnet. Trotzdem alle an IM-Faktura senden?')) return;
+    sel.push({ b: bs[0], L: bs[0].rows });
+  }
+  const n = sel.reduce((s, x) => s + x.L.length, 0), dop = sel.reduce((s, x) => s + x.L.filter(r => r.a.fakt).length, 0);
+  const ohne = sel.filter(x => !x.b.preisHa).map(x => x.b.k.name);
+  if (!confirm(`${n} ${n === 1 ? 'Spritzauftrag' : 'Spritzaufträge'} von ${sel.length} ${sel.length === 1 ? 'Kunde' : 'Kunden'} an IM-Faktura senden?\n\nJe Kunde: Arbeit und Mittel zusammengefasst, die Detailabrechnung als Beilage. Die Aufträge werden danach «verrechnet».`
+    + (dop ? `\n\n⚠ ${dop} davon wurden schon einmal gesendet.` : '') + (ohne.length ? `\n\n⚠ Ohne Spritzpreise: ${ohne.join(', ')}` : ''))) return;
   try {
-    await Drive.writeJson(`/faktura-eingang/${T.id}.json`, T);
-    Store.put('auftraege', Object.assign({}, o, { status: 'verrechnet', verrechnetAm: o.verrechnetAm || todayIso(), fakt: { am: T.am, id: T.id } }));
-    toast(`📤 Auftrag ${o.nr || ''} an IM-Faktura gesendet (${kundeName(o.kunde)})`, 4000); App.render();
-  } catch (e) { toast('Senden fehlgeschlagen: ' + e.message, 6000); }
+    const Ts = sel.map(x => fakturaSpritzT(x.b, S.av, S.ab, x.L)); if (!await fakturaWrite(Ts)) return;
+    sel.forEach((x, i) => fakturaMark(x.L.map(r => r.a.id), [], Ts[i]));
+    toast(`📤 ${n} ${n === 1 ? 'Auftrag' : 'Aufträge'} an IM-Faktura gesendet (${sel.length} ${sel.length === 1 ? 'Kunde' : 'Kunden'})`, 4000); App.render();
+  } catch (e) { faktErr(e); }
+}
+
+/* ---------- Verwaltung › Abrechnung: angekreuzte Einträge ---------- */
+function fakturaAbrT(k, rows) {
+  const T = fakturaT(k, 'Lohnarbeiten'), ps = [];
+  rows.forEach(r => {
+    const o = r.oid ? Store.get('auftraege', r.oid) : null, dt = fmtDate(r.d, { day: '2-digit', month: '2-digit', year: '2-digit' });
+    if (o && isSpray(o)) {
+      const x = fakturaSpray(o, k, r.ha ?? flOf(o)), m = fakturaMasch(o, r);
+      T.pos.push({ kind: 'arbeit', art: m.artNr || '', bez: `${dt} Spritzen${x.parz ? ' – ' + x.parz : ''}`, grp: 'Spritzarbeiten', menge: x.arbeit.menge, einh: 'ha', preis: x.preisHa || null });
+      x.mittel.forEach(mm => T.pos.push({ kind: 'psm', bez: mm.name + (mm.zul ? ` (${mm.zul})` : ''), grp: 'Pflanzenschutzmittel', menge: mm.menge, einh: mm.einh, preis: mm.preis || null }));
+      ps.push(...x.rows); return;
+    }
+    const m = fakturaMasch(o, r), einh = m.einheit === 'h' ? 'h' : 'ha';
+    const menge = einh === 'h' ? (r.std ?? r.dauer ?? null) : r.ha;
+    const txt = [r.arbeit, r.kultur].filter(Boolean).join(', ') + (r.feld ? ' – ' + r.feld : '');
+    T.pos.push({ kind: 'arbeit', art: m.artNr || '', bez: `${dt} ${txt}`, grp: r.arbeit || '', menge: menge != null ? r2(menge) : null, einh, preis: m.ansatz ?? null });
+  });
+  if (ps.length) T.beilage = { titel: 'Detailabrechnung Pflanzenschutz', cols: PS_COLS, rows: ps, total: r2(ps.reduce((s, x) => s + (+x[6] || 0), 0)) };
+  T.refs = rows.map(r => ({ app: 'imv', id: r.oid || '', jd: r.jid || '', nr: r.nr || '' }));
+  return T;
+}
+async function fakturaAbrSend() {
+  const S = App.abrSel || new Set(), rows = abList().filter(r => S.has(r.id)); if (!rows.length) return;
+  const noK = rows.filter(r => !r.kid);
+  if (noK.length) { toast(`${noK.length} ${noK.length === 1 ? 'Eintrag hat' : 'Einträge haben'} keinen Kunden aus den Stammdaten («${noK[0].kunde || '–'}») – zuerst mit «✎ Kunde / Feld / Kultur ändern» zuordnen.`, 6000); return; }
+  const G = groupBy(rows, r => r.kid), Ts = G.map(([kid, l]) => fakturaAbrT(Store.get('kunden', kid) || { id: kid }, l));
+  const fehlt = Ts.reduce((s, T) => s + T.pos.filter(p => p.menge == null || p.preis == null).length, 0);
+  const abr = rows.filter(r => r.abr).length, dop = rows.filter(r => (r.oid && (Store.get('auftraege', r.oid) || {}).fakt) || (r.jid && (jdbAbr(r.jid) || {}).fakt)).length;
+  if (!confirm(`${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'} von ${G.length} ${G.length === 1 ? 'Kunde' : 'Kunden'} an IM-Faktura senden?\n\nJe Eintrag eine Position (in IM-Faktura mit Σ zusammenfassbar). Danach als abgerechnet markiert.`
+    + (dop ? `\n\n⚠ ${dop} davon wurden schon einmal gesendet.` : abr ? `\n\n⚠ ${abr} davon sind schon als abgerechnet markiert.` : '')
+    + (fehlt ? `\n\n⚠ Bei ${fehlt} ${fehlt === 1 ? 'Position fehlt' : 'Positionen fehlen'} Menge oder Preis (Maschine › Ansatz) – in IM-Faktura ergänzen.` : ''))) return;
+  try {
+    if (!await fakturaWrite(Ts)) return;
+    G.forEach(([, l], i) => fakturaMark(l.map(r => r.oid).filter(Boolean), l.map(r => r.jid).filter(Boolean), Ts[i]));
+    S.clear(); toast(`📤 ${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'} an IM-Faktura gesendet (${G.length} ${G.length === 1 ? 'Kunde' : 'Kunden'})`, 4000); App.render();
+  } catch (e) { faktErr(e); }
 }
 /* ================= Modul Spritzen ================= */
 const PROD_EINHEITEN = ['l', 'kg', 'g', 'ml', 'Stk'];
@@ -2688,7 +2762,7 @@ function abrechnungContent() {
     return head + (sums.length ? `<div class="tscroll"><table class="need"><thead><tr><th>Kunde</th><th>Aufträge</th><th>offen</th><th>Fläche ha</th><th>Arbeit</th><th>Mittel</th><th>Total CHF</th><th></th></tr></thead><tbody>
       ${sums.map(x => `<tr class="click" data-act="spAkSel" data-id="${x.k.id}"><td>${esc(x.k.name)}</td><td>${x.b.rows.length}</td><td>${billOffen(x.b) || '<span class="nr">–</span>'}</td><td>${fmtNum(r2(x.b.rows.reduce((s, r) => s + r.fl, 0)))}</td><td>${chf(x.b.tA)}</td><td>${chf(x.b.tM)}</td><td><b>${chf(x.b.total)}</b></td><td></td></tr>`).join('')}
       <tr class="area"><td>Total</td><td></td><td></td><td></td><td></td><td></td><td><b>${chf(tot)}</b></td><td></td></tr></tbody></table></div>
-      <div class="btns"><button class="btn" data-act="spBillCsv">CSV (alle)</button><button class="btn" data-act="spBillPrintAll">Alle drucken / PDF</button></div>`
+      <div class="btns"><button class="btn" data-act="spBillCsv">CSV (alle)</button><button class="btn" data-act="spBillPrintAll">Alle drucken / PDF</button><button class="btn" data-act="spBillFaktAll" title="Je Kunde mit offenen Aufträgen eine Übergabe an IM-Faktura">📤 Alle offenen an IM-Faktura</button></div>`
       : `<div class="empty">${S.ao ? 'Keine Kunden mit offenen Spritzaufträgen in diesem Zeitraum.' : 'Keine erledigten Spritzaufträge in diesem Zeitraum.'}</div>`);
   }
   const b = billing(S.ak, S.av, S.ab, S.ag);
@@ -2696,7 +2770,7 @@ function abrechnungContent() {
   return head + `${!b.preisHa ? '<p class="hintp panel">Für diesen Kunden sind keine Spritzpreise erfasst – unter <b>Kunden</b> ergänzen.</p>' : ''}
     <p class="nr">Zeile antippen, um den Auftrag zu bearbeiten.</p>
     <div class="panel">${billingHtml(b, S.av, S.ab)}
-    <div class="btns"><button class="btn primary" data-act="spBillPrint">Drucken / PDF</button><button class="btn" data-act="spBillCsv">CSV</button>
+    <div class="btns"><button class="btn primary" data-act="spBillPrint">Drucken / PDF</button><button class="btn" data-act="spBillCsv">CSV</button><button class="btn" data-act="spBillFakt" title="Arbeit und Mittel zusammengefasst an IM-Faktura, Detailabrechnung als Beilage">📤 An IM-Faktura</button>
       ${offen ? `<button class="btn" data-act="spBillMark">${offen} als verrechnet markieren</button>` : ''}</div></div>`;
 }
 // Nach Druck/Export der Spritz-Abrechnung nachfragen, ob die enthaltenen erledigten Aufträge als verrechnet gelten (v127)
@@ -4409,7 +4483,7 @@ function abRow(o, j, km) {
   const d = o ? (o.erledigtAm || o.datum) : j.d;
   const abJ = j ? jdbAbr(j.id) : null, abO = o && statusOf(o) === 'verrechnet';
   const abr = o ? abO : !!abJ, am = o ? (o.verrechnetAm || (abJ && abJ.am) || '') : (abJ ? abJ.am : '');
-  return { korr: j ? j.korr || 0 : 0, id: o ? 'o:' + o.id : 'j:' + j.id, oid: o ? o.id : '', jid: j ? j.id : '', src: o && j ? 'beide' : o ? 'planer' : 'jd', d, start: j ? j.start : '', end: j ? j.end : '',
+  return { korr: j ? j.korr || 0 : 0, kid: k ? k.id : '', id: o ? 'o:' + o.id : 'j:' + j.id, oid: o ? o.id : '', jid: j ? j.id : '', src: o && j ? 'beide' : o ? 'planer' : 'jd', d, start: j ? j.start : '', end: j ? j.end : '',
     dauer: j ? j.dauer : null, std: o ? (o.stundenEff ?? dauerOf(o) ?? null) : null, nr: o ? o.nr || '' : '',
     kunde: k ? k.name : (j ? j.kunde : ''), feld: (o && aFeld(o)) || (j ? j.feld : ''), arbeit: o ? o.arbeit || '' : j.arbeit, kultur: (o && o.kultur) || (j ? j.kultur : ''),
     haP, haE, haG, genau, haJ, haB, ha, haQ, quelle: j ? j.quelle : '', maschine: (m && m.name) || (j ? j.maschine : ''), fahrer: j ? j.fahrer : '',
@@ -4459,6 +4533,7 @@ function abSelBar(list) {
   return `<div class="panel alselbar"><b>${S.size} ausgewählt · ${fmtNum(abHaSum(sl))} ha</b>${qTxt ? ` <span class="nr">(${qTxt})</span>` : ''}
     <button type="button" class="btn mini primary" data-ab="mark" data-v="1">✓ Als abgerechnet markieren</button>
     <button type="button" class="btn mini" data-ab="mark" data-v="0">Wieder offen</button>
+    <button type="button" class="btn mini" data-ab="fakt" title="Je Kunde eine Übergabe an IM-Faktura (erscheint dort in den Entwürfen), danach abgerechnet">📤 An IM-Faktura</button>
     ${S.size < list.length ? `<button type="button" class="btn mini" data-ab="selAllList">Alle ${list.length} auswählen</button>` : ''}
     <button type="button" class="btn mini" data-ab="selNone">Auswahl aufheben</button></div>`;
 }
@@ -4735,6 +4810,7 @@ document.addEventListener('click', e => {
     case 'colReset': ls('lp_abrcols', ''); Dlg.close(); App.render(); toast('Spalten auf Standard zurückgesetzt'); break;
     case 'more': A.limit = (A.limit || 300) + 300; App.render(); break;
     case 'mark': abMarkSel(t.dataset.v === '1'); break;
+    case 'fakt': fakturaAbrSend(); break;
     case 'markOne': { const r = abRows().find(x => x.id === id); if (!r) break; const on = t.dataset.v === '1'; abMark([r], on); toast(on ? 'Als abgerechnet markiert' : 'Wieder offen'); abDetail(id); break; }
     case 'selAllList': abList().forEach(r => S.add(r.id)); App.render(); break;
     case 'selNone': S.clear(); App.render(); break;
@@ -5992,7 +6068,6 @@ document.addEventListener('click', async e => {
     case 'editOrder': orderDialog(id); break;
     case 'planOrder': e.stopPropagation(); orderDialog(id, { plan: 'vorschlag' }); break;
     case 'done': e.stopPropagation(); doneDialog(id); break;
-    case 'toFaktura': Dlg.afterSave = () => fakturaSend(id); if (!Dlg.form.reportValidity()) { Dlg.afterSave = null; break; } Dlg.form.requestSubmit(); break;
     case 'doneSave': Dlg.afterSave = () => doneDialog(id); if (!Dlg.form.reportValidity()) { Dlg.afterSave = null; break; } Dlg.form.requestSubmit(); break;
     case 'unplan': f.datum.value = ''; f.zeit.value = ''; toast('Beim Speichern wird die Einplanung entfernt'); break;
     case 'quickKunde': if (jdLock()) toast('Neue Kunden werden in MyJohnDeere erfasst.'); else quickKundeDialog(); break;
@@ -6061,6 +6136,8 @@ document.addEventListener('click', async e => {
     case 'spAkSel': App.spray.ak = id; App.render(); window.scrollTo(0, 0); break;
     case 'spBillCsv': billingCsv(); break;
     case 'spBillPrint': { const S = App.spray, b = billing(S.ak, S.av, S.ab, S.ag); printHtml('Abrechnung Spritzarbeiten', billingHtml(b, S.av, S.ab), { noTitle: true, after: () => spBillAsk([b]) }); break; }
+    case 'spBillFakt': fakturaSpritzSend(false); break;
+    case 'spBillFaktAll': fakturaSpritzSend(true); break;
     case 'spBillPrintAll': { const S = App.spray, bs = billKunden(S).map(k => billing(k.id, S.av, S.ab, S.ag)).filter(b => b.rows.length); printHtml('Abrechnung Spritzarbeiten', bs.map(b => billingHtml(b, S.av, S.ab)).join(''), { noTitle: true, after: () => spBillAsk(bs) }); break; }
     case 'spBillMark': {
       const S = App.spray, b = billing(S.ak, S.av, S.ab, S.ag), ch = b.rows.filter(r => statusOf(r.a) === 'erledigt').map(r => ({ ...r.a, status: 'verrechnet' }));
