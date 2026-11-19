@@ -1318,3 +1318,14 @@ body.fsmode #selbar { left: 12px; }
 .fktab .combo-sug { right: auto; min-width: 420px; max-width: 560px; max-height: 340px; }
 .fktab .combo-sug > * { white-space: normal; }
 .fkall { display: inline-flex; gap: 6px; margin: 0 0 10px; }
+/* v146: Abrechnung › Eintrag – Karte neben den Angaben, darunter Erfassung für IM-Faktura */
+.abdet2 { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(360px, 1.15fr); gap: 20px; align-items: start; }
+.abdet2 h4 { margin: 0 0 6px; }
+.abdet2 .abdr .bedmap { max-width: 100%; }
+@media (max-width: 900px) { .abdet2 { grid-template-columns: 1fr; } }
+.fkdet .fkhead { margin-bottom: 8px; }
+.fkdet .fkall { margin: 0 0 4px; }
+.fktab .fkn { width: 80px; }
+.fktab tr.fkz td { background: rgba(80,120,200,.05); }
+.fktab tr.fkadd td { border-top: 0; padding-top: 2px; }
+.fktab tbody.fkent + tbody.fkent tr:first-child td { border-top: 2px solid var(--line); }

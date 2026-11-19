@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '145', APP_STAND = '19.11.2026';
+const APP_VERSION = '146', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -2106,102 +2106,179 @@ function fakturaAbrT(k, rows) {
 /* v144: Sendefenster – vor dem Senden je Eintrag Menge, Artikel, Preis und Bemerkung (Kultur) bearbeiten, je Kunde den Kunden in IM-Faktura wählen;
    bei Dreschen/Ernte zusätzlich Strohhäckseln (Fläche = Auftragsfläche, änderbar). Kunden und Artikel aus /faktura.json (nur lesen). */
 const isDresch = s => /dresch|ernte|mähdrusch/i.test(s || '');
-async function fkLoad() {
-  try { const d = await Drive.readJson('/faktura.json'); return { ok: !!d, kunden: ((d && d.kunden) || []).filter(x => !x.del && x.aktiv !== false).sort((a, b) => String(a.name).localeCompare(String(b.name), 'de')), artikel: ((d && d.artikel) || []).filter(x => !x.del).sort((a, b) => String(a.artNr).localeCompare(String(b.artNr), 'de', { numeric: true })) }; }
+let _fkCache = null, _fkAt = 0;
+async function fkLoad(force) {
+  if (!force && _fkCache && _fkCache.ok && Date.now() - _fkAt < 120000) return _fkCache;
+  try { const d = await Drive.readJson('/faktura.json'); _fkCache = { ok: !!d, kunden: ((d && d.kunden) || []).filter(x => !x.del && x.aktiv !== false).sort((a, b) => String(a.name).localeCompare(String(b.name), 'de')), artikel: ((d && d.artikel) || []).filter(x => !x.del).sort((a, b) => String(a.artNr).localeCompare(String(b.artNr), 'de', { numeric: true })) }; _fkAt = Date.now(); return _fkCache; }
   catch { return { ok: false, kunden: [], artikel: [] }; }
 }
-async function fakturaAbrSend(einzeln) { // einzeln (v142): ein Eintrag aus dem Fenster «Abrechnung – Eintrag» / «Arbeitsgang»
+/* ---------- v146: Erfassung für IM-Faktura je Eintrag (gemeinsam: Sendefenster und Abrechnung › Eintrag) ----------
+   Entwurf in «einstellungen» fkpos-<Auftrag-ID|Arbeitsgang-ID> – nur Abweichungen von der Vorgabe; nach dem Senden gelöscht.
+   Vorgabe Artikel: genau ein Artikel der Arbeit zugewiesen (IM-Faktura «Arbeiten in der IM-Verwaltung») → dieser; mehrere → leer; keiner → Art.-Nr. der Maschine. */
+const FKP = 'fkpos-', fkKey = r => FKP + (r.oid || r.jid);
+const FK_KEYS = ['fk', 'menge', 'einh', 'art', 'preis', 'bem', 'stroh', 'strohHa', 'strohArt', 'strohPreis', 'zusatz'];
+const fkArtOf = (FK, nr) => nr ? FK.artikel.find(a => String(a.artNr) === String(nr)) || null : null;
+const fkAssigned = (FK, arbs) => { const ks = arbs.filter(Boolean).map(norm); return FK.artikel.filter(a => a.aktiv !== false && (a.arbeiten || []).some(x => ks.includes(norm(x)))); };
+const fkArtFor = (FK, arbs, all) => { const A = FK.artikel.filter(a => a.aktiv !== false), F = arbs ? fkAssigned(FK, arbs) : []; return all || !arbs || !F.length ? A : F; };
+function fkArtOpts(FK, cur, arbs, all) {
+  const lst = fkArtFor(FK, arbs, all), c = fkArtOf(FK, cur);
+  return `<option value="">— ohne Artikel —</option>${cur && !c ? `<option value="${esc(cur)}" selected>${esc(cur)} (nicht in IM-Faktura)</option>` : ''}${(c && !lst.includes(c) ? [c, ...lst] : lst).map(a => `<option value="${esc(a.artNr)}" ${String(a.artNr) === String(cur) ? 'selected' : ''}>${esc(a.artNr)} ${esc(a.bez || '')}${a.preis != null ? ` (${fmtNum(a.preis)}/${esc(a.einheit || '')})` : ''}</option>`).join('')}`;
+}
+function fkKundeOf(FK, k) { return FK.kunden.find(x => k.id && (x.imvIds || []).includes(k.id)) || (k.nr && FK.kunden.find(x => String(x.nr || '') === String(k.nr))) || FK.kunden.find(x => norm(x.name) === norm(k.name)) || null; }
+function fkDefaults(FK, r, k) {
+  const o = r.oid ? Store.get('auftraege', r.oid) : null, spray = !!(o && isSpray(o)), m = fakturaMasch(o, r), arbs = [r.arbeit, o && o.arbeit].filter(Boolean);
+  const as = spray ? [] : fkAssigned(FK, arbs), a1 = as.length === 1 ? as[0] : null;
+  let einh = spray ? 'ha' : m.einheit === 'h' ? 'h' : 'ha'; const menge = einh === 'h' ? (r.std ?? r.dauer ?? null) : r.ha;
+  const art = a1 ? a1.artNr : as.length > 1 ? '' : (m.artNr || '');
+  const preis = spray ? (fakturaSpray(o, k, r.ha ?? flOf(o)).preisHa || null) : a1 && a1.preis != null ? a1.preis : (m.ansatz ?? (fkArtOf(FK, art) || {}).preis ?? null);
+  if (a1 && a1.einheit && !spray) einh = a1.einheit;
+  const sa = fkAssigned(FK, ['Strohhäckseln']), s1 = sa.length === 1 ? sa[0] : sa.length ? null : FK.artikel.find(a => /stroh/i.test(a.bez || '') && /häck|hack/i.test(a.bez || '')) || null;
+  const fk0 = fkKundeOf(FK, k);
+  return { o, spray, arbs, dresch: isDresch(r.arbeit) || !!(o && isDresch(o.arbeit)), fk: fk0 ? fk0.id : '',
+    menge: menge != null ? r2(menge) : null, einh, art, preis, bem: r.kultur || '',
+    stroh: !!(o && o.stroh), strohHa: (o && o.strohHa) ?? (r.ha != null ? r2(r.ha) : null), strohArt: s1 ? s1.artNr : '', strohPreis: s1 ? s1.preis ?? null : null, zusatz: [] };
+}
+function fkEntry(FK, r, k) { const d = fkDefaults(FK, r, k), s = Store.get('einstellungen', fkKey(r)); d.def = { ...d }; if (s) FK_KEYS.forEach(x => { if (s[x] !== undefined) d[x] = s[x]; }); return d; }
+function fkSave(r, d) { // nur Abweichungen von der Vorgabe speichern
+  const rec = { id: fkKey(r), fkpos: true, am: todayIso() }; FK_KEYS.forEach(x => { if (JSON.stringify(d[x] ?? null) !== JSON.stringify(d.def[x] ?? null)) rec[x] = d[x]; });
+  const cur = Store.get('einstellungen', rec.id);
+  if (Object.keys(rec).length > 3) { if (!cur || FK_KEYS.some(x => JSON.stringify(cur[x]) !== JSON.stringify(rec[x]))) Store.put('einstellungen', rec); }
+  else if (cur) Store.put('einstellungen', { id: rec.id, del: true });
+}
+function fkRowsHtml(FK, j, r, d, all, title) {
+  const n = f => `${f}_${j}`, nm = f => `name="${n(f)}"`;
+  const num = (f, v) => `<input class="input fkn" ${nm(f)} inputmode="decimal" value="${v ?? ''}">`, txt = (f, v, ph = '', w = '') => `<input class="input" ${nm(f)} value="${esc(v ?? '')}" placeholder="${esc(ph)}"${w ? ` style="width:${w}"` : ''}>`;
+  const sel = (f, cur, arbs, extra = '') => `<select class="input fka" ${nm(f)} data-arb="${esc((arbs || []).join('|'))}" ${extra}>${fkArtOpts(FK, cur, arbs, all)}</select>`;
+  return `<tr class="fkr" data-j="${j}"><td>${title}${d.spray ? '<div class="nr">Pflanzenschutzmittel werden mit der Fläche berechnet</div>' : ''}</td><td class="r">${num('m', d.menge)}</td><td>${txt('e', d.einh, '', '52px')}</td>
+      <td>${sel('a', d.art, d.arbs, `data-p="${n('p')}" data-e="${n('e')}"`)}</td><td class="r">${num('p', d.preis)}</td><td class="r fkb"></td><td>${txt('b', d.bem, 'z. B. Kultur')}</td><td></td></tr>
+    ${d.dresch ? `<tr class="fkr fkstroh" data-j="${j}"><td><label class="tog"><input type="checkbox" ${nm('s')} ${d.stroh ? 'checked' : ''}> + Strohhäckseln</label></td><td class="r">${num('sm', d.strohHa)}</td><td>ha</td>
+      <td>${sel('sa', d.strohArt, ['Strohhäckseln'], `data-p="${n('sp')}"`)}</td><td class="r">${num('sp', d.strohPreis)}</td><td class="r fkb"></td><td class="nr">Fläche aus dem Auftrag, änderbar</td><td></td></tr>` : ''}
+    ${(d.zusatz || []).map((z, i) => `<tr class="fkr fkz" data-j="${j}" data-z="${i}"><td class="nr">Zusatzartikel</td><td class="r">${num('zm' + i, z.menge)}</td><td>${txt('ze' + i, z.einh, '', '52px')}</td>
+      <td>${sel('za' + i, z.art, null, `data-p="${n('zp' + i)}" data-e="${n('ze' + i)}"`)}</td><td class="r">${num('zp' + i, z.preis)}</td><td class="r fkb"></td><td>${txt('zb' + i, z.bem, 'Bemerkung')}</td>
+      <td><button type="button" class="btn small fkzdel" data-j="${j}" data-z="${i}" title="Zusatzartikel entfernen">✕</button></td></tr>`).join('')}
+    <tr class="fkadd" data-j="${j}"><td colspan="8"><button type="button" class="btn small fkzadd" data-j="${j}">＋ Artikel (z. B. Saatgut, Schneckenkorn)</button></td></tr>`;
+}
+const FK_HEAD = '<thead><tr><th>Eintrag</th><th class="r">Menge</th><th>Einh.</th><th>Artikel</th><th class="r">Preis</th><th class="r">Betrag</th><th>Bemerkung (auf der Rechnung)</th><th></th></tr></thead>';
+function fkRead(F, j, d) {
+  const g = f => F.querySelector(`[name="${f}_${j}"]`), v = f => g(f) ? num(g(f).value) : null, t = f => g(f) ? g(f).value.trim() : '';
+  const x = { ...d, menge: v('m'), einh: t('e') || 'ha', art: t('a'), preis: v('p'), bem: t('b') };
+  if (d.dresch) Object.assign(x, { stroh: !!(g('s') && g('s').checked), strohHa: v('sm'), strohArt: t('sa'), strohPreis: v('sp') });
+  x.zusatz = [...F.querySelectorAll(`tr.fkz[data-j="${j}"]`)].map(tr => { const i = tr.dataset.z; return { art: t('za' + i), menge: v('zm' + i), einh: t('ze' + i), preis: v('zp' + i), bem: t('zb' + i) }; });
+  return x;
+}
+function fkPos(FK, r, d, k) {
+  const dt = fmtDate(r.d, { day: '2-digit', month: '2-digit', year: '2-digit' }), fl = r.feld ? ' – ' + r.feld : '', pos = [], ps = [], tx = (b, m) => b + (m ? '\n' + m : '');
+  if (d.spray && d.o) {
+    const sp = fakturaSpray(d.o, k, d.menge ?? 0);
+    pos.push({ kind: 'arbeit', art: d.art, bez: tx(`${dt} Spritzen${fl}`, d.bem), grp: 'Spritzarbeiten', menge: d.menge, einh: d.einh, preis: d.preis });
+    sp.mittel.forEach(mm => pos.push({ kind: 'psm', bez: mm.name + (mm.zul ? ` (${mm.zul})` : ''), grp: 'Pflanzenschutzmittel', menge: mm.menge, einh: mm.einh, preis: mm.preis || null }));
+    ps.push(...sp.rows);
+  } else pos.push({ kind: 'arbeit', art: d.art, bez: tx(`${dt} ${r.arbeit || ''}${fl}`, d.bem), grp: r.arbeit || '', menge: d.menge, einh: d.einh, preis: d.preis });
+  if (d.dresch && d.stroh) pos.push({ kind: 'arbeit', art: d.strohArt, bez: `${dt} Strohhäckseln${fl}`, grp: 'Strohhäckseln', menge: d.strohHa, einh: 'ha', preis: d.strohPreis });
+  (d.zusatz || []).filter(z => z.art || z.bem || z.menge != null).forEach(z => { const a = fkArtOf(FK, z.art);
+    pos.push({ kind: 'ware', art: z.art, bez: tx(`${(a && a.bez) || z.bem || 'Zusatzartikel'}${fl}`, a ? z.bem : ''), grp: (a && a.bez) || '', menge: z.menge, einh: z.einh || (a && a.einheit) || '', preis: z.preis }); });
+  return { pos, ps };
+}
+// Felder verdrahten: Betrag, Artikelwechsel (Preis/Einheit), Zusatzartikel hinzufügen/entfernen, «alle Artikel»
+function fkWire(F, FK, ent, onChange) { // ent: j → { r, d, title }
+  const betr = () => F.querySelectorAll('tr.fkr').forEach(tr => { const td = tr.querySelector('.fkb'); if (!td) return; const cb = tr.querySelector('input[type=checkbox]'), on = !cb || cb.checked;
+    const ins = [...tr.querySelectorAll('input.fkn')], m = num(ins[0] && ins[0].value), p = num(ins[1] && ins[1].value);
+    td.textContent = on && m != null && p != null ? fmtNum(round05(m * p)) : on ? '–' : ''; td.classList.toggle('warnc', on && (m == null || p == null)); });
+  const all = () => !!(F.querySelector('[data-fkall]') || {}).checked;
+  const rerender = j => { const e = ent[j], tb = F.querySelector(`tbody.fkent[data-j="${j}"]`); if (!tb) return; tb.innerHTML = fkRowsHtml(FK, j, e.r, e.d, all(), e.title); betr(); };
+  F.addEventListener('input', () => { betr(); onChange && onChange(); });
+  F.addEventListener('change', e => {
+    if (e.target.matches('[data-fkall]')) { F.querySelectorAll('select.fka').forEach(sl => { const v = sl.value, arb = sl.dataset.arb; sl.innerHTML = fkArtOpts(FK, v, arb ? arb.split('|') : null, e.target.checked); sl.value = v; }); return; }
+    const a = e.target.closest('select.fka'); if (a) { const x = fkArtOf(FK, a.value); if (x) { if (x.preis != null && a.dataset.p) F.querySelector(`[name="${a.dataset.p}"]`).value = x.preis; if (a.dataset.e && x.einheit) F.querySelector(`[name="${a.dataset.e}"]`).value = x.einheit; } }
+    betr(); onChange && onChange();
+  });
+  F.addEventListener('click', e => {
+    const add = e.target.closest('.fkzadd'), del = e.target.closest('.fkzdel'); if (!add && !del) return; e.preventDefault();
+    const j = (add || del).dataset.j, en = ent[j]; en.d = fkRead(F, j, en.d);
+    if (add) en.d.zusatz = [...(en.d.zusatz || []), { art: '', menge: en.d.menge, einh: '', preis: null, bem: '' }]; else en.d.zusatz.splice(+del.dataset.z, 1);
+    rerender(j); onChange && onChange();
+  });
+  betr();
+}
+// Übergaben bauen (je Kunde in IM-Faktura bzw. IMV-Kunde), schreiben, markieren
+async function fkSend(FK, items, einzeln) { // items: [{ r, d, k }]
+  const G = groupBy(items, x => (x.d.fk || '') + '|' + (x.k.id || '?' + norm(x.k.name)));
+  const Ts = G.map(([, l]) => {
+    const k = l[0].k, T = fakturaT(k, 'Lohnarbeiten'), fkId = l[0].d.fk, ps = [];
+    if (fkId) { const f = FK.kunden.find(x => x.id === fkId); T.kunde.fkId = fkId; if (f) { T.kunde.name = f.name; T.kunde.nr = f.nr || T.kunde.nr; } }
+    l.forEach(x => { const P = fkPos(FK, x.r, x.d, k); T.pos.push(...P.pos); ps.push(...P.ps); });
+    if (ps.length) T.beilage = { titel: 'Detailabrechnung Pflanzenschutz', cols: PS_COLS, rows: ps, total: r2(ps.reduce((a, x) => a + (+x[6] || 0), 0)) };
+    T.refs = l.map(x => ({ app: 'imv', id: x.r.oid || '', jd: x.r.jid || '', nr: x.r.nr || '' }));
+    return T;
+  });
+  const oc = items.filter(x => x.d.o && x.d.dresch).map(x => { const o = { ...Store.get('auftraege', x.d.o.id) }; const was = JSON.stringify([o.stroh, o.strohHa]);
+    if (x.d.stroh) { o.stroh = true; if (x.d.strohHa != null && x.d.strohHa !== r2(x.r.ha ?? -1)) o.strohHa = x.d.strohHa; else delete o.strohHa; } else { delete o.stroh; delete o.strohHa; }
+    return JSON.stringify([o.stroh, o.strohHa]) !== was ? o : null; }).filter(Boolean);
+  try {
+    if (!await fakturaWrite(Ts)) return false;
+    if (oc.length) Store.putMany('auftraege', oc);
+    G.forEach(([, l], i) => fakturaMark(l.map(x => x.r.oid).filter(Boolean), l.map(x => x.r.jid).filter(Boolean), Ts[i]));
+    const del = items.filter(x => Store.get('einstellungen', fkKey(x.r))).map(x => ({ id: fkKey(x.r), del: true })); if (del.length) Store.putMany('einstellungen', del);
+    toast(`📤 ${items.length} ${items.length === 1 ? 'Eintrag' : 'Einträge'} an IM-Faktura gesendet (${G.length} ${G.length === 1 ? 'Übergabe' : 'Übergaben'})`, 4000); App.render();
+    return true;
+  } catch (e) { faktErr(e); return false; }
+}
+const fkTitle = (r, o) => { const sent = (o && o.fakt) || (r.jid && (jdbAbr(r.jid) || {}).fakt);
+  return `${esc(fmtDate(r.d, { day: '2-digit', month: '2-digit', year: '2-digit' }))} ${esc(r.arbeit || '')}${r.feld ? ' – ' + esc(r.feld) : ''}${sent ? ' <span class="chip warn small" title="wurde schon einmal an IM-Faktura gesendet">schon gesendet</span>' : r.abr ? ' <span class="chip small">abgerechnet</span>' : ''}`; };
+const fkKundeSel = (FK, name, cur) => `<select class="input" name="${name}"><option value="">${FK.ok ? '— automatisch zuordnen bzw. neu anlegen —' : '— IM-Faktura nicht lesbar: automatisch —'}</option>${FK.kunden.map(x => `<option value="${esc(x.id)}" ${x.id === cur ? 'selected' : ''}>${esc(x.name)}${x.nr ? ' · ' + esc(x.nr) : ''}${x.ort ? ' · ' + esc(x.ort) : ''}</option>`).join('')}</select>`;
+const fkAllBox = FK => FK.artikel.length ? `<label class="tog fkall"><input type="checkbox" data-fkall> Alle Artikel anzeigen <span class="nr">(sonst nur die Artikel, die in IM-Faktura der Arbeit zugewiesen sind)</span></label>` : '';
+const fkHint = FK => FK.ok ? '' : '<div class="hint warn" style="margin-bottom:8px">IM-Faktura-Daten (faktura.json) konnten nicht gelesen werden – Kunde und Artikel werden in IM-Faktura zugeordnet.</div>';
+
+async function fakturaAbrSend(einzeln) { // Sendefenster für angekreuzte Einträge (oder einen einzelnen aus dem Bericht)
   const S = App.abrSel || new Set(), rows = einzeln ? [einzeln] : abList().filter(r => S.has(r.id)); if (!rows.length) return false;
   if (!Auth.hasSession()) { toast('Für die Übergabe an IM-Faktura mit Dropbox anmelden.', 4000); return false; }
   toast('Kunden und Artikel aus IM-Faktura werden geladen …', 1500);
-  const FK = await fkLoad(), G = groupBy(rows, r => r.kid || '?' + norm(r.kunde));
-  const artOf = nr => FK.artikel.find(a => String(a.artNr) === String(nr)) || null;
-  const strohArt = FK.artikel.find(a => (a.arbeiten || []).some(x => /strohh/i.test(x))) || FK.artikel.find(a => /stroh/i.test(a.bez || '') && /häcks|hacks|häck/i.test(a.bez || '')) || FK.artikel.find(a => /stroh/i.test(a.bez || '')) || null;
-  // v145: Artikel nach Arbeit eingeschränkt (in IM-Faktura je Artikel «Arbeiten in der IM-Verwaltung»); keiner zugewiesen → alle; Schalter «alle Artikel»
-  const artFor = (arbs, all) => { const A = FK.artikel.filter(a => a.aktiv !== false), ks = arbs.filter(Boolean).map(norm), F = A.filter(a => (a.arbeiten || []).some(x => ks.includes(norm(x)))); return all || !F.length ? A : F; };
-  const artOpts = (cur, arbs = [], all = false) => { const lst = artFor(arbs, all), c = cur && artOf(cur);
-    return `<option value="">— ohne Artikel —</option>${cur && !c ? `<option value="${esc(cur)}" selected>${esc(cur)} (nicht in IM-Faktura)</option>` : ''}${(c && !lst.includes(c) ? [c, ...lst] : lst).map(a => `<option value="${esc(a.artNr)}" ${String(a.artNr) === String(cur) ? 'selected' : ''}>${esc(a.artNr)} ${esc(a.bez || '')}${a.preis != null ? ` (${fmtNum(a.preis)}/${esc(a.einheit || '')})` : ''}</option>`).join('')}`; };
-  const nIn = (name, v, w = 80) => `<input class="input fkn" name="${name}" inputmode="decimal" value="${v ?? ''}" style="width:${w}px">`;
-  const L = []; // je Eintrag: Vorbelegung
+  const FK = await fkLoad(), G = groupBy(rows, r => r.kid || '?' + norm(r.kunde)), ent = {};
   const body = G.map(([kid, l], gi) => {
     const k = Store.get('kunden', kid) || { id: '', name: l[0].kunde || '' };
-    const fk0 = FK.kunden.find(x => k.id && (x.imvIds || []).includes(k.id)) || (k.nr && FK.kunden.find(x => String(x.nr || '') === String(k.nr))) || FK.kunden.find(x => norm(x.name) === norm(k.name)) || null;
+    l.forEach((r, i) => { const j = gi + '-' + i, d = fkEntry(FK, r, k); ent[j] = { r, d, k, gi, title: fkTitle(r, d.o) }; });
+    const fk0 = ent[gi + '-0'].d.fk;
     return `<div class="fkgrp"><div class="fkhead"><b>${esc(k.name || '–')}</b>${k.id ? '' : ' <span class="nr">(nicht in den Stammdaten)</span>'}
-      <label class="fld fkk"><span>Kunde in IM-Faktura</span><select class="input" name="fk_${gi}"><option value="">${FK.ok ? '— automatisch zuordnen bzw. neu anlegen —' : '— IM-Faktura nicht lesbar: automatisch —'}</option>${FK.kunden.map(x => `<option value="${esc(x.id)}" ${fk0 && x.id === fk0.id ? 'selected' : ''}>${esc(x.name)}${x.nr ? ' · ' + esc(x.nr) : ''}${x.ort ? ' · ' + esc(x.ort) : ''}</option>`).join('')}</select></label></div>
-      <div class="tscroll"><table class="btab fktab"><thead><tr><th>Eintrag</th><th class="r">Menge</th><th>Einh.</th><th>Artikel</th><th class="r">Preis</th><th class="r">Betrag</th><th>Bemerkung (auf der Rechnung)</th></tr></thead><tbody>
-      ${l.map(r => {
-        const j = L.length, o = r.oid ? Store.get('auftraege', r.oid) : null, spray = !!(o && isSpray(o)), m = fakturaMasch(o, r);
-        const einh = spray ? 'ha' : m.einheit === 'h' ? 'h' : 'ha', menge = einh === 'h' ? (r.std ?? r.dauer ?? null) : r.ha;
-        const art = m.artNr || '', a0 = artOf(art), preis = spray ? (fakturaSpray(o, k, r.ha ?? flOf(o)).preisHa || null) : (m.ansatz ?? (a0 && a0.preis) ?? null);
-        const dresch = isDresch(r.arbeit), stroh = !!(o && o.stroh), strohHa = (o && o.strohHa) ?? r.ha;
-        L.push({ r, o, k, gi, spray, dresch });
-        const sent = (o && o.fakt) || (r.jid && (jdbAbr(r.jid) || {}).fakt);
-        return `<tr data-j="${j}"><td>${esc(fmtDate(r.d, { day: '2-digit', month: '2-digit', year: '2-digit' }))} ${esc(r.arbeit || '')}${r.feld ? ' – ' + esc(r.feld) : ''}${sent ? ' <span class="chip warn small" title="wurde schon einmal an IM-Faktura gesendet">schon gesendet</span>' : r.abr ? ' <span class="chip small">abgerechnet</span>' : ''}${spray ? '<div class="nr">Pflanzenschutzmittel werden mit der Fläche berechnet</div>' : ''}</td>
-          <td class="r">${nIn('m_' + j, menge != null ? r2(menge) : '')}</td><td><input class="input" name="e_${j}" value="${esc(einh)}" style="width:52px"></td>
-          <td><select class="input fka" name="a_${j}" data-p="p_${j}" data-e="e_${j}" data-arb="${esc([r.arbeit, o && o.arbeit].filter(Boolean).join('|'))}">${artOpts(art, [r.arbeit, o && o.arbeit])}</select></td>
-          <td class="r">${nIn('p_' + j, preis != null ? preis : '')}</td><td class="r fkb" data-b="${j}"></td>
-          <td><input class="input" name="b_${j}" value="${esc(r.kultur || '')}" placeholder="z. B. Kultur"></td></tr>
-        ${dresch ? `<tr class="fkstroh" data-j="${j}s"><td><label class="tog"><input type="checkbox" name="s_${j}" ${stroh ? 'checked' : ''}> + Strohhäckseln</label></td>
-          <td class="r">${nIn('sm_' + j, strohHa != null ? r2(strohHa) : '')}</td><td>ha</td><td><select class="input fka" name="sa_${j}" data-p="sp_${j}" data-arb="Strohhäckseln">${artOpts(strohArt ? strohArt.artNr : '', ['Strohhäckseln'])}</select></td>
-          <td class="r">${nIn('sp_' + j, strohArt && strohArt.preis != null ? strohArt.preis : '')}</td><td class="r fkb" data-b="${j}s"></td><td class="nr">Fläche aus dem Auftrag, änderbar</td></tr>` : ''}`;
-      }).join('')}</tbody></table></div></div>`;
+      <label class="fld fkk"><span>Kunde in IM-Faktura</span>${fkKundeSel(FK, 'fk_' + gi, fk0)}</label></div>
+      <div class="tscroll"><table class="btab fktab">${FK_HEAD}${l.map((r, i) => { const j = gi + '-' + i; return `<tbody class="fkent" data-j="${j}">${fkRowsHtml(FK, j, r, ent[j].d, false, ent[j].title)}</tbody>`; }).join('')}</table></div></div>`;
   }).join('');
-  const hint = (FK.ok ? '' : '<div class="hint warn" style="margin-bottom:8px">IM-Faktura-Daten (faktura.json) konnten nicht gelesen werden – Kunde und Artikel werden in IM-Faktura zugeordnet.</div>')
-    + (FK.artikel.length ? `<label class="tog fkall"><input type="checkbox" data-fkall> Alle Artikel anzeigen <span class="nr">(sonst nur die Artikel, die in IM-Faktura der Arbeit zugewiesen sind)</span></label>` : '');
-  Dlg.open(`An IM-Faktura senden – ${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'}`, hint + body + '<p class="nr">Je Kunde eine Übergabe; sie erscheint in IM-Faktura unter Entwürfe. Die Bemerkung steht als zweite Zeile unter der Position. Danach werden die Einträge als abgerechnet markiert.</p>',
+  Dlg.open(`An IM-Faktura senden – ${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'}`, fkHint(FK) + fkAllBox(FK) + body + '<p class="nr">Je Kunde eine Übergabe; sie erscheint in IM-Faktura unter Entwürfe. Die Bemerkung steht als zweite Zeile unter der Position. Danach werden die Einträge als abgerechnet markiert.</p>',
     `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">📤 Senden</button>`, fd => {
-      const v = n => num(fd.get(n)), t = n => String(fd.get(n) || '').trim();
-      const Ts = G.map(([kid, l], gi) => {
-        const k = Store.get('kunden', kid) || { id: '', name: l[0].kunde || '' }, T = fakturaT(k, 'Lohnarbeiten'), fkId = t('fk_' + gi), ps = [];
-        if (fkId) { const fk = FK.kunden.find(x => x.id === fkId); T.kunde.fkId = fkId; if (fk) { T.kunde.name = fk.name; T.kunde.nr = fk.nr || T.kunde.nr; } }
-        L.forEach((x, j) => {
-          if (x.gi !== gi) return;
-          const r = x.r, dt = fmtDate(r.d, { day: '2-digit', month: '2-digit', year: '2-digit' }), bem = t('b_' + j), menge = v('m_' + j), preis = v('p_' + j), art = t('a_' + j), einh = t('e_' + j) || 'ha';
-          const txt = (base, b) => base + (b ? '\n' + b : '');
-          if (x.spray) {
-            const sp = fakturaSpray(x.o, k, menge ?? 0);
-            T.pos.push({ kind: 'arbeit', art, bez: txt(`${dt} Spritzen${r.feld ? ' – ' + r.feld : ''}`, bem), grp: 'Spritzarbeiten', menge, einh, preis });
-            sp.mittel.forEach(mm => T.pos.push({ kind: 'psm', bez: mm.name + (mm.zul ? ` (${mm.zul})` : ''), grp: 'Pflanzenschutzmittel', menge: mm.menge, einh: mm.einh, preis: mm.preis || null }));
-            ps.push(...sp.rows);
-          } else T.pos.push({ kind: 'arbeit', art, bez: txt(`${dt} ${r.arbeit || ''}${r.feld ? ' – ' + r.feld : ''}`, bem), grp: r.arbeit || '', menge, einh, preis });
-          if (x.dresch && fd.get('s_' + j)) T.pos.push({ kind: 'arbeit', art: t('sa_' + j), bez: `${dt} Strohhäckseln${r.feld ? ' – ' + r.feld : ''}`, grp: 'Strohhäckseln', menge: v('sm_' + j), einh: 'ha', preis: v('sp_' + j) });
-        });
-        if (ps.length) T.beilage = { titel: 'Detailabrechnung Pflanzenschutz', cols: PS_COLS, rows: ps, total: r2(ps.reduce((a, x) => a + (+x[6] || 0), 0)) };
-        T.refs = l.map(r => ({ app: 'imv', id: r.oid || '', jd: r.jid || '', nr: r.nr || '' }));
-        return T;
-      });
-      // Strohhäckseln im Auftrag merken (Haken und Fläche)
-      const oc = L.filter(x => x.o && x.dresch).map((x, _) => { const j = L.indexOf(x), on = !!fd.get('s_' + j), ha = v('sm_' + j); const o = { ...x.o };
-        if (on) { o.stroh = true; o.strohHa = ha != null && ha !== x.r.ha ? ha : null; if (o.strohHa == null) delete o.strohHa; } else { delete o.stroh; delete o.strohHa; } return o; })
-        .filter(o => JSON.stringify([o.stroh, o.strohHa]) !== JSON.stringify([Store.get('auftraege', o.id).stroh, Store.get('auftraege', o.id).strohHa]));
-      (async () => {
-        try {
-          if (!await fakturaWrite(Ts)) return;
-          if (oc.length) Store.putMany('auftraege', oc);
-          G.forEach(([, l], i) => fakturaMark(l.map(r => r.oid).filter(Boolean), l.map(r => r.jid).filter(Boolean), Ts[i]));
-          if (!einzeln) S.clear(); Dlg.close();
-          toast(`📤 ${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'} an IM-Faktura gesendet (${G.length} ${G.length === 1 ? 'Kunde' : 'Kunden'})`, 4000); App.render();
-        } catch (e) { faktErr(e); }
-      })();
+      const items = Object.entries(ent).map(([j, e]) => { const d = fkRead(Dlg.form, j, e.d); d.fk = String(fd.get('fk_' + e.gi) || ''); return { r: e.r, d, k: e.k }; });
+      fkSend(FK, items, einzeln).then(ok => { if (ok) { if (!einzeln) S.clear(); Dlg.close(); } });
       return false;
     });
   Dlg.el.classList.add('dlgwide');
-  const F = Dlg.form, betr = () => F.querySelectorAll('.fkb').forEach(td => { const b = td.dataset.b, s = b.endsWith('s'), j = parseInt(b);
-    const on = !s || F.querySelector(`[name=s_${j}]`).checked, m = num(F.querySelector(`[name=${s ? 'sm_' : 'm_'}${j}]`).value), p = num(F.querySelector(`[name=${s ? 'sp_' : 'p_'}${j}]`).value);
-    td.textContent = on && m != null && p != null ? fmtNum(round05(m * p)) : on ? '–' : ''; td.classList.toggle('warnc', on && (m == null || p == null)); });
-  F.addEventListener('input', betr); F.addEventListener('change', e => {
-    if (e.target.matches('[data-fkall]')) { const all = e.target.checked; F.querySelectorAll('select.fka').forEach(sl => { const v = sl.value; sl.innerHTML = artOpts(v, (sl.dataset.arb || '').split('|'), all); sl.value = v; }); return; }
-    const a = e.target.closest('select.fka'); if (a) { const x = artOf(a.value); if (x) { if (x.preis != null) F.querySelector(`[name=${a.dataset.p}]`).value = x.preis; if (a.dataset.e && x.einheit) F.querySelector(`[name=${a.dataset.e}]`).value = x.einheit; } }
-    betr(); });
-  betr();
+  fkWire(Dlg.form, FK, ent);
   return true;
+}
+// Abschnitt «Für IM-Faktura» im Fenster «Abrechnung – Eintrag»: Erfassung wird als Entwurf gespeichert, Senden direkt von hier
+async function fkDetailFill(box, r) {
+  const k = Store.get('kunden', r.kid) || { id: '', name: r.kunde || '' };
+  if (!Auth.hasSession()) { box.innerHTML = '<p class="nr">Für IM-Faktura mit Dropbox anmelden.</p>'; return; }
+  const FK = await fkLoad(); if (!box.isConnected) return;
+  const d = fkEntry(FK, r, k), ent = { e0: { r, d, k, title: 'Arbeit' + (d.spray ? ' Spritzen' : '') } };
+  box.innerHTML = `${fkHint(FK)}<div class="fkhead"><label class="fld fkk"><span>Kunde in IM-Faktura</span>${fkKundeSel(FK, 'fk_det', d.fk)}</label>${fkAllBox(FK)}</div>
+    <div class="tscroll"><table class="btab fktab">${FK_HEAD.replace('<th>Eintrag</th>', '<th></th>')}<tbody class="fkent" data-j="e0">${fkRowsHtml(FK, 'e0', r, d, false, ent.e0.title)}</tbody></table></div>
+    <p class="nr" style="margin:6px 0 0">Wird als Entwurf gespeichert und mit «📤 An IM-Faktura» übertragen.</p>`;
+  let tm = 0; const save = () => { clearTimeout(tm); tm = setTimeout(() => { if (!box.isConnected) return; const x = fkRead(box, 'e0', ent.e0.d); x.fk = String((box.querySelector('[name=fk_det]') || {}).value || ''); ent.e0.d = x; fkSave(r, x); }, 500); };
+  fkWire(box, FK, ent, save);
+  box._fk = { FK, ent, k };
+}
+async function fkDetailSend(btn) {
+  const box = $('#dlg .fkdet'); if (!box || !box._fk) { toast('IM-Faktura-Angaben werden noch geladen …'); return; }
+  const { FK, ent, k } = box._fk, e = ent.e0, d = fkRead(box, 'e0', e.d); d.fk = String((box.querySelector('[name=fk_det]') || {}).value || '');
+  const sent = (e.r.oid && (Store.get('auftraege', e.r.oid) || {}).fakt) || (e.r.jid && (jdbAbr(e.r.jid) || {}).fakt);
+  const P = fkPos(FK, e.r, d, k), tot = P.pos.reduce((a, p) => a + (p.menge != null && p.preis != null ? round05(p.menge * p.preis) : 0), 0);
+  if (!confirm(`An IM-Faktura senden?\n\n${P.pos.map(p => `• ${p.bez.split('\n')[0]}: ${p.menge ?? '–'} ${p.einh || ''} × ${p.preis ?? '–'}`).join('\n')}\n\nTotal ca. CHF ${fmtNum(r2(tot))} (ohne MWST)${sent ? '\n\n⚠ Wurde schon einmal gesendet – wird nochmals übergeben.' : ''}`)) return;
+  if (await fkSend(FK, [{ r: e.r, d, k }], true)) Dlg.close();
 }
 // v142: einzelner Eintrag aus dem Detailfenster (Abrechnung › Eintrag oder Bericht › Arbeitsgang)
 async function fakturaEinzeln(abId) {
   const r = abRows().find(x => abId.startsWith('jid:') ? x.jid === abId.slice(4) : x.id === abId); if (!r) { toast('Eintrag nicht gefunden'); return; }
   await fakturaAbrSend(r);
 }
-const FAKT_BTN = id => `<button type="button" class="btn" data-ab="faktOne" data-id="${esc(id)}" title="Diesen Eintrag an IM-Faktura übergeben (erscheint dort in den Entwürfen des Kunden), danach als abgerechnet markiert">📤 An IM-Faktura</button>`;
+const FAKT_BTN = (id, direkt) => `<button type="button" class="btn" data-ab="${direkt ? 'faktDet' : 'faktOne'}" data-id="${esc(id)}" title="Diesen Eintrag an IM-Faktura übergeben (erscheint dort in den Entwürfen des Kunden), danach als abgerechnet markiert">📤 An IM-Faktura</button>`;
 /* ================= Modul Spritzen ================= */
 const PROD_EINHEITEN = ['l', 'kg', 'g', 'ml', 'Stk'];
 const isSprayName = s => /spritz|pflanzenschutz/i.test(s || '');
@@ -4773,12 +4850,15 @@ function abDetail(id) {
     : `<p class="nr">Kein Arbeitsgang aus MyJohnDeere verbunden.</p>${o ? `<div class="btns"><button type="button" class="btn small" data-ab="linkPick" data-id="${esc(r.id)}">Mit Arbeitsgang verknüpfen…</button></div>` : ''}`;
   const fe = abFeld(o, j);
   const feLbl = fe ? fe.name : ((j && j.feld) || (o && aFeld(o)) || '');
-  const body = `<div class="abdet"><div><h4>Auftrag (Planer)</h4>${left}</div><div><h4>Arbeitsgang (MyJohnDeere)</h4>${right}</div></div>
-    ${(j && j.grzB) || (fe && fe.jdId) ? `<h4 style="margin:14px 0 6px">${j && j.grzB ? 'Virtuelle Feldgrenze (aus der Bedeckungskarte)' : 'Karte des Feldes'}</h4><div class="bedgrz" data-id="${esc(j ? j.id : '')}" data-fid="${esc((fe || {}).id || '')}"><span class="nr">wird geladen …</span></div>` : ''}
-    <h4 style="margin:14px 0 6px">Vermessungen des Feldes${feLbl ? ` «${esc(feLbl)}»` : ''}</h4>${grenzenHtml(fe)}
-    ${o && j ? `<p class="nr" style="margin-top:10px">${o.jdLink ? 'Von Hand verknüpft.' : 'Automatisch verbunden (Kunde, Datum, Arbeit, Feld).'} <a href="#" data-ab="unlink" data-id="${esc(r.id)}">Verknüpfung lösen</a></p>` : ''}`;
-  setTimeout(() => { const b = $('#dlg .bedgrz'); if (b) bedGrzFill(b); }, 0);
-  Dlg.open('Abrechnung – Eintrag', body, `${r.abr ? `<span class="badge verrechnet">✓ abgerechnet${r.am ? ' ' + abD(r.am) : ''}</span><button type="button" class="btn" data-ab="markOne" data-id="${esc(r.id)}" data-v="0">Wieder offen</button>` : `<button type="button" class="btn primary" data-ab="markOne" data-id="${esc(r.id)}" data-v="1">✓ Als abgerechnet markieren</button>${FAKT_BTN(r.id)}`}<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
+  // v146: Karte neben den Angaben, darunter die Erfassung für IM-Faktura
+  const body = `<div class="abdet2"><div class="abdl"><h4>Auftrag (Planer)</h4>${left}<h4 style="margin-top:14px">Arbeitsgang (MyJohnDeere)</h4>${right}
+      ${o && j ? `<p class="nr" style="margin-top:10px">${o.jdLink ? 'Von Hand verknüpft.' : 'Automatisch verbunden (Kunde, Datum, Arbeit, Feld).'} <a href="#" data-ab="unlink" data-id="${esc(r.id)}">Verknüpfung lösen</a></p>` : ''}</div>
+    <div class="abdr">${(j && j.grzB) || (fe && fe.jdId) ? `<h4>${j && j.grzB ? 'Virtuelle Feldgrenze (aus der Bedeckungskarte)' : 'Karte des Feldes'}</h4><div class="bedgrz" data-id="${esc(j ? j.id : '')}" data-fid="${esc((fe || {}).id || '')}"><span class="nr">wird geladen …</span></div>` : ''}
+      <h4 style="margin:14px 0 6px">Vermessungen des Feldes${feLbl ? ` «${esc(feLbl)}»` : ''}</h4>${grenzenHtml(fe)}</div></div>
+    <h4 style="margin:16px 0 6px">Für IM-Faktura</h4><div class="fkdet"><span class="nr">wird geladen …</span></div>`;
+  setTimeout(() => { const b = $('#dlg .bedgrz'); if (b) bedGrzFill(b); const f = $('#dlg .fkdet'); if (f) fkDetailFill(f, r); }, 0);
+  Dlg.open('Abrechnung – Eintrag', body, `${r.abr ? `<span class="badge verrechnet">✓ abgerechnet${r.am ? ' ' + abD(r.am) : ''}</span><button type="button" class="btn" data-ab="markOne" data-id="${esc(r.id)}" data-v="0">Wieder offen</button>` : `<button type="button" class="btn primary" data-ab="markOne" data-id="${esc(r.id)}" data-v="1">✓ Als abgerechnet markieren</button>${FAKT_BTN(r.id, true)}`}<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
+  Dlg.el.classList.add('dlgwide');
 }
 function abLinkPick(id) {
   const r = abRows().find(x => x.id === id); if (!r) return;
@@ -4905,6 +4985,7 @@ document.addEventListener('click', e => {
     case 'mark': abMarkSel(t.dataset.v === '1'); break;
     case 'fakt': fakturaAbrSend(); break;
     case 'faktOne': fakturaEinzeln(id); break;
+    case 'faktDet': fkDetailSend(t); break;
     case 'markOne': { const r = abRows().find(x => x.id === id); if (!r) break; const on = t.dataset.v === '1'; abMark([r], on); toast(on ? 'Als abgerechnet markiert' : 'Wieder offen'); abDetail(id); break; }
     case 'selAllList': abList().forEach(r => S.add(r.id)); App.render(); break;
     case 'selNone': S.clear(); App.render(); break;
