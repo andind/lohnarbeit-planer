@@ -1,4 +1,4 @@
-# IM-Faktura v1.1 – Anleitung
+# IM-Faktura v1.2 – Anleitung
 
 Eigenständige App für Rechnungen mit Schweizer **QR-Zahlteil** (QR-IBAN mit QR-Referenz), Offenen Posten,
 Zahlungsabgleich (camt.054) und Mahnungen. Eigene Daten (`faktura.json`), unabhängig von IM-Verwaltung und IM-Vermietung.
@@ -38,8 +38,9 @@ Zahlungsabgleich (camt.054) und Mahnungen. Eigene Daten (`faktura.json`), unabh�
 - Bei Updates: `APP_VERSION`/`APP_STAND` in `app.js` und `CACHE` in `sw.js` erhöhen.
 
 ## Buchhaltung AgroOffice (ab v1.1)
-- Gebucht werden nur **Zahlungseingänge** (vereinnahmte Entgelte): `1020 an 9904` (Total der Zahlung), danach `9904 an Ertragskonto`
-  je Konto und MWST-Satz, inkl. MWST, mit MWST-Code. Teilzahlungen werden anteilig aufgeteilt, ausgebuchte Restbeträge nicht gebucht,
+- Gebucht werden nur **Zahlungseingänge** (vereinnahmte Entgelte): `1020 an Ertragskonto` je Konto und MWST-Satz, inkl. MWST,
+  mit MWST-Code; alle Teile einer Zahlung haben die Rechnungs-Nr. als Beleg. (Ein Hilfskonto wie 9904 geht nicht: der AgroOffice-Import
+  nimmt nur Konten 1000–8999 und 9910/9911 an.) Teilzahlungen werden anteilig aufgeteilt, ausgebuchte Restbeträge nicht gebucht,
   Überzahlungen auf 9910. Konten und MWST-Codes unter *Mehr › Buchhaltung (AgroOffice)*.
 - *Offene Posten › 📒 Buchungen für AgroOffice* erstellt die Datei im Abacus-Format «XML-Buchungen». In AgroOffice unter
   *Grundeinstellungen › Import* den Haken «BETA: Import von Buchungen im Abacus-Format» setzen und den Ordner eintragen.
