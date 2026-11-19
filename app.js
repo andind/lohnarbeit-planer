@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '155', APP_STAND = '19.11.2026';
+const APP_VERSION = '156', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -4382,8 +4382,19 @@ function jdbMark(ids, on) {
   if (ch.length) Store.putMany('einstellungen', ch); else App.render();
   return ch.length;
 }
-function jdbMarkSel(on) {
-  const S = App.jdbSel || new Set(), ids = jdbList().filter(r => S.has(r.id)).map(r => r.id); if (!ids.length) return;
+/* v156: Rückfrage vor «abgerechnet» / «wieder offen» (Bericht und Abrechnung) mit Liste der Einträge */
+async function abrFrage(rows, on, wort) {
+  const ch = rows.filter(r => !!r.abr !== on); if (!ch.length) return true;
+  const n = ch.length, nk = new Set(ch.map(r => r.kunde || '–')).size;
+  const L = ch.slice(0, 12).map(r => `• ${r.d ? fmtDate(r.d, { day: '2-digit', month: '2-digit', year: '2-digit' }) : '–'} · ${r.arbeit || '–'} · ${r.kunde || '–'} · ${r.feld || '–'}${r.ha != null ? ' · ' + fmtNum(r.ha, 2) + ' ha' : ''}${r.fakt && !on ? ' · an IM-Faktura gesendet' : ''}`);
+  if (n > 12) L.push(`… und ${n - 12} weitere`);
+  const sum = ch.reduce((a, r) => a + (+r.ha || 0), 0);
+  return frage(`${n} ${n === 1 ? wort[0] : wort[1]} von ${nk} ${nk === 1 ? 'Kunde' : 'Kunden'} ${on ? 'als abgerechnet markieren' : 'wieder auf offen stellen'}?${sum ? `\nTotal ${fmtNum(sum, 2)} ha` : ''}\n\n${L.join('\n')}${on && wort[2] ? '\n\n' + wort[2] : ''}`,
+    { ok: on ? '✓ Ja, abgerechnet' : 'Ja, wieder offen', gefahr: false });
+}
+async function jdbMarkSel(on) {
+  const S = App.jdbSel || new Set(), sel = jdbList().filter(r => S.has(r.id)), ids = sel.map(r => r.id); if (!ids.length) return;
+  if (!await abrFrage(sel.map(r => ({ ...r, abr: !!jdbAbr(r.id) })), on, ['Arbeitsgang', 'Arbeitsgänge'])) return;
   const n = jdbMark(ids, on); S.clear(); App.render();
   toast(n ? `${n} ${n === 1 ? 'Arbeitsgang' : 'Arbeitsgänge'} ${on ? 'als abgerechnet markiert' : 'wieder offen'}` : `Bereits ${on ? 'abgerechnet' : 'offen'}`);
 }
@@ -4790,8 +4801,9 @@ function abMark(rows, on) {
   if (!ec.length && !oc.length) App.render();
   return oc.length + ec.length;
 }
-function abMarkSel(on) {
+async function abMarkSel(on) {
   const S = App.abrSel || new Set(), rows = abList().filter(r => S.has(r.id)); if (!rows.length) return;
+  if (!await abrFrage(rows, on, ['Eintrag', 'Einträge', 'Aufträge werden «verrechnet».'])) return;
   const n = abMark(rows, on); S.clear(); App.render();
   toast(n ? `${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'} ${on ? 'als abgerechnet markiert' : 'wieder offen'}` : `Bereits ${on ? 'abgerechnet' : 'offen'}`);
 }
@@ -5087,7 +5099,7 @@ document.addEventListener('click', e => {
     case 'fakt': fakturaAbrSend(); break;
     case 'faktOne': fakturaEinzeln(id); break;
     case 'faktDet': fkDetailSend(t); break;
-    case 'markOne': { const r = abRows().find(x => x.id === id); if (!r) break; const on = t.dataset.v === '1'; abMark([r], on); toast(on ? 'Als abgerechnet markiert' : 'Wieder offen'); abDetail(id); break; }
+    case 'markOne': (async () => { const r = abRows().find(x => x.id === id); if (!r) return; const on = t.dataset.v === '1'; if (!await abrFrage([r], on, ['Eintrag', 'Einträge', r.oid ? 'Der Auftrag wird «verrechnet».' : ''])) return; abMark([r], on); toast(on ? 'Als abgerechnet markiert' : 'Wieder offen'); abDetail(id); })(); break;
     case 'selAllList': abList().forEach(r => S.add(r.id)); App.render(); break;
     case 'selNone': S.clear(); App.render(); break;
     case 'openOrder': Dlg.close(); orderDialog(id); break;
@@ -6383,7 +6395,7 @@ document.addEventListener('click', async e => {
     case 'bedMap': bedMapAct(t); break;
     case 'jbKorr': jdbKorrDialog(id, () => jdbDetail(id)); break;
     case 'jbMark': jdbMarkSel(t.dataset.v === '1'); break;
-    case 'jbMarkOne': { const on = t.dataset.v === '1'; jdbMark([id], on); toast(on ? 'Als abgerechnet markiert' : 'Wieder offen'); jdbDetail(id); break; }
+    case 'jbMarkOne': (async () => { const on = t.dataset.v === '1', r = jdbList().find(x => x.id === id) || (App.jdb.rows || []).find(x => x.id === id); if (r && !await abrFrage([{ ...r, abr: !!jdbAbr(id) }], on, ['Arbeitsgang', 'Arbeitsgänge'])) return; jdbMark([id], on); toast(on ? 'Als abgerechnet markiert' : 'Wieder offen'); jdbDetail(id); })(); break;
     case 'jbSelAllList': { const S = App.jdbSel || (App.jdbSel = new Set()); jdbList().forEach(r => S.add(r.id)); App.render(); break; }
     case 'jbSelNone': App.jdbSel?.clear(); App.render(); break;
     case 'jbCols': jdbColsDialog(); break;
