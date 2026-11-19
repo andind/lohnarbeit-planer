@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '147', APP_STAND = '19.11.2026';
+const APP_VERSION = '148', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -2206,6 +2206,8 @@ function fkWire(F, FK, ent, onChange) { // ent: j → { r, d, title }
   F.addEventListener('click', e => {
     const add = e.target.closest('.fkzadd'), del = e.target.closest('.fkzdel'); if (!add && !del) return; e.preventDefault();
     const j = (add || del).dataset.j, en = ent[j]; en.d = fkRead(F, j, en.d);
+    if (del) { const z = (en.d.zusatz || [])[+del.dataset.z] || {}, a = (FK && fkArtOf(FK, z.art)) || {};
+      if ((z.art || z.bem || +z.preis) && !confirm(`Zusatzartikel ${[z.art, a.bez].filter(Boolean).join(' ') || ''}${z.bem ? ' (' + z.bem + ')' : ''} wirklich entfernen?`)) return; }
     if (add) en.d.zusatz = [...(en.d.zusatz || []), { art: '', menge: en.d.menge, einh: '', preis: null, bem: '' }]; else en.d.zusatz.splice(+del.dataset.z, 1);
     rerender(j); onChange && onChange();
   });

@@ -521,7 +521,13 @@ document.addEventListener('click', ev => {
     case 'editA': artikelDialog(id); break;
     // Rechnungseditor
     case 'edAdd': App.ed.pos.push(newPos(t.dataset.t === 'pos' ? {} : { typ: t.dataset.t, bez: '' })); edRerender(); setTimeout(() => { const x = $$('#dlgForm tbody tr').pop()?.querySelector('input,textarea'); if (x) x.focus(); }, 40); break;
-    case 'edDel': App.ed.pos.splice(+t.dataset.i, 1); edRerender(); break;
+    case 'edDel': { // Rückfrage (v1.13) – ausser bei leeren Zeilen
+      const i = +t.dataset.i, p = App.ed.pos[i]; if (!p) break;
+      const leer = !String(p.bez || '').trim() && !p.art && !(+p.preis) && !(+p.menge > 1);
+      const was = p.typ === 'titel' ? `Zwischentitel «${p.bez || ''}»` : p.typ === 'text' ? `Textzeile «${String(p.bez || '').slice(0, 60)}»`
+        : `Position${p.art ? ' ' + p.art : ''} «${String(p.bez || '').split('\n')[0].slice(0, 60)}»${p.preis != null && p.preis !== '' ? `\n${fmtNum(+p.menge || 0, 3)} ${p.einh || ''} × ${chf(+p.preis || 0)} = CHF ${chf((+p.menge || 0) * (+p.preis || 0))}` : ''}`;
+      if (!leer && !confirm(`${was}\n\nwirklich aus der Rechnung löschen?`)) break;
+      App.ed.pos.splice(i, 1); edRerender(); break; }
     case 'edUp': { const i = +t.dataset.i; if (i > 0) { const P = App.ed.pos; [P[i - 1], P[i]] = [P[i], P[i - 1]]; edRerender(); } break; }
     case 'edNewK': kundeDialog(null, { after: k => { App.ed.kunde = k.id; rechnungDialog(null, { keep: true }); } }); break;
     case 'edEditK': kundeDialog(App.ed.kunde, { after: () => rechnungDialog(null, { keep: true }) }); break;
