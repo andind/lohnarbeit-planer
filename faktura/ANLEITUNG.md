@@ -43,7 +43,8 @@ Zahlungsabgleich (camt.054) und Mahnungen. Eigene Daten (`faktura.json`), unabh�
 - Die Kunden werden **in IM-Faktura verwaltet** (Stammdaten › Kunden).
 - **IM-Vermietung** übernimmt sie von hier (bei jedem Synchronisieren bzw. «⟳ Kunden aus IM-Faktura»). Name, Kd-Nr. und Adresse sind dort gesperrt; nur Namensvarianten bleiben dort. Neukunden aus dem Import gibt es dort weiter («nur hier») – IM-Faktura legt sie beim ersten Senden an.
 - **IM-Verwaltung**: Kunden bleiben aus MyJohnDeere. Unter Stammdaten › «🔗 IM-Verwaltung verknüpfen» jedem JD-Kunden den Kunden von IM-Faktura zuordnen (Vorschläge gelb; ein Faktura-Kunde kann mehrere JD-Kunden haben).
-- Einmalig zu Beginn: Import › Kunden übernehmen › «Aus IM-Vermietung» (verknüpft die Vermietungskunden), danach «🔗 Mit IM-Verwaltung verknüpfen».
+- Kundenliste aus **AgroOffice Fakturierung** (Export «Kunden» als Excel): Import › Kunden übernehmen › «Excel (AgroOffice)…». Neue Kunden werden angelegt, fehlende Angaben ergänzt; abweichende Angaben (z. B. neue Adresse) werden mit dem Häkchen «überschreiben» aus der Liste übernommen.
+- Einmalig zu Beginn: Import › Kunden übernehmen › zuerst «Excel (AgroOffice)…», dann «Aus IM-Vermietung» (verknüpft die Vermietungskunden), danach «🔗 Mit IM-Verwaltung verknüpfen».
 
 ## Technik
 - Dateien: `index.html`, `styles.css`, `qr.js` (eigener QR-Encoder + Zahlteil nach SIX, SPC 0200, Swico S1),

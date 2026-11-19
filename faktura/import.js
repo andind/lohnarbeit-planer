@@ -106,6 +106,7 @@ const KD_F = [['nr', 'Kunden-Nr.', /^(kd|kunden)?[-\s.]*n(r|o|ummer)\.?$|^kdnr/i
   ['plz', 'PLZ', /^plz|postleit/i], ['ort', 'Ort', /^(ort|wohnort|plz\s*ort)/i], ['land', 'Land', /^land/i], ['mail', 'E-Mail', /mail/i], ['tel', 'Telefon', /^(tel|telefon|natel|handy|mobile)/i]];
 async function impKundenFile(file) {
   let rows; try { rows = await readTable(file); } catch (e) { toast('Datei nicht lesbar: ' + e.message, 6000); return; }
+  const ao = agroKunden(rows); if (ao) { kundenMerge(ao, 'AgroOffice Fakturierung (' + file.name + ')', { upd: true }); return; }
   const det = detectCols(rows, KD_F);
   mapDialog('Kunden', rows, KD_F, det, ({ hi, map }) => {
     const L = rows.slice(hi + 1).map(r => { const g = f => String(pick(r, map, f) ?? '').trim(); let name = g('name'); if (g('vorname')) name = `${name} ${g('vorname')}`.trim(); if (!name) return null;
@@ -113,6 +114,30 @@ async function impKundenFile(file) {
       return { nr: nrKey(g('nr')), name, zusatz: g('zusatz'), ...st, ...po, land: g('land') || 'CH', mail: g('mail'), tel: g('tel') }; }).filter(Boolean);
     kundenMerge(L, file.name);
   }, ['name']);
+}
+// Kundenliste aus AgroOffice Fakturierung (Export «Kunden»): Kunden-Nummer, Firma/Privat-Adresse, Firmenname, Firmenzusatz, Titel, Anrede, Name, Vorname,
+// Strasse, Strassennummer, Adresszusatz, Postfach, Postfachnummer, Land, PLZ, Ort, Telefon1/2, Mobile, Fax, E-Mail, Web, Brief-Anrede, Code1–6, Bemerkungen
+function agroKunden(rows) {
+  const hi = rows.slice(0, 5).findIndex(r => r.some(c => /^kunden-?nummer$/i.test(String(c || '').trim())) && r.some(c => /^(firma\/privat|strassennummer|firmenname)/i.test(String(c || '').trim())));
+  if (hi < 0) return null;
+  const H = rows[hi].map(c => fold(String(c || '').trim())), col = n => H.indexOf(fold(n));
+  const g = (r, n) => { const i = col(n); return i < 0 ? '' : String(r[i] ?? '').trim(); };
+  return rows.slice(hi + 1).map(r => {
+    const nr = nrKey(g(r, 'Kunden-Nummer')); if (!nr) return null;
+    const firma = g(r, 'Firmenname'), istFirma = g(r, 'Firma/Privat-Adresse') === '1' || !!firma;
+    const person = [g(r, 'Name'), g(r, 'Vorname')].filter(Boolean).join(' ');
+    const name = (istFirma ? firma || person : person || firma) || g(r, 'Anrede'); if (!name) return null;
+    const anrede = [g(r, 'Anrede'), g(r, 'Titel')].filter(Boolean).join(' ').replace(/^Herrr$/, 'Herr');
+    let az = g(r, 'Adresszusatz'), st = { strasse: g(r, 'Strasse'), hausnr: g(r, 'Strassennummer') };
+    if (!st.strasse && /\d/.test(az)) { st.strasse = az; az = ''; } // Strasse steht teils im Adresszusatz
+    if (!st.hausnr) st = splitStreet(st.strasse);
+    const zusatz = [g(r, 'Firmenzusatz'), istFirma && firma && person ? person : '', az].filter(Boolean).join(', ');
+    if (!st.strasse && (g(r, 'Postfach') || g(r, 'Postfachnummer'))) st = { strasse: ('Postfach ' + g(r, 'Postfachnummer')).trim(), hausnr: '' };
+    const po = splitPlzOrt(g(r, 'PLZ'), g(r, 'Ort')), land = (g(r, 'Land') || 'CH').toUpperCase().slice(0, 2);
+    const o = { nr, name, anrede, zusatz, ...st, ...po, land, mail: g(r, 'E-Mail'), tel: g(r, 'Telefon1') || g(r, 'Telefon2') || g(r, 'Mobile') };
+    if (g(r, 'Bemerkungen')) o.bem = g(r, 'Bemerkungen');
+    return o;
+  }).filter(Boolean);
 }
 async function impKundenDbx(src) {
   if (!Auth.hasSession()) { toast('Zuerst unter Mehr › Dropbox anmelden'); return; }
@@ -127,28 +152,31 @@ async function impKundenDbx(src) {
     kundenMerge(L, src === 'vm' ? 'IM-Vermietung' : 'IM-Verwaltung');
   } catch (e) { toast(e.message, 6000); }
 }
-function kundenMerge(L, quelle) {
+function kundenMerge(L, quelle, { upd = false } = {}) {
   const K = Store.all('kunden');
   const R = L.map(n => {
     const lk = n._link || {};
     const k = (lk.vmId && K.find(x => x.vmId === lk.vmId)) || (lk.imvId && K.find(x => (x.imvIds || []).includes(lk.imvId))) || (n.nr && K.find(x => nrKey(x.nr) === n.nr)) || K.find(x => tokKey(x.name) === tokKey(n.name));
     if (!k) return { n, k: null, art: 'neu', sel: true };
-    const fill = ['nr', 'zusatz', 'strasse', 'hausnr', 'plz', 'ort', 'mail', 'tel'].filter(f => n[f] && !k[f]);
+    const F = ['nr', 'anrede', 'zusatz', 'strasse', 'hausnr', 'plz', 'ort', 'land', 'mail', 'tel', 'bem'];
+    const fill = F.filter(f => n[f] && !k[f]), diff = upd ? [...F, 'name'].filter(f => n[f] && k[f] && String(n[f]) !== String(k[f])) : [];
     const link = (lk.vmId && k.vmId !== lk.vmId) || (lk.imvId && !(k.imvIds || []).includes(lk.imvId));
-    return { n, k, fill, link, art: fill.length ? 'ergänzen' : link ? 'verknüpfen' : 'gleich', sel: fill.length > 0 || !!link };
+    return { n, k, fill, diff, link, art: diff.length ? 'abweichend' : fill.length ? 'ergänzen' : link ? 'verknüpfen' : 'gleich', sel: fill.length > 0 || diff.length > 0 || !!link };
   });
   App.kimp = { quelle, R };
   const cnt = a => R.filter(x => x.art === a).length;
-  openDlg(`Kunden aus ${quelle}`, `<p class="muted small">${cnt('neu')} neu · ${cnt('ergänzen')} bestehende mit fehlenden Angaben (werden nur ergänzt, nie überschrieben) · ${cnt('verknüpfen')} nur verknüpfen · ${cnt('gleich')} unverändert</p>
+  const FN = { nr: 'Nr.', name: 'Name', anrede: 'Anrede', zusatz: 'Zusatz', strasse: 'Strasse', hausnr: 'Nr.', plz: 'PLZ', ort: 'Ort', land: 'Land', mail: 'E-Mail', tel: 'Telefon', bem: 'Bemerkung' };
+  openDlg(`Kunden aus ${quelle}`, `<p class="muted small">${L.length} Kunden gelesen: ${cnt('neu')} neu · ${cnt('ergänzen')} bestehende mit fehlenden Angaben (werden ergänzt)${upd ? ` · ${cnt('abweichend')} mit abweichenden Angaben` : ''} · ${cnt('verknüpfen')} nur verknüpfen · ${cnt('gleich')} unverändert</p>
+    ${upd ? `<label class="tog" style="display:flex;margin:0 0 8px"><input type="checkbox" name="ueber" checked> Abweichende Angaben mit der Liste <b>&nbsp;überschreiben&nbsp;</b> (sonst nur Fehlendes ergänzen)</label>` : ''}
     <div class="dscroll" style="max-height:60vh"><table class="dtab"><thead><tr><th class="cb"><input type="checkbox" data-act="kimpAll" checked></th><th>Nr.</th><th>Name</th><th>Adresse</th><th>Aktion</th></tr></thead><tbody>
     ${R.map((x, i) => `<tr class="${x.art === 'gleich' ? 'off' : ''}"><td class="cb"><input type="checkbox" name="s${i}" ${x.sel ? 'checked' : ''} ${x.art === 'gleich' ? 'disabled' : ''}></td><td>${esc(x.n.nr)}</td><td>${esc(x.n.name)}${x.k && tokKey(x.k.name) !== tokKey(x.n.name) ? `<div class="small muted">→ ${esc(x.k.name)}</div>` : ''}</td>
       <td class="small">${esc([[x.n.strasse, x.n.hausnr].filter(Boolean).join(' '), [x.n.plz, x.n.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))}</td>
-      <td>${x.art === 'neu' ? '<span class="chip ok">neu</span>' : x.art === 'ergänzen' ? `<span class="chip info">ergänzen: ${esc(x.fill.join(', '))}${x.link ? ' + verknüpfen' : ''}</span>` : x.art === 'verknüpfen' ? '<span class="chip info">verknüpfen</span>' : '<span class="chip">unverändert</span>'}</td></tr>`).join('')}</tbody></table></div>`,
+      <td>${x.art === 'neu' ? '<span class="chip ok">neu</span>' : x.art === 'ergänzen' ? `<span class="chip info">ergänzen: ${esc(x.fill.map(f => FN[f]).join(', '))}${x.link ? ' + verknüpfen' : ''}</span>` : x.art === 'verknüpfen' ? '<span class="chip info">verknüpfen</span>' : x.art === 'abweichend' ? `<span class="chip warn" title="${esc(x.diff.map(f => `${FN[f]}: ${x.k[f]} → ${x.n[f]}`).join('\n'))}">abweichend: ${esc(x.diff.map(f => FN[f]).join(', '))}</span>${x.fill.length ? ` <span class="chip info">+ ${esc(x.fill.map(f => FN[f]).join(', '))}</span>` : ''}` : '<span class="chip">unverändert</span>'}</td></tr>`).join('')}</tbody></table></div>`,
     `<span class="spacer"></span><button class="btn primary" value="ok">Übernehmen</button>`,
     { wide: true, onSubmit: fd => {
       const out = []; R.forEach((x, i) => { if (!fd.get('s' + i)) return;
         const n = Object.assign({}, x.n); delete n._link;
-        if (x.k) { const k = clone(x.k); x.fill.forEach(f => { k[f] = n[f]; }); kLink(k, x.n._link || {}); out.push(k); }
+        if (x.k) { const k = clone(x.k); x.fill.forEach(f => { k[f] = n[f]; }); if (fd.get('ueber')) x.diff.forEach(f => { k[f] = n[f]; }); kLink(k, x.n._link || {}); out.push(k); }
         else { const k = Object.assign({ id: uid(), aktiv: true }, n); kLink(k, x.n._link || {}); out.push(k); } });
       Store.putMany('kunden', out); toast(`${out.length} Kunden übernommen`);
     } });
