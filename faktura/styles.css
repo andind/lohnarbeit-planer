@@ -307,3 +307,6 @@ details.help summary { cursor: pointer; width: max-content; }
 dialog { max-height: calc(var(--appH, 100dvh) - 24px); }
 @media (max-width: 699px) { dialog, dialog.wide { height: var(--appH, 100dvh); max-height: var(--appH, 100dvh); } }
 .dtab tr.grp td { background: var(--surface-2); font-weight: 600; }
+/* v1.11: Arbeiten der IM-Verwaltung am Artikel */
+.arbchips { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.arbchip { margin: 0; }

@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '144', APP_STAND = '19.11.2026';
+const APP_VERSION = '145', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -2116,8 +2116,11 @@ async function fakturaAbrSend(einzeln) { // einzeln (v142): ein Eintrag aus dem 
   toast('Kunden und Artikel aus IM-Faktura werden geladen …', 1500);
   const FK = await fkLoad(), G = groupBy(rows, r => r.kid || '?' + norm(r.kunde));
   const artOf = nr => FK.artikel.find(a => String(a.artNr) === String(nr)) || null;
-  const strohArt = FK.artikel.find(a => /stroh/i.test(a.bez || '') && /häcks|hacks|häck/i.test(a.bez || '')) || FK.artikel.find(a => /stroh/i.test(a.bez || '')) || null;
-  const artOpts = cur => `<option value="">— ohne Artikel —</option>${cur && !artOf(cur) ? `<option value="${esc(cur)}" selected>${esc(cur)} (nicht in IM-Faktura)</option>` : ''}${FK.artikel.map(a => `<option value="${esc(a.artNr)}" ${String(a.artNr) === String(cur) ? 'selected' : ''}>${esc(a.artNr)} – ${esc(a.bez || '')}${a.preis != null ? ` · ${fmtNum(a.preis)}/${esc(a.einheit || '')}` : ''}</option>`).join('')}`;
+  const strohArt = FK.artikel.find(a => (a.arbeiten || []).some(x => /strohh/i.test(x))) || FK.artikel.find(a => /stroh/i.test(a.bez || '') && /häcks|hacks|häck/i.test(a.bez || '')) || FK.artikel.find(a => /stroh/i.test(a.bez || '')) || null;
+  // v145: Artikel nach Arbeit eingeschränkt (in IM-Faktura je Artikel «Arbeiten in der IM-Verwaltung»); keiner zugewiesen → alle; Schalter «alle Artikel»
+  const artFor = (arbs, all) => { const A = FK.artikel.filter(a => a.aktiv !== false), ks = arbs.filter(Boolean).map(norm), F = A.filter(a => (a.arbeiten || []).some(x => ks.includes(norm(x)))); return all || !F.length ? A : F; };
+  const artOpts = (cur, arbs = [], all = false) => { const lst = artFor(arbs, all), c = cur && artOf(cur);
+    return `<option value="">— ohne Artikel —</option>${cur && !c ? `<option value="${esc(cur)}" selected>${esc(cur)} (nicht in IM-Faktura)</option>` : ''}${(c && !lst.includes(c) ? [c, ...lst] : lst).map(a => `<option value="${esc(a.artNr)}" ${String(a.artNr) === String(cur) ? 'selected' : ''}>${esc(a.artNr)} ${esc(a.bez || '')}${a.preis != null ? ` (${fmtNum(a.preis)}/${esc(a.einheit || '')})` : ''}</option>`).join('')}`; };
   const nIn = (name, v, w = 80) => `<input class="input fkn" name="${name}" inputmode="decimal" value="${v ?? ''}" style="width:${w}px">`;
   const L = []; // je Eintrag: Vorbelegung
   const body = G.map(([kid, l], gi) => {
@@ -2135,15 +2138,16 @@ async function fakturaAbrSend(einzeln) { // einzeln (v142): ein Eintrag aus dem 
         const sent = (o && o.fakt) || (r.jid && (jdbAbr(r.jid) || {}).fakt);
         return `<tr data-j="${j}"><td>${esc(fmtDate(r.d, { day: '2-digit', month: '2-digit', year: '2-digit' }))} ${esc(r.arbeit || '')}${r.feld ? ' – ' + esc(r.feld) : ''}${sent ? ' <span class="chip warn small" title="wurde schon einmal an IM-Faktura gesendet">schon gesendet</span>' : r.abr ? ' <span class="chip small">abgerechnet</span>' : ''}${spray ? '<div class="nr">Pflanzenschutzmittel werden mit der Fläche berechnet</div>' : ''}</td>
           <td class="r">${nIn('m_' + j, menge != null ? r2(menge) : '')}</td><td><input class="input" name="e_${j}" value="${esc(einh)}" style="width:52px"></td>
-          <td><select class="input fka" name="a_${j}" data-p="p_${j}" data-e="e_${j}">${artOpts(art)}</select></td>
+          <td><select class="input fka" name="a_${j}" data-p="p_${j}" data-e="e_${j}" data-arb="${esc([r.arbeit, o && o.arbeit].filter(Boolean).join('|'))}">${artOpts(art, [r.arbeit, o && o.arbeit])}</select></td>
           <td class="r">${nIn('p_' + j, preis != null ? preis : '')}</td><td class="r fkb" data-b="${j}"></td>
           <td><input class="input" name="b_${j}" value="${esc(r.kultur || '')}" placeholder="z. B. Kultur"></td></tr>
         ${dresch ? `<tr class="fkstroh" data-j="${j}s"><td><label class="tog"><input type="checkbox" name="s_${j}" ${stroh ? 'checked' : ''}> + Strohhäckseln</label></td>
-          <td class="r">${nIn('sm_' + j, strohHa != null ? r2(strohHa) : '')}</td><td>ha</td><td><select class="input fka" name="sa_${j}" data-p="sp_${j}">${artOpts(strohArt ? strohArt.artNr : '')}</select></td>
+          <td class="r">${nIn('sm_' + j, strohHa != null ? r2(strohHa) : '')}</td><td>ha</td><td><select class="input fka" name="sa_${j}" data-p="sp_${j}" data-arb="Strohhäckseln">${artOpts(strohArt ? strohArt.artNr : '', ['Strohhäckseln'])}</select></td>
           <td class="r">${nIn('sp_' + j, strohArt && strohArt.preis != null ? strohArt.preis : '')}</td><td class="r fkb" data-b="${j}s"></td><td class="nr">Fläche aus dem Auftrag, änderbar</td></tr>` : ''}`;
       }).join('')}</tbody></table></div></div>`;
   }).join('');
-  const hint = FK.ok ? '' : '<div class="hint warn" style="margin-bottom:8px">IM-Faktura-Daten (faktura.json) konnten nicht gelesen werden – Kunde und Artikel werden in IM-Faktura zugeordnet.</div>';
+  const hint = (FK.ok ? '' : '<div class="hint warn" style="margin-bottom:8px">IM-Faktura-Daten (faktura.json) konnten nicht gelesen werden – Kunde und Artikel werden in IM-Faktura zugeordnet.</div>')
+    + (FK.artikel.length ? `<label class="tog fkall"><input type="checkbox" data-fkall> Alle Artikel anzeigen <span class="nr">(sonst nur die Artikel, die in IM-Faktura der Arbeit zugewiesen sind)</span></label>` : '');
   Dlg.open(`An IM-Faktura senden – ${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'}`, hint + body + '<p class="nr">Je Kunde eine Übergabe; sie erscheint in IM-Faktura unter Entwürfe. Die Bemerkung steht als zweite Zeile unter der Position. Danach werden die Einträge als abgerechnet markiert.</p>',
     `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">📤 Senden</button>`, fd => {
       const v = n => num(fd.get(n)), t = n => String(fd.get(n) || '').trim();
@@ -2186,6 +2190,7 @@ async function fakturaAbrSend(einzeln) { // einzeln (v142): ein Eintrag aus dem 
     const on = !s || F.querySelector(`[name=s_${j}]`).checked, m = num(F.querySelector(`[name=${s ? 'sm_' : 'm_'}${j}]`).value), p = num(F.querySelector(`[name=${s ? 'sp_' : 'p_'}${j}]`).value);
     td.textContent = on && m != null && p != null ? fmtNum(round05(m * p)) : on ? '–' : ''; td.classList.toggle('warnc', on && (m == null || p == null)); });
   F.addEventListener('input', betr); F.addEventListener('change', e => {
+    if (e.target.matches('[data-fkall]')) { const all = e.target.checked; F.querySelectorAll('select.fka').forEach(sl => { const v = sl.value; sl.innerHTML = artOpts(v, (sl.dataset.arb || '').split('|'), all); sl.value = v; }); return; }
     const a = e.target.closest('select.fka'); if (a) { const x = artOf(a.value); if (x) { if (x.preis != null) F.querySelector(`[name=${a.dataset.p}]`).value = x.preis; if (a.dataset.e && x.einheit) F.querySelector(`[name=${a.dataset.e}]`).value = x.einheit; } }
     betr(); });
   betr();

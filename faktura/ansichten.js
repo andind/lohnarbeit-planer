@@ -283,8 +283,8 @@ function viewStamm() {
   if (sub === 'artikel') {
     const q = fold(App.f.a.q), L = artSorted().filter(a => !q || fold([a.artNr, a.bez].join(' ')).includes(q));
     return { tb: `<h1>Stammdaten</h1>${seg}<button class="btn primary" data-act="newA">＋ Artikel</button>`, html: `<div class="filters"><input class="input search" type="search" placeholder="Suchen…" data-in="aq" value="${esc(App.f.a.q)}"><span class="lbl">${L.length} Artikel</span></div>
-      <div class="dscroll"><table class="dtab"><thead><tr><th>Art.-Nr.</th><th>Bezeichnung</th><th>Einheit</th><th class="n">Preis CHF</th><th class="n">MWST</th><th>Konto</th></tr></thead><tbody>
-      ${L.map(a => `<tr class="click ${a.aktiv === false ? 'off' : ''}" data-act="editA" data-id="${a.id}"><td>${esc(a.artNr)}</td><td>${esc(a.bez)}</td><td>${esc(a.einheit || '')}</td><td class="n">${a.preis != null ? chf(a.preis) : ''}</td><td class="n">${a.mwst != null ? mwstTxt(a.mwst) : ''}</td><td>${a.konto ? esc(a.konto) : '<span class="small muted">' + esc(buchCfg().kontoStd) + ' (Std.)</span>'}</td></tr>`).join('')}</tbody></table>${L.length ? '' : '<div class="empty">Noch keine Artikel</div>'}</div>` };
+      <div class="dscroll"><table class="dtab"><thead><tr><th>Art.-Nr.</th><th>Bezeichnung</th><th>Einheit</th><th class="n">Preis CHF</th><th class="n">MWST</th><th>Konto</th><th>Arbeiten (IM-Verwaltung)</th></tr></thead><tbody>
+      ${L.map(a => `<tr class="click ${a.aktiv === false ? 'off' : ''}" data-act="editA" data-id="${a.id}"><td>${esc(a.artNr)}</td><td>${esc(a.bez)}</td><td>${esc(a.einheit || '')}</td><td class="n">${a.preis != null ? chf(a.preis) : ''}</td><td class="n">${a.mwst != null ? mwstTxt(a.mwst) : ''}</td><td>${a.konto ? esc(a.konto) : '<span class="small muted">' + esc(buchCfg().kontoStd) + ' (Std.)</span>'}</td><td class="small">${esc((a.arbeiten || []).join(', '))}</td></tr>`).join('')}</tbody></table>${L.length ? '' : '<div class="empty">Noch keine Artikel</div>'}</div>` };
   }
   const f = App.f.k, q = fold(f.q), cnt = new Map(); Store.all('rechnungen').forEach(r => cnt.set(r.kunde, (cnt.get(r.kunde) || 0) + 1));
   const L = kundenSorted().filter(k => (f.alle || k.aktiv !== false) && (!q || fold([k.nr, k.name, k.ort, k.strasse].join(' ')).includes(q)));
@@ -322,6 +322,15 @@ function kundeDialog(id, { after } = {}) {
       Store.put('kunden', x, { silent: !!after }); if (after) setTimeout(() => after(x), 50);
     } });
 }
+/* v1.11: Arbeiten der IM-Verwaltung je Artikel (a.arbeiten) – schränkt dort im Sendefenster die Artikelauswahl ein.
+   Vorschläge: Arbeitsarten der Maschinen aus /planung.json (gemerkt in mf_imvarb) + Arbeiten aus MyJohnDeere + Strohhäckseln */
+const IMV_ARB_FIX = ['Säen', 'Ernte', 'Pflanzenschutz / Düngung', 'Bodenbearbeitung', 'Strohhäckseln'];
+const imvArbeiten = () => { let L = []; try { L = JSON.parse(ls('mf_imvarb') || '[]'); } catch { } return [...new Set([...L, ...IMV_ARB_FIX, ...Store.all('artikel').flatMap(a => a.arbeiten || [])])].sort((a, b) => a.localeCompare(b, 'de')); };
+async function imvArbLoad() {
+  try { const d = await Drive.loadPath('/planung.json'); const L = [...new Set(((d && d.maschinen) || []).filter(m => !m.del).flatMap(m => m.arbeitsarten || []).filter(Boolean))];
+    if (L.length) ls('mf_imvarb', JSON.stringify(L)); return L.length > 0; } catch { return false; }
+}
+const arbChips = sel => imvArbeiten().map(x => `<label class="tog arbchip"><input type="checkbox" name="arb" value="${esc(x)}" ${sel.includes(x) ? 'checked' : ''}> ${esc(x)}</label>`).join('');
 function artikelDialog(id) {
   const a = id ? Store.get('artikel', id) : { id: uid(), aktiv: true, mwst: Store.cfg().mwstDef }; if (!a) return;
   openDlg(id ? 'Artikel bearbeiten' : 'Neuer Artikel', `
@@ -330,15 +339,21 @@ function artikelDialog(id) {
       <label class="fld"><span>Preis CHF</span><input class="input" name="preis" inputmode="decimal" value="${a.preis ?? ''}"></label>
       <label class="fld"><span>MWST</span><select class="input" name="mwst">${mwstOpts(a.mwst)}</select></label></div>
     <label class="fld"><span>Ertragskonto (AgroOffice)</span><input class="input" name="konto" inputmode="numeric" value="${esc(a.konto || '')}" placeholder="leer = Standardkonto ${esc(buchCfg().kontoStd)}" style="max-width:220px"></label>
+    <div class="fld"><span>Arbeiten in der IM-Verwaltung</span><div class="arbchips" id="arbChips">${arbChips(a.arbeiten || [])}</div>
+      <input class="input" name="arbNeu" placeholder="weitere Arbeit (mehrere mit Komma)" style="margin-top:6px"><div class="small muted">Beim Senden aus der IM-Verwaltung werden zu einer Arbeit nur die hier zugewiesenen Artikel angeboten (auf Wunsch alle).</div></div>
     <label class="tog"><input type="checkbox" name="aktiv" ${a.aktiv !== false ? 'checked' : ''}> aktiv (in der Auswahl)</label>`,
     `${id ? '<button class="btn danger" value="del">Löschen</button>' : ''}<span class="spacer"></span><button class="btn primary" value="ok">Speichern</button>`,
     { onSubmit: (fd, btn) => {
       if (btn === 'del') { if (!confirm('Artikel löschen?')) return false; Store.remove('artikel', a.id); return; }
-      const x = Object.assign({}, a, { artNr: String(fd.get('artNr') || '').trim(), bez: String(fd.get('bez') || '').trim(), einheit: String(fd.get('einheit') || '').trim(), preis: num(fd.get('preis')), mwst: num(fd.get('mwst')) ?? 0, konto: String(fd.get('konto') || '').replace(/\D/g, ''), aktiv: !!fd.get('aktiv') });
+      const arb = [...new Set([...fd.getAll('arb'), ...String(fd.get('arbNeu') || '').split(',').map(t => t.trim()).filter(Boolean)])];
+      const x = Object.assign({}, a, { arbeiten: arb, artNr: String(fd.get('artNr') || '').trim(), bez: String(fd.get('bez') || '').trim(), einheit: String(fd.get('einheit') || '').trim(), preis: num(fd.get('preis')), mwst: num(fd.get('mwst')) ?? 0, konto: String(fd.get('konto') || '').replace(/\D/g, ''), aktiv: !!fd.get('aktiv') });
       if (!x.bez) { toast('Bezeichnung fehlt'); return false; }
       if (x.artNr && Store.all('artikel').some(o => o.id !== x.id && nrKey(o.artNr) === nrKey(x.artNr))) { toast('Art.-Nr. gibt es schon'); return false; }
+      if (!x.arbeiten.length) delete x.arbeiten;
       Store.put('artikel', x);
     } });
+  // Arbeitsarten aus der IM-Verwaltung nachladen und Auswahl ergänzen (gewählte bleiben angehakt)
+  if (Auth.hasSession()) imvArbLoad().then(ok => { const box = $('#arbChips'); if (!ok || !box) return; const cur = [...box.querySelectorAll('input:checked')].map(i => i.value); box.innerHTML = arbChips(cur.length ? cur : (a.arbeiten || [])); });
 }
 
 /* ================= Mehr: Einstellungen, Dropbox, Daten ================= */

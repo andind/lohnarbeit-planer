@@ -1312,3 +1312,9 @@ body.fsmode #selbar { left: 12px; }
 .fktab tr.fkstroh td { background: rgba(200,160,40,.08); border-top: 0; }
 .strohbox { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 16px; margin: -4px 0 10px; }
 .strohbox .fld { margin: 0; flex: 1; min-width: 180px; }
+/* v145: Artikelauswahl im Sendefenster nicht abschneiden, breiter */
+.fkgrp .tscroll { overflow: visible; }
+.fktab .combo { min-width: 240px; }
+.fktab .combo-sug { right: auto; min-width: 420px; max-width: 560px; max-height: 340px; }
+.fktab .combo-sug > * { white-space: normal; }
+.fkall { display: inline-flex; gap: 6px; margin: 0 0 10px; }
