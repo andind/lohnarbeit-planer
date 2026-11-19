@@ -146,8 +146,9 @@ const kpOk = nr => KONTENPLAN.some(k => k[0] === String(nr));
 const kpTxt = nr => nr ? `${nr}${kpName(nr) ? ' ' + kpName(nr) : ''}` : '';
 // Konto einer Position ohne Standard-Rückfall (Prüfung vor dem Abschliessen): eigenes Konto, sonst Konto des Artikels (Aufwand: Aufwandkonto des Artikels)
 const posKontoEig = p => String(p.konto || (isAufw(p) ? artByNr(p.art)?.kontoAufw : artByNr(p.art)?.konto) || '').trim();
-const posCode = p => String(p.code || buchCfg().codes[codeKey(p)] || (!isAufw(p) && buchCfg().codes[String(+p.mwst || 0)]) || '');
-const codeNoetig = p => !codeKey(p).endsWith(':v0'); // Aufwand ohne Vorsteuer braucht keinen MWST-Code
+const aufwOhne = p => isAufw(p) && !bookSatz(p); // v1.33: Aufwand, der ohne MWST gebucht wird (Ohne MWST oder keine Vorsteuer) – braucht keinen MWST-Code
+const posCode = p => aufwOhne(p) ? String(p.code || '') : String(p.code || buchCfg().codes[codeKey(p)] || (!isAufw(p) && buchCfg().codes[String(+p.mwst || 0)]) || '');
+const codeNoetig = p => !aufwOhne(p); // nur Aufwand ohne MWST (Ohne MWST bzw. keine Vorsteuer) darf ohne MWST-Code abgeschlossen werden
 function posBuchFehler(p) {
   if ((p.typ || 'pos') !== 'pos') return [];
   const e = [], k = posKontoEig(p);
@@ -234,7 +235,7 @@ function buchungen(L) {
     if (B.hilfs) out.push({ datum: z.datum, beleg, soll: zk, haben: B.hilfs, betrag: r2(+z.betrag), satz: null, text: `${im} Zahlung ${kn}`, zid: z.id });
     zahlTeile(r, z).forEach(t => {
       const neg = t.b < 0, b = Math.abs(t.b);
-      const bs = t.bs ?? t.satz, code = t.code || (t.ck && B.codes[t.ck]) || ((!t.ck || t.ck.startsWith('e:')) && bs ? (B.codes[String(bs)] || '') : ''); // v1.30: Steuerart → Code
+      const bs = t.bs ?? t.satz, code = t.code || (String(t.ck || '').startsWith('a:') && !bs ? '' : t.ck && B.codes[t.ck]) || ((!t.ck || t.ck.startsWith('e:')) && bs ? (B.codes[String(bs)] || '') : ''); // v1.30: Steuerart → Code
       out.push({ datum: z.datum, beleg, soll: neg ? t.konto : gegen, haben: neg ? gegen : t.konto, betrag: b, satz: bs, mwst: t.urp ? r2(b * 2.6 / 100) : bs ? r2(b * bs / (100 + bs)) : 0,
         code, steuerSeite: neg ? 'soll' : 'haben', text: `${im} ${B.hilfs ? '' : 'Zahlung '}${kn}${t.ueber ? ' Überzahlung' : ''}`, zid: z.id });
     });

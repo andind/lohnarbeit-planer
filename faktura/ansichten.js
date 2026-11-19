@@ -249,8 +249,8 @@ function posDialog(i, { neu = false } = {}) {
     if (auf) { const as = f('asatz').value; f('mwst').value = as === 'urp' ? '0' : as; }
     $('#pdEmit').hidden = !sz; $('#pdEohne').hidden = !!sz;
     const q = { mwst: auf ? (f('asatz').value === 'urp' ? 0 : +f('asatz').value) : sz, st: auf ? 'aufwand' : '', urp: auf && f('asatz').value === 'urp', vst: f('vst').value, ziffer: f('ziffer').value, z235: f('z235').checked, z205: f('z205').checked };
-    const k = codeKey(q), c = typeof buchCfg === 'function' ? (buchCfg().codes[k] || (k.startsWith('e:') ? buchCfg().codes[String(q.mwst)] : '') || '') : '';
-    $('#pdStHint').innerHTML = `${esc(codeLabel(k))} → MWST-Code <b>${c ? esc(c) : '– noch nicht festgelegt (Mehr › Buchhaltung)'}</b>${q.urp ? '<br>Auf der Rechnung ohne MWST; in der Buchhaltung 2.6 % Vorsteuer (Art. 28 Abs. 2 MWSTG).' : ''}`; upd(); };
+    const k = codeKey(q), c = typeof buchCfg === 'function' ? (q.st === 'aufwand' && !bookSatz(q) ? '' : buchCfg().codes[k] || (k.startsWith('e:') ? buchCfg().codes[String(q.mwst)] : '') || '') : '';
+    $('#pdStHint').innerHTML = `${esc(codeLabel(k))} → MWST-Code <b>${c ? esc(c) : q.st === 'aufwand' && !bookSatz(q) ? 'keiner nötig (Aufwand ohne MWST)' : '– noch nicht festgelegt (Mehr › Buchhaltung)'}</b>${q.urp ? '<br>Auf der Rechnung ohne MWST; in der Buchhaltung 2.6 % Vorsteuer (Art. 28 Abs. 2 MWSTG).' : ''}`; upd(); };
   F.querySelectorAll('[name=st],[name=asatz],[name=vst],[name=ziffer],[name=z235],[name=z205],[name=mwst]').forEach(x => x.addEventListener('change', stUpd)); stUpd();
   const knUpd = () => { const v = f('konto').value.trim() || f('konto').placeholder; $('#pdKn').innerHTML = v ? (kpOk(v) ? esc(kpName(v)) + (f('konto').value.trim() ? '' : ' (vom Artikel)') : `<span class="eneg">Konto ${esc(v)} nicht im Kontenplan</span>`) : '<span class="eneg">kein Konto</span>'; };
   f('konto').addEventListener('input', knUpd); knUpd();
