@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.14', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.15', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -173,6 +173,12 @@ const Drive = {
     if (!r2.ok) throw new Error('Dropbox: Laden fehlgeschlagen (' + r2.status + ')');
     return { data: JSON.parse((await r2.text()) || '{}'), etag: meta.rev };
   },
+  async loadPath(path) { // fremde Datei nur lesen (IM-Faktura /faktura.json)
+    const r = await this.req('https://content.dropboxapi.com/2/files/download', { headers: { 'Dropbox-API-Arg': dbxArg({ path }) } });
+    if (r.status === 409) return null;
+    if (!r.ok) throw new Error('Dropbox: Laden fehlgeschlagen (' + r.status + ')');
+    return JSON.parse((await r.text()) || '{}');
+  },
   async writeJson(path, obj) { // Übergabe an IM-Faktura (/faktura-eingang/<id>.json)
     const r = await this.req('https://content.dropboxapi.com/2/files/upload', { headers: { 'Content-Type': 'application/octet-stream', 'Dropbox-API-Arg': dbxArg({ path, mode: 'overwrite', mute: true }) }, body: JSON.stringify(obj) });
     if (!r.ok) throw new Error('Dropbox ' + r.status);
@@ -218,9 +224,51 @@ const Sync = {
         try { await Drive.save(Store.data, remote.etag); break; } catch (e) { if (!e.conflict || i === 3) throw e; }
       }
       ls('mv_dirty', null); this.last = new Date(); this.setState('ok');
+      if (Date.now() - (FK.last || 0) > 4 * 60 * 1000) FK.sync({ quiet: true });
     } catch (e) {
       this.err = e.message || String(e); this.setState(e.auth ? 'login' : (navigator.onLine ? 'error' : 'offline'));
     } finally { this.running = false; if (this.again) { this.again = false; this.run(); } }
+  }
+};
+
+/* ================= Kunden aus IM-Faktura (v1.15) =================
+   Die Kunden werden in IM-Faktura verwaltet (/faktura.json, nur lesen). Hier werden sie übernommen und verknüpft (k.fkId):
+   zuerst über die Verknüpfung (fkId bzw. vmId in IM-Faktura), sonst über Kd-Nr., sonst über den Namen (auch Namensvarianten).
+   Name, Kd-Nr. und Adresse kommen dann aus IM-Faktura und sind hier nicht änderbar; Namensvarianten (Import) bleiben eigene Daten.
+   Kunden ohne Gegenstück (z. B. Neukunden aus dem Import) bleiben lokal – IM-Faktura legt sie beim Senden an und verknüpft sie. */
+const FK_PATH = '/faktura.json';
+const FK_F = ['nr', 'name', 'zusatz', 'strasse', 'plz', 'ort', 'tel', 'mail'];
+const FK = {
+  last: 0, busy: false,
+  async sync({ quiet = false } = {}) {
+    if (this.busy || !Auth.configured() || !Auth.hasSession() || !navigator.onLine) return;
+    this.busy = true; this.last = Date.now();
+    try {
+      const d = await Drive.loadPath(FK_PATH);
+      if (!d) { if (!quiet) toast('IM-Faktura: ' + FK_PATH + ' nicht gefunden', 5000); return; }
+      const F = (d.kunden || []).filter(k => k && k.id && !k.del && k.name), fIds = new Set(F.map(k => k.id));
+      const V = Store.all('kunden'), used = new Set(), out = []; let nNeu = 0, nUpd = 0, nLos = 0;
+      const vmBy = (f) => { // passender Kunde der Vermietung
+        const nr = String(f.nr || '').trim();
+        return V.find(v => v.fkId === f.id) || (f.vmId && V.find(v => v.id === f.vmId && !v.fkId))
+          || (nr && V.find(v => !v.fkId && !used.has(v.id) && String(v.nr || '').trim() === nr))
+          || V.find(v => !v.fkId && !used.has(v.id) && (tokKey(v.name) === tokKey(f.name) || (v.aliases || []).some(a => tokKey(a) === tokKey(f.name))));
+      };
+      F.forEach(f => {
+        const v = vmBy(f), x = { nr: String(f.nr || '').trim(), name: f.name, zusatz: f.zusatz || '', strasse: [f.strasse, f.hausnr].filter(Boolean).join(' '), plz: f.plz || '', ort: f.ort || '', tel: f.tel || '', mail: f.mail || '' };
+        if (v) { used.add(v.id);
+          const n = Object.assign({}, v, x, { fkId: f.id, aktiv: f.aktiv !== false });
+          if (n.bem === 'Neukunde' && n.nr) n.bem = '';
+          n.aliases = (n.aliases || []).filter(a => fold(a) !== fold(n.name)); if (fold(v.name) !== fold(n.name)) n.aliases = [...new Set([...n.aliases, v.name])];
+          if (FK_F.some(k => (v[k] || '') !== (n[k] || '')) || v.fkId !== f.id || (v.aktiv !== false) !== n.aktiv) { out.push(n); nUpd++; }
+        } else { out.push(Object.assign({ id: 'fk-' + f.id, aliases: [], fkId: f.id, aktiv: f.aktiv !== false, bem: '' }, x)); nNeu++; }
+      });
+      V.forEach(v => { if (v.fkId && !fIds.has(v.fkId)) { const n = Object.assign({}, v); delete n.fkId; out.push(n); nLos++; } }); // in IM-Faktura gelöscht → wieder lokal
+      if (out.length) Store.putMany('kunden', out, { silent: App.busy() });
+      Store.setCfg({ fkSync: new Date().toISOString() });
+      if (!quiet || out.length) toast(`Kunden aus IM-Faktura: ${F.length} · ${nNeu} neu · ${nUpd} aktualisiert${nLos ? ` · ${nLos} nicht mehr vorhanden` : ''}`, 4000);
+    } catch (e) { if (!quiet) toast('IM-Faktura: ' + e.message, 5000); }
+    finally { this.busy = false; }
   }
 };
 
@@ -437,31 +485,35 @@ function viewStamm() {
   }
   const use = countBy('kunde'), q = fold(App.kq || ''), only = App.kNeu;
   const list = kundenSorted().filter(k => (!only || !k.nr) && (!q || fold([k.name, k.nr, k.ort, ...(k.aliases || [])].join(' ')).includes(q)));
-  return { tb: `<h1>Stammdaten</h1>${seg}<button class="btn" data-act="impKundenliste">Kundenliste importieren…</button><button class="btn primary" data-act="editKunde">＋ Kunde</button>`,
-    html: `<div class="filters"><input class="input search" type="search" placeholder="Kunde suchen…" value="${esc(App.kq || '')}" data-in="kq"><label class="tog"><input type="checkbox" data-in="kNeu" ${only ? 'checked' : ''}> nur Neukunden (ohne Kd-Nr.)</label><span class="lbl">${list.length} Kunden</span></div>
-    <div class="dscroll"><table class="dtab"><thead><tr><th class="n">Kd-Nr.</th><th>Kunde</th><th>Adresse</th><th class="n">Einsätze</th><th>Namensvarianten (Import)</th></tr></thead><tbody>
+  const nLok = Store.all('kunden').filter(k => !k.fkId).length, fs = Store.cfg().fkSync;
+  return { tb: `<h1>Stammdaten</h1>${seg}<button class="btn primary" data-act="fkSync" title="Kunden aus IM-Faktura übernehmen (geschieht auch bei jedem Synchronisieren)">⟳ Kunden aus IM-Faktura</button><button class="btn" data-act="editKunde" title="Nur für Neukunden, die noch nicht in IM-Faktura sind">＋ Neukunde</button>`,
+    html: `<div class="box small">Die Kunden werden in <b>IM-Faktura</b> verwaltet und hier übernommen${fs ? ` (zuletzt ${esc(new Date(fs).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }))})` : ' – noch nie abgeglichen'}. Name, Kd-Nr. und Adresse dort ändern; hier nur Namensvarianten für den Import.${nLok ? ` <b>${nLok} Kunden</b> sind nur hier (z. B. Neukunden) – IM-Faktura legt sie beim Senden einer Abrechnung an, danach werden sie verknüpft.` : ''}</div>
+    <div class="filters"><input class="input search" type="search" placeholder="Kunde suchen…" value="${esc(App.kq || '')}" data-in="kq"><label class="tog"><input type="checkbox" data-in="kNeu" ${only ? 'checked' : ''}> nur Neukunden (ohne Kd-Nr.)</label><span class="lbl">${list.length} Kunden</span></div>
+    <div class="dscroll"><table class="dtab"><thead><tr><th class="n">Kd-Nr.</th><th>Kunde</th><th>Adresse</th><th class="n">Einsätze</th><th>Namensvarianten (Import)</th><th>IM-Faktura</th></tr></thead><tbody>
     ${list.map(k => `<tr class="click ${k.aktiv === false ? 'off' : ''}" data-act="editKunde" data-id="${k.id}"><td class="n">${k.nr ? esc(k.nr) : '<span class="chip warn">Neukunde</span>'}</td><td><b>${esc(k.name)}</b></td>
-      <td class="small">${esc([k.strasse, [k.plz, k.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))}</td><td class="n">${use.get(k.id) || 0}</td><td class="small muted">${esc((k.aliases || []).join(' · '))}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Keine Kunden.</td></tr>'}
+      <td class="small">${esc([k.strasse, [k.plz, k.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))}</td><td class="n">${use.get(k.id) || 0}</td><td class="small muted">${esc((k.aliases || []).join(' · '))}</td><td>${k.fkId ? '<span class="chip">✓</span>' : '<span class="chip warn">nur hier</span>'}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Keine Kunden.</td></tr>'}
     </tbody></table></div>` };
 }
 function countBy(field) { const m = new Map(); Store.all('einsaetze').forEach(e => m.set(e[field], (m.get(e[field]) || 0) + 1)); return m; }
 const linesOf = s => [...new Set(String(s || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean))];
 
 function kundeDialog(id) {
-  const k = id ? kunde(id) : { nr: '', name: '', aliases: [], aktiv: true };
-  const n = id ? Store.all('einsaetze').filter(e => e.kunde === id).length : 0;
-  openDlg(id ? 'Kunde bearbeiten' : 'Neuer Kunde', `
+  const k = id ? kunde(id) : { nr: '', name: '', aliases: [], aktiv: true, bem: 'Neukunde' };
+  const n = id ? Store.all('einsaetze').filter(e => e.kunde === id).length : 0, fk = !!k.fkId;
+  openDlg(id ? 'Kunde bearbeiten' : 'Neukunde', `${fk ? '<div class="box small">Stammdaten aus <b>IM-Faktura</b> – Name, Kd-Nr., Adresse und Status dort ändern. Hier nur Namensvarianten und Bemerkung.</div>' : '<div class="box small warn">Nur hier erfasst – wird beim Senden einer Abrechnung in IM-Faktura angelegt und danach von dort übernommen.</div>'}
+    <fieldset ${fk ? 'disabled' : ''} style="border:0;padding:0;margin:0">
     <div class="two"><label class="fld"><span>Kunden-Nr.</span><input class="input" name="nr" value="${esc(k.nr || '')}" inputmode="numeric" placeholder="leer = Neukunde"></label>
       <label class="fld"><span>Status</span><select class="input" name="aktiv">${optList([['1', 'aktiv'], ['0', 'inaktiv']], k.aktiv === false ? '0' : '1')}</select></label></div>
     <label class="fld"><span>Name (Nachname Vorname / Betrieb)</span><input class="input" name="name" value="${esc(k.name)}" required autofocus></label>
     <div class="two"><label class="fld"><span>Strasse</span><input class="input" name="strasse" value="${esc(k.strasse || '')}"></label><label class="fld"><span>Zusatz</span><input class="input" name="zusatz" value="${esc(k.zusatz || '')}"></label></div>
     <div class="three"><label class="fld"><span>PLZ</span><input class="input" name="plz" value="${esc(k.plz || '')}"></label><label class="fld" style="grid-column:span 2"><span>Ort</span><input class="input" name="ort" value="${esc(k.ort || '')}"></label></div>
-    <div class="two"><label class="fld"><span>Telefon</span><input class="input" name="tel" value="${esc(k.tel || '')}"></label><label class="fld"><span>E-Mail</span><input class="input" name="mail" value="${esc(k.mail || '')}"></label></div>
+    <div class="two"><label class="fld"><span>Telefon</span><input class="input" name="tel" value="${esc(k.tel || '')}"></label><label class="fld"><span>E-Mail</span><input class="input" name="mail" value="${esc(k.mail || '')}"></label></div></fieldset>
     <label class="fld"><span>Namensvarianten (eine pro Zeile)</span><textarea class="input" name="aliases" rows="3">${esc((k.aliases || []).join('\n'))}</textarea><div class="hint">So schreibt der Kunde seinen Namen im Formular oder auf dem Rapport. Beim Import wird er damit automatisch erkannt. Neue Varianten lernt das Programm beim Import selbst.</div></label>
     <label class="fld"><span>Bemerkung</span><input class="input" name="bem" value="${esc(k.bem || '')}"></label>
     ${id ? `<div class="box small">${n} Einsätze</div>` : ''}`,
-    `${id ? `<button type="button" class="btn danger" data-act="delKunde" data-id="${id}">Löschen</button><button type="button" class="btn" data-act="mergeKunde" data-id="${id}">Zusammenführen…</button>` : ''}<span class="spacer"></span><button class="btn primary" value="ok">Speichern</button>`,
+    `${id && !fk ? `<button type="button" class="btn danger" data-act="delKunde" data-id="${id}">Löschen</button><button type="button" class="btn" data-act="mergeKunde" data-id="${id}">Zusammenführen…</button>` : ''}<span class="spacer"></span><button class="btn primary" value="ok">Speichern</button>`,
     { onSubmit: fd => {
+      if (fk) { Store.put('kunden', Object.assign({}, k, { bem: fd.get('bem').trim(), aliases: linesOf(fd.get('aliases')).filter(a => fold(a) !== fold(k.name)) }), { silent: true }); return; }
       const name = fd.get('name').trim(); if (!name) return false;
       const nr = fd.get('nr').trim();
       if (nr && kundenSorted().some(x => x.nr === nr && x.id !== id) && !confirm(`Die Kunden-Nr. ${nr} ist schon vergeben. Trotzdem speichern?`)) return false;
@@ -1155,15 +1207,16 @@ function viewAbrechnung() {
     return head + sub; }).join('');
   const allSel = G.length && G.every(g => g.R.length), nHak = sel.reduce((a, g) => a + g.R.filter(isOffen).length, 0);
   const nZ = sel.reduce((a, g) => a + g.R.length, 0);
+  const faktBtn = `<button class="btn primary" data-act="abrFakt" ${sel.length ? '' : 'disabled'} title="Ausgewählte Zeilen als Abrechnung an IM-Faktura senden (eine Zeile «Maschinenmiete gemäss Rapport», Rapport als Beilage) und als abgerechnet markieren">📤 An IM-Faktura (${sel.length})</button>`;
   const doneBtn = `<button class="btn" data-act="abrDoneSel" ${nHak ? '' : 'disabled'} title="nur die ausgewählten offenen Zeilen">✓ Ausgewählte Zeilen abgerechnet (${nHak})</button>`;
   const table = G.length ? `<div class="dscroll"><table class="dtab"><thead><tr><th class="cb"><input type="checkbox" data-act="abrAll" ${allSel ? 'checked' : ''} title="alle Kunden auswählen / keine"></th><th>Zeilen</th><th class="n">Kd-Nr.</th><th>Kunde</th><th class="n">ha</th><th class="n">h</th><th class="n">CHF</th><th>Hinweise</th><th></th></tr></thead>
       <tbody>${rows}</tbody><tfoot><tr><td></td><td>${nZ}</td><td colspan="2">${sel.length} von ${G.length} Kunden ausgewählt</td><td class="n">${fmtQty(all.ha)}</td><td class="n">${fmtQty(all.h)}</td><td class="n">${all.chf ? chf(all.chf) : ''}</td><td colspan="2"></td></tr></tfoot></table></div>`
       : '<div class="empty">Keine Einsätze für diesen Zeitraum.</div>';
-  if (App.sub.abrKompakt) return { tb: '', html: `<div class="filters">${doneBtn}<button class="btn small" data-act="abrKompakt" title="Titel und Filterleiste wieder anzeigen">▼ Leiste einblenden</button></div>${table}` };
+  if (App.sub.abrKompakt) return { tb: '', html: `<div class="filters">${faktBtn}${doneBtn}<button class="btn small" data-act="abrKompakt" title="Titel und Filterleiste wieder anzeigen">▼ Leiste einblenden</button></div>${table}` };
   return { tb: `<h1>Abrechnung</h1>`,
     html: filterBar('abr', { search: false, maschine: false, kunde: false, storno: true }) +
     `<div class="filters"><button class="btn primary" data-act="abrPrint" ${sel.length ? '' : 'disabled'}>🖨 Rapporte (${sel.length})</button><button class="btn" data-act="abrList" ${sel.length ? '' : 'disabled'}>🖨 Abrechnungsliste</button>
-      <button class="btn" data-act="abrXlsx" ${sel.length ? '' : 'disabled'}>⬇ Abrechnungsliste Excel</button><button class="btn" data-act="abrFakt" ${sel.length ? '' : 'disabled'} title="Ausgewählte Zeilen als Abrechnung an IM-Faktura senden (eine Zeile «Maschinenmiete gemäss Rapport», Rapport als Beilage) und als abgerechnet markieren">📤 An IM-Faktura</button>${doneBtn}
+      <button class="btn" data-act="abrXlsx" ${sel.length ? '' : 'disabled'}>⬇ Abrechnungsliste Excel</button>${faktBtn}${doneBtn}
       ${G.length ? `<button class="btn small" data-act="abrExpAll">${G.every(g => open.has(g.k.id)) ? 'Alle zuklappen' : 'Alle Zeilen zeigen'}</button>` : ''}
       <button class="btn small" data-act="abrKompakt" title="Titel und Filterleiste ausblenden">▲ Leiste ausblenden</button></div>
     ${anyPreis ? '' : '<div class="box warn small">Noch keine Preise erfasst – Rapporte und Abrechnungsliste zeigen nur Mengen. Preise unter <a href="#" data-act="goMasch">Stammdaten › Maschinen</a> eintragen.</div>'}
@@ -1269,7 +1322,7 @@ async function fakturaSendVm(G, ov) {
       const L = g.R.slice().sort((a, b) => (a.datum || '').localeCompare(b.datum || '')), tot = r2(L.reduce((s, e) => s + (betragOf(e) || 0), 0));
       const k = g.k, now = new Date().toISOString(), id = 'imm-' + (k.id || 'k') + '-' + Date.now().toString(36) + n;
       const T = { v: 1, id, app: 'IM-Vermietung', appVer: APP_VERSION, am: now, betreff: 'Maschinenmiete',
-        kunde: { nr: k.nr || '', name: k.name || '', strasse: k.strasse || '', zusatz: k.zusatz || '', plz: k.plz || '', ort: k.ort || '', mail: k.mail || '', tel: k.tel || '' },
+        kunde: { fkId: k.fkId || '', vmId: k.id, nr: k.nr || '', name: k.name || '', strasse: k.strasse || '', zusatz: k.zusatz || '', plz: k.plz || '', ort: k.ort || '', mail: k.mail || '', tel: k.tel || '' },
         pos: [{ kind: 'miete', art: '100', bez: `Maschinenmiete gemäss Rapport${zeitraum(L) ? ' (' + zeitraum(L) + ')' : ''}`, menge: 1, einh: '', preis: tot }],
         beilage: { titel: 'Rapport Maschinenmiete', cols: [['Datum', '', 'cd'], ['Art.-Nr.', '', 'ca'], ['Maschine', ''], ['Menge', 'q', 'cm'], ['Einheit', '', 'ce'], ['Preis', 'chf', 'cp'], ['Betrag CHF', 'chf', 'cb']],
           rows: L.map(e => { const m = masch(e.maschine) || {}; return [e.datum ? fmtDate(e.datum) : '', m.artNr || '', (m.name || '') + (e.bem ? ' – ' + e.bem : ''), e.menge, einhOf(e), preisOf(e), betragOf(e)]; }), total: tot },
@@ -1539,6 +1592,7 @@ document.addEventListener('click', ev => {
     case 'abrFakt': prePrint('faktura'); break;
     case 'abrEntry': einsatzDialog(id); break;
     case 'abrDoneSel': abrDoneSel(); break;
+    case 'fkSync': FK.sync(); break;
     case 'abrKompakt': App.sub.abrKompakt = !App.sub.abrKompakt; App.saveUi(); App.render(); break;
     case 'exportAll': exportAll(); break;
     case 'backup': download(`IM-Vermietung-Sicherung_${todayIso()}.json`, JSON.stringify(Store.data), 'application/json'); break;

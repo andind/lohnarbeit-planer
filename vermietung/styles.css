@@ -247,3 +247,4 @@ details.help summary { cursor: pointer; width: max-content; }
 }
 @media (max-width: 599px) { #content > .dscroll { flex: none; overflow: visible; border-radius: var(--radius); } }
 #toolbar:empty { display: none; }
+fieldset:disabled .input { background: var(--bg, #f4f3ef); color: #6b6b66; cursor: not-allowed; }

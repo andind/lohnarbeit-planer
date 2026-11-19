@@ -267,8 +267,8 @@ function viewImport() {
     <div class="panel"><h2>Zahlungen (camt.054)</h2><p>Gutschriften aus dem E-Banking einlesen und über die QR-Referenz den Rechnungen zuordnen.</p>
       <div class="btns"><label class="btn">Datei wählen…<input type="file" accept=".xml,.zip" multiple data-in="camtFile" hidden></label></div></div>
   </div><div>
-    <div class="panel"><h2>Kunden übernehmen</h2><p>Bestehende Kunden werden über die Kunden-Nr. bzw. den Namen erkannt und nur ergänzt (nie überschrieben). Für den QR-Zahlteil braucht jeder Kunde Name, PLZ und Ort.</p>
-      <div class="btns"><button class="btn" data-act="kDbx" data-src="vm">Aus IM-Vermietung</button><button class="btn" data-act="kDbx" data-src="lp">Aus IM-Verwaltung</button><label class="btn">Excel/CSV…<input type="file" accept=".xlsx,.csv,.txt" data-in="impKFile" hidden></label></div>
+    <div class="panel"><h2>Kunden übernehmen</h2><p>Bestehende Kunden werden über die Kunden-Nr. bzw. den Namen erkannt und nur ergänzt (nie überschrieben). Für den QR-Zahlteil braucht jeder Kunde Name, PLZ und Ort. Die Kunden werden hier verwaltet: die IM-Vermietung übernimmt sie von hier; die Kunden der IM-Verwaltung (aus MyJohnDeere) werden mit ihnen verknüpft.</p>
+      <div class="btns"><button class="btn" data-act="kDbx" data-src="vm">Aus IM-Vermietung</button><button class="btn" data-act="kDbx" data-src="lp">Aus IM-Verwaltung</button><button class="btn" data-act="imvLink" title="Kunden der IM-Verwaltung den Kunden von IM-Faktura zuordnen">🔗 Mit IM-Verwaltung verknüpfen</button><label class="btn">Excel/CSV…<input type="file" accept=".xlsx,.csv,.txt" data-in="impKFile" hidden></label></div>
       ${Auth.hasSession() ? '' : '<p class="small warnc">Für IM-Vermietung/IM-Verwaltung zuerst unter Mehr mit Dropbox anmelden.</p>'}</div>
     <div class="panel"><h2>Artikel übernehmen</h2><p>Artikelliste aus Excel (Art.-Nr., Bezeichnung, Einheit, MWST, Preis, Konto) – z. B. die Artikelliste aus AgroFaktura. Bestehende Artikel (gleiche Art.-Nr.) erhalten Preis, MWST und Konto aus der Liste. Alte MWST-Sätze (8,0 / 7,7 / 2,5 %) werden auf 8,1 / 2,6 % umgestellt.</p>
       <div class="btns"><label class="btn">Excel/CSV…<input type="file" accept=".xlsx,.csv,.txt" data-in="impAFile" hidden></label></div></div>
@@ -288,10 +288,11 @@ function viewStamm() {
   const f = App.f.k, q = fold(f.q), cnt = new Map(); Store.all('rechnungen').forEach(r => cnt.set(r.kunde, (cnt.get(r.kunde) || 0) + 1));
   const L = kundenSorted().filter(k => (f.alle || k.aktiv !== false) && (!q || fold([k.nr, k.name, k.ort, k.strasse].join(' ')).includes(q)));
   const nOk = L.filter(k => !kAdrOk(k)).length;
-  return { tb: `<h1>Stammdaten</h1>${seg}<button class="btn primary" data-act="newK">＋ Kunde</button>`, html: `<div class="filters"><input class="input search" type="search" placeholder="Suchen…" data-in="kq" value="${esc(f.q)}"><label class="tog"><input type="checkbox" data-in="kAlle" ${f.alle ? 'checked' : ''}> inaktive zeigen</label><span class="lbl">${L.length} Kunden${nOk ? ` · <span class="warnc">${nOk} ohne vollständige Adresse</span>` : ''}</span></div>
-    <div class="dscroll"><table class="dtab"><thead><tr><th>Nr.</th><th>Name</th><th>Strasse</th><th>PLZ Ort</th><th>E-Mail / Telefon</th><th class="n">Rechnungen</th></tr></thead><tbody>
+  const lk = k => `${k.vmId ? '<span class="chip" title="mit IM-Vermietung verknüpft">Vermietung</span> ' : ''}${(k.imvIds || []).length ? `<span class="chip" title="mit ${k.imvIds.length} ${k.imvIds.length === 1 ? 'Kunde' : 'Kunden'} der IM-Verwaltung verknüpft">Verwaltung${k.imvIds.length > 1 ? ' ×' + k.imvIds.length : ''}</span>` : ''}`;
+  return { tb: `<h1>Stammdaten</h1>${seg}<button class="btn" data-act="imvLink" title="Kunden der IM-Verwaltung (MyJohnDeere) den Kunden von IM-Faktura zuordnen">🔗 IM-Verwaltung verknüpfen</button><button class="btn primary" data-act="newK">＋ Kunde</button>`, html: `<div class="filters"><input class="input search" type="search" placeholder="Suchen…" data-in="kq" value="${esc(f.q)}"><label class="tog"><input type="checkbox" data-in="kAlle" ${f.alle ? 'checked' : ''}> inaktive zeigen</label><span class="lbl">${L.length} Kunden${nOk ? ` · <span class="warnc">${nOk} ohne vollständige Adresse</span>` : ''}</span></div>
+    <div class="dscroll"><table class="dtab"><thead><tr><th>Nr.</th><th>Name</th><th>Strasse</th><th>PLZ Ort</th><th>E-Mail / Telefon</th><th>Verknüpft</th><th class="n">Rechnungen</th></tr></thead><tbody>
     ${L.map(k => `<tr class="click ${k.aktiv === false ? 'off' : ''}" data-act="editK" data-id="${k.id}"><td>${esc(k.nr || '')}</td><td>${esc(k.name)}${k.zusatz ? `<div class="small muted">${esc(k.zusatz)}</div>` : ''}</td><td>${esc([k.strasse, k.hausnr].filter(Boolean).join(' '))}</td>
-      <td>${kAdrOk(k) ? esc([k.plz, k.ort].join(' ')) : '<span class="chip warn">Adresse fehlt</span>'}</td><td class="small">${esc([k.mail, k.tel].filter(Boolean).join(' · '))}</td><td class="n">${cnt.get(k.id) || ''}</td></tr>`).join('')}</tbody></table>${L.length ? '' : '<div class="empty">Noch keine Kunden – unter Import übernehmen oder «＋ Kunde»</div>'}</div>` };
+      <td>${kAdrOk(k) ? esc([k.plz, k.ort].join(' ')) : '<span class="chip warn">Adresse fehlt</span>'}</td><td class="small">${esc([k.mail, k.tel].filter(Boolean).join(' · '))}</td><td>${lk(k)}</td><td class="n">${cnt.get(k.id) || ''}</td></tr>`).join('')}</tbody></table>${L.length ? '' : '<div class="empty">Noch keine Kunden – unter Import übernehmen oder «＋ Kunde»</div>'}</div>` };
 }
 function kundeDialog(id, { after } = {}) {
   const k = id ? Store.get('kunden', id) : { id: uid(), aktiv: true, land: 'CH' }; if (!k) return;
@@ -305,12 +306,16 @@ function kundeDialog(id, { after } = {}) {
     <div class="two"><label class="fld"><span>E-Mail</span><input class="input" type="email" name="mail" value="${esc(k.mail || '')}"></label><label class="fld"><span>Telefon</span><input class="input" name="tel" value="${esc(k.tel || '')}"></label></div>
     <div class="two"><label class="fld"><span>Eigene Zahlungsfrist (Tage)</span><input class="input" type="number" min="0" name="frist" value="${esc(k.frist ?? '')}" placeholder="Standard ${Store.cfg().frist}"></label>
       <label class="fld"><span>Status</span><select class="input" name="aktiv">${optList([['1', 'aktiv'], ['0', 'inaktiv']], k.aktiv === false ? '0' : '1')}</select></label></div>
-    <label class="fld"><span>Bemerkung</span><textarea class="input" name="bem" rows="2">${esc(k.bem || '')}</textarea></label>`,
+    <label class="fld"><span>Bemerkung</span><textarea class="input" name="bem" rows="2">${esc(k.bem || '')}</textarea></label>
+    ${id ? `<div class="box small"><b>Verknüpfungen</b><br>IM-Vermietung: ${k.vmId ? '✓ verknüpft (Stammdaten kommen von hier)' : '– noch keine (wird beim ersten Abgleich der IM-Vermietung über Nr./Name zugeordnet)'}<br>
+      IM-Verwaltung: ${(k.imvIds || []).length ? (k.imvIds.map(i => { const v = (App.imvK || []).find(x => x.id === i); return v ? esc(v.name) : ''; }).filter(Boolean).join(', ') || k.imvIds.length + ' Kunde(n)') : '–'}
+      <label class="tog" style="display:flex;margin-top:4px"><input type="checkbox" name="unlink"> Verknüpfungen lösen</label>
+      <div class="hint">Zuordnen unter Stammdaten › «🔗 IM-Verwaltung verknüpfen».</div></div>` : ''}`,
     `${id && !used ? '<button class="btn danger" value="del">Löschen</button>' : ''}<span class="spacer"></span><button class="btn primary" value="ok">Speichern</button>`,
     { onSubmit: (fd, btn) => {
       if (btn === 'del') { if (!confirm('Kunde löschen?')) return false; Store.remove('kunden', k.id); return; }
       const x = Object.assign({}, k); ['name', 'nr', 'zusatz', 'strasse', 'hausnr', 'plz', 'ort', 'mail', 'tel', 'bem'].forEach(f => { x[f] = String(fd.get(f) || '').trim(); });
-      x.land = (String(fd.get('land') || 'CH').trim() || 'CH').toUpperCase(); x.frist = fd.get('frist') === '' ? null : +fd.get('frist'); x.aktiv = fd.get('aktiv') !== '0';
+      x.land = (String(fd.get('land') || 'CH').trim() || 'CH').toUpperCase(); if (fd.get('unlink')) { x.imvIds = []; x.vmId = ''; } x.frist = fd.get('frist') === '' ? null : +fd.get('frist'); x.aktiv = fd.get('aktiv') !== '0';
       if (!x.name) { toast('Name fehlt'); return false; }
       if (!x.hausnr && x.strasse) Object.assign(x, splitStreet(x.strasse));
       Store.put('kunden', x, { silent: !!after }); if (after) setTimeout(() => after(x), 50);
@@ -479,6 +484,7 @@ document.addEventListener('click', ev => {
     case 'impCancel': App.imp = null; App.render(); break;
     case 'impCreate': impAbrCreate(); break;
     case 'kDbx': impKundenDbx(t.dataset.src); break;
+    case 'imvLink': imvLinkDialog(); break;
     case 'kimpAll': $$('#dlgForm input[type=checkbox][name^="s"]:not(:disabled)').forEach(x => { x.checked = t.checked; }); break;
     // Stammdaten
     case 'newK': kundeDialog(null); break;

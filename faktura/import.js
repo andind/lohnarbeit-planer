@@ -122,7 +122,7 @@ async function impKundenDbx(src) {
     if (!d) { toast(path + ' nicht gefunden'); return; }
     const L = (d.kunden || []).filter(k => !k.del && k.name).map(k => {
       const st = k.strasse != null ? splitStreet(k.strasse) : splitStreet(k.adresse), po = splitPlzOrt(k.plz, k.ort);
-      return { nr: nrKey(k.nr), name: k.name, zusatz: k.zusatz || '', ...st, ...po, land: 'CH', mail: k.mail || '', tel: k.tel || k.handy || '', aliases: k.aliases || [] };
+      return { nr: nrKey(k.nr), name: k.name, zusatz: k.zusatz || '', ...st, ...po, land: 'CH', mail: k.mail || '', tel: k.tel || k.handy || '', aliases: k.aliases || [], _link: src === 'vm' ? { vmId: k.id } : { imvId: k.id } };
     });
     kundenMerge(L, src === 'vm' ? 'IM-Vermietung' : 'IM-Verwaltung');
   } catch (e) { toast(e.message, 6000); }
@@ -130,25 +130,72 @@ async function impKundenDbx(src) {
 function kundenMerge(L, quelle) {
   const K = Store.all('kunden');
   const R = L.map(n => {
-    const k = (n.nr && K.find(x => nrKey(x.nr) === n.nr)) || K.find(x => tokKey(x.name) === tokKey(n.name));
+    const lk = n._link || {};
+    const k = (lk.vmId && K.find(x => x.vmId === lk.vmId)) || (lk.imvId && K.find(x => (x.imvIds || []).includes(lk.imvId))) || (n.nr && K.find(x => nrKey(x.nr) === n.nr)) || K.find(x => tokKey(x.name) === tokKey(n.name));
     if (!k) return { n, k: null, art: 'neu', sel: true };
     const fill = ['nr', 'zusatz', 'strasse', 'hausnr', 'plz', 'ort', 'mail', 'tel'].filter(f => n[f] && !k[f]);
-    return { n, k, fill, art: fill.length ? 'ergänzen' : 'gleich', sel: fill.length > 0 };
+    const link = (lk.vmId && k.vmId !== lk.vmId) || (lk.imvId && !(k.imvIds || []).includes(lk.imvId));
+    return { n, k, fill, link, art: fill.length ? 'ergänzen' : link ? 'verknüpfen' : 'gleich', sel: fill.length > 0 || !!link };
   });
   App.kimp = { quelle, R };
   const cnt = a => R.filter(x => x.art === a).length;
-  openDlg(`Kunden aus ${quelle}`, `<p class="muted small">${cnt('neu')} neu · ${cnt('ergänzen')} bestehende mit fehlenden Angaben (werden nur ergänzt, nie überschrieben) · ${cnt('gleich')} unverändert</p>
+  openDlg(`Kunden aus ${quelle}`, `<p class="muted small">${cnt('neu')} neu · ${cnt('ergänzen')} bestehende mit fehlenden Angaben (werden nur ergänzt, nie überschrieben) · ${cnt('verknüpfen')} nur verknüpfen · ${cnt('gleich')} unverändert</p>
     <div class="dscroll" style="max-height:60vh"><table class="dtab"><thead><tr><th class="cb"><input type="checkbox" data-act="kimpAll" checked></th><th>Nr.</th><th>Name</th><th>Adresse</th><th>Aktion</th></tr></thead><tbody>
-    ${R.map((x, i) => `<tr class="${x.art === 'gleich' ? 'off' : ''}"><td class="cb"><input type="checkbox" name="s${i}" ${x.sel ? 'checked' : ''} ${x.art === 'gleich' ? 'disabled' : ''}></td><td>${esc(x.n.nr)}</td><td>${esc(x.n.name)}</td>
+    ${R.map((x, i) => `<tr class="${x.art === 'gleich' ? 'off' : ''}"><td class="cb"><input type="checkbox" name="s${i}" ${x.sel ? 'checked' : ''} ${x.art === 'gleich' ? 'disabled' : ''}></td><td>${esc(x.n.nr)}</td><td>${esc(x.n.name)}${x.k && tokKey(x.k.name) !== tokKey(x.n.name) ? `<div class="small muted">→ ${esc(x.k.name)}</div>` : ''}</td>
       <td class="small">${esc([[x.n.strasse, x.n.hausnr].filter(Boolean).join(' '), [x.n.plz, x.n.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))}</td>
-      <td>${x.art === 'neu' ? '<span class="chip ok">neu</span>' : x.art === 'ergänzen' ? `<span class="chip info">ergänzen: ${esc(x.fill.join(', '))}</span>` : '<span class="chip">unverändert</span>'}</td></tr>`).join('')}</tbody></table></div>`,
+      <td>${x.art === 'neu' ? '<span class="chip ok">neu</span>' : x.art === 'ergänzen' ? `<span class="chip info">ergänzen: ${esc(x.fill.join(', '))}${x.link ? ' + verknüpfen' : ''}</span>` : x.art === 'verknüpfen' ? '<span class="chip info">verknüpfen</span>' : '<span class="chip">unverändert</span>'}</td></tr>`).join('')}</tbody></table></div>`,
     `<span class="spacer"></span><button class="btn primary" value="ok">Übernehmen</button>`,
     { wide: true, onSubmit: fd => {
       const out = []; R.forEach((x, i) => { if (!fd.get('s' + i)) return;
-        if (x.k) { const k = clone(x.k); x.fill.forEach(f => { k[f] = x.n[f]; }); out.push(k); }
-        else out.push(Object.assign({ id: uid(), aktiv: true }, x.n)); });
+        const n = Object.assign({}, x.n); delete n._link;
+        if (x.k) { const k = clone(x.k); x.fill.forEach(f => { k[f] = n[f]; }); kLink(k, x.n._link || {}); out.push(k); }
+        else { const k = Object.assign({ id: uid(), aktiv: true }, n); kLink(k, x.n._link || {}); out.push(k); } });
       Store.putMany('kunden', out); toast(`${out.length} Kunden übernommen`);
     } });
+}
+
+/* ---------- Kunden mit der IM-Verwaltung verknüpfen ----------
+   Die Kunden der IM-Verwaltung kommen aus MyJohnDeere (dort gepflegt). Hier wird jedem ein Kunde von IM-Faktura zugeordnet (k.imvIds),
+   damit Abrechnungen aus der IM-Verwaltung beim richtigen Kunden landen. Ein Faktura-Kunde kann mehrere JD-Kunden haben. */
+const IMV_NEU = '＋ als neuen Kunden anlegen';
+async function imvKunden(force) {
+  if (App.imvK && !force) return App.imvK;
+  if (!Auth.hasSession()) throw new Error('Zuerst unter Mehr › Dropbox anmelden');
+  const d = await Drive.loadPath('/planung.json'); if (!d) throw new Error('/planung.json (IM-Verwaltung) nicht gefunden');
+  App.imvK = (d.kunden || []).filter(k => !k.del && k.name).sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  return App.imvK;
+}
+async function imvLinkDialog(nurOffen = true) {
+  let L; try { toast('Lade Kunden der IM-Verwaltung…'); L = await imvKunden(true); } catch (e) { toast(e.message, 5000); return; }
+  const K = kundenSorted(), lab = k => `${k.name}${k.nr ? ' · Nr. ' + k.nr : ''}${k.ort ? ' · ' + k.ort : ''}`, byLab = new Map(K.map(k => [lab(k), k.id]));
+  const R = L.map(v => {
+    const cur = K.find(k => (k.imvIds || []).includes(v.id));
+    const sug = cur ? null : matchKunde(nrKey(v.nr), v.name);
+    return { v, cur, sug: sug && sug.k, how: sug && sug.how };
+  });
+  const nOff = R.filter(x => !x.cur).length;
+  openDlg('Kunden mit IM-Verwaltung verknüpfen', `<p class="muted small">Die Kunden der IM-Verwaltung kommen aus MyJohnDeere. Ordne jedem den Kunden von IM-Faktura zu – Abrechnungen aus der IM-Verwaltung landen dann beim richtigen Kunden. Vorschläge (gelb) werden mit «Speichern» übernommen; Feld leeren = nicht verknüpfen.</p>
+    <div class="filters"><input class="input search" type="search" placeholder="Suchen…" id="imvQ"><label class="tog"><input type="checkbox" id="imvOff" ${nurOffen ? 'checked' : ''}> nur ohne Verknüpfung (${nOff})</label><span class="lbl">${L.length} Kunden in der IM-Verwaltung</span></div>
+    <datalist id="fkList"><option value="${esc(IMV_NEU)}">${K.map(k => `<option value="${esc(lab(k))}">`).join('')}</datalist>
+    <div class="dscroll" style="max-height:58vh"><table class="dtab" id="imvTab"><thead><tr><th>IM-Verwaltung (MyJohnDeere)</th><th>Kunde in IM-Faktura</th><th></th></tr></thead><tbody>
+    ${R.map((x, i) => { const val = x.cur ? lab(x.cur) : x.sug ? lab(x.sug) : '';
+      return `<tr data-off="${x.cur ? 0 : 1}" data-q="${esc(fold([x.v.name, x.v.nr, x.v.ort, val].join(' ')))}"><td><b>${esc(x.v.name)}</b>${x.v.nr ? ` <span class="nr">${esc(x.v.nr)}</span>` : ''}<div class="small muted">${esc([x.v.adresse, [x.v.plz, x.v.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))}</div></td>
+        <td><input class="input" name="v${i}" list="fkList" value="${esc(val)}" placeholder="– nicht verknüpft –" style="${!x.cur && x.sug ? 'background:#fff6d6' : ''}"></td>
+        <td>${x.cur ? '<span class="chip ok">verknüpft</span>' : x.sug ? `<span class="chip warn">Vorschlag (${esc(x.how)})</span>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`,
+    `<span class="spacer"></span><button class="btn primary" value="ok">Speichern</button>`,
+    { wide: true, onSubmit: fd => {
+      const map = new Map(K.map(k => [k.id, new Set((k.imvIds || []).filter(i => !L.some(v => v.id === i)))])), neu = [];
+      let bad = 0;
+      R.forEach((x, i) => { const t = String(fd.get('v' + i) || '').trim(); if (!t) return;
+        if (t === IMV_NEU) { const st = splitStreet(x.v.adresse), po = splitPlzOrt(x.v.plz, x.v.ort);
+          neu.push({ id: uid(), nr: /^\d+$/.test(nrKey(x.v.nr)) ? nrKey(x.v.nr) : '', name: x.v.name, anrede: x.v.anrede || '', ...st, ...po, land: 'CH', mail: x.v.mail || '', tel: x.v.tel || x.v.handy || '', aktiv: true, imvIds: [x.v.id] }); return; }
+        const id = byLab.get(t); if (!id) { bad++; return; } map.get(id).add(x.v.id); });
+      if (bad && !confirm(`${bad} Eingaben passen zu keinem Kunden und werden übergangen. Trotzdem speichern?`)) return false;
+      const ch = K.filter(k => { const a = [...map.get(k.id)].sort().join(), b = [...(k.imvIds || [])].sort().join(); return a !== b; }).map(k => Object.assign(clone(k), { imvIds: [...map.get(k.id)] }));
+      Store.putMany('kunden', [...ch, ...neu]); toast(`${ch.length} Kunden verknüpft${neu.length ? ` · ${neu.length} neu angelegt (Adresse prüfen)` : ''}`, 5000);
+    } });
+  const flt = () => { const q = fold($('#imvQ').value), off = $('#imvOff').checked; $$('#imvTab tbody tr').forEach(tr => { tr.style.display = (!q || tr.dataset.q.includes(q)) && (!off || tr.dataset.off === '1') ? '' : 'none'; }); };
+  $('#imvQ').addEventListener('input', flt); $('#imvOff').addEventListener('change', flt); flt();
 }
 
 /* ---------- Artikel übernehmen ---------- */

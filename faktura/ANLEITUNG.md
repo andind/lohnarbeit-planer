@@ -39,6 +39,12 @@ Zahlungsabgleich (camt.054) und Mahnungen. Eigene Daten (`faktura.json`), unabh�
 - Reiter **Entwürfe**: Hinweise (ohne Preis, ohne Kunde …), Σ fasst gleiche Positionen zusammen. Beilagen werden hinter der Rechnung gedruckt und lassen sich im Editor entfernen.
 - Mehr › Buchhaltung › Eingang: Artikel für Pflanzenschutzmittel (Standard 52), Maschinenmiete (100), MWST für Arbeiten (2,6 %).
 
+## Kunden (ab v1.9)
+- Die Kunden werden **in IM-Faktura verwaltet** (Stammdaten › Kunden).
+- **IM-Vermietung** übernimmt sie von hier (bei jedem Synchronisieren bzw. «⟳ Kunden aus IM-Faktura»). Name, Kd-Nr. und Adresse sind dort gesperrt; nur Namensvarianten bleiben dort. Neukunden aus dem Import gibt es dort weiter («nur hier») – IM-Faktura legt sie beim ersten Senden an.
+- **IM-Verwaltung**: Kunden bleiben aus MyJohnDeere. Unter Stammdaten › «🔗 IM-Verwaltung verknüpfen» jedem JD-Kunden den Kunden von IM-Faktura zuordnen (Vorschläge gelb; ein Faktura-Kunde kann mehrere JD-Kunden haben).
+- Einmalig zu Beginn: Import › Kunden übernehmen › «Aus IM-Vermietung» (verknüpft die Vermietungskunden), danach «🔗 Mit IM-Verwaltung verknüpfen».
+
 ## Technik
 - Dateien: `index.html`, `styles.css`, `qr.js` (eigener QR-Encoder + Zahlteil nach SIX, SPC 0200, Swico S1),
   `lib.js` (Dropbox, Excel), `app.js` (Daten, Berechnung), `druck.js` (A4-Seiten, Seitenumbruch), `import.js`, `ansichten.js`,

@@ -58,18 +58,22 @@ const Eingang = {
     finally { this.busy = false; this.last = Date.now(); }
     return n;
   },
+  // Kunde zur Übergabe: zuerst über die Verknüpfung (IM-Faktura-ID aus der IM-Vermietung, IM-Verwaltung-ID, IM-Vermietung-ID),
+  // sonst über Kunden-Nr./Name. Bei eindeutigem Treffer (Nr. oder gleicher Name) wird die Verknüpfung gleich gespeichert.
   kundeFor(T) {
-    const K = T.kunde || {}, m = matchKunde(nrKey(K.nr), K.name);
-    if (m) {
-      const k = clone(m.k); let ch = false; // fehlende Adressangaben ergänzen, nie überschreiben
-      const st = K.strasse != null ? splitStreet(K.strasse) : splitStreet(K.adresse), po = splitPlzOrt(K.plz, K.ort);
+    const K = T.kunde || {}, all = Store.all('kunden');
+    let k0 = (K.fkId && kunde(K.fkId)) || (K.imvId && all.find(x => (x.imvIds || []).includes(K.imvId))) || (K.vmId && all.find(x => x.vmId === K.vmId)) || null, how = k0 ? 'link' : '';
+    if (!k0) { const m = matchKunde(nrKey(K.nr), K.name); if (m) { k0 = m.k; how = m.how; } }
+    const st = K.strasse != null ? splitStreet(K.strasse) : splitStreet(K.adresse), po = splitPlzOrt(K.plz, K.ort);
+    if (k0) {
+      const k = clone(k0); let ch = false; // fehlende Adressangaben ergänzen, nie überschreiben
       [['strasse', st.strasse], ['hausnr', st.hausnr], ['plz', po.plz], ['ort', po.ort], ['mail', K.mail], ['tel', K.tel], ['nr', nrKey(K.nr)]].forEach(([f, v]) => { if (v && !k[f]) { k[f] = v; ch = true; } });
+      if (how !== 'ähnlich') ch = kLink(k, K) || ch;
       if (ch) Store.put('kunden', k, { silent: true });
       return k;
     }
-    const st = K.strasse != null ? splitStreet(K.strasse) : splitStreet(K.adresse), po = splitPlzOrt(K.plz, K.ort);
     const k = { id: uid(), nr: /^\d+$/.test(nrKey(K.nr)) ? nrKey(K.nr) : '', name: K.name || 'Unbekannt', anrede: K.anrede || '', zusatz: K.zusatz || '', ...st, ...po, land: 'CH', mail: K.mail || '', tel: K.tel || '', aktiv: true };
-    Store.put('kunden', k, { silent: true });
+    kLink(k, K); Store.put('kunden', k, { silent: true });
     return k;
   },
   posFor(p) {
@@ -106,6 +110,14 @@ function zusammenfassen(r) {
   return n;
 }
 
+// Verknüpfung eines Kunden mit IM-Verwaltung (imvIds, mehrere möglich – MyJohnDeere kennt Kunden teils doppelt) und IM-Vermietung (vmId)
+function kLink(k, K) {
+  let ch = false;
+  if (K.imvId && !(k.imvIds || []).includes(K.imvId)) { Store.all('kunden').filter(x => x.id !== k.id && (x.imvIds || []).includes(K.imvId)).forEach(x => Store.put('kunden', Object.assign(clone(x), { imvIds: x.imvIds.filter(i => i !== K.imvId) }), { silent: true }));
+    k.imvIds = [...(k.imvIds || []), K.imvId]; ch = true; }
+  if (K.vmId && !k.vmId) { k.vmId = K.vmId; ch = true; }
+  return ch;
+}
 /* ---------- Ansicht «Entwürfe» ---------- */
 function viewEntwuerfe() {
   const L = Store.all('rechnungen').filter(r => statusOf(r) === 'entwurf').sort((a, b) => kName(a.kunde).localeCompare(kName(b.kunde), 'de'));
@@ -128,7 +140,7 @@ function viewEntwuerfe() {
       <td>${w.map(x => `<span class="chip warn small">${esc(x)}</span>`).join(' ')}</td><td class="n">${chf(calc(r).total)}</td>
       <td class="nowrap"><button class="btn small" data-act="sumR" data-id="${r.id}" title="gleiche Positionen zusammenfassen">Σ</button></td></tr>`; }).join('')}
     </tbody></table>${L.length ? '' : '<div class="empty">Keine Entwürfe – Abrechnungen aus IM-Verwaltung (Auftrag › «An IM-Faktura») und IM-Vermietung (Abrechnung › «An IM-Faktura») erscheinen hier.</div>'}</div>
-    <details class="help" style="margin-top:8px"><summary>ℹ So funktioniert der Eingang</summary>In der IM-Verwaltung einen erledigten Auftrag öffnen, prüfen und «📤 An IM-Faktura» drücken; in der IM-Vermietung unter Abrechnung Zeilen auswählen und «📤 An IM-Faktura». Die Abrechnung landet in Dropbox und wird hier beim Start, beim Synchronisieren und mit «Eingang prüfen» übernommen – als Positionen im Entwurf des Kunden (gibt es keinen, wird einer angelegt). Unbekannte Kunden werden mit der Adresse aus dem Absender-Programm angelegt.
+    <details class="help" style="margin-top:8px"><summary>ℹ So funktioniert der Eingang</summary>In der IM-Verwaltung unter Spritzen › Abrechnung bzw. Verwaltung › Abrechnung «📤 An IM-Faktura» drücken; in der IM-Vermietung unter Abrechnung Zeilen auswählen und «📤 An IM-Faktura». Die Abrechnung landet in Dropbox und wird hier beim Start, beim Synchronisieren und mit «Eingang prüfen» übernommen – als Positionen im Entwurf des Kunden (gibt es keinen, wird einer angelegt). Der Kunde wird über die Verknüpfung erkannt (Stammdaten › «🔗 IM-Verwaltung verknüpfen»), sonst über Nr./Name; unbekannte Kunden werden mit der Adresse aus dem Absender-Programm angelegt und gleich verknüpft.
       Pflanzenschutzmittel erhalten MWST und Konto von Artikel ${esc(einCfg().artPsm)}, Arbeiten ohne passenden Artikel ${mwstTxt(einCfg().mwstArbeit)} MWST. «Σ» fasst gleiche Positionen zusammen; die Einzelheiten stehen in der Beilage.</details>`;
   return { tb, html };
 }

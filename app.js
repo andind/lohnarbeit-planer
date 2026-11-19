@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '140', APP_STAND = '19.11.2026';
+const APP_VERSION = '141', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -2001,7 +2001,7 @@ function exportCsv() {
    Gesendete Aufträge werden «verrechnet» (o.fakt = {am, id}), Arbeitsgänge «abgerechnet» (jdabr-… mit fakt). */
 const FAKT_PATH = '/faktura-eingang';
 const PS_COLS = [['Datum', '', 'cd'], ['Parzelle / Kultur', ''], ['Position', ''], ['Menge', 'q', 'cm'], ['Einheit', '', 'ce'], ['Ansatz', 'chf', 'cp'], ['Betrag CHF', 'chf', 'cb']];
-function fakturaKunde(k) { return { nr: k.nr || '', name: k.name || '', anrede: k.anrede || '', adresse: k.adresse || '', plz: k.plz || '', ort: k.ort || '', mail: k.mail || '', tel: k.tel || k.handy || '' }; }
+function fakturaKunde(k) { return { imvId: k.id || '', nr: k.nr || '', name: k.name || '', anrede: k.anrede || '', adresse: k.adresse || '', plz: k.plz || '', ort: k.ort || '', mail: k.mail || '', tel: k.tel || k.handy || '' }; }
 const fakturaId = kid => 'imv-' + (kid || 'k') + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 function fakturaT(k, betreff) { return { v: 1, id: fakturaId(k.id), app: 'IM-Verwaltung', appVer: APP_VERSION, am: new Date().toISOString(), betreff, kunde: fakturaKunde(k), pos: [], beilage: null, refs: [] }; }
 // Maschine eines Eintrags: aus dem Auftrag, sonst über den Namen aus MyJohnDeere, sonst über die Arbeitsart
