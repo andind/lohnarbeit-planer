@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '146', APP_STAND = '19.11.2026';
+const APP_VERSION = '147', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -2001,6 +2001,17 @@ function exportCsv() {
   download(`Lohnarbeiten_${von}_bis_${bis}.csv`, csv, 'text/csv;charset=utf-8');
   if (mark) { list.forEach(a => { if (statusOf(a) === 'erledigt') { a.status = 'verrechnet'; a.upd = Date.now(); } }); Store.save(); Sync.schedule(); App.render(); }
   toast(`${list.length} Aufträge exportiert`);
+}
+// Rückfrage vor dem Löschen eines Auftrags (v147): zeigt, welcher Auftrag gelöscht wird, und warnt bei erledigten/verrechneten/an IM-Faktura gesendeten
+function auftragLoeschenOk(id) {
+  const o = Store.get('auftraege', id); if (!o) return false;
+  const st = o.status || 'offen', d = o.erledigtAm || o.datum || o.wunsch || '';
+  const z = [[o.nr ? 'Auftrag ' + o.nr : 'Auftrag', kundeName(o.kunde)].join(' · '), [o.arbeit, o.kultur].filter(Boolean).join(', '), aFeld(o), d ? fmtDate(d, { day: '2-digit', month: '2-digit', year: 'numeric' }) : '', 'Status: ' + (STATUS[st] || st)].filter(Boolean);
+  const w = [];
+  if (st === 'erledigt') w.push('⚠ Der Auftrag ist erledigt und noch nicht verrechnet.');
+  if (st === 'verrechnet') w.push('⚠ Der Auftrag ist schon verrechnet.');
+  if (o.fakt) w.push('⚠ Er wurde an IM-Faktura gesendet (' + fmtDate(String(o.fakt.am || '').slice(0, 10), { day: '2-digit', month: '2-digit', year: 'numeric' }) + ') – die Rechnung dort bleibt bestehen.');
+  return confirm('Diesen Auftrag wirklich löschen?\n\n' + z.join('\n') + (w.length ? '\n\n' + w.join('\n') : '') + '\n\nDas Löschen gilt auf allen Geräten.');
 }
 /* ================= An IM-Faktura senden (v139/v140) =================
    Aus Spritzen › Abrechnung (pro Kunde, Arbeit und Mittel zusammengefasst, Detailabrechnung als Beilage) und
@@ -6354,7 +6365,7 @@ document.addEventListener('click', async e => {
       Object.assign(a, { id: uid(), erfasst: Date.now(), nr: Store.nextAuftragNr(), status: 'offen', datum: '', zeit: '', erledigtAm: '', flaecheEff: null, stundenEff: null });
       Store.put('auftraege', a); Dlg.close(); orderDialog(a.id); toast('Kopie erstellt – z.B. anderen Kunden wählen'); break;
     }
-    case 'delOrder': if (confirm('Auftrag löschen?')) { Store.remove('auftraege', id); Dlg.close(); } break;
+    case 'delOrder': if (auftragLoeschenOk(id)) { Store.remove('auftraege', id); Dlg.close(); toast('Auftrag gelöscht – rückgängig mit ↶ (Ctrl+Z)', 5000); } break;
     case 'aFilter': App.filter.auftraege = t.dataset.v; App.alimit = 150; App.render(); break;
     case 'pMode': App.plan.mode = t.dataset.v; ls('lp_pmode', t.dataset.v); App.resetScroll = true; App.render(); break;
     case 'zoom': setZoom(App.zoom * (+t.dataset.d > 0 ? 1.25 : 0.8)); break;
