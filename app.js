@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '152', APP_STAND = '19.11.2026';
+const APP_VERSION = '153', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1733,7 +1733,9 @@ const VZ_MIN = 0.5, VZ_MAX = 2.5;
 const vzKey = () => App.view === 'spritzen' ? 'spritzen:' + ((App.spray && App.spray.tab) || '') : App.view === 'betrieb' && App.eb ? 'betrieb:' + App.eb.sub : App.view;
 let _vzMap = null;
 const vzMap = () => { if (!_vzMap) { try { _vzMap = JSON.parse(ls('lp_vz') || '{}') || {}; } catch { _vzMap = {}; } } return _vzMap; };
-const vzGet = () => vzMap()[vzKey()] || 1;
+// v153: Standard 115 % (ab 700 px Breite, Handy 100 %) – gleich wie IM-Vermietung und IM-Faktura
+const vzDef = () => (window.innerWidth || 0) >= 700 ? 1.15 : 1;
+const vzGet = () => vzMap()[vzKey()] || vzDef();
 function vzApply(z) {
   const c = $('#content'); if (!c) return;
   const v = App.view === 'plan' ? 1 : (z ?? vzGet());
@@ -1745,11 +1747,11 @@ function vzApply(z) {
 function vzSet(z) {
   z = Math.round(Math.max(VZ_MIN, Math.min(VZ_MAX, z)) * 100) / 100;
   const old = vzGet(); if (z === old) { vzApply(); return; }
-  const m = vzMap(), k = vzKey(); if (z === 1) delete m[k]; else m[k] = z; ls('lp_vz', JSON.stringify(m));
+  const m = vzMap(), k = vzKey(); if (z === vzDef()) delete m[k]; else m[k] = z; ls('lp_vz', JSON.stringify(m));
   const r = z / old, sx = scrollX, sy = scrollY; vzApply(z); scrollTo(sx * r, sy * r); // Lage im Inhalt ungefähr halten
 }
 function zoomBy(f) { if (App.view === 'plan') setZoom(App.zoom * f); else vzSet(vzGet() * f); }
-function zoomReset() { if (App.view === 'plan') setZoom(1); else vzSet(1); }
+function zoomReset() { if (App.view === 'plan') setZoom(1); else vzSet(vzDef()); }
 // Ctrl+Mausrad / Trackpad-Pinch: nie das ganze Fenster zoomen (in der Planung zoomt der Kalender selbst)
 document.addEventListener('wheel', e => {
   if (!e.ctrlKey) return; e.preventDefault();

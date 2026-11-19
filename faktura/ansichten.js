@@ -554,8 +554,8 @@ document.addEventListener('click', ev => {
     case 'login': Auth.login(); break;
     case 'logout': if (confirm('Von Dropbox abmelden? Die Daten bleiben auf diesem Gerät.')) Auth.logout(); break;
     case 'reload': location.reload(); break;
-    case 'zoomIn': Zoom.set(Zoom.get() + 0.05); break;
-    case 'zoomOut': Zoom.set(Zoom.get() - 0.05); break;
+    case 'zoomIn': Zoom.by(1.15); break;
+    case 'zoomOut': Zoom.by(1 / 1.15); break;
     case 'zoomReset': Zoom.set(Zoom.def()); break;
     case 'newR': rechnungDialog(null); break;
     case 'editR': if (ev.target.closest('.cb') || ev.target.closest('button')) return; rechnungDialog(id); break;
@@ -687,19 +687,34 @@ window.addEventListener('offline', () => Sync.setState('offline'));
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { Sync.run(); if (Date.now() - Eingang.last > 60000) Eingang.check(); } });
 window.addEventListener('storage', ev => { if (ev.key === 'mf_data') { Store.load(); if (!App.busy()) App.render(); } });
 
-/* ================= Zoom und Bildschirmhöhe ================= */
+/* ================= Ansichtszoom wie IM-Verwaltung (Vermietung v1.19 / Faktura v1.20) =================
+   Titelleiste, Seitenleiste, Filter, Knöpfe und Fenster bleiben in Normalgrösse (wie IM-Verwaltung);
+   gezoomt werden nur die Daten (Tabellen .dtab und Listen .mlist im Inhalt, --vz in styles.css).
+   Standard 115 % ab 700 px Breite, Handy 100 %; pro Gerät gemerkt (mf_vz). Früher ganzes Fenster per body.style.zoom (mf_zoom). */
 const Zoom = {
-  def() { return innerWidth >= 1000 ? 1.25 : 1; },
-  get() { const z = parseFloat(ls('mf_zoom')); return z >= 0.5 && z <= 2 ? z : this.def(); },
-  set(z) { z = Math.round(Math.min(2, Math.max(0.6, z)) * 20) / 20; if (Math.abs(z - this.def()) < 0.001) ls('mf_zoom', null); else ls('mf_zoom', String(z)); this.apply(); },
+  def() { return innerWidth >= 700 ? 1.15 : 1; },
+  get() { const z = parseFloat(ls('mf_vz')); return z >= 0.5 && z <= 2.5 ? z : this.def(); },
+  set(z) { z = Math.round(Math.min(2.5, Math.max(0.5, z)) * 100) / 100; if (Math.abs(z - this.def()) < 0.001) ls('mf_vz', null); else ls('mf_vz', String(z)); this.apply(); },
+  by(f) { this.set(this.get() * f); },
   apply() {
-    const z = this.get(); document.body.style.zoom = z;
-    document.documentElement.style.setProperty('--appH', (innerHeight / z) + 'px');
-    const t = $('.top'); if (t) document.documentElement.style.setProperty('--toph', t.offsetHeight + 'px');
-    const zt = $('#zoomTxt'); if (zt) zt.textContent = Math.round(z * 100) + '%';
+    document.body.style.removeProperty('zoom');
+    const r = document.documentElement, z = this.get();
+    if (z === 1) r.style.removeProperty('--vz'); else r.style.setProperty('--vz', z);
+    r.style.setProperty('--appH', innerHeight + 'px');
+    const t = $('.top'); if (t) r.style.setProperty('--toph', t.offsetHeight + 'px');
+    const zt = $('#zoomTxt'); if (zt) zt.textContent = Math.round(z * 100) + ' %';
   }
 };
+try { if (ls('mf_zoom') != null) ls('mf_zoom', null); } catch {}
 window.addEventListener('resize', () => Zoom.apply());
+// Ctrl+Mausrad / Ctrl +/−/0: nie das ganze Fenster, nur die Daten (wie IM-Verwaltung)
+document.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); if (e.target.closest && e.target.closest('dialog')) return; Zoom.by(Math.exp(-e.deltaY / 500)); }, { passive: false });
+document.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || document.querySelector('dialog[open]')) return;
+  if (e.key === '+' || e.key === '=') { e.preventDefault(); Zoom.by(1.15); }
+  else if (e.key === '-') { e.preventDefault(); Zoom.by(1 / 1.15); }
+  else if (e.key === '0') { e.preventDefault(); Zoom.set(Zoom.def()); }
+});
 
 /* ================= Start ================= */
 (async function boot() {

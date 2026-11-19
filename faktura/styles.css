@@ -187,7 +187,7 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .nowrap { white-space: nowrap; }
 .dtab td .btn.small + .btn.small { margin-left: 4px; }
 
-/* ---------- Bildschirm-Aufteilung (v1.9): Seite fest, nur Tabellen/Inhalt scrollen; Zoom per body.style.zoom ---------- */
+/* ---------- Bildschirm-Aufteilung (v1.9): Seite fest, nur Tabellen/Inhalt scrollen; Datenzoom --vz (v1.19/1.20, vorher body.style.zoom) ---------- */
 html, body { height: 100%; }
 body { height: var(--appH, 100dvh); display: flex; flex-direction: column; overflow: hidden; }
 .top { position: relative; flex: none; }
@@ -198,11 +198,21 @@ main { flex: 1 1 auto; min-height: 0; width: 100%; display: flex; flex-direction
 #content > .dscroll { flex: 1 1 auto; min-height: 180px; max-height: none; }
 @media (min-width: 600px) { main { margin-left: 96px; width: calc(100% - 96px); max-width: none; padding-bottom: 16px; } .tabs { top: var(--toph, 57px); } }
 @media (max-width: 599px) { #content > .dscroll { min-height: 0; } }
-.zoom { display: none; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 999px; padding: 2px; background: var(--surface-2); }
-.zoom button { border: 0; background: none; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 18px; color: var(--muted); }
-.zoom button:hover { background: var(--line); }
-.zoom span { font-size: 12px; color: var(--muted); min-width: 38px; text-align: center; cursor: pointer; }
-@media (min-width: 700px) { .zoom { display: inline-flex; } }
+/* Titelleiste wie IM-Verwaltung (v1.19/v1.20): Zoom −/%/+ als Knopfgruppe, Version als Pille */
+.top .btn.hbtn { min-height: 38px; padding: 7px 12px; white-space: nowrap; }
+.zoomctl { display: inline-flex; align-items: center; }
+.top .hdrzoom { gap: 0; }
+.top .hdrzoom .btn.hbtn { padding: 7px 10px; min-width: 34px; border-radius: 0; margin-left: -1px; font-size: 16px; }
+.top .hdrzoom .btn.hbtn:first-child { border-radius: 8px 0 0 8px; }
+.top .hdrzoom .btn.hbtn:last-child { border-radius: 0 8px 8px 0; }
+.top .hdrzoom .zvb { font-size: 12px !important; min-width: 54px; color: var(--muted); font-variant-numeric: tabular-nums; }
+@media (max-width: 700px) { .top .hdrzoom { display: none; } }
+.brand .ver { font-weight: 500; font-size: 11px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; flex: none; }
+.brand .ver:empty { display: none; }
+@media (max-width: 430px) { .brand .ver { display: none; } }
+/* Ansichtszoom nur für die Daten (wie IM-Verwaltung): Tabellen und Listen im Inhalt, nicht Filter, Knöpfe, Fenster */
+#content .dtab:not(.dtab .dtab), #content .mlist { zoom: var(--vz, 1); }
+@media print { #content .dtab, #content .mlist { zoom: 1 !important; } }
 details.help { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
 details.help summary { cursor: pointer; width: max-content; }
 @media print {
@@ -303,7 +313,7 @@ details.help summary { cursor: pointer; width: max-content; }
   html, body, body.printing { height: auto !important; overflow: visible !important; display: block !important; zoom: 1 !important; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
-/* Dialog an die gezoomte Fensterhöhe anpassen (body.style.zoom) */
+/* Dialog an die Fensterhöhe anpassen */
 dialog { max-height: calc(var(--appH, 100dvh) - 24px); }
 @media (max-width: 699px) { dialog, dialog.wide { height: var(--appH, 100dvh); max-height: var(--appH, 100dvh); } }
 .dtab tr.grp td { background: var(--surface-2); font-weight: 600; }
