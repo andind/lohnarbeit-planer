@@ -117,7 +117,7 @@ function edPaper(r) {
     return `<tr class="edrow${S.has(p.id) ? ' psel' : ''}${p.zu ? ' esub' : ''}" data-act="edPos" data-i="${i}">
       <td class="cs"><input type="checkbox" data-act="edSel" data-id="${p.id}" ${S.has(p.id) ? 'checked' : ''} title="ankreuzen – z. B. für Zusatzposten oder Teil-Abschluss"></td>
       <td class="ecd">${p.datum ? fmtDate(p.datum) : ''}</td>
-      <td><div class="ebez">${esc(p.bez || '').replace(/\n/g, '<br>') || '<span class="edempty">(ohne Bezeichnung)</span>'}${ohneArt ? ' <span class="chip warn small" title="Kein Artikel gewählt">ohne Art.-Nr.</span>' : ` <span class="eart">${esc(p.art)}</span>`}</div>${b ? `<div class="ebeschr">${esc(b).replace(/\n/g, '<br>')}</div>` : ''}${p.bem ? `<div class="ebem">${esc(p.bem).replace(/\n/g, '<br>')}</div>` : ''}${p.konto || p.code ? `<div class="ebuch">${[p.konto ? 'Konto ' + esc(p.konto) : '', p.code ? 'MWST-Code ' + esc(p.code) : ''].filter(Boolean).join(' · ')}</div>` : ''}${p.rabatt ? `<div class="erabp">Rabatt ${fmtNum(+p.rabatt)} % auf CHF ${chf(posBrutto(p))}: ${chf(posRabCHF(p))}</div>` : ''}</td>
+      <td><div class="ebez">${esc(p.bez || '').replace(/\n/g, '<br>') || '<span class="edempty">(ohne Bezeichnung)</span>'}${ohneArt ? ' <span class="chip warn small" title="Kein Artikel gewählt">ohne Art.-Nr.</span>' : ` <span class="eart">${esc(p.art)}</span>`}</div>${b ? `<div class="ebeschr">${esc(b).replace(/\n/g, '<br>')}</div>` : ''}${p.bem ? `<div class="ebem">${esc(p.bem).replace(/\n/g, '<br>')}</div>` : ''}${p.konto || p.code || steuerTxt(p) ? `<div class="ebuch">${[steuerTxt(p) ? esc(steuerTxt(p)) : '', p.konto ? 'Konto ' + esc(p.konto) : '', p.code ? 'MWST-Code ' + esc(p.code) : ''].filter(Boolean).join(' · ')}</div>` : ''}${p.rabatt ? `<div class="erabp">Rabatt ${fmtNum(+p.rabatt)} % auf CHF ${chf(posBrutto(p))}: ${chf(posRabCHF(p))}</div>` : ''}</td>
       <td class="n nowrap">${p.menge != null && p.menge !== '' ? qtyTxt(p.menge) : ''} ${esc(p.einh || '')}</td>
       <td class="n nowrap">${p.preis != null && p.preis !== '' ? chf(p.preis) : '<span class="edempty">–</span>'}</td>
       <td class="n nowrap emw">${p.mwst != null ? mwstTxt(p.mwst) : ''}</td>
@@ -197,12 +197,20 @@ function posDialog(i, { neu = false } = {}) {
     <div class="four"><label class="fld"><span>Menge</span><input class="input n" name="menge" inputmode="decimal" value="${p.menge ?? ''}"></label>
       <label class="fld"><span>Einheit</span><input class="input" name="einh" list="einhList" value="${esc(p.einh || '')}"></label>
       <label class="fld"><span>Preis</span><input class="input n" name="preis" inputmode="decimal" value="${p.preis ?? ''}"></label>
-      <label class="fld"><span>MWST</span><select class="input" name="mwst">${mwstOpts(p.mwst)}</select></label></div>
-    <details class="help" ${p.konto || p.code ? 'open' : ''}><summary>Buchhaltung: Konto und MWST-Code (für AgroOffice, z. B. Gutschrift Saatgutreste)</summary>
-      <div class="two"><label class="fld"><span>Konto <span class="muted small">(leer = vom Artikel)</span></span><input class="input" name="konto" inputmode="numeric" value="${esc(p.konto || '')}" placeholder="${esc(artByNr(p.art)?.konto || (typeof buchCfg === 'function' ? buchCfg().kontoStd || '' : ''))}"></label>
-        <label class="fld"><span>MWST-Code <span class="muted small">(leer = Standard des Satzes)</span></span><input class="input" name="code" list="codeList" value="${esc(p.code || '')}" placeholder="${esc(typeof buchCfg === 'function' ? (buchCfg().codes[String(p.mwst)] || '') : '')}"></label></div>
+      <label class="fld" id="pdMwF"><span>MWST</span><select class="input" name="mwst">${mwstOpts(p.mwst)}</select></label></div>
+    <fieldset class="pdst"><legend>Steuer (wie in AgroFaktura)</legend>
+      <div class="row" style="gap:18px;flex-wrap:wrap"><label class="tog"><input type="radio" name="st" value="ertrag" ${isAufw(p) ? '' : 'checked'}> Ertrag (Umsatz)</label><label class="tog"><input type="radio" name="st" value="aufwand" ${isAufw(p) ? 'checked' : ''}> Aufwand (z. B. übernommenes Saatgut)</label></div>
+      <div id="pdE">
+        <div id="pdEmit" class="row" style="gap:18px;flex-wrap:wrap"><label class="tog"><input type="checkbox" name="z235" ${p.z235 ? 'checked' : ''}> Ziffer 235: Entgeltsminderung</label><label class="tog"><input type="checkbox" name="z205" ${p.z205 ? 'checked' : ''}> Ziffer 205: Optierter Umsatz</label></div>
+        <label class="fld" id="pdEohne"><span>Ohne Umsatzsteuer</span><select class="input" name="ziffer">${ZIFF_OHNE.map(([v, t]) => `<option value="${v}" ${(p.ziffer || '230') === v ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label></div>
+      <div id="pdA" class="two"><label class="fld"><span>MWST-Satz festlegen</span><select class="input" name="asatz">${[['8.1', 'Normalsatz 8.1 %'], ['2.6', 'Reduzierter Satz 2.6 %'], ['3.8', 'Sondersatz 3.8 %'], ['urp', 'Reduzierter Satz (Urproduzent)'], ['0', 'Ohne MWST']].map(([v, t]) => `<option value="${v}" ${(p.urp ? 'urp' : String(+p.mwst || 0)) === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+        <label class="fld"><span>Vorsteuer</span><select class="input" name="vst">${[['1', 'Vorsteuer 1 (Material, Waren, Dienstleistungen)'], ['2', 'Vorsteuer 2 (Investitionen, übriger Betriebsaufwand)'], ['0', 'Keine Vorsteuer']].map(([v, t]) => `<option value="${v}" ${String(p.vst ?? '1') === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label></div>
+      <div class="hint" id="pdStHint"></div></fieldset>
+    <details class="help" ${p.konto || p.code ? 'open' : ''}><summary>Buchhaltung: Konto und MWST-Code von Hand (für AgroOffice)</summary>
+      <div class="two"><label class="fld"><span>Konto <span class="muted small">(leer = vom Artikel)</span></span><input class="input" name="konto" inputmode="numeric" value="${esc(p.konto || '')}" placeholder="${esc(isAufw(p) ? (typeof buchCfg === 'function' ? buchCfg().kontoAufw || '' : '') : artByNr(p.art)?.konto || (typeof buchCfg === 'function' ? buchCfg().kontoStd || '' : ''))}"></label>
+        <label class="fld"><span>MWST-Code <span class="muted small">(leer = Standard des Satzes)</span></span><input class="input" name="code" list="codeList" value="${esc(p.code || '')}" placeholder="aus Mehr › Buchhaltung"></label></div>
       <datalist id="codeList">${typeof buchCfg === 'function' ? [...new Set([...Object.values(buchCfg().codes), ...Store.all('rechnungen').flatMap(x => (x.pos || []).map(q => q.code)).filter(Boolean)])].map(c => `<option value="${esc(c)}">`).join('') : ''}</datalist>
-      <div class="hint">Gutschrift: Menge oder Preis negativ eintragen (z. B. Menge -3). Satz, Konto und Code gelten nur für diese Position.</div></details>
+      <div class="hint">Gutschrift: Menge oder Preis negativ eintragen (z. B. Menge -3). Der Code wird normalerweise aus der Steuerart oben bestimmt (Tabelle in Mehr › Buchhaltung); hier nur eintragen, wenn er abweichen soll.</div></details>
     <div class="two"><label class="fld"><span>Rabatt % <span class="muted small">(nur diese Position)</span></span><input class="input n" name="rabatt" inputmode="decimal" value="${p.rabatt || ''}" placeholder="0"></label>
       <label class="fld"><span>Zusatz zu <span class="muted small">(z. B. Strohhäckseln, Saatgut zum Auftrag)</span></span><select class="input" name="zu"><option value="">– eigene Position –</option>${r.pos.filter(q => q !== p && (q.typ || 'pos') === 'pos' && !q.zu).map(q => `<option value="${q.id}" ${p.zu === q.id ? 'selected' : ''}>${esc([q.datum ? fmtDate(q.datum) : '', String(q.bez || '').split('\n')[0], q.bem].filter(Boolean).join(' · ').slice(0, 80))}</option>`).join('')}</select></label></div>
     <div class="pdbetrag">Betrag: <b id="pdBetrag">CHF ${chf(calc({ pos: [p] }).rows[0].betrag)}${p.rabatt ? ` (Rabatt ${chf(posRabCHF(p))})` : ''}</b></div>`,
@@ -216,12 +224,26 @@ function posDialog(i, { neu = false } = {}) {
       if (a && a.konto && !String(fd.get('konto') || '').trim()) p.konto = a.konto;
       const rb = num(fd.get('rabatt')); if (rb) p.rabatt = rb; else delete p.rabatt;
       const kt = String(fd.get('konto') || '').trim(), cd = String(fd.get('code') || '').trim(); if (kt) p.konto = kt; else if (!a || !a.konto) delete p.konto; if (cd) p.code = cd; else delete p.code;
+      // v1.30: Steuerart
+      ['st', 'urp', 'vst', 'ziffer', 'z235', 'z205'].forEach(k => delete p[k]);
+      if (fd.get('st') === 'aufwand') { const as = String(fd.get('asatz') || '2.6'); p.st = 'aufwand'; p.vst = String(fd.get('vst') || '1'); if (as === 'urp') { p.urp = true; p.mwst = 0; } else p.mwst = +as; }
+      else if (!(+p.mwst)) p.ziffer = String(fd.get('ziffer') || '230');
+      else { if (fd.get('z235')) p.z235 = true; if (fd.get('z205')) p.z205 = true; }
+      if (p.st === 'aufwand' && a && p.konto === a.konto && !String(fd.get('konto') || '').trim()) delete p.konto; // Aufwand nicht aufs Ertragskonto des Artikels
       const zu = String(fd.get('zu') || ''); if (zu && zu !== p.id) { p.zu = zu; r.pos.forEach(q => { if (q.zu === p.id) delete q.zu; }); } else delete p.zu; posOrdnen(r);
       rechnungDialog(null, { keep: true }); return false; } });
   App.dlgBack = back;
   const F = $('#dlgForm'), f = n => F.querySelector(`[name=${n}]`);
   const upd = () => { const q = { menge: num(f('menge').value), preis: num(f('preis').value), mwst: num(f('mwst').value), rabatt: num(f('rabatt').value) || 0 }; $('#pdBetrag').textContent = 'CHF ' + chf(calc({ inkl: r.inkl, pos: [q] }).rows[0].betrag) + (q.rabatt ? ` (Rabatt ${chf(posRabCHF(q))})` : ''); };
   ['menge', 'preis', 'mwst', 'rabatt'].forEach(n => f(n).addEventListener('input', upd));
+  const stUpd = () => { const auf = F.querySelector('[name=st]:checked')?.value === 'aufwand', sz = +f('mwst').value || 0;
+    $('#pdE').hidden = auf; $('#pdA').hidden = !auf; $('#pdMwF').style.visibility = auf ? 'hidden' : '';
+    if (auf) { const as = f('asatz').value; f('mwst').value = as === 'urp' ? '0' : as; }
+    $('#pdEmit').hidden = !sz; $('#pdEohne').hidden = !!sz;
+    const q = { mwst: auf ? (f('asatz').value === 'urp' ? 0 : +f('asatz').value) : sz, st: auf ? 'aufwand' : '', urp: auf && f('asatz').value === 'urp', vst: f('vst').value, ziffer: f('ziffer').value, z235: f('z235').checked, z205: f('z205').checked };
+    const k = codeKey(q), c = typeof buchCfg === 'function' ? (buchCfg().codes[k] || (k.startsWith('e:') ? buchCfg().codes[String(q.mwst)] : '') || '') : '';
+    $('#pdStHint').innerHTML = `${esc(codeLabel(k))} → MWST-Code <b>${c ? esc(c) : '– noch nicht festgelegt (Mehr › Buchhaltung)'}</b>${q.urp ? '<br>Auf der Rechnung ohne MWST; in der Buchhaltung 2.6 % Vorsteuer (Art. 28 Abs. 2 MWSTG).' : ''}`; upd(); };
+  F.querySelectorAll('[name=st],[name=asatz],[name=vst],[name=ziffer],[name=z235],[name=z205],[name=mwst]').forEach(x => x.addEventListener('change', stUpd)); stUpd();
   f('art').addEventListener('change', async () => { const a = artByNr(f('art').value.trim()); if (!a) return;
     if (!f('bez').value.trim() || f('bez').value === p.bez && p._auto || await frage(`Bezeichnung durch den Titel des Artikels ersetzen?\n\n«${f('bez').value}» → «${a.bez}»`)) f('bez').value = a.bez;
     if (a.einheit) f('einh').value = a.einheit; if (a.preis != null) f('preis').value = a.preis; if (a.mwst != null) f('mwst').value = String(a.mwst);
@@ -602,8 +624,12 @@ function buchPanel() {
   return `<div class="panel"><h2>Buchhaltung (AgroOffice)</h2>
     <p class="small">Gebucht werden nur <b>Zahlungseingänge</b>: Bank direkt an die Ertragskonten der Artikel, je MWST-Satz inkl. MWST (vereinnahmt), mit der Rechnungs-Nr. als Beleg. AgroOffice nimmt beim Import nur Konten 1000–8999 und 9910/9911 an. Datei im Abacus-Format «XML-Buchungen» – in AgroOffice unter Grundeinstellungen › Import den Ordner eintragen.</p>
     <div class="three">${bi('bank', 'Bankkonto')}${bi('hilfs', 'Hilfskonto (leer = direkt)', 'placeholder="leer"')}${bi('kontoStd', 'Standard-Ertragskonto')}</div>
+    <div class="three">${bi('kontoAufw', 'Standard-Aufwandkonto (Positionen «Aufwand», z. B. übernommenes Saatgut)')}</div>
     <div class="three">${bi('kontoGeb', 'Mahngebühren')}${bi('kontoUeber', 'Überzahlungen')}${bi('mwstKonto', 'MWST-Konto')}</div>
     <div class="three">${Store.cfg().mwst.filter(m => +m.satz).map(m => `<label class="fld"><span>MWST-Code ${mwstTxt(m.satz)}</span><input class="input" data-in="buchCode" data-k="${m.satz}" value="${esc(B.codes[String(m.satz)] || '')}" maxlength="3"></label>`).join('')}</div>
+    <details class="help"><summary>MWST-Codes je Steuerart (wie in AgroFaktura: Ertrag/Aufwand, Ziffern, Vorsteuer 1/2)</summary>
+      <p class="small">Die Codes aus AgroOffice (Stammdaten › MWST-Codes) eintragen. Leer bei Ertrag mit Satz = Code oben; sonst fehlt der Code beim Export (Warnung).</p>
+      <table class="dtab">${[...['8.1', '2.6', '3.8'].flatMap(s => [`e:${s}`, `e:${s}:235`, `e:${s}:205`]), ...ZIFF_OHNE.map(([z]) => `e:0:${z}`), ...['8.1', '2.6', '3.8', 'urp', '0'].flatMap(s => ['1', '2', '0'].map(v => `a:${s}:v${v}`))].map(k => `<tr><td class="small">${esc(codeLabel(k))}</td><td style="width:110px"><input class="input" data-in="buchCode" data-k="${k}" value="${esc(B.codes[k] || '')}" maxlength="4" placeholder="${k.startsWith('e:') && !k.startsWith('e:0') ? esc(B.codes[k.split(':')[1]] || '') : ''}"></td></tr>`).join('')}</table></details>
     <label class="fld"><span>Konten für Zahlungseingänge (Auswahl beim Erfassen, «Nummer Name», mit ; getrennt)</span><input class="input" data-in="buch" data-k="zkonten" value="${esc(B.zkonten)}"></label>
     <div class="three" style="grid-template-columns:1fr 1fr 2fr"><label class="fld"><span>Beleg beginnt mit</span><input class="input" data-in="buch" data-k="belegPrefix" value="${esc(B.belegPrefix || '')}" inputmode="numeric"></label>
       <label class="fld"><span>Stellen Rg-Nr.</span><input class="input" data-in="buch" data-k="belegStellen" value="${esc(B.belegStellen || '')}" inputmode="numeric"></label>
