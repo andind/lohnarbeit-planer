@@ -390,7 +390,9 @@ function buchPanel() {
     <div class="three">${bi('kontoGeb', 'Mahngebühren')}${bi('kontoUeber', 'Überzahlungen')}${bi('mwstKonto', 'MWST-Konto')}</div>
     <div class="three">${Store.cfg().mwst.filter(m => +m.satz).map(m => `<label class="fld"><span>MWST-Code ${mwstTxt(m.satz)}</span><input class="input" data-in="buchCode" data-k="${m.satz}" value="${esc(B.codes[String(m.satz)] || '')}" maxlength="3"></label>`).join('')}</div>
     <label class="fld"><span>Konten für Zahlungseingänge (Auswahl beim Erfassen, «Nummer Name», mit ; getrennt)</span><input class="input" data-in="buch" data-k="zkonten" value="${esc(B.zkonten)}"></label>
-    <label class="fld"><span>Beleg-Präfix (nur Ziffern – AgroOffice nimmt als Beleg nur Zahlen; z. B. 9 → Rechnung 26001 = Beleg 926001)</span><input class="input" data-in="buch" data-k="belegPrefix" value="${esc(B.belegPrefix || '')}" inputmode="numeric" placeholder="leer = Rechnungs-Nr." style="max-width:220px"></label>
+    <div class="three" style="grid-template-columns:1fr 1fr 2fr"><label class="fld"><span>Beleg beginnt mit</span><input class="input" data-in="buch" data-k="belegPrefix" value="${esc(B.belegPrefix || '')}" inputmode="numeric"></label>
+      <label class="fld"><span>Stellen Rg-Nr.</span><input class="input" data-in="buch" data-k="belegStellen" value="${esc(B.belegStellen || '')}" inputmode="numeric"></label>
+      <div class="fld"><span>Beispiel (nur Ziffern, AgroOffice)</span><div class="hint" style="padding-top:10px">Rechnung 2 → Beleg <b>${esc(belegNr(2))}</b> · Rechnung 123 → <b>${esc(belegNr(123))}</b></div></div></div>
     <div class="two">${bi('version', 'Abacus-Version', 'inputmode="decimal"')}${bi('mandant', 'Mandant (meist leer)')}</div>
     <p class="small">Speicherort: ${dir ? `Ordner <b>${esc(dir)}</b> <a href="#" data-act="buchDirClear">zurücksetzen</a>` : 'Download-Ordner'}${window.showDirectoryPicker ? ` · <a href="#" data-act="buchDir">Ordner wählen…</a>` : ''}</p>
     <div class="btns"><button class="btn primary" data-act="buchOpen">📒 Buchungen erstellen (${offeneZahlungen().length})</button></div>
@@ -526,7 +528,7 @@ function onChange(ev) {
       Store.setCfg(setPath(c, key, val)); if (['iban', 'nextNr', 'refPrefix', 'mwstDef'].includes(key)) App.render(); toast('Gespeichert', 1200); break;
     }
     case 'cfgB': Store.setCfg({ [t.dataset.k]: t.checked }); break;
-    case 'buch': Store.setCfg({ buch: Object.assign({}, Store.cfg().buch || {}, { [t.dataset.k]: t.dataset.k === 'belegPrefix' ? v.replace(/\D/g, '') : v.trim() }) }); toast('Gespeichert', 1200); if (t.dataset.k === 'belegPrefix') App.render(); break;
+    case 'buch': Store.setCfg({ buch: Object.assign({}, Store.cfg().buch || {}, { [t.dataset.k]: /^beleg/.test(t.dataset.k) ? v.replace(/\D/g, '') : v.trim() }) }); toast('Gespeichert', 1200); if (/^beleg/.test(t.dataset.k)) App.render(); break;
     case 'buchCode': { const b = Object.assign({}, Store.cfg().buch || {}); b.codes = Object.assign({}, b.codes || {}, { [t.dataset.k]: v.trim() }); Store.setCfg({ buch: b }); toast('Gespeichert', 1200); break; }
     case 'buchBis': App.buchBis = v; buchDialog(); break;
     case 'mwst': { const m = Store.cfg().mwst, i = +t.dataset.i; m[i][t.dataset.f] = t.dataset.f === 'satz' ? (num(v) ?? 0) : v; Store.setCfg({ mwst: m }); App.render(); break; }
