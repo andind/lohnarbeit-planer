@@ -6,7 +6,10 @@
 'use strict';
 
 const DEF_BUCH = { bank: '1020', hilfs: '', mwstKonto: '2200', kontoStd: '3410', kontoAufw: '4000', kontoGeb: '3600', kontoUeber: '9910',
-  codes: { '8.1': '303', '2.6': '313', '3.8': '343' }, version: '2022.00', mandant: '', belegPrefix: '2', belegStellen: '4',
+  codes: { '8.1': '303', '2.6': '313', '3.8': '343', // v1.31: Code = Ziffer der ESTV-Abrechnung (effektiv), so in AgroOffice (Andreas 19.11.2026)
+    ...Object.fromEntries(['8.1', '2.6', '3.8'].flatMap(s => [[`e:${s}`, { '8.1': '303', '2.6': '313', '3.8': '343' }[s]], [`e:${s}:235`, '235'], [`e:${s}:205`, '205'], [`e:${s}:235:205`, '235']])),
+    ...Object.fromEntries(['220', '221', '225', '230', '280', '900', '910', '99'].map(z => [`e:0:${z}`, z])),
+    ...Object.fromEntries(['8.1', '2.6', '3.8', 'urp'].flatMap(s => [[`a:${s}:v1`, '400'], [`a:${s}:v2`, '405']])) }, version: '2022.00', mandant: '', belegPrefix: '2', belegStellen: '4',
   zkonten: '1020 RB Betriebskonto; 1000 Kasse; 1025 Landikonto 8141; 1028 Landi Fakturatransfer; 1031 ZAF Pflanzerkonto' };
 // Konten für Zahlungseingänge (Bank, Kasse, Landi …) aus «1020 Name; 1000 Name»
 const zKonten = () => String(buchCfg().zkonten || '').split(/[;\n]+/).map(s => s.trim()).filter(Boolean).map(s => { const m = /^(\d{4})\s*(.*)$/.exec(s); return m ? { nr: m[1], name: m[2].trim() } : null; }).filter(Boolean);
