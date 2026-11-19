@@ -7,7 +7,7 @@
    Eingang IM-Faktura, MyJohnDeere-Daten) täglich auf NAS und Dropbox, wöchentliche Excel-Exporte und Prüfung der Datenbeziehungen.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '70', STAND = '19.11.2026'; // v70: Meldungen aufs Handy über Telegram (Sicherung, Datenprüfung, Abgleich 3× fehlgeschlagen, Aufträge an MyJohnDeere), alte Excel-Namen einmalig umbenannt statt dauernd mitgeprüft · v69: Sicherungsplan für alle IM-Programme (neu IM-Faktura mit Jahressicherungen 10 Jahre + Excel, IM-Applikationskarten, IM-Feldbereinigung, Eingang IM-Faktura, MyJohnDeere-Daten wöchentlich als ZIP), unveränderte Dateien nicht doppelt, neueste Sicherung bleibt immer, Warnung bei stark weniger Einträgen, Prüfung der Datenbeziehungen zwischen den Programmen, /Sicherungen/status.json für alle Programme · v68: Arbeitsgänge mit bedeckter Fläche, aber ohne virtuelle Feldgrenze werden einmal neu berechnet (cov.gz) · v67: Feld archivieren/wiederherstellen (v66, art feld-status) wieder entfernt – Felder werden nur angelegt, nie geändert; Feldgrenzen-Aufträge (grenze-status) auch aus IM-Feldbereinigung · v65: Ertragskarten nur für ausgewählte Kunden (cfg.ertragKunden), dafür Ernten ab cfg.ertragSeit (längere Historie, nur für Ertragskarten, nicht in jd-arbeiten.json) · v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
+const VERSION = '71', STAND = '19.11.2026'; // v71: Ertragskarten – Ernten der ausgewählten Kunden zuerst exportieren, Übersicht je Kunde und Jahr auf der Statusseite (gefunden, mit Ertragskarte, wartend, ohne Ertragsdaten, früheste Arbeit bei John Deere) · v70: Meldungen aufs Handy über Telegram (Sicherung, Datenprüfung, Abgleich 3× fehlgeschlagen, Aufträge an MyJohnDeere), alte Excel-Namen einmalig umbenannt statt dauernd mitgeprüft · v69: Sicherungsplan für alle IM-Programme (neu IM-Faktura mit Jahressicherungen 10 Jahre + Excel, IM-Applikationskarten, IM-Feldbereinigung, Eingang IM-Faktura, MyJohnDeere-Daten wöchentlich als ZIP), unveränderte Dateien nicht doppelt, neueste Sicherung bleibt immer, Warnung bei stark weniger Einträgen, Prüfung der Datenbeziehungen zwischen den Programmen, /Sicherungen/status.json für alle Programme · v68: Arbeitsgänge mit bedeckter Fläche, aber ohne virtuelle Feldgrenze werden einmal neu berechnet (cov.gz) · v67: Feld archivieren/wiederherstellen (v66, art feld-status) wieder entfernt – Felder werden nur angelegt, nie geändert; Feldgrenzen-Aufträge (grenze-status) auch aus IM-Feldbereinigung · v65: Ertragskarten nur für ausgewählte Kunden (cfg.ertragKunden), dafür Ernten ab cfg.ertragSeit (längere Historie, nur für Ertragskarten, nicht in jd-arbeiten.json) · v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -750,7 +750,8 @@ const arbCache = () => { try { return (load('arbeiten.json', null) || {}).ops; }
 async function coverageAreas(list, maxWaitMs = 20 * 60 * 1000) {
   covCombo = st.covCombo; covDead = false; covStat = {}; covErr = {}; cov403 = 0; covParamFail = 0; oxDead = false; ox403 = 0; oxStat = {};
   // zuerst Arbeitsgänge ohne Maschinenfläche, dann die neuesten
-  let pending = list.slice().sort((a, b) => ((areaFromMeas(a.measurements) == null ? 0 : 1) - (areaFromMeas(b.measurements) == null ? 0 : 1)) || String(b.start || '').localeCompare(String(a.start || ''))), first = true, ok = 0, none = 0; const end = Date.now() + maxWaitMs;
+  const yPrio = o => isErnte(o) && !(o.cov && o.cov.y === ERTRAG_G) ? 0 : 1;   // v71: gewünschte Ertragskarten zuerst
+  let pending = list.slice().sort((a, b) => ((areaFromMeas(a.measurements) == null ? 0 : 1) - (areaFromMeas(b.measurements) == null ? 0 : 1)) || (yPrio(a) - yPrio(b)) || String(b.start || '').localeCompare(String(a.start || ''))), first = true, ok = 0, none = 0; const end = Date.now() + maxWaitMs;
   if (pending.length) log(`Bedeckungskarte: ${pending.length} Arbeitsgänge werden abgefragt (Fläche ohne Überlappungen, virtuelle Feldgrenze)`);
   while (pending.length && Date.now() < end && !covDead) {
     if (!first) await sleep(5000); first = false;
@@ -808,6 +809,7 @@ async function readArbeiten(d) {
   reqCount = 0; etagStat = { neu: 0, gleich: 0, geaendert: 0, fehler: 0 };
   const nEq = await loadEquipment(org); if (nEq) log(`Maschinenliste: ${nEq} Maschinen/Geräte`);
   let fDone = 0; st.arbProgress = { phase: 'Arbeitsgänge holen', done: 0, total: d.fields.length, at: new Date().toISOString() };
+  const yFrueh = {}, yRoh = {};   // v71: je ausgewähltem Kunden früheste gelieferte Arbeit und Anzahl gelieferter Ernten je Jahr (Diagnose)
   await pool(d.fields, 4, async f => {
     try {
     const base = `/organizations/${org}/fields/${encodeURIComponent(f.id)}/fieldOperations`;
@@ -823,6 +825,8 @@ async function readArbeiten(d) {
     for (const op of list) {
       const id = idOf(op.id); if (!id) continue;
       const start = op.startDate || op.startTime || null, end = op.endDate || op.endTime || null;
+      if (yK.has(f.client)) { const t = (end || start || '').slice(0, 10); if (t && (!yFrueh[f.client] || t < yFrueh[f.client])) yFrueh[f.client] = t;
+        if (t && isHarvest(op)) { const j = t.slice(0, 4), r = yRoh[f.client] = yRoh[f.client] || {}; r[j] = (r[j] || 0) + 1; } }
       const tag = (end || start || '9999').slice(0, 10), nurErtrag = tag < seit;
       if (nurErtrag && !(yK.has(f.client) && isHarvest(op) && tag >= ySeit)) continue;
       const modified = op.modifiedTime || op.lastModifiedTime || end || '';
@@ -854,6 +858,7 @@ async function readArbeiten(d) {
   if (first403 && fehler === d.fields.length) throw Object.assign(new Error('Keine Berechtigung für Arbeitsdaten (403). In der John-Deere-App die Arbeitsdaten-Schnittstelle (ag2) freischalten und in jd-sync neu bei John Deere anmelden.'), { status: 403 });
   if (first403) log(`Arbeitsdaten: bei ${fehler} Feldern kein Zugriff (403)`);
   etagSave(); st.etagArb = etagTxt(); log(`Arbeitsgänge ${st.etagArb} · ${reqCount} Abfragen`);
+  st.ertragRoh = { at: new Date().toISOString(), frueh: yFrueh, ernten: yRoh };
   // Felder/Mandanten-Namen nachführen (Umbenennungen in MyJohnDeere)
   for (const o of Object.values(arb.ops)) { const fi = fieldInfo.get(o.field); if (fi) { o.fieldName = fi.name; o.client = fi.client; o.clientName = clientName.get(fi.client) || o.clientName; } }
   if (voll) for (const o of Object.values(arb.ops)) o.v = 2; // nicht mehr gelieferte Arbeitsgänge lösen keinen Volllauf mehr aus
@@ -945,6 +950,15 @@ async function writeErtrag(arb) {
     .sort((a, b) => String(b.start || '').localeCompare(String(a.start || '')));
   await dbxUpload(`${ertragDir()}/index.json`, JSON.stringify({ format: 'jd-ertrag-index', v: 1, dienst: VERSION, stand: new Date().toISOString(), zelle: YCELL, ernten: index }));
   st.ertragIndex = index.length; save('ertrag.json', ertrag);
+  // v71: Übersicht je ausgewähltem Kunden
+  const diag = {};
+  for (const o of Object.values(arb.ops)) {
+    if (!isErnte(o)) continue;
+    const k = diag[o.client] = diag[o.client] || { name: o.clientName, jahre: {}, total: 0, karte: 0, warten: 0, ohne: 0 };
+    const j = String(o.end || o.start || '').slice(0, 4) || '?'; k.jahre[j] = (k.jahre[j] || 0) + 1; k.total++;
+    if (ertrag[o.id]) k.karte++; else if (o.cov && o.cov.y === ERTRAG_G) k.ohne++; else k.warten++;
+  }
+  st.ertragDiag = diag;
   if (neu) log(`Ertragskarten: ${neu} neu in die Dropbox (${index.length} Ernten im Verzeichnis ${ertragDir()})`);
 }
 /* ---------- Dropbox (App-Ordner der IM-Verwaltung) ---------- */
@@ -1741,6 +1755,15 @@ async function createField(a) {
   if (!id) throw new Error('John Deere hat keine Feld-ID zurückgegeben.');
   return { id, name };
 }
+function ertragDiagHtml() {
+  const K = [...ertragKunden()]; if (!K.length) return '';
+  const nm = id => ((st.kundenListe || []).find(c => c.id === id) || {}).name || id, D = st.ertragDiag || {}, R = (st.ertragRoh || {}).ernten || {}, F = (st.ertragRoh || {}).frueh || {};
+  return `<table style="font-size:13px;margin-top:6px"><tr><th style="text-align:left">Kunde</th><th style="text-align:left">Ernten bei John Deere je Jahr</th><th>mit Ertragskarte</th><th>warten auf Export</th><th>ohne Ertragsdaten</th><th>früheste Arbeit</th></tr>${K.map(id => {
+    const d = D[id] || { total: 0, karte: 0, warten: 0, ohne: 0 }, r = R[id] || {};
+    const jahre = Object.keys(r).sort().map(j => `${j}: ${r[j]}`).join(' · ') || '–';
+    return `<tr><td>${esc(nm(id))}</td><td>${esc(jahre)}</td><td style="text-align:center">${d.karte}</td><td style="text-align:center">${d.warten}</td><td style="text-align:center">${d.ohne}</td><td style="text-align:center">${esc(F[id] || '–')}</td></tr>`; }).join('')}</table>
+  <p><small>«Ernten bei John Deere» = was MyJohnDeere für die Felder dieses Kunden liefert (alle Jahre). Fehlen dort ältere Jahre, sind sie in MyJohnDeere nicht vorhanden oder auf anderen (archivierten) Feldern gespeichert. «Warten auf Export»: kommt in den nächsten Abgleichen, diese Ernten werden zuerst abgefragt.</small></p>`;
+}
 const uploadDir = () => cfg.uploadPfad || '/jd-upload';
 let uploadBusy = false, lastUploadPoll = 0;
 async function runUploads() {
@@ -1916,7 +1939,7 @@ ${st.jd && !hasAg2() ? '<p class="no">Die bestehende John-Deere-Anmeldung enthä
 <div class="row"><div><label>Ernten für Ertragskarten ab</label><input name="ertragSeit" type="date" value="${esc(ertragSeit())}"></div><div><label>Kunden suchen</label><input type="search" placeholder="Name …" oninput="const q=this.value.toLowerCase();document.querySelectorAll('.ykk').forEach(l=>l.hidden=q&&!l.textContent.toLowerCase().includes(q))"></div></div>
 <div style="max-height:260px;overflow:auto;border:1px solid #ddd;border-radius:6px;padding:6px 8px;columns:2 220px">${(st.kundenListe || []).map(c => `<label class="ykk" style="display:block;font-weight:normal;margin:2px 0"><input type="checkbox" name="ertragKunden" value="${esc(c.id)}" ${ertragKunden().has(c.id) ? 'checked' : ''} style="width:auto;margin-right:6px">${esc(c.name)}</label>`).join('') || '<small>Kundenliste erscheint nach dem nächsten Abgleich.</small>'}</div>
 <button>Speichern</button> <button class="sec" name="neu" value="1">Speichern und komplett neu laden</button></form></section>
-<section><h2>Hochladen aus IM-Applikationskarten</h2><p><small>Applikationskarten und Feldgrenzen, die in IM-Applikationskarten «An Operations Center senden» bzw. «In MyJohnDeere speichern» werden, legt die App im Dropbox-Ordner <b>${esc(uploadDir())}</b> ab. jd-sync prüft jede Minute und lädt sie mit der Files- bzw. Boundaries-Schnittstelle von John Deere in die Organisation hoch. Ebenso: neue Felder anlegen (bei bestehendem Kunden und Betrieb) und Feldgrenzen aktiv setzen, archivieren oder wiederherstellen. Danach werden nur Kunden, Felder und Grenzen neu abgeglichen.</small></p><p><small>Ertragskarten (Raster 5 m je Ernte, aus den Bedeckungskarten): ${st.ertragIndex != null ? st.ertragIndex + ' Ernten' : 'noch keine'} im Dropbox-Ordner <b>${esc(ertragDir())}</b>.</small></p>
+<section><h2>Hochladen aus IM-Applikationskarten</h2><p><small>Applikationskarten und Feldgrenzen, die in IM-Applikationskarten «An Operations Center senden» bzw. «In MyJohnDeere speichern» werden, legt die App im Dropbox-Ordner <b>${esc(uploadDir())}</b> ab. jd-sync prüft jede Minute und lädt sie mit der Files- bzw. Boundaries-Schnittstelle von John Deere in die Organisation hoch. Ebenso: neue Felder anlegen (bei bestehendem Kunden und Betrieb) und Feldgrenzen aktiv setzen, archivieren oder wiederherstellen. Danach werden nur Kunden, Felder und Grenzen neu abgeglichen.</small></p><p><small>Ertragskarten (Raster 5 m je Ernte, aus den Bedeckungskarten): ${st.ertragIndex != null ? st.ertragIndex + ' Ernten' : 'noch keine'} im Dropbox-Ordner <b>${esc(ertragDir())}</b>.</small></p>${ertragDiagHtml()}
 ${cfg.schreibrechte === false ? '<p class="no">Schreibrechte sind ausgeschaltet (Schritt 1).</p>' : st.jd ? `<p>${ok(hasFiles(), 'Berechtigung Dateien hochladen (files)')}<br>${ok(hasAg3(), 'Berechtigung Felder und Feldgrenzen (ag3)')}</p>${!hasFiles() || !hasAg3() ? '<p class="no">Die bestehende Anmeldung enthält diese Rechte noch nicht – bitte unten in Schritt 2 neu bei John Deere anmelden. Alles andere läuft bis dahin normal weiter.</p>' : ''}` : ''}
 ${(st.uploads || []).length ? `<p><small>${(st.uploads || []).slice(0, 10).map(x => `${esc(new Date(x.at).toLocaleString('de-CH'))} · ${x.art === 'grenze' ? 'Feldgrenze' : 'Applikationskarte'} «${esc(x.name || '')}» · ${x.ok ? '<span class="ok">ok</span>' : '<span class="no">Fehler</span>'} ${esc(x.meldung || '')}`).join('<br>')}</small></p>` : '<p><small>Noch nichts hochgeladen.</small></p>'}</section>
 <section><h2>1 · John-Deere-App (developer.deere.com)</h2><form method="post" action="/config">
