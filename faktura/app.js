@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken) wie IM-Vermietung: Daten lokal im Browser + Abgleich mit Dropbox (/faktura.json). */
 'use strict';
 
-const APP_VERSION = '1.16', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.17', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/faktura.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'artikel', 'rechnungen', 'einstellungen'];
 const EINHEITEN = ['ha', 'h', 'Stk', 'Pausch.', 'km', 'm³', 't', 'kg', 'l', 'a'];
@@ -160,7 +160,7 @@ const ST = { entwurf: ['Entwurf', 'info'], offen: ['Offen', ''], ueberfaellig: [
 const stChip = r => { const s = statusOf(r), [l, c] = ST[s]; const m = (r.mahnungen || []).length; return `<span class="chip ${c}">${l}</span>${m && s !== 'bezahlt' && s !== 'storniert' ? ` <span class="chip warn small">${m}. Mahnstufe</span>` : ''}`; };
 const isOP = r => ['offen', 'ueberfaellig'].includes(statusOf(r));
 function nextNr() {
-  const max = Store.all('rechnungen').reduce((m, r) => Math.max(m, parseInt(String(r.nr || r.nrRes || '').replace(/\D/g, '')) || 0), 0); // reservierte Nummern (zurückgenommene Rechnungen) zählen mit
+  const max = Store.all('rechnungen').reduce((m, r) => Math.max(m, parseInt(String(r.nr || r.nrRes || '').replace(/\D/g, '')) || 0, ...(r.freieNr || []).map(x => parseInt(x) || 0)), 0); // reservierte Nummern (zurückgenommene Rechnungen) zählen mit
   return String(Math.max(+Store.cfg().nextNr || 1, max + 1));
 }
 function newRechnung(preset = {}) {
@@ -177,6 +177,12 @@ function qrData(r, betrag) {
     rechnungsinfo: c.swico ? SwissQR.swico({ nr: r.nr, datum: r.datum, uid: c.firma.uid, mwst: cc.groups.filter(g => g.netto).map(g => ({ satz: g.satz, netto: g.netto })) }) : '' };
 }
 // Prüfung vor dem Abschliessen
+// Abrechnungsperiode (v1.17): von/bis von Hand, sonst aus den Positionsdaten
+function periode(r) {
+  const ds = (r.pos || []).map(p => p.datum).filter(Boolean).sort();
+  const von = r.perVon || ds[0] || '', bis = r.perBis || ds[ds.length - 1] || von;
+  return von ? { von, bis, auto: !r.perVon && !r.perBis } : null;
+}
 function rechnungFehler(r) {
   const e = [], k = kunde(r.kunde), c = Store.cfg();
   if (!k) e.push('Kein Kunde gewählt');

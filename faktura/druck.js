@@ -17,12 +17,12 @@ function adrBlock(k) {
     .filter(x => String(x || '').trim()).map(esc).join('<br>');
 }
 // Kopf: Briefkopf (Logo), Adressfenster, Angaben, Titel
-function docHead(r, { titel, meta, text }) {
+function docHead(r, { titel, meta, text, sub }) {
   const c = Store.cfg(), k = docK(r), links = c.adrPos === 'links';
   const info = `<table class="dmeta">${meta.map(([a, b]) => a ? `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>` : `<tr><td colspan="2">${esc(b)}</td></tr>`).join('')}</table>`;
   return `<img class="dlogo" src="${esc(logoSrc())}" alt="" style="aspect-ratio:${LOGO.w}/${LOGO.h}">
     <div class="dadr ${links ? 'l' : 'r'}">${links ? `<div class="dad">${adrBlock(k)}</div><div class="dinfo">${info}</div>` : `<div class="dinfo">${info}</div><div class="dad">${adrBlock(k)}</div>`}</div>
-    <div class="dtitle">${esc(titel)}</div>${text ? `<div class="dtext">${esc(text).replace(/\n/g, '<br>')}</div>` : ''}`;
+    <div class="dtitle">${esc(titel)}</div>${sub ? `<div class="dper">${esc(sub)}</div>` : ''}${text ? `<div class="dtext">${esc(text).replace(/\n/g, '<br>')}</div>` : ''}`;
 }
 const WM = '<div class="dwm">ENTWURF</div>'; // Wasserzeichen auf Entwürfen
 const contHead = (r, titel) => `<div class="dcont">${esc(titel)} · ${esc(docK(r)?.name || '')} – Fortsetzung</div>`;
@@ -32,7 +32,8 @@ function rechnungParts(r) {
   const titel = r.nr ? `${r.titel || 'Rechnung'} Nr. ${r.nr}` : `${r.titel || 'Rechnung'} – Entwurf${r.nrRes ? ' (Nr. ' + r.nrRes + ')' : ''}`;
   // v1.15: Kopf nur Ort und Datum (MWST-Nr. im Logo, Nr. im Titel, Zahlbar bis im Fuss); Betreff ist intern und wird nicht gedruckt
   const meta = [['', `${c.ort ? c.ort + ', ' : ''}${fmtDate(r.datum)}`]];
-  const head = docHead(r, { titel, meta, text: r.textOben });
+  const pe = periode(r), sub = pe ? `Abrechnungsperiode: ${fmtDate(pe.von)}${pe.bis && pe.bis !== pe.von ? ' – ' + fmtDate(pe.bis) : ''}` : '';
+  const head = docHead(r, { titel, meta, text: r.textOben, sub });
   const thead = `<thead><tr><th class="cd">Datum</th><th>Bezeichnung</th><th class="n cm">Menge</th><th class="ce">Einh.</th><th class="n cp">Preis</th>${multi ? '<th class="n cv">MWST</th>' : ''}<th class="n cb">Betrag CHF</th></tr></thead>`;
   const rows = cc.rows.map(p => (p.typ === 'text' ? `<tr class="txt"><td></td><td colspan="${multi ? 6 : 5}">${esc(p.bez).replace(/\n/g, '<br>')}</td></tr>`
     : p.typ === 'titel' ? `<tr class="ttl"><td></td><td colspan="${multi ? 6 : 5}">${esc(p.bez)}</td></tr>`
@@ -101,9 +102,10 @@ function qrBlock(b) {
   try { return SwissQR.html(b, { trennlinie: Store.cfg().trennlinie !== false }); } catch (x) { return `<div class="qrerr">QR-Zahlteil: ${esc(x.message)}</div>`; }
 }
 // docs: [{ r, mahnung: idx }]
-async function docsHtml(docs) {
+async function docsHtml(docs, teil) { // teil: 'rechnung' = ohne Beilagen, 'beilagen' = nur Beilagen
   await loadLogo();
-  return docs.map(d => renderDoc(d.mahnung != null ? mahnungParts(d.r, d.mahnung) : rechnungParts(d.r), d.r) + (d.mahnung == null ? beilagenOf(d.r).map(b => renderBeilage(d.r, b)).join('') : '')).join('');
+  return docs.map(d => (teil === 'beilagen' ? '' : renderDoc(d.mahnung != null ? mahnungParts(d.r, d.mahnung) : rechnungParts(d.r), d.r))
+    + (d.mahnung == null && teil !== 'rechnung' ? beilagenOf(d.r).map(b => renderBeilage(d.r, b)).join('') : '')).join('');
 }
 // Beilage hinter der Rechnung (z. B. Rapport Maschinenmiete): { titel, cols: [[Titel, 'n'|'']], rows: [[…]], total }
 // Original-Ausdruck als Beilage: eigener Bereich mit Shadow DOM (Stile des Absenders bleiben getrennt), Seitenränder über @page beil
@@ -131,9 +133,19 @@ function renderBeilage(r, B) {
   if (y + footH > full) { pages.push(cur); cur = { rows: [] }; } cur.foot = true; pages.push(cur);
   return pages.map((p, i) => `<div class="page doc">${r.nr ? '' : WM}${p.first ? head : contHead(r, B.titel)}${p.rows.length ? tab(p.rows) : ''}${p.foot ? foot : ''}${pages.length > 1 ? `<div class="dpno">Beilage Seite ${i + 1} von ${pages.length}</div>` : ''}</div>`).join('');
 }
-async function printDocs(docs, { title, after } = {}) {
+// v1.17: Zwei Papierfächer – Rechnungen mit QR-Zahlteil auf perforiertes Rechnungspapier (Fach 2), Beilagen auf Normalpapier (Fach 1).
+// Der Browser kann das Fach nicht wählen → zwei Druckaufträge; im Druckfenster jeweils den passenden Drucker/die Voreinstellung wählen.
+async function printDocs(docs, opt = {}) {
   if (!docs.length) return;
-  const html = await docsHtml(docs);
+  const c = Store.cfg(), mitQr = docs.some(d => d.r.nr), mitB = docs.some(d => d.mahnung == null && beilagenOf(d.r).length);
+  if (!opt.teil && mitQr && mitB && c.druckGetrennt !== false) {
+    if (!confirm(`Druck in zwei Aufträgen:\n\n1. ${docs.length === 1 ? 'Rechnung' : docs.length + ' Rechnungen/Mahnungen'} → ${c.fachRe || 'Rechnungspapier (Fach 2)'}\n2. danach die Beilagen → ${c.fachNormal || 'Normalpapier (Fach 1)'}\n\nIm Druckfenster jeweils den passenden Drucker bzw. das Fach wählen.`)) return;
+    return printDocs(docs, { title: opt.title, teil: 'rechnung', after: () => {
+      if (confirm(`Jetzt die Beilagen drucken → ${c.fachNormal || 'Normalpapier (Fach 1)'}?`)) printDocs(docs, { title: (opt.title || '') + ' Beilagen', teil: 'beilagen', after: opt.after });
+      else if (opt.after) opt.after(); } });
+  }
+  const { title, after } = opt;
+  const html = await docsHtml(docs, opt.teil);
   const pa = $('#printArea'); pa.innerHTML = html; beilAttach(pa);
   document.body.classList.add('printing'); const oldT = document.title;
   if (title) document.title = title.replace(/[\\/:*?"<>|]/g, '-');

@@ -76,7 +76,7 @@ function selBar() {
   const R = [...App.sel].map(id => Store.get('rechnungen', id)).filter(Boolean), nE = R.filter(r => statusOf(r) === 'entwurf').length, nO = R.filter(isOP).length;
   b.hidden = false;
   b.innerHTML = `<b>${n} ausgewählt</b>${nE ? `<button class="btn primary" data-act="selFinal">✓ ${nE} abschliessen & drucken</button>` : ''}<button class="btn" data-act="selPrint">🖨 Drucken</button>
-    ${nO ? `<button class="btn" data-act="selMahn">✉ Mahnen (${nO})</button>` : ''}${R.length - nE && App.view === 'rechnungen' ? `<button class="btn" data-act="selRevert" title="Abgeschlossene Rechnungen ohne Zahlungen zurück in die Entwürfe">↩ Zurück zu Entwurf</button>` : ''}${nE ? `<button class="btn danger" data-act="selDel">Entwürfe löschen</button>` : ''}<button class="btn" data-act="selClear">✕</button>`;
+    ${nO ? `<button class="btn" data-act="selMahn">✉ Mahnen (${nO})</button>` : ''}${R.length - nE && App.view === 'rechnungen' ? `<button class="btn" data-act="selRevert" title="Abgeschlossene Rechnungen ohne Zahlungen zurück in die Entwürfe">↩ Zurück zu Entwurf</button>` : ''}${nE > 1 && App.view === 'entwuerfe' ? `<button class="btn" data-act="selMerge" title="Ausgewählte Entwürfe desselben Kunden zu einem zusammenlegen">⇄ Zusammenlegen</button>` : ''}${nE ? `<button class="btn danger" data-act="selDel">Entwürfe löschen</button>` : ''}<button class="btn" data-act="selClear">✕</button>`;
 }
 
 /* ---------- Rechnung bearbeiten ---------- */
@@ -93,6 +93,8 @@ function rechnungDialog(id, { keep = false } = {}) {
       <label class="fld"><span>Datum</span><input class="input" type="date" data-in="ed" data-k="datum" value="${esc(r.datum)}"></label>
       <label class="fld"><span>Zahlungsfrist (Tage)</span><input class="input" type="number" min="0" data-in="ed" data-k="frist" value="${esc(r.frist ?? c.frist)}"></label>
       <label class="fld"><span>Titel</span><input class="input" data-in="ed" data-k="titel" value="${esc(r.titel)}"></label>
+      ${(() => { const pe = periode(r) || {}; return `<label class="fld"><span>Abrechnungsperiode von</span><input class="input" type="date" data-in="ed" data-k="perVon" value="${esc(r.perVon || '')}" title="${pe.auto ? 'leer = aus den Positionsdaten: ' + fmtDate(pe.von) : ''}"></label>
+        <label class="fld"><span>bis ${pe.auto ? `<span class="muted small">(automatisch ${fmtDate(pe.von)} – ${fmtDate(pe.bis)})</span>` : ''}</span><input class="input" type="date" data-in="ed" data-k="perBis" value="${esc(r.perBis || '')}"></label>`; })()}
       <label class="fld wide2"><span>Betreff (intern – wird nicht gedruckt)</span><input class="input" data-in="ed" data-k="betreff" value="${esc(r.betreff || '')}" placeholder="z. B. IM-Verwaltung, IM-Vermietung, Maschinenmiete 2026"></label>
     </div>
     <details class="help" ${r.textOben ? 'open' : ''}><summary>Text über den Positionen</summary><textarea class="input" data-in="ed" data-k="textOben" rows="2">${esc(r.textOben || '')}</textarea></details>
@@ -148,6 +150,24 @@ function teilAbschluss() {
       abschliessen(f); f.faellig = addDays(f.datum, f.frist ?? Store.cfg().frist);
       Store.put('rechnungen', f, { silent: true }); Store.put('rechnungen', rest, { silent: true }); S.clear(); App.ed = null;
       printDocs([{ r: f }], { title: docTitle([{ r: f }]) }); toast(`Rechnung ${f.nr} mit ${sel.length} Positionen abgeschlossen – ${rest.pos.filter(p => (p.typ || 'pos') === 'pos').length} Positionen bleiben im Entwurf`, 5000);
+    } });
+}
+// v1.17: Entwürfe desselben Kunden von Hand zusammenlegen – auch mit verschiedenen reservierten Nummern (die übrigen Nummern werden frei)
+function mergeDialog(L) {
+  if (L.length < 2) return;
+  if (new Set(L.map(r => r.kunde)).size > 1) { toast('Nur Entwürfe desselben Kunden lassen sich zusammenlegen', 4000); return; }
+  const def = L.find(r => r.nrRes) || L[0];
+  openDlg('Entwürfe zusammenlegen', `<p>${L.length} Entwürfe von <b>${esc(kName(L[0].kunde))}</b> werden zu einem zusammengelegt (Positionen, Beilagen, Herkunft).</p>
+    <p class="small"><b>Welcher Entwurf bleibt?</b> ${L.some(r => r.nrRes) ? 'Seine reservierte Nummer wird beim Abschliessen verwendet.' : ''}</p>
+    ${L.map(r => `<label class="tog" style="display:flex;gap:8px;margin:4px 0"><input type="radio" name="ziel" value="${r.id}" ${r === def ? 'checked' : ''}> ${r.nrRes ? `<b>Nr. ${esc(r.nrRes)}</b> (zurückgenommen)` : 'Entwurf ohne Nummer'} · ${(r.pos || []).filter(p => (p.typ || 'pos') === 'pos').length} Positionen · CHF ${chf(calc(r).total)}${r.betreff ? ` · <span class="muted">${esc(r.betreff)}</span>` : ''}</label>`).join('')}
+    ${L.filter(r => r.nrRes).length > 1 ? '<div class="hint warn">Die reservierten Nummern der anderen Entwürfe werden frei und nicht mehr verwendet (Lücke in der Nummernfolge). Wurden diese Rechnungen schon verschickt, dem Kunden mitteilen, dass sie durch die neue ersetzt werden.</div>' : ''}`,
+    `<span class="spacer"></span><button class="btn primary" value="ok">⇄ Zusammenlegen</button>`, { onSubmit: fd => {
+      const t = clone(L.find(r => r.id === fd.get('ziel')) || def), rest = L.filter(r => r.id !== t.id);
+      rest.forEach(r => { t.pos.push(...clone(r.pos)); beilagenOf(r).forEach(b => addBeilage(t, b)); t.quellen = (t.quellen || []).concat(r.quellen || []);
+        if (r.betreff) t.betreff = [...new Set([...(t.betreff || '').split(', '), ...r.betreff.split(', ')].filter(Boolean))].join(', ');
+        if (r.nrRes) (t.freieNr = t.freieNr || []).push(r.nrRes); });
+      Store.put('rechnungen', t, { silent: true }); Store.remove('rechnungen', rest.map(r => r.id)); App.sel.clear();
+      toast(`${L.length} Entwürfe zusammengelegt${t.nrRes ? ' – Nr. ' + t.nrRes + ' bleibt reserviert' : ''}`, 4000);
     } });
 }
 // Zusatzposten für mehrere Positionen (z. B. Dieselzuschlag beim Dreschen): Menge = Summe der angekreuzten Positionen (gleiche Einheit wie der Artikel), ein Posten total oder je Position
@@ -446,6 +466,10 @@ function viewMehr() {
       <label class="tog"><input type="checkbox" data-in="cfgB" data-k="preiseInkl" ${c.preiseInkl ? 'checked' : ''}> Preise standardmässig inkl. MWST</label><br>
       <label class="tog"><input type="checkbox" data-in="cfgB" data-k="swico" ${c.swico !== false ? 'checked' : ''}> Rechnungsinformationen (Swico) im QR-Code – Buchhaltungen übernehmen Nr., Datum, MWST automatisch</label><br>
       <label class="tog"><input type="checkbox" data-in="cfgB" data-k="trennlinie" ${c.trennlinie !== false ? 'checked' : ''}> Trennlinie mit «Vor der Einzahlung abzutrennen» (für normales Papier ohne Perforation)</label>
+      <h3 class="sub">Drucker mit zwei Papierfächern</h3>
+      <label class="tog"><input type="checkbox" data-in="cfgB" data-k="druckGetrennt" ${c.druckGetrennt !== false ? 'checked' : ''}> Rechnung und Beilagen in zwei Druckaufträgen (Rechnung auf Rechnungspapier, Beilagen auf Normalpapier)</label>
+      <div class="two">${inp('fachRe', 'Rechnungen (mit QR-Zahlteil)', c.fachRe || 'Rechnungspapier (Fach 2)')}${inp('fachNormal', 'Beilagen, Entwürfe', c.fachNormal || 'Normalpapier (Fach 1)')}</div>
+      <details class="help"><summary>Papierfach einrichten</summary><p class="small">Eine Web-App kann das Papierfach nicht selbst wählen. Am einfachsten den Drucker in Windows <b>zweimal</b> einrichten (Einstellungen › Drucker › Drucker hinzufügen, gleicher Drucker): einmal mit Papierquelle <b>Fach 1</b> (Name z. B. «Drucker Normal»), einmal mit <b>Fach 2</b> («Drucker Rechnung»; in den Druckeinstellungen Papierquelle Fach 2 festlegen). Im Druckfenster dann den passenden Drucker wählen – Chrome/Edge merken sich den zuletzt gewählten. Bei perforiertem Papier die Trennlinie oben ausschalten.</p></details>
       <h3 class="sub">Briefkopf</h3><img src="${esc(logoSrc())}" alt="" style="max-width:100%;max-height:70px;display:block;margin:4px 0 8px;background:#fff">
       <div class="btns"><label class="btn small">Anderes Logo…<input type="file" accept="image/*" data-in="logoFile" hidden></label>${c.logo ? '<button class="btn small" data-act="logoReset">Standard (logo.jpg)</button>' : ''}<button class="btn small" data-act="testDoc">👁 Testrechnung ansehen</button></div></div>
   </div><div>
@@ -551,6 +575,7 @@ document.addEventListener('click', ev => {
       if (!ok.length) { alert('Keine der ausgewählten Rechnungen kann zurückgenommen werden:\n\n' + bad.map(r => `• ${r.nr}: ${zurueckFehler(r)}`).join('\n')); break; }
       if (!confirm(`${ok.length} ${ok.length === 1 ? 'Rechnung' : 'Rechnungen'} (${ok.map(r => r.nr).join(', ')}) zurück in die Entwürfe nehmen? Die Nummern bleiben reserviert.${bad.length ? `\n\nNicht möglich: ${bad.map(r => r.nr + ' (' + zurueckFehler(r) + ')').join(', ')}` : ''}`)) break;
       Store.putMany('rechnungen', ok.map(r => zuruecknehmen(clone(r))), { silent: true }); App.sel.clear(); App.render(); toast(`${ok.length} wieder in den Entwürfen`); break; }
+    case 'selMerge': mergeDialog([...App.sel].map(x => Store.get('rechnungen', x)).filter(r => r && statusOf(r) === 'entwurf')); break;
     case 'selDel': { const R = [...App.sel].map(x => Store.get('rechnungen', x)).filter(r => r && statusOf(r) === 'entwurf' && !r.nrRes); if (R.length && confirm(`${R.length} Entwürfe löschen?`)) { Store.remove('rechnungen', R.map(r => r.id)); App.sel.clear(); App.render(); } break; }
     case 'selMahn': mahnDialog([...App.sel]); break;
     case 'zahl': zahlDialog(id); break;
