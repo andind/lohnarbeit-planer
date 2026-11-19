@@ -91,8 +91,8 @@ function impAbrCreate() {
         rows: g.items.map(i => [i.art, i.bez, i.menge, i.einh, i.preis, r2((i.menge ?? 1) * (i.preis || 0))]), total: tot, quelle: I.fname };
     } else pos = g.items.map(i => { const a = artByNr(i.art); return newPos({ art: i.art, bez: i.bez, menge: i.menge, einh: i.einh, preis: i.preis, mwst: a?.mwst ?? i.mwst, konto: a?.konto || '' }); });
     let r = I.append ? Store.all('rechnungen').find(x => x.kunde === k.id && statusOf(x) === 'entwurf') : null;
-    if (r) { r = clone(r); r.pos.push(...pos); if (beilage) r.beilage = r.beilage ? Object.assign({}, r.beilage, { rows: r.beilage.rows.concat(beilage.rows), total: r2((r.beilage.total || 0) + beilage.total) }) : beilage; }
-    else { r = newRechnung({ kunde: k.id, frist: k.frist ?? c.frist, betreff: I.betreff || '', quelle: I.fname }); r.pos = pos; if (beilage) r.beilage = beilage; }
+    if (r) { r = clone(r); r.pos.push(...pos); } else { r = newRechnung({ kunde: k.id, frist: k.frist ?? c.frist, betreff: I.betreff || '', quelle: I.fname }); r.pos = pos; }
+    if (beilage) addBeilage(r, beilage);
     out.push(r); nR++;
   });
   Store.putMany('rechnungen', out, { silent: true });

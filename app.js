@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '138', APP_STAND = '18.11.2026';
+const APP_VERSION = '139', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1259,8 +1259,9 @@ function orderDialog(id, { plan, kunde: kundeId, pre, arbeit, vorlage } = {}) {
           <label class="fld"><span>Stunden eff.</span><input class="input" name="stundenEff" inputmode="decimal" value="${a.stundenEff ?? ''}"></label>
         </div></div>
     </div>`}
+    ${a.fakt ? `<p class="nr">📤 An IM-Faktura gesendet am ${fmtDate(a.fakt.am.slice(0, 10))}</p>` : ''}
     <p class="nr">Auftrag ${esc(a.nr || '')}</p>`;
-  const footer = saveFooter(isNew ? '' : `<button type="button" class="btn danger" data-act="delOrder" data-id="${a.id}">Löschen</button><button type="button" class="btn" data-act="dupOrder" data-id="${a.id}">Kopie</button>`);
+  const footer = saveFooter(isNew ? '' : `<button type="button" class="btn danger" data-act="delOrder" data-id="${a.id}">Löschen</button><button type="button" class="btn" data-act="dupOrder" data-id="${a.id}">Kopie</button>${done ? `<button type="button" class="btn ${a.fakt ? '' : 'primary'}" data-act="toFaktura" data-id="${a.id}" title="Speichern und als Abrechnung an IM-Faktura senden (erscheint dort in den Entwürfen)">📤 An IM-Faktura</button>` : ''}`);
 
   Dlg.open(isNew ? (vorlage ? (vTitel || 'Spritzauftrag erfassen') : 'Neuer Auftrag') : 'Auftrag', body, footer, fd => {
     const kTxt = (fd.get('kunde') || '').trim();
@@ -1993,6 +1994,46 @@ function exportCsv() {
   download(`Lohnarbeiten_${von}_bis_${bis}.csv`, csv, 'text/csv;charset=utf-8');
   if (mark) { list.forEach(a => { if (statusOf(a) === 'erledigt') { a.status = 'verrechnet'; a.upd = Date.now(); } }); Store.save(); Sync.schedule(); App.render(); }
   toast(`${list.length} Aufträge exportiert`);
+}
+/* ================= An IM-Faktura senden (v139) =================
+   Ein erledigter Auftrag wird geöffnet, geprüft und mit «📤 An IM-Faktura» als Übergabe-Datei nach Dropbox /faktura-eingang/<id>.json gelegt.
+   IM-Faktura übernimmt ihn als Positionen in den Rechnungsentwurf des Kunden (Reiter Entwürfe). Der Auftrag wird «verrechnet», o.fakt = {am, id}. */
+function fakturaKunde(k) { return { nr: k.nr || '', name: k.name || '', anrede: k.anrede || '', adresse: k.adresse || '', plz: k.plz || '', ort: k.ort || '', mail: k.mail || '', tel: k.tel || k.handy || '' }; }
+function fakturaHa(o) { try { const r = abRows().find(x => x.oid === o.id); if (r && r.ha != null) return r.ha; } catch { } return o.flaecheEff ?? o.flaeche ?? null; }
+function fakturaUebergabe(o) {
+  const k = Store.get('kunden', o.kunde) || {}, m = maschine(o.maschine) || {}, d = dOf(o), feld = aFeld(o);
+  const T = { v: 1, id: 'imv-' + o.id + '-' + Date.now().toString(36), app: 'IM-Verwaltung', appVer: APP_VERSION, am: new Date().toISOString(), kunde: fakturaKunde(k), pos: [], beilage: null, refs: [{ app: 'imv', id: o.id, nr: o.nr || '' }] };
+  if (isSpray(o)) {
+    const fl = flOf(o), preisHa = (k.preisSpritze || 0) + (k.preisFahrer || 0) + (k.preisTraktor || 0), zu = k.zuschlag || 0;
+    const cols = [['Datum', '', 'cd'], ['Parzelle / Kultur', ''], ['Position', ''], ['Menge', 'q', 'cm'], ['Einheit', '', 'ce'], ['Ansatz', 'chf', 'cp'], ['Betrag CHF', 'chf', 'cb']];
+    const rows = [], parz = [feld, o.kultur].filter(Boolean).join(' · ');
+    T.pos.push({ kind: 'arbeit', art: m.artNr || '', bez: `${fmtDate(d)} Spritzen${parz ? ' – ' + parz : ''}`, grp: 'Spritzarbeiten', menge: r2(fl), einh: 'ha', preis: preisHa || null });
+    rows.push([fmtDate(d), parz, 'Arbeit Spritzen', r2(fl), 'ha', preisHa, round05(fl * preisHa)]);
+    prodList(o).forEach(p => { const pr = prodAt(prodOf(p), d) || {}, preis = pr.preis || 0, preisZ = round05(preis * zu + preis), menge = r2((p.menge || 0) * fl), einh = p.einheit || pr.einheit || prodUnit(p.name) || '';
+      T.pos.push({ kind: 'psm', bez: p.name, grp: p.name, menge, einh, preis: preisZ || null });
+      rows.push(['', '', p.name + (pr.zulassung ? ` (${pr.zulassung})` : ''), menge, einh, preisZ, round05(menge * preisZ)]); });
+    T.beilage = { titel: 'Detailabrechnung Pflanzenschutz', cols, rows, total: r2(rows.reduce((s, x) => s + (+x[6] || 0), 0)) };
+    T.betreff = 'Spritzarbeiten';
+  } else {
+    const einh = m.einheit === 'h' ? 'h' : 'ha', menge = einh === 'h' ? (o.stundenEff ?? dauerOf(o) ?? null) : fakturaHa(o);
+    const txt = [o.arbeit, o.kultur].filter(Boolean).join(', ') + (feld ? ' – ' + feld : '');
+    T.pos.push({ kind: 'arbeit', art: m.artNr || '', bez: `${fmtDate(d)} ${txt}`, grp: o.arbeit || '', menge: menge != null ? r2(menge) : null, einh, preis: m.ansatz ?? null });
+    if (o.notiz && /rechnung|faktura/i.test(o.notiz)) T.pos.push({ kind: 'text', bez: o.notiz });
+  }
+  return T;
+}
+async function fakturaSend(id) {
+  const o = Store.get('auftraege', id); if (!o) return;
+  if (!['erledigt', 'verrechnet'].includes(statusOf(o))) { toast('Nur erledigte Aufträge – zuerst «Erledigt melden».', 4000); return; }
+  if (!Auth.hasSession()) { toast('Für die Übergabe an IM-Faktura mit Dropbox anmelden.', 4000); return; }
+  if (o.fakt && !confirm(`Dieser Auftrag wurde am ${fmtDate(o.fakt.am.slice(0, 10))} schon an IM-Faktura gesendet. Nochmals senden? (Er erscheint dann doppelt im Rechnungsentwurf.)`)) return;
+  const T = fakturaUebergabe(o);
+  if (T.pos.some(p => p.kind !== 'text' && (p.menge == null || p.preis == null)) && !confirm('Für eine Position fehlt Menge oder Preis (Maschine › Ansatz bzw. Kundenpreise Spritzen). Trotzdem senden und in IM-Faktura ergänzen?')) return;
+  try {
+    await Drive.writeJson(`/faktura-eingang/${T.id}.json`, T);
+    Store.put('auftraege', Object.assign({}, o, { status: 'verrechnet', verrechnetAm: o.verrechnetAm || todayIso(), fakt: { am: T.am, id: T.id } }));
+    toast(`📤 Auftrag ${o.nr || ''} an IM-Faktura gesendet (${kundeName(o.kunde)})`, 4000); App.render();
+  } catch (e) { toast('Senden fehlgeschlagen: ' + e.message, 6000); }
 }
 /* ================= Modul Spritzen ================= */
 const PROD_EINHEITEN = ['l', 'kg', 'g', 'ml', 'Stk'];
@@ -5951,6 +5992,7 @@ document.addEventListener('click', async e => {
     case 'editOrder': orderDialog(id); break;
     case 'planOrder': e.stopPropagation(); orderDialog(id, { plan: 'vorschlag' }); break;
     case 'done': e.stopPropagation(); doneDialog(id); break;
+    case 'toFaktura': Dlg.afterSave = () => fakturaSend(id); if (!Dlg.form.reportValidity()) { Dlg.afterSave = null; break; } Dlg.form.requestSubmit(); break;
     case 'doneSave': Dlg.afterSave = () => doneDialog(id); if (!Dlg.form.reportValidity()) { Dlg.afterSave = null; break; } Dlg.form.requestSubmit(); break;
     case 'unplan': f.datum.value = ''; f.zeit.value = ''; toast('Beim Speichern wird die Einplanung entfernt'); break;
     case 'quickKunde': if (jdLock()) toast('Neue Kunden werden in MyJohnDeere erfasst.'); else quickKundeDialog(); break;

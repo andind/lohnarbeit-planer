@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.13', APP_STAND = '15.11.2026';
+const APP_VERSION = '1.14', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -172,6 +172,10 @@ const Drive = {
     const r2 = await this.req('https://content.dropboxapi.com/2/files/download', { headers: { 'Dropbox-API-Arg': dbxArg({ path: 'rev:' + meta.rev }) } });
     if (!r2.ok) throw new Error('Dropbox: Laden fehlgeschlagen (' + r2.status + ')');
     return { data: JSON.parse((await r2.text()) || '{}'), etag: meta.rev };
+  },
+  async writeJson(path, obj) { // Übergabe an IM-Faktura (/faktura-eingang/<id>.json)
+    const r = await this.req('https://content.dropboxapi.com/2/files/upload', { headers: { 'Content-Type': 'application/octet-stream', 'Dropbox-API-Arg': dbxArg({ path, mode: 'overwrite', mute: true }) }, body: JSON.stringify(obj) });
+    if (!r.ok) throw new Error('Dropbox ' + r.status);
   },
   async save(data, rev) {
     const arg = { path: this.path(), mode: rev ? { '.tag': 'update', update: rev } : 'add', autorename: false, mute: true };
@@ -1159,7 +1163,7 @@ function viewAbrechnung() {
   return { tb: `<h1>Abrechnung</h1>`,
     html: filterBar('abr', { search: false, maschine: false, kunde: false, storno: true }) +
     `<div class="filters"><button class="btn primary" data-act="abrPrint" ${sel.length ? '' : 'disabled'}>🖨 Rapporte (${sel.length})</button><button class="btn" data-act="abrList" ${sel.length ? '' : 'disabled'}>🖨 Abrechnungsliste</button>
-      <button class="btn" data-act="abrXlsx" ${sel.length ? '' : 'disabled'}>⬇ Abrechnungsliste Excel</button>${doneBtn}
+      <button class="btn" data-act="abrXlsx" ${sel.length ? '' : 'disabled'}>⬇ Abrechnungsliste Excel</button><button class="btn" data-act="abrFakt" ${sel.length ? '' : 'disabled'} title="Ausgewählte Zeilen als Abrechnung an IM-Faktura senden (eine Zeile «Maschinenmiete gemäss Rapport», Rapport als Beilage) und als abgerechnet markieren">📤 An IM-Faktura</button>${doneBtn}
       ${G.length ? `<button class="btn small" data-act="abrExpAll">${G.every(g => open.has(g.k.id)) ? 'Alle zuklappen' : 'Alle Zeilen zeigen'}</button>` : ''}
       <button class="btn small" data-act="abrKompakt" title="Titel und Filterleiste ausblenden">▲ Leiste ausblenden</button></div>
     ${anyPreis ? '' : '<div class="box warn small">Noch keine Preise erfasst – Rapporte und Abrechnungsliste zeigen nur Mengen. Preise unter <a href="#" data-act="goMasch">Stammdaten › Maschinen</a> eintragen.</div>'}
@@ -1221,14 +1225,14 @@ function prePrint(kind, ids) {
     if (!arts.has(k)) arts.set(k, { k, art: m.artNr || '', name: m.name || '?', einheit: einhOf(e), std: m.preis != null && (m.einheit || 'ha') === einhOf(e) ? m.preis : null, menge: 0, n: 0 });
     const x = arts.get(k); x.menge = r2(x.menge + (e.menge || 0)); x.n++; });
   const A = [...arts.values()].sort((a, b) => String(a.art).localeCompare(String(b.art), 'de', { numeric: true }));
-  const title = { rapport: G.length === 1 ? `Rapport ${G[0].k.name}` : `${G.length} Kundenrapporte`, liste: 'Abrechnungsliste', xlsx: 'Abrechnungsliste Excel' }[kind];
+  const title = { rapport: G.length === 1 ? `Rapport ${G[0].k.name}` : `${G.length} Kundenrapporte`, liste: 'Abrechnungsliste', xlsx: 'Abrechnungsliste Excel', faktura: `An IM-Faktura (${G.length} ${G.length === 1 ? 'Kunde' : 'Kunden'})` }[kind];
   openDlg(title + ' – Preise', `<p class="muted small">Preise gelten <b>nur für diesen Ausdruck</b> – die Maschinenpreise in den Stammdaten bleiben unverändert. Leer = ohne Preis.</p>
     ${kind === 'rapport' ? `<label class="tog" style="margin-bottom:10px"><input type="checkbox" name="preise" ${Store.cfg().rapportPreise ? 'checked' : ''}> Preise und Beträge im Rapport anzeigen</label>` : ''}
     <div class="dscroll" style="max-height:none"><table class="dtab"><thead><tr><th class="n">Art.-Nr.</th><th>Maschine</th><th class="n">Menge</th><th class="n">Standard</th><th class="n">Preis CHF</th></tr></thead><tbody>
     ${A.map((x, i) => `<tr><td class="n">${esc(x.art)}</td><td>${esc(x.name)}<div class="small muted">${x.n} Einsätze</div></td><td class="n">${fmtQty(x.menge)} ${esc(x.einheit)}</td>
       <td class="n">${x.std != null ? chf(x.std) : '–'}</td><td class="n"><input class="input" name="p${i}" inputmode="decimal" value="${x.std ?? ''}" style="width:110px;text-align:right"> <span class="small">/ ${esc(x.einheit)}</span></td></tr>`).join('')}
     </tbody></table></div>${eigen ? `<p class="small muted">${eigen} Einsätze haben einen eigenen Preis im Einsatz – dieser bleibt.</p>` : ''}`,
-    `<span class="spacer"></span><button class="btn primary" value="ok">${kind === 'xlsx' ? '⬇ Excel erstellen' : '🖨 Drucken'}</button>`,
+    `<span class="spacer"></span><button class="btn primary" value="ok">${kind === 'xlsx' ? '⬇ Excel erstellen' : kind === 'faktura' ? '📤 Senden' : '🖨 Drucken'}</button>`,
     { wide: true, onSubmit: fd => {
       PRICE_OV = new Map(A.map((x, i) => [x.k, num(fd.get('p' + i))]));
       try {
@@ -1238,7 +1242,8 @@ function prePrint(kind, ids) {
           const offen = G.flatMap(g => g.R).filter(isOffen).map(e => e.id);
           printHtml(G.map(g => rapportHtml(g.k, g.R, preise)).join(''), offen.length ? () => abrNachRapport(offen, G.length) : null);
           setTimeout(() => { document.title = 'IM-Vermietung'; }, 3000);
-        } else if (kind === 'liste') printHtml(abrListHtml(G));
+        } else if (kind === 'faktura') { const ov = new Map(PRICE_OV); setTimeout(() => fakturaSendVm(G, ov), 50); }
+        else if (kind === 'liste') printHtml(abrListHtml(G));
         else abrXlsx(G);
       } finally { PRICE_OV = null; }
     } });
@@ -1248,6 +1253,34 @@ function abrXlsx(G) {
   const rows = [['Kd-Nr.', 'Kunde', 'Art.-Nr.', 'Bezeichnung', 'Menge', 'Einheit', 'Preis CHF', 'Betrag CHF', 'Einsätze']];
   G.forEach(g => sumByArt(g.L).forEach(x => rows.push([g.k.nr ? +g.k.nr || g.k.nr : 'Neukunde', g.k.name, +x.art || x.art, x.name, x.menge, x.einheit, x.preis ?? '', x.betrag ?? '', x.n])));
   download(`Abrechnungsliste_${todayIso()}.xlsx`, xlsxBlob([{ name: 'Abrechnungsliste', rows }, { name: 'Einsätze', rows: einsatzRows(G.flatMap(g => g.L)) }]));
+}
+// An IM-Faktura senden (v1.14): je Kunde eine Übergabe-Datei /faktura-eingang/<id>.json – eine Position «100 Maschinenmiete gemäss Rapport»,
+// der Rapport (alle Einsätze mit Datum) als Beilage; die Zeilen werden danach als abgerechnet markiert (e.fakt = Übergabe-ID)
+async function fakturaSendVm(G, ov) {
+  if (!Auth.hasSession()) { toast('Für die Übergabe an IM-Faktura mit Dropbox anmelden.', 4000); return; }
+  PRICE_OV = ov;
+  try {
+    const schon = G.flatMap(g => g.R).filter(e => e.fakt).length;
+    const ohne = G.flatMap(g => g.R).filter(e => preisOf(e) == null).length;
+    if (ohne) { toast(`${ohne} Einsätze ohne Preis – Preise ergänzen, dann nochmals senden.`, 5000); return; }
+    if (!confirm(`${G.length} ${G.length === 1 ? 'Abrechnung' : 'Abrechnungen'} (${G.flatMap(g => g.R).length} Einsätze) an IM-Faktura senden und als abgerechnet markieren?${schon ? `\n\nAchtung: ${schon} Einsätze wurden schon einmal gesendet.` : ''}`)) return;
+    let n = 0; const ids = [];
+    for (const g of G) {
+      const L = g.R.slice().sort((a, b) => (a.datum || '').localeCompare(b.datum || '')), tot = r2(L.reduce((s, e) => s + (betragOf(e) || 0), 0));
+      const k = g.k, now = new Date().toISOString(), id = 'imm-' + (k.id || 'k') + '-' + Date.now().toString(36) + n;
+      const T = { v: 1, id, app: 'IM-Vermietung', appVer: APP_VERSION, am: now, betreff: 'Maschinenmiete',
+        kunde: { nr: k.nr || '', name: k.name || '', strasse: k.strasse || '', zusatz: k.zusatz || '', plz: k.plz || '', ort: k.ort || '', mail: k.mail || '', tel: k.tel || '' },
+        pos: [{ kind: 'miete', art: '100', bez: `Maschinenmiete gemäss Rapport${zeitraum(L) ? ' (' + zeitraum(L) + ')' : ''}`, menge: 1, einh: '', preis: tot }],
+        beilage: { titel: 'Rapport Maschinenmiete', cols: [['Datum', '', 'cd'], ['Art.-Nr.', '', 'ca'], ['Maschine', ''], ['Menge', 'q', 'cm'], ['Einheit', '', 'ce'], ['Preis', 'chf', 'cp'], ['Betrag CHF', 'chf', 'cb']],
+          rows: L.map(e => { const m = masch(e.maschine) || {}; return [e.datum ? fmtDate(e.datum) : '', m.artNr || '', (m.name || '') + (e.bem ? ' – ' + e.bem : ''), e.menge, einhOf(e), preisOf(e), betragOf(e)]; }), total: tot },
+        refs: L.map(e => ({ app: 'imm', id: e.id, nr: '' })) };
+      await Drive.writeJson(`/faktura-eingang/${id}.json`, T);
+      Store.putMany('einsaetze', L.map(e => Object.assign({}, e, { status: 'abgerechnet', abgerechnetAm: e.abgerechnetAm || todayIso(), fakt: id })), { silent: true });
+      L.forEach(e => { App.abr.rows.delete(e.id); ids.push(e.id); }); n++;
+    }
+    App.render(); toast(`📤 ${n} ${n === 1 ? 'Abrechnung' : 'Abrechnungen'} an IM-Faktura gesendet (${ids.length} Einsätze als abgerechnet markiert)`, 5000);
+  } catch (e) { toast('Senden fehlgeschlagen: ' + e.message, 6000); App.render(); }
+  finally { PRICE_OV = null; }
 }
 // Nach dem Rapport: rapportierte (offene) Zeilen als abgerechnet markieren?
 function abrNachRapport(ids, nK) {
@@ -1503,6 +1536,7 @@ document.addEventListener('click', ev => {
     case 'abrPrint': prePrint('rapport'); break;
     case 'abrList': prePrint('liste'); break;
     case 'abrXlsx': prePrint('xlsx'); break;
+    case 'abrFakt': prePrint('faktura'); break;
     case 'abrEntry': einsatzDialog(id); break;
     case 'abrDoneSel': abrDoneSel(); break;
     case 'abrKompakt': App.sub.abrKompakt = !App.sub.abrKompakt; App.saveUi(); App.render(); break;

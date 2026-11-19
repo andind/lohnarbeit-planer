@@ -14,7 +14,7 @@ const App = {
   go(v) { this.view = v; this.sel.clear(); this.saveUi(); this.render(); },
   render() {
     $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.view === this.view));
-    const V = { rechnungen: viewRechnungen, op: viewOP, import: viewImport, stamm: viewStamm, mehr: viewMehr }[this.view] || viewRechnungen;
+    const V = { rechnungen: viewRechnungen, entwuerfe: viewEntwuerfe, op: viewOP, import: viewImport, stamm: viewStamm, mehr: viewMehr }[this.view] || viewRechnungen;
     const sc = $('.dscroll')?.scrollTop;
     const { tb, html } = V();
     $('#toolbar').innerHTML = tb; $('#content').innerHTML = html;
@@ -72,7 +72,7 @@ function viewRechnungen() {
 }
 function selBar() {
   const b = $('#selbar'), n = App.sel.size;
-  if (!n || !['rechnungen', 'op'].includes(App.view)) { b.hidden = true; return; }
+  if (!n || !['rechnungen', 'op', 'entwuerfe'].includes(App.view)) { b.hidden = true; return; }
   const R = [...App.sel].map(id => Store.get('rechnungen', id)).filter(Boolean), nE = R.filter(r => statusOf(r) === 'entwurf').length, nO = R.filter(isOP).length;
   b.hidden = false;
   b.innerHTML = `<b>${n} ausgewählt</b>${nE ? `<button class="btn primary" data-act="selFinal">✓ ${nE} abschliessen & drucken</button>` : ''}<button class="btn" data-act="selPrint">🖨 Drucken</button>
@@ -108,10 +108,11 @@ function rechnungDialog(id, { keep = false } = {}) {
         <td class="n" id="pb${i}">${chf(calc({ pos: [p] }).rows[0].betrag)}</td><td class="nowrap">${posBtns(i)}</td></tr>`).join('')}
     </tbody></table></div>
     <datalist id="einhList">${EINHEITEN.map(e => `<option value="${e}">`).join('')}</datalist>
-    <div class="btns"><button type="button" class="btn small" data-act="edAdd" data-t="pos">＋ Position</button><button type="button" class="btn small" data-act="edAdd" data-t="text">＋ Textzeile</button><button type="button" class="btn small" data-act="edAdd" data-t="titel">＋ Zwischentitel</button>
+    <div class="btns"><button type="button" class="btn small" data-act="edAdd" data-t="pos">＋ Position</button><button type="button" class="btn small" data-act="edAdd" data-t="text">＋ Textzeile</button><button type="button" class="btn small" data-act="edAdd" data-t="titel">＋ Zwischentitel</button><button type="button" class="btn small" data-act="edSum" title="Gleiche Positionen (gleiche Arbeit/Produkt, Preis, Einheit, MWST) zu einer Zeile zusammenfassen">Σ Zusammenfassen</button>
       <label class="tog" style="margin-left:auto"><input type="checkbox" data-in="edInkl" ${r.inkl ? 'checked' : ''}> Preise inkl. MWST</label></div>
     <div id="edTot" class="edtot">${edTotHtml(r)}</div>
-    ${r.beilage ? `<div class="box small">📎 Beilage «${esc(r.beilage.titel)}» mit ${r.beilage.rows.length} Zeilen (CHF ${chf(r.beilage.total)}) wird hinter der Rechnung gedruckt. <a href="#" data-act="edBeilDel">entfernen</a></div>` : ''}
+    ${beilagenOf(r).map((b, i) => `<div class="box small">📎 Beilage «${esc(b.titel)}» mit ${b.rows.length} Zeilen${b.total != null ? ` (CHF ${chf(b.total)})` : ''} wird hinter der Rechnung gedruckt. <a href="#" data-act="edBeilDel" data-i="${i}">entfernen</a></div>`).join('')}
+    ${(r.quellen || []).length ? `<div class="small muted" style="margin:-6px 0 10px">Herkunft: ${(r.quellen || []).map(q => `${esc(q.app)} ${fmtDate((q.am || '').slice(0, 10))}${(q.refs || []).length ? ' (' + q.refs.map(x => x.nr ? (q.app === 'IM-Verwaltung' ? 'Auftrag ' : '') + x.nr : '').filter(Boolean).join(', ') + ')' : ''}`).join(' · ')}</div>` : ''}
     <label class="fld"><span>Text unter den Positionen</span><textarea class="input" data-in="ed" data-k="textUnten" rows="2">${esc(r.textUnten || '')}</textarea></label>
     ${fix ? zahlMahnInfo(r) : ''}`;
   const isNew = !Store.get('rechnungen', r.id);
@@ -396,6 +397,10 @@ function buchPanel() {
     <div class="two">${bi('version', 'Abacus-Version', 'inputmode="decimal"')}${bi('mandant', 'Mandant (meist leer)')}</div>
     <p class="small">Speicherort: ${dir ? `Ordner <b>${esc(dir)}</b> <a href="#" data-act="buchDirClear">zurücksetzen</a>` : 'Download-Ordner'}${window.showDirectoryPicker ? ` · <a href="#" data-act="buchDir">Ordner wählen…</a>` : ''}</p>
     <div class="btns"><button class="btn primary" data-act="buchOpen">📒 Buchungen erstellen (${offeneZahlungen().length})</button></div>
+    <h3 class="sub">Eingang aus IM-Verwaltung / IM-Vermietung</h3>
+    <div class="three"><label class="fld"><span>Artikel für Pflanzenschutzmittel</span><input class="input" data-in="ein" data-k="artPsm" value="${esc(einCfg().artPsm)}"></label>
+      <label class="fld"><span>Artikel Maschinenmiete</span><input class="input" data-in="ein" data-k="artMiete" value="${esc(einCfg().artMiete)}"></label>
+      <label class="fld"><span>MWST Arbeiten ohne Artikel</span><select class="input" data-in="ein" data-k="mwstArbeit">${mwstOpts(+einCfg().mwstArbeit)}</select></label></div>
     <h3 class="sub">Debitoren per Stichtag</h3><p class="small">Offene Rechnungen an einem Tag (Zahlungen und Gebühren bis zu diesem Tag), aufgeteilt nach Konto und MWST – für die Nachführung per 31.12.</p>
     <div class="btns"><input class="input" type="date" data-in="debStich" value="${new Date().getMonth() < 6 ? new Date().getFullYear() - 1 : new Date().getFullYear()}-12-31" style="max-width:170px"><button class="btn" data-act="debExcel">⬇ Debitorenliste (Excel)</button></div></div>`;
 }
@@ -438,7 +443,7 @@ document.addEventListener('click', ev => {
     case 'go': App.go(t.dataset.v); break;
     case 'sub': App.sub.stamm = t.dataset.v; App.saveUi(); App.render(); break;
     case 'dlgClose': closeDlg(); break;
-    case 'sync': if (!Auth.configured()) App.go('mehr'); else if (!Auth.hasSession()) Auth.login(); else Sync.run(); break;
+    case 'sync': if (!Auth.configured()) App.go('mehr'); else if (!Auth.hasSession()) Auth.login(); else { Sync.run(); Eingang.check(); } break;
     case 'login': Auth.login(); break;
     case 'logout': if (confirm('Von Dropbox abmelden? Die Daten bleiben auf diesem Gerät.')) Auth.logout(); break;
     case 'reload': location.reload(); break;
@@ -488,7 +493,11 @@ document.addEventListener('click', ev => {
     case 'edEditK': kundeDialog(App.ed.kunde, { after: () => rechnungDialog(null, { keep: true }) }); break;
     case 'edZahl': { const r = edClean(clone(App.ed)); edSave(r); zahlDialog(r.id, true); break; }
     case 'edMahn': { const r = edClean(clone(App.ed)); edSave(r); mahnDialog([r.id], true); break; }
-    case 'edBeilDel': if (confirm('Beilage entfernen?')) { delete App.ed.beilage; edRerender(); } break;
+    case 'edBeilDel': if (confirm('Beilage entfernen?')) { const B = beilagenOf(App.ed); B.splice(+t.dataset.i, 1); delete App.ed.beilage; App.ed.beilagen = B; edRerender(); } break;
+    case 'edSum': { const n = zusammenfassen(App.ed); edRerender(); toast(n ? `${n} Positionen zusammengefasst` : 'Nichts zum Zusammenfassen'); break; }
+    case 'sumR': { const r = Store.get('rechnungen', id); if (!r) break; const x = clone(r), n = zusammenfassen(x); if (n) { Store.put('rechnungen', x); toast(`${n} Positionen zusammengefasst`); } else toast('Nichts zum Zusammenfassen'); break; }
+    case 'einCheck': Eingang.check({ quiet: false }); break;
+    case 'selAllE': { const L = Store.all('rechnungen').filter(r => statusOf(r) === 'entwurf'); const all = L.every(r => App.sel.has(r.id)); L.forEach(r => all ? App.sel.delete(r.id) : App.sel.add(r.id)); App.render(); break; }
     case 'buchOpen': buchDialog(); break;
     case 'buchDir': Dir.pick().then(() => { if ($('#dlg').open) buchDialog(); }); break;
     case 'buchDirClear': Dir.clear().then(() => { ls('mf_buchdir', null); App.render(); }); break;
@@ -531,6 +540,7 @@ function onChange(ev) {
     case 'buch': Store.setCfg({ buch: Object.assign({}, Store.cfg().buch || {}, { [t.dataset.k]: /^beleg/.test(t.dataset.k) ? v.replace(/\D/g, '') : v.trim() }) }); toast('Gespeichert', 1200); if (/^beleg/.test(t.dataset.k)) App.render(); break;
     case 'buchCode': { const b = Object.assign({}, Store.cfg().buch || {}); b.codes = Object.assign({}, b.codes || {}, { [t.dataset.k]: v.trim() }); Store.setCfg({ buch: b }); toast('Gespeichert', 1200); break; }
     case 'buchBis': App.buchBis = v; buchDialog(); break;
+    case 'ein': Store.setCfg({ ein: Object.assign({}, Store.cfg().ein || {}, { [t.dataset.k]: t.dataset.k === 'mwstArbeit' ? num(v) : v.trim() }) }); toast('Gespeichert', 1200); break;
     case 'mwst': { const m = Store.cfg().mwst, i = +t.dataset.i; m[i][t.dataset.f] = t.dataset.f === 'satz' ? (num(v) ?? 0) : v; Store.setCfg({ mwst: m }); App.render(); break; }
     case 'mahn': { const m = Store.cfg().mahn, i = +t.dataset.i, f = t.dataset.f; m[i][f] = f === 'gebuehr' || f === 'frist' ? (num(v) ?? 0) : v; Store.setCfg({ mahn: m }); break; }
     case 'logoFile': if (t.files[0]) { const fr = new FileReader(); fr.onload = () => { if (fr.result.length > 400000) { toast('Bild zu gross (max. ca. 300 KB)'); return; } Store.setCfg({ logo: fr.result }); App.render(); }; fr.readAsDataURL(t.files[0]); } t.value = ''; break;
@@ -551,7 +561,7 @@ $('#dlg').addEventListener('close', () => { App.render(); });
 document.addEventListener('keydown', ev => { if (ev.key === 'Enter' && ev.target.matches('#dlgForm input:not([type=checkbox]):not([type=file])')) { ev.preventDefault(); ev.target.dispatchEvent(new Event('change', { bubbles: true })); return; } if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'n' && !$('#dlg').open) { ev.preventDefault(); rechnungDialog(null); } });
 window.addEventListener('online', () => Sync.run());
 window.addEventListener('offline', () => Sync.setState('offline'));
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') Sync.run(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { Sync.run(); if (Date.now() - Eingang.last > 60000) Eingang.check(); } });
 window.addEventListener('storage', ev => { if (ev.key === 'mf_data') { Store.load(); if (!App.busy()) App.render(); } });
 
 /* ================= Zoom und Bildschirmhöhe ================= */
@@ -573,7 +583,7 @@ window.addEventListener('resize', () => Zoom.apply());
   $('#appVer').textContent = 'v' + APP_VERSION; Zoom.apply();
   Store.load(); App.init();
   try { await Auth.handleRedirect(); } catch (e) { toast('Anmeldung fehlgeschlagen: ' + e.message, 6000); }
-  App.render(); Sync.setState(); Sync.run();
-  setInterval(() => { if (document.visibilityState === 'visible') Sync.run(); }, 5 * 60 * 1000);
+  App.render(); Sync.setState(); Sync.run(); setTimeout(() => Eingang.check(), 1500);
+  setInterval(() => { if (document.visibilityState === 'visible') { Sync.run(); Eingang.check(); } }, 5 * 60 * 1000);
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();

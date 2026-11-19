@@ -102,11 +102,11 @@ function qrBlock(b) {
 // docs: [{ r, mahnung: idx }]
 async function docsHtml(docs) {
   await loadLogo();
-  return docs.map(d => renderDoc(d.mahnung != null ? mahnungParts(d.r, d.mahnung) : rechnungParts(d.r), d.r) + (d.mahnung == null && d.r.beilage ? renderBeilage(d.r) : '')).join('');
+  return docs.map(d => renderDoc(d.mahnung != null ? mahnungParts(d.r, d.mahnung) : rechnungParts(d.r), d.r) + (d.mahnung == null ? beilagenOf(d.r).map(b => renderBeilage(d.r, b)).join('') : '')).join('');
 }
 // Beilage hinter der Rechnung (z. B. Rapport Maschinenmiete): { titel, cols: [[Titel, 'n'|'']], rows: [[…]], total }
-function renderBeilage(r) {
-  const B = r.beilage; if (!B || !(B.rows || []).length) return '';
+function renderBeilage(r, B) {
+  if (!B || !(B.rows || []).length) return '';
   const h = measurer(), full = PAGE.h - PAGE.top - PAGE.bottom - 6;
   const titel = `Beilage zu ${r.titel || 'Rechnung'} Nr. ${r.nr || '(Entwurf)'}`;
   const head = `<img class="dlogo" src="${esc(logoSrc())}" alt="" style="aspect-ratio:${LOGO.w}/${LOGO.h};max-height:24mm"><div class="dtitle">${esc(B.titel || 'Beilage')}</div><div class="dtext">${esc(titel)} · ${esc(docK(r)?.name || '')}</div>`;
