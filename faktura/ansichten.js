@@ -123,7 +123,7 @@ function rechnungDialog(id, { keep = false } = {}) {
   const isNew = !Store.get('rechnungen', r.id);
   const foot = s === 'storniert'
     ? `<button class="btn" value="unstorno">Storno aufheben</button><span class="spacer"></span><button class="btn" value="close">Schliessen</button>`
-    : `${fix ? `<button class="btn danger" value="storno">Stornieren</button><button class="btn" value="revert" title="Rechnung zurück in die Entwürfe, um sie zu korrigieren (Nummer bleibt reserviert)">↩ Zurück zu Entwurf</button><button class="btn" value="copy">Kopie als Entwurf</button>` : (isNew || r.nrRes ? '' : '<button class="btn danger" value="del">Löschen</button>')}
+    : `${fix ? `<button class="btn danger" value="storno">Stornieren</button><button class="btn" value="revert" title="Rechnung zurück in die Entwürfe, um sie zu korrigieren (Nummer bleibt reserviert)">↩ Zurück zu Entwurf</button><button class="btn" value="copy">Kopie als Entwurf</button>` : (isNew ? '' : '<button class="btn danger" value="del">Entwurf löschen</button>')}
       <button class="btn" value="preview">👁 Vorschau</button>${fix ? '' : '<button class="btn" value="draftPrint" title="Entwurf mit Wasserzeichen und ohne QR-Zahlteil drucken – z. B. zum Kontrollieren">🖨 Entwurf drucken</button>'}<span class="spacer"></span>
       <button class="btn" value="save">${fix ? 'Speichern' : 'Als Entwurf speichern'}</button>
       ${fix ? '<button class="btn primary" value="print">🖨 Speichern & drucken</button>' : `${(App.edSel || new Set()).size && (App.edSel.size < r.pos.filter(p => (p.typ || 'pos') === 'pos').length) ? `<button class="btn" value="part" title="Nur die angekreuzten Positionen als Rechnung abschliessen – die übrigen bleiben im Entwurf">✓ Nur ${App.edSel.size} markierte abschliessen & drucken</button>` : ''}<button class="btn primary" value="final">✓ Abschliessen & drucken</button>`}`;
@@ -220,7 +220,7 @@ function edClean(r) { r.pos = r.pos.filter(p => (p.typ || 'pos') !== 'pos' ? Str
 function edSubmit(btn) {
   const r = edClean(clone(App.ed));
   if (btn === 'close') return;
-  if (btn === 'del') { if (!confirm('Entwurf löschen?')) return false; Store.remove('rechnungen', r.id); App.ed = null; return; }
+  if (btn === 'del') { if (!entwurfLoeschen([Store.get('rechnungen', r.id) || r])) return false; App.ed = null; return; }
   if (btn === 'storno') { if (!confirm(`Rechnung ${r.nr} stornieren? Die Nummer bleibt belegt.`)) return false; r.storno = new Date().toISOString(); edSave(r); toast('Rechnung storniert'); return; }
   if (btn === 'unstorno') { delete r.storno; edSave(r); return; }
   if (btn === 'copy') { const n = newRechnung(Object.assign(clone(r), { id: uid(), nr: '', ref: '', faellig: '', abgeschlossen: '', storno: undefined, zahlungen: [], mahnungen: [], datum: todayIso(), quelle: 'Kopie von ' + r.nr })); n.pos.forEach(p => { p.id = uid(); }); edSave(n); setTimeout(() => rechnungDialog(n.id), 50); toast('Kopie als Entwurf erstellt'); return; }
@@ -577,7 +577,8 @@ document.addEventListener('click', ev => {
       if (!confirm(`${ok.length} ${ok.length === 1 ? 'Rechnung' : 'Rechnungen'} (${ok.map(r => r.nr).join(', ')}) zurück in die Entwürfe nehmen? Die Nummern bleiben reserviert.${bad.length ? `\n\nNicht möglich: ${bad.map(r => r.nr + ' (' + zurueckFehler(r) + ')').join(', ')}` : ''}`)) break;
       Store.putMany('rechnungen', ok.map(r => zuruecknehmen(clone(r))), { silent: true }); App.sel.clear(); App.render(); toast(`${ok.length} wieder in den Entwürfen`); break; }
     case 'selMerge': mergeDialog([...App.sel].map(x => Store.get('rechnungen', x)).filter(r => r && statusOf(r) === 'entwurf')); break;
-    case 'selDel': { const R = [...App.sel].map(x => Store.get('rechnungen', x)).filter(r => r && statusOf(r) === 'entwurf' && !r.nrRes); if (R.length && confirm(`${R.length} Entwürfe löschen?`)) { Store.remove('rechnungen', R.map(r => r.id)); App.sel.clear(); App.render(); } break; }
+    case 'selDel': { const R = [...App.sel].map(x => Store.get('rechnungen', x)).filter(r => r && statusOf(r) === 'entwurf'); if (entwurfLoeschen(R)) { App.sel.clear(); App.render(); } break; }
+    case 'delE': { if (entwurfLoeschen([Store.get('rechnungen', id)])) { App.sel.delete(id); App.render(); } break; }
     case 'selMahn': mahnDialog([...App.sel]); break;
     case 'zahl': zahlDialog(id); break;
     case 'mahn': mahnDialog([id]); break;

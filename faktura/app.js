@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken) wie IM-Vermietung: Daten lokal im Browser + Abgleich mit Dropbox (/faktura.json). */
 'use strict';
 
-const APP_VERSION = '1.20', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.21', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/faktura.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'artikel', 'rechnungen', 'einstellungen'];
 const EINHEITEN = ['ha', 'h', 'Stk', 'Pausch.', 'km', 'm³', 't', 'kg', 'l', 'a'];
@@ -26,7 +26,7 @@ const round5 = n => Math.round((n + Number.EPSILON) * 20) / 20;
 const ls = (key, val) => { try { if (val === undefined) return localStorage.getItem(key); if (val === null) localStorage.removeItem(key); else localStorage.setItem(key, val); } catch { return null; } };
 const lsJson = (key, val) => { if (val === undefined) { try { return JSON.parse(ls(key) || 'null'); } catch { return null; } } ls(key, val === null ? null : JSON.stringify(val)); };
 const clone = o => JSON.parse(JSON.stringify(o));
-function toast(msg, ms = 2800) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), ms); }
+function toast(msg, ms) { ms = ms || Math.max(4000, Math.min(9000, String(msg).length * 70)); const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), ms); }
 function download(name, content, type) {
   const blob = content instanceof Blob ? content : new Blob([content], { type });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
@@ -160,8 +160,25 @@ const ST = { entwurf: ['Entwurf', 'info'], offen: ['Offen', ''], ueberfaellig: [
 const stChip = r => { const s = statusOf(r), [l, c] = ST[s]; const m = (r.mahnungen || []).length; return `<span class="chip ${c}">${l}</span>${m && s !== 'bezahlt' && s !== 'storniert' ? ` <span class="chip warn small">${m}. Mahnstufe</span>` : ''}`; };
 const isOP = r => ['offen', 'ueberfaellig'].includes(statusOf(r));
 function nextNr() {
-  const max = Store.all('rechnungen').reduce((m, r) => Math.max(m, parseInt(String(r.nr || r.nrRes || '').replace(/\D/g, '')) || 0, ...(r.freieNr || []).map(x => parseInt(x) || 0)), 0); // reservierte Nummern (zurückgenommene Rechnungen) zählen mit
+  const max = Store.all('rechnungen').reduce((m, r) => Math.max(m, parseInt(String(r.nr || r.nrRes || '').replace(/\D/g, '')) || 0, ...(r.freieNr || []).map(x => parseInt(x) || 0)), Math.max(0, ...(Store.cfg().freieNr || []).map(x => parseInt(x) || 0))); // gelöschte reservierte Nummern (cfg.freieNr) und reservierte Nummern (zurückgenommene Rechnungen) zählen mit
   return String(Math.max(+Store.cfg().nextNr || 1, max + 1));
+}
+// v1.21: Entwürfe löschen (auch zurückgenommene) – immer mit Bestätigung; reservierte Nummern bleiben gesperrt
+function entwurfLoeschen(R) {
+  R = R.filter(r => r && !r.nr);
+  if (!R.length) return false;
+  const res = R.filter(r => r.nrRes), ein = R.filter(r => (r.quellen || []).some(q => q.app));
+  const zeilen = R.slice(0, 12).map(r => `• ${kName(r.kunde) || '(ohne Kunde)'} – ${(r.pos || []).filter(p => (p.typ || 'pos') === 'pos').length} Positionen – CHF ${chf(calc(r).total)}${r.nrRes ? ' – reservierte Nr. ' + r.nrRes : ''}`).join('\n') + (R.length > 12 ? `\n… und ${R.length - 12} weitere` : '');
+  const txt = `${R.length === 1 ? 'Diesen Rechnungsentwurf' : R.length + ' Rechnungsentwürfe'} wirklich löschen?\n\n${zeilen}`
+    + (res.length ? `\n\n⚠ Zurückgenommene Rechnung${res.length > 1 ? 'en' : ''}: die Nummer${res.length > 1 ? 'n' : ''} ${res.map(r => r.nrRes).join(', ')} wird nicht mehr vergeben (Lücke in der Nummernfolge). Wurde die Rechnung schon verschickt, dem Kunden mitteilen, dass sie ungültig ist.` : '')
+    + (ein.length ? '\n\nHinweis: In der IM-Verwaltung bzw. IM-Vermietung bleiben die Einträge als «an IM-Faktura gesendet» / abgerechnet markiert – dort bei Bedarf von Hand zurücksetzen.' : '')
+    + '\n\nDas Löschen kann nicht rückgängig gemacht werden.';
+  if (!confirm(txt)) return false;
+  if (res.length) { const c = Store.get('einstellungen', 'cfg') || {}; Store.setCfg({ freieNr: [...new Set([...(c.freieNr || []), ...res.map(r => r.nrRes), ...R.flatMap(r => r.freieNr || [])])] }); }
+  else { const fr = R.flatMap(r => r.freieNr || []); if (fr.length) { const c = Store.get('einstellungen', 'cfg') || {}; Store.setCfg({ freieNr: [...new Set([...(c.freieNr || []), ...fr])] }); } }
+  Store.remove('rechnungen', R.map(r => r.id));
+  toast(R.length === 1 ? 'Entwurf gelöscht' : R.length + ' Entwürfe gelöscht');
+  return true;
 }
 function newRechnung(preset = {}) {
   const c = Store.cfg();

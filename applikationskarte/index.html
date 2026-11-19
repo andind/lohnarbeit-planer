@@ -103,7 +103,7 @@ aside section.collapsed{padding-block:11px}
 .check{display:flex;gap:8px;align-items:flex-start;font-size:13px}
 .check input{width:auto;margin-top:3px}
 .empty{font-size:13px;color:var(--muted);padding:10px;border:1px dashed var(--line);border-radius:4px}
-.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--fg);color:var(--panel);padding:9px 14px;border-radius:4px;font-size:14px;z-index:2000;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--fg);color:var(--panel);padding:16px 26px;border-radius:12px;font-size:18px;font-weight:600;line-height:1.4;text-align:center;white-space:pre-line;box-shadow:0 8px 28px rgba(0,0,0,.35);border:2px solid var(--accent);z-index:2000;opacity:0;transition:opacity .2s;pointer-events:none;width:max-content;max-width:min(720px,90vw)}
 .toast.on{opacity:1}
 /* Kartenelemente */
 .mapbar{position:absolute;top:10px;left:56px;right:60px;z-index:800;display:flex;gap:6px;max-width:440px}
@@ -174,7 +174,7 @@ dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:upper
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.31 · by Andreas Indermühle</span></div>
+    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.32 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -469,7 +469,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.31";
+const VERSION = "1.32";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -600,7 +600,7 @@ legend.onAdd = () => { const d = L.DomUtil.create("div","legend"); d.id = "legen
 legend.addTo(map);
 
 /* ---------- Hilfen ---------- */
-function toast(t){ const el=$("toast"); el.textContent=t; el.classList.add("on"); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove("on"), t.length>70 ? 5000 : 2600); }
+function toast(t){ const el=$("toast"); el.textContent=t; el.classList.add("on"); clearTimeout(toast._t); toast._t=setTimeout(()=>el.classList.remove("on"), Math.max(4000, Math.min(9000, String(t).length*70))); }
 const fmt = (n,d=2) => (n==null||isNaN(n)) ? "–" : n.toLocaleString("de-CH",{minimumFractionDigits:d,maximumFractionDigits:d});
 const num = v => { const n = parseFloat(String(v).replace(",",".")); return isNaN(n)?0:n; };
 function color(rate, lo, hi){
