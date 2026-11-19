@@ -105,7 +105,7 @@ function rechnungDialog(id, { keep = false } = {}) {
       : `<tr class="${(App.edSel || new Set()).has(p.id) ? 'psel' : ''}"><td class="cs"><input type="checkbox" data-act="edSel" data-id="${p.id}" ${(App.edSel || new Set()).has(p.id) ? 'checked' : ''}></td>
         <td><input class="input" type="date" data-in="edp" data-i="${i}" data-f="datum" value="${esc(p.datum || '')}" title="Auftragsdatum – leer bei Zusatzpositionen"></td>
         <td><input class="input" list="artList" data-in="edp" data-i="${i}" data-f="art" value="${esc(p.art || '')}"></td>
-        <td><textarea class="input" rows="1" data-in="edp" data-i="${i}" data-f="bez">${esc(p.bez)}</textarea>${posBeschr(p, r) ? `<div class="small muted pbeschr" title="Beschreibung aus dem Artikel">${esc(posBeschr(p, r)).replace(/\n/g, '<br>')}</div>` : ''}<input class="input pbem" data-in="edp" data-i="${i}" data-f="bem" value="${esc(p.bem || '')}" placeholder="Bemerkung (z. B. Kultur, Feld)"></td>
+        <td><textarea class="input" rows="1" data-in="edp" data-i="${i}" data-f="bez">${esc(p.bez)}</textarea>${posBeschr(p, r) ? `<div class="small muted pbeschr" title="Beschreibung aus dem Artikel">${esc(posBeschr(p, r)).replace(/\n/g, '<br>')}</div>` : ''}<input class="input pbem" data-in="edp" data-i="${i}" data-f="bem" value="${esc(p.bem || '')}" placeholder="Bemerkung (z. B. Kultur)"></td>
         <td><input class="input n" inputmode="decimal" data-in="edp" data-i="${i}" data-f="menge" value="${p.menge ?? ''}"></td>
         <td><input class="input" list="einhList" data-in="edp" data-i="${i}" data-f="einh" value="${esc(p.einh || '')}"></td>
         <td><input class="input n" inputmode="decimal" data-in="edp" data-i="${i}" data-f="preis" value="${p.preis ?? ''}"></td>

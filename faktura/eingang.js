@@ -129,7 +129,7 @@ function altPos(bez) {
   const m = String(bez).match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})\s+([\s\S]*)$/); if (!m) return null;
   const y = m[3].length === 2 ? '20' + m[3] : m[3], datum = `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
   const [l1, ...rest] = m[4].split('\n'), i = l1.indexOf(' – ');
-  return { datum, bez: (i > 0 ? l1.slice(0, i) : l1).trim(), bem: [i > 0 ? l1.slice(i + 3).trim() : '', ...rest.map(s => s.trim())].filter(Boolean).join(' · ') };
+  return { datum, bez: (i > 0 ? l1.slice(0, i) : l1).trim(), bem: rest.map(s => s.trim()).filter(Boolean).join(' · ') }; // Feldname (nach « – ») wird weggelassen
 }
 // v1.16: Entwürfe desselben Kunden immer zu einem zusammenführen (zurückgenommene Rechnung mit reservierter Nummer bleibt das Ziel;
 // zwei verschiedene reservierte Nummern werden nicht zusammengelegt). Dabei alte Positionen mit Datum im Text aufteilen.
