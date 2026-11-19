@@ -6,7 +6,12 @@
 'use strict';
 
 const DEF_BUCH = { bank: '1020', hilfs: '', mwstKonto: '2200', kontoStd: '3410', kontoGeb: '3600', kontoUeber: '9910',
-  codes: { '8.1': '303', '2.6': '313', '3.8': '343' }, version: '2022.00', mandant: '' };
+  codes: { '8.1': '303', '2.6': '313', '3.8': '343' }, version: '2022.00', mandant: '',
+  zkonten: '1020 RB Betriebskonto; 1000 Kasse; 1025 Landikonto 8141; 1028 Landi Fakturatransfer; 1031 ZAF Pflanzerkonto' };
+// Konten für Zahlungseingänge (Bank, Kasse, Landi …) aus «1020 Name; 1000 Name»
+const zKonten = () => String(buchCfg().zkonten || '').split(/[;\n]+/).map(s => s.trim()).filter(Boolean).map(s => { const m = /^(\d{4})\s*(.*)$/.exec(s); return m ? { nr: m[1], name: m[2].trim() } : null; }).filter(Boolean);
+const zKontoName = nr => { const k = zKonten().find(x => x.nr === String(nr)); return k ? `${k.nr} ${k.name}` : String(nr || ''); };
+const zKontoOf = z => String(z.konto || buchCfg().bank);
 // AgroOffice nimmt beim Import nur Konten 1000–8999 sowie 9910/9911 an → Hilfskonto 9904 geht nicht (Fehlerprotokoll 19.11.2026)
 const kontoOk = k => { const n = +k; return (n >= 1000 && n <= 8999) || n === 9910 || n === 9911; };
 const buchCfg = () => { const c = Store.cfg().buch || {}, o = Object.assign({}, DEF_BUCH, c, { codes: Object.assign({}, DEF_BUCH.codes, c.codes || {}) }); if (o.hilfs && !kontoOk(o.hilfs)) o.hilfs = ''; return o; };
@@ -50,8 +55,8 @@ function buchungen(L) {
   L.forEach(({ r, z }) => {
     const kn = kName(r.kunde).slice(0, 40), beleg = String(r.nr).slice(0, 10);
     // mit Hilfskonto: Bank an Hilfskonto (Total), dann Hilfskonto an Ertrag; ohne: direkt Bank an Ertrag je Konto/MWST-Satz
-    const gegen = B.hilfs || B.bank;
-    if (B.hilfs) out.push({ datum: z.datum, beleg, soll: B.bank, haben: B.hilfs, betrag: r2(+z.betrag), satz: null, text: `Zahlung Rg ${r.nr} ${kn}`, zid: z.id });
+    const zk = zKontoOf(z), gegen = B.hilfs || zk;
+    if (B.hilfs) out.push({ datum: z.datum, beleg, soll: zk, haben: B.hilfs, betrag: r2(+z.betrag), satz: null, text: `Zahlung Rg ${r.nr} ${kn}`, zid: z.id });
     zahlTeile(r, z).forEach(t => {
       const neg = t.b < 0, b = Math.abs(t.b);
       out.push({ datum: z.datum, beleg, soll: neg ? t.konto : gegen, haben: neg ? gegen : t.konto, betrag: b, satz: t.satz, mwst: t.satz ? r2(b * t.satz / (100 + t.satz)) : 0,
@@ -160,7 +165,7 @@ function buchDialog() {
   const BU = buchungen(L), ohneCode = BU.some(b => b.satz && !b.code);
   const exp = (Store.cfg().buchExports || []).slice(-8).reverse();
   const bad = new Set(BU.flatMap(b => [b.soll, b.haben]).filter(k => !kontoOk(k)));
-  openDlg('Buchungen für AgroOffice', `<p class="muted small">Verbucht werden nur Zahlungseingänge: ${B.hilfs ? `${esc(B.bank)} an ${esc(B.hilfs)} (Total), danach ${esc(B.hilfs)} an die Ertragskonten` : `${esc(B.bank)} direkt an die Ertragskonten`} je MWST-Satz (inkl. MWST, vereinnahmt), alle Teile einer Zahlung mit derselben Beleg-Nr. Ausgebuchte Restbeträge werden nicht gebucht.</p>
+  openDlg('Buchungen für AgroOffice', `<p class="muted small">Verbucht werden nur Zahlungseingänge: ${B.hilfs ? `Zahlungskonto an ${esc(B.hilfs)} (Total), danach ${esc(B.hilfs)} an die Ertragskonten` : `Zahlungskonto (Bank ${esc(B.bank)}, Kasse …) direkt an die Ertragskonten`} je MWST-Satz (inkl. MWST, vereinnahmt), alle Teile einer Zahlung mit derselben Beleg-Nr. Ausgebuchte Restbeträge werden nicht gebucht.</p>
     ${bad.size ? `<div class="box warn small">AgroOffice nimmt nur Konten 1000–8999 sowie 9910/9911 an – ungültig: ${[...bad].map(esc).join(', ')} (Artikel bzw. Mehr › Buchhaltung anpassen).</div>` : ''}
     <div class="filters"><label class="fld" style="margin:0"><span>Zahlungen bis</span><input class="input" type="date" data-in="buchBis" value="${bis}"></label><span class="lbl">${L.length} Zahlungen · CHF ${chf(L.reduce((s, x) => s + +x.z.betrag, 0))} · ${BU.length} Buchungen</span></div>
     ${fehlt.size ? `<div class="box warn small">Ohne Konto beim Artikel (Standardkonto ${esc(B.kontoStd)} wird verwendet): Rechnung ${[...fehlt].map(esc).join(', ')}</div>` : ''}

@@ -196,7 +196,7 @@ async function impCamt(files) {
       <td>${x.r ? `${esc(x.r.nr)} · ${esc(kName(x.r.kunde))}${x.dup ? ' <span class="chip">schon erfasst</span>' : ''}` : `<span class="chip warn">keine Rechnung</span>${x.name ? ' <span class="small">' + esc(x.name) + '</span>' : ''}`}</td><td class="n">${x.r ? chf(offenBetrag(x.r)) : ''}</td></tr>`).join('')}</tbody></table></div>`,
     `<span class="spacer"></span><button class="btn primary" value="ok">Zahlungen verbuchen</button>`,
     { wide: true, onSubmit: fd => {
-      const ch = new Map(); L.forEach((x, i) => { if (!fd.get('s' + i) || !x.r) return; const r = ch.get(x.r.id) || clone(x.r); r.zahlungen = r.zahlungen || []; r.zahlungen.push({ id: uid(), datum: x.datum, betrag: x.betrag, quelle: 'camt', key: x.key }); ch.set(r.id, r); });
+      const ch = new Map(); L.forEach((x, i) => { if (!fd.get('s' + i) || !x.r) return; const r = ch.get(x.r.id) || clone(x.r); r.zahlungen = r.zahlungen || []; r.zahlungen.push({ id: uid(), datum: x.datum, betrag: x.betrag, quelle: 'camt', key: x.key, konto: buchCfg().bank }); ch.set(r.id, r); });
       Store.putMany('rechnungen', [...ch.values()]); toast(`${[...ch.values()].reduce((s, r) => s + r.zahlungen.filter(z => z.quelle === 'camt').length, 0) ? 'Zahlungen verbucht' : 'Nichts verbucht'} (${ch.size} Rechnungen)`);
     } });
 }

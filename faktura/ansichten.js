@@ -133,7 +133,7 @@ function edTotHtml(r) {
 }
 function zahlMahnInfo(r) {
   const Z = r.zahlungen || [], M = r.mahnungen || [];
-  return `<div class="cols" style="margin-top:6px"><div class="panel"><h2>Zahlungen</h2>${Z.length ? `<table class="dtab">${Z.map(z => `<tr><td>${fmtDate(z.datum)}</td><td class="n">${chf(z.betrag)}</td><td class="small muted">${esc(z.quelle === 'camt' ? 'Bank (camt)' : z.bem || '')}</td></tr>`).join('')}</table>` : '<p>Noch keine Zahlung.</p>'}
+  return `<div class="cols" style="margin-top:6px"><div class="panel"><h2>Zahlungen</h2>${Z.length ? `<table class="dtab">${Z.map(z => `<tr><td>${fmtDate(z.datum)}</td><td class="n">${chf(z.betrag)}</td><td class="small muted">${isAus(z) ? 'ausgebucht' : esc(zKontoName(zKontoOf(z)))}${z.quelle === 'camt' ? ' (camt)' : z.bem ? ' · ' + esc(z.bem) : ''}${z.exp ? ' 📒' : ''}</td></tr>`).join('')}</table>` : '<p>Noch keine Zahlung.</p>'}
       <p>Offen: <b>CHF ${chf(offenBetrag(r))}</b></p><div class="btns"><button type="button" class="btn small" data-act="edZahl">💰 Zahlung erfassen…</button></div></div>
     <div class="panel"><h2>Mahnungen</h2>${M.length ? `<table class="dtab">${M.map((m, i) => `<tr><td>${esc(m.titel)}</td><td>${fmtDate(m.datum)}</td><td class="n">${+m.gebuehr ? chf(m.gebuehr) : ''}</td><td><button type="button" class="btn small" data-act="edMahnPrint" data-i="${i}">🖨</button></td></tr>`).join('')}</table>` : '<p>Keine Mahnungen.</p>'}
       ${isOP(r) ? '<div class="btns"><button type="button" class="btn small" data-act="edMahn">✉ Mahnung erstellen…</button></div>' : ''}</div></div>`;
@@ -179,15 +179,16 @@ function zahlDialog(id, back) {
   const r = Store.get('rechnungen', id); if (!r) return;
   const Z = r.zahlungen || [];
   openDlg(`Zahlung · Rechnung ${r.nr}`, `<p>${esc(kName(r.kunde))} · Total CHF ${chf(calc(r).total)}${gebuehren(r) ? ' + Gebühren ' + chf(gebuehren(r)) : ''} · offen <b>CHF ${chf(offenBetrag(r))}</b></p>
-    ${Z.length ? `<table class="dtab" style="margin-bottom:12px"><thead><tr><th>Datum</th><th class="n">Betrag</th><th>Bemerkung</th><th></th></tr></thead>${Z.map(z => `<tr><td>${fmtDate(z.datum)}</td><td class="n">${chf(z.betrag)}</td><td class="small">${esc(z.quelle === 'camt' ? 'Bank (camt)' : z.bem || '')}</td><td>${z.exp ? '<span class="small muted" title="an AgroOffice übergeben">📒 gebucht</span>' : `<label class="tog"><input type="checkbox" name="del_${z.id}"> löschen</label>`}</td></tr>`).join('')}</table>` : ''}
+    ${Z.length ? `<table class="dtab" style="margin-bottom:12px"><thead><tr><th>Datum</th><th class="n">Betrag</th><th>Konto</th><th>Bemerkung</th><th></th></tr></thead>${Z.map(z => `<tr><td>${fmtDate(z.datum)}</td><td class="n">${chf(z.betrag)}</td><td class="small">${isAus(z) ? '–' : esc(zKontoName(zKontoOf(z)))}</td><td class="small">${esc(z.quelle === 'camt' ? 'Bank (camt)' : z.bem || '')}</td><td>${z.exp ? '<span class="small muted" title="an AgroOffice übergeben">📒 gebucht</span>' : `<label class="tog"><input type="checkbox" name="del_${z.id}"> löschen</label>`}</td></tr>`).join('')}</table>` : ''}
     <div class="three"><label class="fld"><span>Datum</span><input class="input" type="date" name="datum" value="${todayIso()}"></label>
       <label class="fld"><span>Betrag CHF</span><input class="input" name="betrag" inputmode="decimal" value="${offenBetrag(r) > 0 ? offenBetrag(r).toFixed(2) : ''}" autofocus></label>
-      <label class="fld"><span>Bemerkung</span><input class="input" name="bem" placeholder="z. B. bar, Skonto"></label></div>
+      <label class="fld"><span>Eingang auf Konto</span><select class="input" name="konto">${optList(zKonten().map(k => [k.nr, `${k.nr} ${k.name}`]), ls('mf_zkonto') || buchCfg().bank)}</select></label></div>
+    <label class="fld"><span>Bemerkung</span><input class="input" name="bem" placeholder="z. B. bar, Skonto"></label>
     <label class="tog"><input type="checkbox" name="rest"> Restbetrag ausbuchen (gilt danach als bezahlt)</label>`,
     `<span class="spacer"></span><button class="btn primary" value="ok">Speichern</button>`,
     { onSubmit: fd => {
       const x = clone(r); x.zahlungen = (x.zahlungen || []).filter(z => !fd.get('del_' + z.id));
-      const b = num(fd.get('betrag')); if (b) x.zahlungen.push({ id: uid(), datum: fd.get('datum') || todayIso(), betrag: r2(b), bem: (fd.get('bem') || '').trim() });
+      const b = num(fd.get('betrag')), konto = String(fd.get('konto') || buchCfg().bank); if (b) { x.zahlungen.push({ id: uid(), datum: fd.get('datum') || todayIso(), betrag: r2(b), konto, bem: (fd.get('bem') || '').trim() }); ls('mf_zkonto', konto); }
       if (fd.get('rest')) { const o = offenBetrag(x); if (o > 0) x.zahlungen.push({ id: uid(), datum: fd.get('datum') || todayIso(), betrag: o, bem: 'Rest ausgebucht', aus: true }); }
       Store.put('rechnungen', x, { silent: true }); toast(statusOf(x) === 'bezahlt' ? `Rechnung ${x.nr} bezahlt ✓` : 'Zahlung gespeichert');
       if (back) setTimeout(() => rechnungDialog(x.id), 50);
@@ -388,6 +389,7 @@ function buchPanel() {
     <div class="three">${bi('bank', 'Bankkonto')}${bi('hilfs', 'Hilfskonto (leer = direkt)', 'placeholder="leer"')}${bi('kontoStd', 'Standard-Ertragskonto')}</div>
     <div class="three">${bi('kontoGeb', 'Mahngebühren')}${bi('kontoUeber', 'Überzahlungen')}${bi('mwstKonto', 'MWST-Konto')}</div>
     <div class="three">${Store.cfg().mwst.filter(m => +m.satz).map(m => `<label class="fld"><span>MWST-Code ${mwstTxt(m.satz)}</span><input class="input" data-in="buchCode" data-k="${m.satz}" value="${esc(B.codes[String(m.satz)] || '')}" maxlength="3"></label>`).join('')}</div>
+    <label class="fld"><span>Konten für Zahlungseingänge (Auswahl beim Erfassen, «Nummer Name», mit ; getrennt)</span><input class="input" data-in="buch" data-k="zkonten" value="${esc(B.zkonten)}"></label>
     <div class="two">${bi('version', 'Abacus-Version', 'inputmode="decimal"')}${bi('mandant', 'Mandant (meist leer)')}</div>
     <p class="small">Speicherort: ${dir ? `Ordner <b>${esc(dir)}</b> <a href="#" data-act="buchDirClear">zurücksetzen</a>` : 'Download-Ordner'}${window.showDirectoryPicker ? ` · <a href="#" data-act="buchDir">Ordner wählen…</a>` : ''}</p>
     <div class="btns"><button class="btn primary" data-act="buchOpen">📒 Buchungen erstellen (${offeneZahlungen().length})</button></div>
@@ -401,7 +403,7 @@ function journal() {
     rows.push([+r.nr || r.nr, r.datum, k.nr ? +k.nr || k.nr : '', k.name || '', r.betreff || '', ...sätze.flatMap(s => [gm.get(s)?.netto ?? '', gm.get(s)?.mwst ?? '']), c.rund || '', c.total, gebuehren(r) || '', bezahlt(r) || '', r.storno ? '' : offenBetrag(r), r.faellig || '', ST[statusOf(r)][0], (r.mahnungen || []).length || '', r.ref || '', (r.zahlungen || []).map(z => z.datum).sort().pop() || '']); });
   download(`Rechnungsjournal_${todayIso()}.xlsx`, xlsxBlob([{ name: 'Rechnungen', rows }, { name: 'Positionen', rows: [['Nr.', 'Datum', 'Kunde', 'Art.-Nr.', 'Bezeichnung', 'Menge', 'Einheit', 'Preis', 'MWST %', 'Betrag', 'Konto'],
     ...L.filter(r => !r.storno).flatMap(r => calc(r).rows.filter(p => (p.typ || 'pos') === 'pos').map(p => [+r.nr || r.nr, r.datum, kName(r.kunde), p.art || '', p.bez, p.menge ?? '', p.einh || '', p.preis ?? '', p.mwst ?? '', p.betrag, +posKonto(p) || posKonto(p)]))] },
-    { name: 'Zahlungen', rows: [['Nr.', 'Kunde', 'Datum', 'Betrag', 'Quelle', 'AgroOffice'], ...L.flatMap(r => (r.zahlungen || []).map(z => [+r.nr || r.nr, kName(r.kunde), z.datum, z.betrag, z.quelle === 'camt' ? 'camt' : z.bem || '', isAus(z) ? 'nicht gebucht (ausgebucht)' : z.exp ? 'exportiert' : 'offen']))] }]));
+    { name: 'Zahlungen', rows: [['Nr.', 'Kunde', 'Datum', 'Betrag', 'Konto', 'Quelle', 'AgroOffice'], ...L.flatMap(r => (r.zahlungen || []).map(z => [+r.nr || r.nr, kName(r.kunde), z.datum, z.betrag, isAus(z) ? '' : +zKontoOf(z), z.quelle === 'camt' ? 'camt' : z.bem || '', isAus(z) ? 'nicht gebucht (ausgebucht)' : z.exp ? 'exportiert' : 'offen']))] }]));
 }
 function exportAll() {
   download(`IM-Faktura-Daten_${todayIso()}.xlsx`, xlsxBlob([
