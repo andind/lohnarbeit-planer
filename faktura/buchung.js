@@ -1,11 +1,10 @@
 /* IM-Faktura – Buchhaltung: Zahlungseingänge als Buchungen für AgroOffice (Abacus «XML-Buchungen», AbaConnect)
    Verbucht wird nur bei Zahlungseingang (vereinnahmte Entgelte):
-     1. Bank (1020) an Hilfskonto (9904)            Totalbetrag der Zahlung
-     2. Hilfskonto (9904) an Ertragskonto (34xx …)  je Konto und MWST-Satz, inkl. MWST, mit MWST-Code
+     Zahlungskonto (Bank 1020, Kasse …) an Ertragskonto je Konto und MWST-Code, inkl. MWST
    Debitoren werden nur per Stichtag (31.12.) als Liste ausgewertet. */
 'use strict';
 
-const DEF_BUCH = { bank: '1020', hilfs: '', mwstKonto: '2200', kontoStd: '3410', kontoAufw: '4000', kontoGeb: '3600', kontoUeber: '9910',
+const DEF_BUCH = { bank: '1020', mwstKonto: '2200', kontoStd: '3410', kontoAufw: '4000', kontoGeb: '3600', kontoUeber: '9910',
   codes: { '8.1': '303', '2.6': '313', '3.8': '343', // v1.31: Code = Ziffer der ESTV-Abrechnung (effektiv), so in AgroOffice (Andreas 19.11.2026)
     ...Object.fromEntries(['8.1', '2.6', '3.8'].flatMap(s => [[`e:${s}`, { '8.1': '303', '2.6': '313', '3.8': '343' }[s]], [`e:${s}:235`, '235'], [`e:${s}:205`, '205'], [`e:${s}:235:205`, '235']])),
     ...Object.fromEntries(['220', '221', '225', '230', '280', '900', '910', '99'].map(z => [`e:0:${z}`, z])),
@@ -17,7 +16,7 @@ const zKontoName = nr => { const k = zKonten().find(x => x.nr === String(nr)); r
 const zKontoOf = z => String(z.konto || buchCfg().bank);
 // AgroOffice nimmt beim Import nur Konten 1000–8999 sowie 9910/9911 an → Hilfskonto 9904 geht nicht (Fehlerprotokoll 19.11.2026)
 const kontoOk = k => { const n = +k; return (n >= 1000 && n <= 8999) || n === 9910 || n === 9911; };
-const buchCfg = () => { const c = Store.cfg().buch || {}, o = Object.assign({}, DEF_BUCH, c, { codes: Object.assign({}, DEF_BUCH.codes, c.codes || {}) }); if (o.hilfs && !kontoOk(o.hilfs)) o.hilfs = ''; return o; };
+const buchCfg = () => { const c = Store.cfg().buch || {}, o = Object.assign({}, DEF_BUCH, c, { codes: Object.assign({}, DEF_BUCH.codes, c.codes || {}) }); delete o.hilfs; return o; }; // v1.36: Hilfskonto entfernt (AgroOffice nimmt es nicht an)
 // Beleg für AgroOffice (nur Ziffern): Präfix + Rechnungs-Nr. auf Stellen aufgefüllt – Standard 2 + 0002 = 20002
 const belegNr = nr => { const B = buchCfg(), n = String(nr).replace(/\D/g, ''); return (String(B.belegPrefix || '').replace(/\D/g, '') + n.padStart(+B.belegStellen || 0, '0')).slice(0, 10); };
 const isAus = z => !!z.aus || z.bem === 'Rest ausgebucht';
@@ -230,14 +229,13 @@ function buchungen(L) {
   L.forEach(({ r, z }) => {
     // AgroOffice liest die Beleg-Nr. nur als Zahl («IM-2» wurde zu 0, 19.11.2026) → Beleg = Rechnungs-Nr., «IM-<Nr.>» am Anfang des Buchungstexts
     const kn = kName(r.kunde).slice(0, 40), beleg = belegNr(r.nr), im = 'IM-' + r.nr;
-    // mit Hilfskonto: Bank an Hilfskonto (Total), dann Hilfskonto an Ertrag; ohne: direkt Bank an Ertrag je Konto/MWST-Satz
-    const zk = zKontoOf(z), gegen = B.hilfs || zk;
-    if (B.hilfs) out.push({ datum: z.datum, beleg, soll: zk, haben: B.hilfs, betrag: r2(+z.betrag), satz: null, text: `${im} Zahlung ${kn}`, zid: z.id });
+    // direkt Zahlungskonto an Ertrag je Konto/MWST-Satz
+    const gegen = zKontoOf(z);
     zahlTeile(r, z).forEach(t => {
       const neg = t.b < 0, b = Math.abs(t.b);
       const bs = t.bs ?? t.satz, code = t.code || (String(t.ck || '').startsWith('a:') && !bs ? '' : t.ck && B.codes[t.ck]) || ((!t.ck || t.ck.startsWith('e:')) && bs ? (B.codes[String(bs)] || '') : ''); // v1.30: Steuerart → Code
       out.push({ datum: z.datum, beleg, soll: neg ? t.konto : gegen, haben: neg ? gegen : t.konto, betrag: b, satz: bs, mwst: t.urp ? r2(b * 2.6 / 100) : bs ? r2(b * bs / (100 + bs)) : 0,
-        code, steuerSeite: neg ? 'soll' : 'haben', text: `${im} ${B.hilfs ? '' : 'Zahlung '}${kn}${t.ueber ? ' Überzahlung' : ''}`, zid: z.id });
+        code, steuerSeite: neg ? 'soll' : 'haben', text: `${im} Zahlung ${kn}${t.ueber ? ' Überzahlung' : ''}`, zid: z.id });
     });
   });
   return out;
@@ -342,7 +340,7 @@ function buchDialog() {
   const BU = buchungen(L), ohneCode = BU.some(b => b.satz && !b.code);
   const exp = (Store.cfg().buchExports || []).slice(-8).reverse();
   const bad = new Set(BU.flatMap(b => [b.soll, b.haben]).filter(k => !kontoOk(k)));
-  openDlg('Buchungen für AgroOffice', `<p class="muted small">Verbucht werden nur Zahlungseingänge: ${B.hilfs ? `Zahlungskonto an ${esc(B.hilfs)} (Total), danach ${esc(B.hilfs)} an die Ertragskonten` : `Zahlungskonto (Bank ${esc(B.bank)}, Kasse …) direkt an die Ertragskonten`} je MWST-Satz (inkl. MWST, vereinnahmt), alle Teile einer Zahlung mit derselben Beleg-Nr. Ausgebuchte Restbeträge werden nicht gebucht.</p>
+  openDlg('Buchungen für AgroOffice', `<p class="muted small">Verbucht werden nur Zahlungseingänge: Zahlungskonto (Bank ${esc(B.bank)}, Kasse …) direkt an die Ertragskonten je MWST-Satz (inkl. MWST, vereinnahmt), alle Teile einer Zahlung mit derselben Beleg-Nr. Ausgebuchte Restbeträge werden nicht gebucht.</p>
     ${bad.size ? `<div class="box warn small">AgroOffice nimmt nur Konten 1000–8999 sowie 9910/9911 an – ungültig: ${[...bad].map(esc).join(', ')} (Artikel bzw. Mehr › Buchhaltung anpassen).</div>` : ''}
     <div class="filters"><label class="fld" style="margin:0"><span>Zahlungen bis</span><input class="input" type="date" data-in="buchBis" value="${bis}"></label><span class="lbl">${L.length} Zahlungen · CHF ${chf(L.reduce((s, x) => s + +x.z.betrag, 0))} · ${BU.length} Buchungen</span></div>
     ${fehlt.size ? `<div class="box warn small">Ohne Konto beim Artikel (Standardkonto ${esc(B.kontoStd)} wird verwendet): Rechnung ${[...fehlt].map(esc).join(', ')}</div>` : ''}
@@ -385,5 +383,5 @@ function debitorenExcel(stichtag) {
   L.forEach((x, i) => { const k = kunde(x.r.kunde) || {}; rows.push([+x.r.nr || x.r.nr, x.r.datum, k.nr ? +k.nr || k.nr : '', k.name || '', x.total, x.geb || '', x.bez || '', x.offen, ...K.map(kk => det[i][kk] || '')]); });
   rows.push(['Total', '', '', '', '', '', '', r2(L.reduce((s, x) => s + x.offen, 0)), ...K.map(k => r2(keys.get(k)))]);
   download(`Debitoren_per_${stichtag}.xlsx`, xlsxBlob([{ name: 'Debitoren', rows }]));
-  toast(`${L.length} offene Rechnungen per ${fmtDate(stichtag)} · Konto ${B.hilfs}/Forderungen`);
+  toast(`${L.length} offene Rechnungen per ${fmtDate(stichtag)}`);
 }

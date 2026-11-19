@@ -1,6 +1,6 @@
 # jd-sync auf dem Synology-NAS einrichten
 
-**jd-sync** (Version 69, Stand 19.11.2026) ist der Hintergrunddienst aller IM-Programme. Er läuft als Container auf dem
+**jd-sync** (Version 70, Stand 19.11.2026) ist der Hintergrunddienst aller IM-Programme. Er läuft als Container auf dem
 Synology-NAS und erledigt, was kein Browser-Programm selbst kann:
 
 | Aufgabe | Ergebnis in der Dropbox | genutzt von |
@@ -11,6 +11,7 @@ Synology-NAS und erledigt, was kein Browser-Programm selbst kann:
 | Ertragskarten der ausgewählten Kunden (seit v64) | `/jd-ertrag/` | IM-Applikationskarten |
 | Aufträge an MyJohnDeere ausführen (seit v61/v64): Applikationskarten hochladen, Feldgrenzen speichern, Grenzen aktiv/archiviert setzen, Felder anlegen | `/jd-upload/` (Auftrag → Rückmeldung `.status.json`) | IM-Applikationskarten, IM-Feldbereinigung, IM-Verwaltung |
 | **Datensicherung aller Programme** + wöchentliche Excel-Dateien + Prüfung der Datenbeziehungen (v69) | `Sicherungen/` | alle |
+| Meldungen aufs Handy bei Problemen (Telegram, v70) | – | Andreas |
 
 In MyJohnDeere ändert jd-sync nur, was ausdrücklich als Auftrag aus einem IM-Programm kommt; Kunden und Betriebe legt er nie an,
 Felder werden nur neu angelegt, nie archiviert oder gelöscht. Für das Schreiben braucht die John-Deere-App die Freigaben
@@ -123,7 +124,38 @@ die Programme selbst brauchen dafür nichts zu tun.
 - **Status für alle Programme:** der Dienst schreibt `Sicherungen/status.json`; IM-Verwaltung (*Mehr › Datensicherung*), IM-Vermietung und IM-Faktura (*Mehr › Daten*) zeigen daraus die letzte Sicherung jeder Datei. Läuft zwei Tage keine Sicherung, erscheint dort ein orange Hinweis.
 - Ein/aus je Programm, Aufbewahrung (Tage, Monate, **Jahre**) und Ordner in den Einstellungen des Abschnitts. *Jetzt sichern* sichert sofort alles (auch unveränderte Dateien), *Excel jetzt erstellen* erstellt alle drei Excel-Dateien.
 - **Zurückspielen:** Sicherungsdatei aus `Sicherungen/…` herunterladen und im jeweiligen Programm einlesen – IM-Verwaltung *Mehr › Sicherung einlesen*, IM-Vermietung und IM-Faktura *Mehr › Wiederherstellen…*, IM-Applikationskarten *Laden … › JSON-Datei laden*. IM-Feldbereinigung: Datei in der Dropbox als `/feldbereinigung.json` zurückkopieren. Ein Eingang-ZIP entpacken und die Dateien wieder nach `/faktura-eingang/` legen.
-- **Dritte Kopie (empfohlen):** den Ordner `docker/jd-sync` (mit `sicherungen` und `data`) zusätzlich mit **Hyper Backup** auf eine USB-Festplatte sichern – `data/` enthält die Zugangsdaten, die bewusst nicht in die Dropbox gehen.
+- **Dritte Kopie:** siehe unten «Hyper Backup» – `data/` enthält die Zugangsdaten, die bewusst nicht in die Dropbox gehen.
+
+### Hyper Backup – dritte Kopie auf USB-Festplatte (einmal einrichten, ca. 10 Minuten)
+
+NAS und Dropbox sind zwei Orte; fällt das NAS aus oder wird die Dropbox gelöscht, rettet eine USB-Festplatte den Rest
+(auch die Zugangsdaten in `data/`, die nur auf dem NAS liegen).
+
+1. USB-Festplatte (ab 500 GB, am besten eine eigene nur dafür) hinten am DS223j einstecken. In DSM erscheint sie unter
+   *Systemsteuerung › Externe Geräte*; bei Bedarf dort formatieren (exFAT oder ext4).
+2. *Paketzentrum* › **Hyper Backup** installieren (von Synology, kostenlos) und öffnen.
+3. **＋ › Datensicherungsaufgabe** › *Lokaler Ordner und USB* › Weiter › die USB-Festplatte wählen › Ordner `IM-Sicherung`.
+4. Ordner auswählen: **`docker/jd-sync`** (enthält `sicherungen`, `data` und `app`). Falls der ETA-Monitor auch auf dem NAS liegt, dessen Ordner unter `docker` mit anhaken.
+5. Anwendungen: keine nötig. Weiter.
+6. Einstellungen: Name «IM-Programme», **Zeitplan täglich 02:00** (nach der Sicherung um 00:00), *Integritätsprüfung* wöchentlich ein,
+   *Clientseitige Verschlüsselung* ein und das Passwort aufschreiben (ohne Passwort ist die Kopie unbrauchbar).
+7. Rotation: *Rotation aktivieren* › «Smart Recycle», höchstens **60 Versionen**.
+8. *Jetzt sichern* drücken und warten, bis «Erfolgreich» steht.
+9. Benachrichtigung: *Systemsteuerung › Benachrichtigung* › E-Mail oder Push (DS-finder-App) einrichten und bei Hyper Backup «Sicherung fehlgeschlagen» anhaken.
+10. Zurückholen: Hyper Backup › Aufgabe › *Wiederherstellen › Daten* – einzelne Dateien oder den ganzen Ordner.
+
+Zweimal im Jahr die Festplatte abziehen und z. B. im Wohnhaus statt im Büro lagern (Schutz vor Brand und Diebstahl) – eine zweite Festplatte im Wechsel ist ideal.
+
+### Meldungen aufs Handy (Telegram, ab Version 70)
+
+Abschnitt **Meldungen aufs Handy** auf der Statusseite: Bot-Token und Chat-ID eintragen – den Bot des **ETA-Monitors** kann man weiterverwenden
+(Token und Chat-ID aus dessen Einstellungen kopieren). Sonst in Telegram @BotFather › `/newbot` → Token; dem neuen Bot eine Nachricht schicken und
+die Chat-ID über @userinfobot herausfinden. *Testnachricht senden* prüft die Verbindung.
+
+Gemeldet wird: fehlgeschlagene oder auffällige Sicherungen (deutlich weniger Einträge), neue Fehler der Prüfung der Datenbeziehungen,
+Abgleich mit MyJohnDeere 3× nacheinander fehlgeschlagen (z. B. abgelaufene Anmeldung), fehlgeschlagene Aufträge an MyJohnDeere
+(Applikationskarte, Feldgrenze, Feld) – und «wieder alles in Ordnung». Gleich bleibende Probleme höchstens alle 7 Tage als Erinnerung.
+Token und Chat-ID bleiben in `data/config.json` auf dem NAS.
 - Liegt die Datendatei der IM-Verwaltung nicht unter `/planung.json`, den Pfad bei «Datendatei der IM-Verwaltung» anpassen (wie `dataPath` in `config.js`).
 
 ## 5 · Im Planer
@@ -150,6 +182,7 @@ die Programme selbst brauchen dafür nichts zu tun.
 
 - **Version:** steht oben auf der Seite von jd-sync (z.B. «Version 52 · Datum») und beim Start im Protokoll; die IM-Verwaltung zeigt sie unter *Mehr › Version*.
 - **Aktualisieren:** neue `server.js` in `docker/jd-sync/app` kopieren, im Container Manager das Projekt neu starten.
+- **Update auf Version 70:** nur `server.js` ersetzen und neu starten; danach im Abschnitt «Meldungen aufs Handy» Telegram eintragen. Alte Excel-Sicherungen «Lohnarbeit-Daten_…»/«IM-Verwalter-Daten_…» werden bei der nächsten Sicherung einmalig in «IM-Verwaltung-Daten_…» umbenannt.
 - **Update auf Version 69 (Sicherungsplan):** nur `server.js` ersetzen und neu starten. Danach einmal *Jetzt sichern* drücken – die neuen Ordner (`faktura`, `applikationskarten`, `feldbereinigung`, `myjohndeere`) werden selbst angelegt; der Abschnitt Datensicherung zeigt die Tabelle aller Daten und die erste Prüfung der Datenbeziehungen.
 - **Update auf die Version mit Flächen-Quelle (Bedeckungskarte):** der erste Abgleich danach holt einmal alle Arbeitsgänge neu und fragt die Bedeckungskarten ab – das kann einige Minuten dauern. Für die Maschinennamen einmal neu bei John Deere anmelden.
 - **Update auf die Version mit Datensicherung:** in `docker-compose.yml` unter `volumes:` die Zeile `- ./sicherungen:/backup` ergänzen (oder die neue Datei übernehmen und das Passwort wieder eintragen), den Ordner `docker/jd-sync/sicherungen` anlegen, dann im Container Manager das Projekt **erstellen/neu starten**. Ohne diese Zeile legt der Dienst die NAS-Sicherungen im Ordner `data/sicherungen` ab.

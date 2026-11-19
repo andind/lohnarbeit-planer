@@ -157,7 +157,7 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .spin { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: rot .8s linear infinite; vertical-align: -3px; }
 @keyframes rot { to { transform: rotate(360deg); } }
 
-/* ---------- Druck: Kundenrapporte, Abrechnungsliste ---------- */
+/* ---------- Druck: Kundenrapporte ---------- */
 #printArea { display: none; }
 .bill { margin-bottom: 18px; }
 .bill .lhead { display: block; max-width: 100%; margin: 0 0 8mm; }
@@ -170,8 +170,6 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .btab .n { text-align: right; white-space: nowrap; }
 .btab tr.tot td { font-weight: 700; border-top: 1.5px solid #000; border-bottom: 0; }
 .bill h3 { font-size: 10.5pt; margin: 4mm 0 1.5mm; }
-.alist .akd { break-inside: avoid; margin-bottom: 6mm; }
-.alist .akd h3 { margin: 0 0 1.5mm; }
 @media print {
   body.printing > *:not(#printArea) { display: none !important; }
   body.printing { background: #fff; padding: 0; }
@@ -201,7 +199,6 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
   .tabs button span { font-size: 10px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dscroll { max-height: none; }
 }
-.alist .btab { table-layout: fixed; }
 
 /* ---------- Scan: Maschinenliste, Seitenvorschau ---------- */
 .slist { display: grid; gap: 4px; }

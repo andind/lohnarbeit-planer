@@ -1,4 +1,4 @@
-# IM-Faktura v1.35 – Anleitung (Stand 19.11.2026)
+# IM-Faktura v1.36 – Anleitung (Stand 19.11.2026)
 
 Eigenständige App für Rechnungen mit Schweizer **QR-Zahlteil** (QR-IBAN mit QR-Referenz), Offenen Posten,
 Zahlungsabgleich (camt.054/053), Mahnungen und Buchungsexport für **AgroOffice**. Ersetzt AgroFaktura.
@@ -70,7 +70,7 @@ Eigene Daten (`faktura.json` in der Dropbox). Hier werden die **Kunden** aller I
 - **Mahnungen**: 3 Stufen mit Gebühr und Frist (*Mehr › Mahnwesen*), eigener QR-Zahlteil mit dem offenen Betrag inkl. Gebühren.
 
 ## Buchhaltung AgroOffice
-- Gebucht werden nur **Zahlungseingänge** (vereinnahmt): Eingangskonto an Ertragskonto je Konto und MWST-Code, inkl. MWST; Teilzahlungen anteilig,
+- Gebucht werden nur **Zahlungseingänge** (vereinnahmt): Eingangskonto direkt an Ertragskonto (ohne Hilfskonto) je Konto und MWST-Code, inkl. MWST; Teilzahlungen anteilig,
   ausgebuchte Reste nicht, Überzahlungen auf 9910, Mahngebühren auf 3600. Beleg = 2 + Rechnungs-Nr. vierstellig (Rechnung 2 = Beleg 20002),
   Buchungstext beginnt mit «IM-<Rechnungs-Nr.>». AgroOffice nimmt nur Konten 1000–8999 und 9910/9911 an.
 - *Offene Posten › 📒 Buchungen für AgroOffice* erstellt die Datei im Abacus-Format «XML-Buchungen». In AgroOffice *Grundeinstellungen › Import*
@@ -88,5 +88,6 @@ Eigene Daten (`faktura.json` in der Dropbox). Hier werden die **Kunden** aller I
 - Dateien: `index.html`, `styles.css`, `qr.js` (eigener QR-Encoder + Zahlteil nach SIX, SPC 0200, Swico S1), `lib.js` (Dropbox, Excel),
   `app.js` (Daten, Berechnung), `druck.js` (A4-Seiten), `eingang.js` (Übergaben), `buchung.js` (AgroOffice, Kontenplan), `import.js`, `ansichten.js`,
   `config.js` (Dropbox-App-Key – bei Updates **nicht überschreiben**), `sw.js`, Icons, `logo.jpg` (Briefkopf).
+- Gemeinsamer Code mit IM-Verwaltung und IM-Vermietung in `../gemeinsam/im-basis.js` (Meldungen, Rückfragen, Excel, Sicherungsstatus) – immer mit hochladen.
 - localStorage-Schlüssel `mf_*` (nie `lp_*` oder `mv_*`). Liest `/vermietung.json` und `/planung.json` nur.
 - Bei Updates: `APP_VERSION`/`APP_STAND` in `app.js` und `CACHE` in `sw.js` erhöhen.

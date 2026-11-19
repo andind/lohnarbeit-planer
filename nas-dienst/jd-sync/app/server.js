@@ -7,7 +7,7 @@
    Eingang IM-Faktura, MyJohnDeere-Daten) täglich auf NAS und Dropbox, wöchentliche Excel-Exporte und Prüfung der Datenbeziehungen.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '69', STAND = '19.11.2026'; // v69: Sicherungsplan für alle IM-Programme (neu IM-Faktura mit Jahressicherungen 10 Jahre + Excel, IM-Applikationskarten, IM-Feldbereinigung, Eingang IM-Faktura, MyJohnDeere-Daten wöchentlich als ZIP), unveränderte Dateien nicht doppelt, neueste Sicherung bleibt immer, Warnung bei stark weniger Einträgen, Prüfung der Datenbeziehungen zwischen den Programmen, /Sicherungen/status.json für alle Programme · v68: Arbeitsgänge mit bedeckter Fläche, aber ohne virtuelle Feldgrenze werden einmal neu berechnet (cov.gz) · v67: Feld archivieren/wiederherstellen (v66, art feld-status) wieder entfernt – Felder werden nur angelegt, nie geändert; Feldgrenzen-Aufträge (grenze-status) auch aus IM-Feldbereinigung · v65: Ertragskarten nur für ausgewählte Kunden (cfg.ertragKunden), dafür Ernten ab cfg.ertragSeit (längere Historie, nur für Ertragskarten, nicht in jd-arbeiten.json) · v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
+const VERSION = '70', STAND = '19.11.2026'; // v70: Meldungen aufs Handy über Telegram (Sicherung, Datenprüfung, Abgleich 3× fehlgeschlagen, Aufträge an MyJohnDeere), alte Excel-Namen einmalig umbenannt statt dauernd mitgeprüft · v69: Sicherungsplan für alle IM-Programme (neu IM-Faktura mit Jahressicherungen 10 Jahre + Excel, IM-Applikationskarten, IM-Feldbereinigung, Eingang IM-Faktura, MyJohnDeere-Daten wöchentlich als ZIP), unveränderte Dateien nicht doppelt, neueste Sicherung bleibt immer, Warnung bei stark weniger Einträgen, Prüfung der Datenbeziehungen zwischen den Programmen, /Sicherungen/status.json für alle Programme · v68: Arbeitsgänge mit bedeckter Fläche, aber ohne virtuelle Feldgrenze werden einmal neu berechnet (cov.gz) · v67: Feld archivieren/wiederherstellen (v66, art feld-status) wieder entfernt – Felder werden nur angelegt, nie geändert; Feldgrenzen-Aufträge (grenze-status) auch aus IM-Feldbereinigung · v65: Ertragskarten nur für ausgewählte Kunden (cfg.ertragKunden), dafür Ernten ab cfg.ertragSeit (längere Historie, nur für Ertragskarten, nicht in jd-arbeiten.json) · v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -34,7 +34,7 @@ const load = (n, def) => { try { return JSON.parse(fs.readFileSync(file(n), 'utf
 const save = (n, v) => { fs.mkdirSync(DATA, { recursive: true }); fs.writeFileSync(file(n) + '.tmp', JSON.stringify(v, null, 1)); fs.renameSync(file(n) + '.tmp', file(n)); };
 const cfgFile = load('config.json', {});
 let cfg = Object.assign({ syncMode: 'zeiten', syncZeiten: '05:00', syncIntervall: 3, syncVon: '06:00', syncBis: '20:00',
-  sicherungAktiv: true, sicherungZeit: '00:00', sicherungNas: true, sicherungDbx: true, sicherungDbxPfad: '/Sicherungen', datenPfad: '/planung.json', behaltTage: 30, behaltMonate: 24, behaltJahre: 10, fkAktiv: true, fkDatenPfad: '/faktura.json', fkDbxPfad: '/Sicherungen/Faktura', akAktiv: true, fbAktiv: true, jdBackupAktiv: true, jdBackupWochen: 8,
+  sicherungAktiv: true, sicherungZeit: '00:00', sicherungNas: true, sicherungDbx: true, sicherungDbxPfad: '/Sicherungen', datenPfad: '/planung.json', behaltTage: 30, behaltMonate: 24, behaltJahre: 10, fkAktiv: true, fkDatenPfad: '/faktura.json', fkDbxPfad: '/Sicherungen/Faktura', akAktiv: true, fbAktiv: true, jdBackupAktiv: true, jdBackupWochen: 8, tgAktiv: true, tgToken: '', tgChat: '',
   excelAktiv: true, excelTag: 1, excelPfad: '/Sicherungen/Excel', excelBehalt: 26,
   vmAktiv: true, vmDatenPfad: '/vermietung.json', vmDbxPfad: '/Sicherungen/Vermietung', apiBase: 'https://partnerapi.deere.com/platform', redirectUri: 'http://localhost:9090/callback', syncHour: 5, pollMinutes: 5, clientId: '', clientSecret: '', dbxAppKey: '', orgId: '', orgName: '', kundenEbene: 'auto', syncPath: '/jd-sync.json', requestPath: '/jd-sync-request.json', arbeitenAktiv: true, arbeitenSeit: (new Date().getFullYear() - 1) + '-01-01', arbeitenPath: '/jd-arbeiten.json' }, load('config.json', {}));
 // frühere Einstellung «täglich um Stunde» übernehmen
@@ -1043,7 +1043,11 @@ async function runSync(reason, opt = {}) {
   } catch (e) {
     st.last = { at: new Date().toISOString(), ok: false, error: e.message };
     log('FEHLER: ' + e.message);
+    st.syncFehlerInFolge = (st.syncFehlerInFolge || 0) + 1;
   } finally { st.running = false; saveSt(); }
+  // v70: erst ab 3 Fehlern in Folge melden (einzelne Aussetzer bei John Deere sind normal)
+  if (st.last && st.last.ok) { st.syncFehlerInFolge = 0; await tgMelden('sync', [], 'Abgleich mit MyJohnDeere').catch(() => { }); }
+  else if (st.syncFehlerInFolge >= 3) await tgMelden('sync', [`mindestens 3× nacheinander fehlgeschlagen: ${st.last.error}`], 'Abgleich mit MyJohnDeere').catch(() => { });
 }
 async function writeArbeiten(arb) {
   // haB = Fläche aus der Bedeckungskarte ohne Überlappungen (jede Stelle einmal), unabhängig von der Maschinenfläche
@@ -1092,7 +1096,7 @@ function pruneList(names, re, keepDays, keepMonths, keepYears = 0) {
   firstOfMonth.forEach(n => keep.add(n)); firstOfYear.forEach(n => keep.add(n));
   return items.filter(it => !keep.has(it.n)).map(it => it.n);
 }
-const RE_JSON = /^planung_(\d{4}-\d{2}-\d{2})_\d{4}\.json$/, RE_XLSX = /^(?:Lohnarbeit|IM-Verwalter|IM-Verwaltung)-Daten_(\d{4}-\d{2}-\d{2})\.xlsx$/;
+const RE_JSON = /^planung_(\d{4}-\d{2}-\d{2})_\d{4}\.json$/, RE_XLSX = /^IM-Verwaltung-Daten_(\d{4}-\d{2}-\d{2})\.xlsx$/;
 const RE_VM_JSON = /^vermietung_(\d{4}-\d{2}-\d{2})_\d{4}\.json$/, RE_VM_XLSX = /^IM-Vermietung-Daten_(\d{4}-\d{2}-\d{2})\.xlsx$/;
 const RE_FK_XLSX = /^IM-Faktura-Daten_(\d{4}-\d{2}-\d{2})\.xlsx$/, RE_JD_ZIP = /^jd-daten_(\d{4}-\d{2}-\d{2})\.zip$/;
 
@@ -1190,12 +1194,31 @@ async function sichereJd(reason) {
     log(`Sicherung MyJohnDeere-Daten (${reason}): ${name} · ${st.sich.jd.kb} KB`);
   } catch (e) { st.sich.jd = { at: now, ok: false, error: e.message }; log('Sicherung MyJohnDeere-Daten FEHLER: ' + e.message); }
 }
+// v70: Excel-Dateien mit den alten Namen «Lohnarbeit-Daten_…» / «IM-Verwalter-Daten_…» einmalig in «IM-Verwaltung-Daten_…» umbenennen
+// (danach räumt die normale Aufbewahrung sie auf; die alten Namen brauchen keine Sonderbehandlung mehr)
+const RE_XLSX_ALT = /^(?:Lohnarbeit|IM-Verwalter)-Daten_(\d{4}-\d{2}-\d{2})\.xlsx$/;
+async function altExcelUmbenennen() {
+  if (st.altExcelUmbenannt) return;
+  let n = 0;
+  try {
+    const nd = path.join(BACKUP_DIR, 'excel');
+    if (fs.existsSync(nd)) for (const f of fs.readdirSync(nd)) { const m = RE_XLSX_ALT.exec(f), ziel = m && `IM-Verwaltung-Daten_${m[1]}.xlsx`;
+      if (m) { if (fs.existsSync(path.join(nd, ziel))) fs.unlinkSync(path.join(nd, f)); else fs.renameSync(path.join(nd, f), path.join(nd, ziel)); n++; } }
+    const dir = cfg.excelPfad.replace(/\/+$/, ''), names = await dbxList(dir).catch(() => []);
+    for (const f of names) { const m = RE_XLSX_ALT.exec(f); if (!m) continue; const ziel = `IM-Verwaltung-Daten_${m[1]}.xlsx`;
+      if (names.includes(ziel)) await dbxDelete(`${dir}/${f}`);
+      else await fetch(`${DBX_API}/2/files/move_v2`, { method: 'POST', headers: { Authorization: 'Bearer ' + await dbxAccess(), 'Content-Type': 'application/json' }, body: JSON.stringify({ from_path: `${dir}/${f}`, to_path: `${dir}/${ziel}` }) });
+      n++; }
+    st.altExcelUmbenannt = true; saveSt(); if (n) log(`Excel-Sicherungen mit altem Namen umbenannt: ${n}`);
+  } catch (e) { log('Alte Excel-Namen umbenennen: ' + e.message); }
+}
 async function runBackup(reason, { excel } = {}) {
   if (st.backupRunning) return; st.backupRunning = true;
   const { day, wd } = tzNow(), wochentag = cfg.excelAktiv && wd === +cfg.excelTag;
   st.sich = st.sich || {};
   try {
     if (!st.dbx) throw new Error('Nicht mit Dropbox verbunden');
+    await altExcelUmbenennen();
     const R = {};
     for (const q of sicherungsPlan().filter(q => q.aktiv)) R[q.key] = await sichereQuelle(q, reason);
     // frühere Statusfelder weiter füllen (Statusseite, status.json)
@@ -1211,6 +1234,7 @@ async function runBackup(reason, { excel } = {}) {
   } catch (e) {
     st.backupLast = { at: new Date().toISOString(), ok: false, error: e.message }; log('Sicherung FEHLER: ' + e.message);
   } finally { st.backupRunning = false; saveSt(); }
+  await tgNachSicherung().catch(() => { });
 }
 // Zusammenfassung für alle Programme: Dropbox /Sicherungen/status.json (IM-Verwaltung, IM-Vermietung, IM-Faktura zeigen sie unter Mehr an)
 async function schreibeStatus() {
@@ -1239,6 +1263,44 @@ function pruefHtml() {
 ${P.punkte.map(x => `<p style="margin:8px 0"><span class="${x.sev === 'fehler' ? 'no' : ''}">${x.sev === 'fehler' ? '⚠' : 'ℹ'} ${esc(x.prog)}: ${esc(x.titel)} (${x.n})</span><br><small>${esc(x.text)}</small><br><small>${x.items.map(esc).join(' · ')}${x.n > x.items.length ? ' …' : ''}</small></p>`).join('') || '<p><small>Alles in Ordnung.</small></p>'}</details>`;
 }
 function pick(o) { if (!o) return {}; const { hash, ...r } = o; return r; }
+/* ---------- v70: Meldungen aufs Handy (Telegram, wie der ETA-Monitor) ----------
+   Gemeldet wird nur, was Aufmerksamkeit braucht: Fehler/Warnungen der Sicherung, neue Fehler der Datenprüfung,
+   wiederholte Fehler beim Abgleich mit MyJohnDeere und fehlgeschlagene Aufträge an MyJohnDeere – und wenn wieder alles in Ordnung ist.
+   Unveränderte Probleme werden höchstens alle 7 Tage wiederholt. Bot-Token/Chat-ID nur in data/config.json (nie ins Repository). */
+const tgOn = () => cfg.tgAktiv !== false && !!cfg.tgToken && !!cfg.tgChat;
+async function tgSend(text, { force } = {}) {
+  if (!force && !tgOn()) return false;
+  try {
+    const r = await fetch(`${process.env.TG_API || 'https://api.telegram.org'}/bot${cfg.tgToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: cfg.tgChat, text: text.slice(0, 3900), disable_web_page_preview: true }) });
+    if (!r.ok) throw new Error('Telegram ' + r.status + ' ' + (await r.text()).slice(0, 120));
+    st.tgLast = { at: new Date().toISOString(), ok: true }; return true;
+  } catch (e) { st.tgLast = { at: new Date().toISOString(), ok: false, error: e.message }; log('Telegram: ' + e.message); return false; }
+}
+// Meldung je Thema (key): nur bei Änderung, unverändert höchstens alle 7 Tage, «wieder ok» einmal
+async function tgMelden(key, probleme, titel) {
+  st.tgSig = st.tgSig || {};
+  const sig = probleme.join('|'), prev = st.tgSig[key] || {}, jetzt = Date.now();
+  if (!probleme.length) {
+    if (prev.sig) { st.tgSig[key] = {}; saveSt(); await tgSend(`✅ ${titel}: wieder alles in Ordnung.`); }
+    return;
+  }
+  if (prev.sig === sig && jetzt - (prev.at || 0) < 7 * 864e5) return;
+  st.tgSig[key] = { sig, at: jetzt }; saveSt();
+  await tgSend(`⚠ ${titel}${prev.sig === sig ? ' (Erinnerung)' : ''}\n\n${probleme.map(p => '• ' + p).join('\n')}\n\nDetails: Statusseite jd-sync bzw. IM-Verwaltung › Mehr › Datenprüfung`);
+}
+async function tgNachSicherung() {
+  if (!tgOn()) return;
+  const S = st.sich || {}, P = [];
+  sicherungsPlan().filter(q => q.aktiv).forEach(q => { const x = S[q.key]; if (x && x.ok === false) P.push(`Sicherung ${q.name}: ${x.error}`); if (x && x.warn) P.push(`${q.name}: deutlich weniger Einträge (${x.warn.join(', ')})`); });
+  [['ein', 'Eingang IM-Faktura'], ['jd', 'MyJohnDeere-Daten']].forEach(([k, n]) => { if (S[k] && S[k].ok === false) P.push(`Sicherung ${n}: ${S[k].error}`); });
+  [['IM-Verwaltung', st.excelLast], ['IM-Vermietung', st.vmExcelLast], ['IM-Faktura', st.fkExcelLast]].forEach(([n, x]) => { if (x && x.ok === false) P.push(`Excel ${n}: ${x.error}`); });
+  if (st.backupLast && st.backupLast.ok === false && !P.length) P.push('Sicherung: ' + st.backupLast.error);
+  await tgMelden('sicherung', P, 'Datensicherung');
+  const F = ((st.pruefung && st.pruefung.punkte) || []).filter(x => x.sev === 'fehler').map(x => `${x.prog}: ${x.titel} (${x.n})${x.items[0] ? ' – z. B. ' + x.items[0] : ''}`);
+  await tgMelden('pruefung', F, 'Prüfung der Datenbeziehungen');
+}
+
 async function runVmExcel(data, reason) {
   const { day } = tzNow();
   try {
@@ -1749,6 +1811,7 @@ async function runUpload(n) {
     await status({ status: 'fehler', meldung: e.message }).catch(() => { });
     rec({ ok: false, meldung: e.message });
     log(`Upload «${(a && a.name) || base}»: Fehler – ${e.message}`);
+    tgSend(`⚠ Auftrag an MyJohnDeere fehlgeschlagen: ${(a && a.name) || base} (${(a && a.art) || ''})\n${e.message}`).catch(() => { });
   }
   if (a.datei) await dbxDelete(`${dir}/${a.datei}`).catch(() => { });
   await dbxDelete(p).catch(() => { });
@@ -1838,6 +1901,11 @@ ${pruefHtml()}
 <div class="row"><div><label>MyJohnDeere-Daten wöchentlich als ZIP</label><select name="jdBackupAktiv"><option value="1" ${cfg.jdBackupAktiv !== false ? 'selected' : ''}>Ja</option><option value="0" ${cfg.jdBackupAktiv !== false ? '' : 'selected'}>Nein</option></select></div><div><label>MyJohnDeere-ZIP behalten (Wochen)</label><input name="jdBackupWochen" type="number" min="1" max="104" value="${esc(cfg.jdBackupWochen)}"></div></div>
 <button>Speichern</button></form>
 <div class="row" style="flex:0"><form method="post" action="/sicherung/jetzt"><button class="sec" ${st.dbx ? '' : 'disabled'}>Jetzt sichern</button></form><form method="post" action="/excel/jetzt"><button class="sec" ${st.dbx ? '' : 'disabled'}>Excel jetzt erstellen</button></form></div></section>
+<section><h2>Meldungen aufs Handy (Telegram)</h2><p><small>Wie beim ETA-Monitor: jd-sync schickt eine Nachricht, wenn eine Sicherung fehlschlägt oder auffällig ist, die Prüfung der Datenbeziehungen neue Fehler findet, der Abgleich mit MyJohnDeere 3× nacheinander scheitert oder ein Auftrag an MyJohnDeere (Applikationskarte, Feldgrenze, Feld) fehlschlägt – und wenn wieder alles in Ordnung ist. Unveränderte Probleme höchstens alle 7 Tage. Bot-Token und Chat-ID wie im ETA-Monitor (gleicher Bot geht); sie bleiben auf dem NAS.</small></p>
+<p>${tgOn() ? '<span class="ok">✓ eingeschaltet</span>' : cfg.tgToken && cfg.tgChat ? '<span class="no">ausgeschaltet</span>' : '○ noch nicht eingerichtet'}${st.tgLast ? ` · letzte Nachricht ${esc(new Date(st.tgLast.at).toLocaleString('de-CH'))} ${st.tgLast.ok ? '<span class="ok">ok</span>' : `<span class="no">Fehler</span> <small>${esc(st.tgLast.error)}</small>`}` : ''}</p>
+<form method="post" action="/telegram"><div class="row"><div><label>Bot-Token (von @BotFather)</label><input name="tgToken" type="password" autocomplete="off" placeholder="${cfg.tgToken ? 'gespeichert – leer lassen = unverändert' : '123456:ABC…'}"></div><div><label>Chat-ID</label><input name="tgChat" value="${esc(cfg.tgChat)}" placeholder="z.B. 123456789"></div></div>
+<div class="row"><div><label>Meldungen</label><select name="tgAktiv"><option value="1" ${cfg.tgAktiv !== false ? 'selected' : ''}>Ein</option><option value="0" ${cfg.tgAktiv !== false ? '' : 'selected'}>Aus</option></select></div><div></div></div>
+<button>Speichern</button></form><form method="post" action="/telegram/test"><button class="sec" ${cfg.tgToken && cfg.tgChat ? '' : 'disabled'}>Testnachricht senden</button></form></section>
 <section><h2>Arbeitsdaten (Vorrat)</h2><p><small>Arbeitsgänge aus MyJohnDeere (Säen, Spritzen, Ernten, Bodenbearbeitung …) mit Messwerten werden als <b>${esc(cfg.arbeitenPath)}</b> abgelegt (IM-Verwaltung › Verwaltung › Bericht und Abrechnung). Aus jeder Bedeckungskarte wird die Fläche <b>ohne Überlappungen</b> («ha bedeckt») berechnet und eine <b>virtuelle Feldgrenze</b> erstellt (<b>${esc(cfg.grenzenPath || '/jd-grenzen.json')}</b>). Bedeckungskarten kommen über die neue <b>Operations Data Export</b>-Schnittstelle von John Deere (<code>/isg/operations/…/operationsExportRequests</code>); wo sie nicht klappt, über die alte (<code>/fieldOps</code>, läuft laut John Deere bis November 2027)${st.covInfo && st.covInfo.neueApi ? ` · letzter Lauf neue API: ${esc(Object.entries(st.covInfo.neueApi.antworten || {}).map(([k, v]) => k + '×' + v).join(', ') || '–')}${st.covInfo.neueApi.gestoppt ? ' <span class="no">kein Zugriff – Freischaltung prüfen</span>' : ''}` : ''}.</small></p>
 ${!cfg.arbeitenAktiv ? '<p class="no">Ausgeschaltet</p>' : st.arbLast ? `Letzter Lauf: ${esc(new Date(st.arbLast.at).toLocaleString('de-CH'))} ${st.arbLast.ok ? '<span class="ok">ok</span>' : `<span class="no">Fehler</span><br><small>${esc(st.arbLast.error)}</small>`}<br>` : 'Noch nicht gelaufen – startet mit dem nächsten Abgleich.<br>'}
 ${st.arbOk ? `${st.arbOk.ops} Arbeitsgänge seit ${esc(st.arbOk.seit)} · ${Object.entries(st.arbOk.types || {}).map(([k, v]) => esc(k) + ' ' + v).join(' · ')}<br>` : ''}${st.etagStamm || st.etagArb ? `<small>${cfg.etags === false ? 'eTags ausgeschaltet' : `Letzter Abgleich – Kunden/Felder: ${esc(st.etagStamm || '–')} · Arbeitsgänge: ${esc(st.etagArb || '–')}`}</small><br>` : ''}${st.arbProgress ? `<b>Läuft gerade: ${esc(st.arbProgress.phase)} – ${st.arbProgress.done} von ${st.arbProgress.total} (seit ${esc(new Date(st.arbProgress.at).toLocaleTimeString('de-CH'))})</b><br>` : ''}${st.flaechen ? `Flächen: ${st.flaechen.maschine} aus Maschine, ${st.flaechen.bedeckung} aus Bedeckungskarte (Ersatz), ${Object.values(arbCache() || {}).filter(o => o.cov && o.cov.ha && o.cov.mod === o.modified).length} mit «ha bedeckt», ${Object.keys(grenzen).length} virtuelle Feldgrenzen, ${st.flaechen.ohne} ohne Fläche<br>` : ''}${st.covInfo && st.covInfo.gefragt ? `<small>Bedeckungskarte zuletzt ${esc(new Date(st.covInfo.at).toLocaleString('de-CH'))}: ${st.covInfo.gefragt} abgefragt, ${st.covInfo.mitFlaeche} berechnet, ${st.covInfo.ohneKarte} ohne Karte, ${st.covInfo.offen} noch in Arbeit${st.covInfo.gestoppt ? ' · <span class="no">abgebrochen</span>' : ''} · Antworten ${esc(Object.entries(st.covInfo.status || {}).map(([k, v]) => k + '×' + v).join(', '))}${Object.entries(st.covInfo.meldungen || {}).map(([k, v]) => `<br>${esc(k)}: ${esc(v)}`).join('')}</small><br>` : ''}
@@ -1936,6 +2004,15 @@ http.createServer(async (req, res) => {
       cfg.sicherungDbxPfad = pth('sicherungDbxPfad') || cfg.sicherungDbxPfad; cfg.excelPfad = pth('excelPfad') || cfg.excelPfad; cfg.datenPfad = pth('datenPfad') || cfg.datenPfad; cfg.vmDatenPfad = pth('vmDatenPfad') || cfg.vmDatenPfad; cfg.vmDbxPfad = pth('vmDbxPfad') || cfg.vmDbxPfad; cfg.fkDbxPfad = pth('fkDbxPfad') || cfg.fkDbxPfad;
       if (!cfg.sicherungNas && !cfg.sicherungDbx) return send(res, 200, page('Bitte mindestens eine Ablage (NAS oder Dropbox) wählen.', true));
       saveCfg(); return send(res, 200, page('Datensicherung gespeichert.'));
+    }
+    if (req.method === 'POST' && u.pathname === '/telegram') {
+      const f = await body(req), tok = String(f.get('tgToken') || '').trim(), chat = String(f.get('tgChat') || '').trim();
+      if (tok) cfg.tgToken = tok; cfg.tgChat = chat; cfg.tgAktiv = f.get('tgAktiv') !== '0'; saveCfg();
+      return send(res, 200, page('Telegram gespeichert.'));
+    }
+    if (req.method === 'POST' && u.pathname === '/telegram/test') {
+      const ok = await tgSend(`✅ jd-sync ${VERSION}: Testnachricht – Meldungen der IM-Programme kommen hier an.`, { force: true }); saveSt();
+      return send(res, 200, page(ok ? 'Testnachricht gesendet.' : 'Testnachricht fehlgeschlagen: ' + (st.tgLast && st.tgLast.error), !ok));
     }
     if (req.method === 'POST' && u.pathname === '/sicherung/jetzt') { runBackup('manuell'); await sleep(1500); return send(res, 200, page('Sicherung gestartet – Ergebnis siehe Datensicherung bzw. Protokoll.')); }
     if (req.method === 'POST' && u.pathname === '/excel/jetzt') { runExcel(null, 'manuell').then(() => cfg.vmAktiv ? runVmExcel(null, 'manuell') : null).then(async () => { if (cfg.fkAktiv !== false) { const t = await dbxDownload(cfg.fkDatenPfad || '/faktura.json').catch(() => null); if (t) await runFkExcel(JSON.parse(t), 'manuell'); } }); await sleep(2000); return send(res, 200, page('Excel-Export gestartet – Ergebnis siehe Datensicherung bzw. Protokoll.')); }

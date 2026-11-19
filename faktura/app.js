@@ -2,15 +2,12 @@
    Eigenständige Web-App (ohne Fremdbibliotheken) wie IM-Vermietung: Daten lokal im Browser + Abgleich mit Dropbox (/faktura.json). */
 'use strict';
 
-const APP_VERSION = '1.35', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.36', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/faktura.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'artikel', 'rechnungen', 'einstellungen'];
 const EINHEITEN = ['ha', 'h', 'Stk', 'Pausch.', 'km', 'm³', 't', 'kg', 'l', 'a'];
 
 /* ================= Hilfsfunktionen ================= */
-const $ = (s, el = document) => el.querySelector(s);
-const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const pad = n => String(n).padStart(2, '0');
 const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -23,54 +20,10 @@ const chf = n => (n == null || isNaN(n)) ? '' : Number(n).toLocaleString('de-CH'
 const num = v => { if (v === '' || v == null) return null; if (typeof v === 'number') return isFinite(v) ? v : null; const n = parseFloat(String(v).replace(/CHF|Fr\.?/gi, '').replace(/['’\s]/g, '').replace(',', '.')); return isNaN(n) ? null : n; };
 const r2 = n => Math.round((n + Number.EPSILON) * 100) / 100;
 const round5 = n => Math.round((n + Number.EPSILON) * 20) / 20;
-const ls = (key, val) => { try { if (val === undefined) return localStorage.getItem(key); if (val === null) localStorage.removeItem(key); else localStorage.setItem(key, val); } catch { return null; } };
 const lsJson = (key, val) => { if (val === undefined) { try { return JSON.parse(ls(key) || 'null'); } catch { return null; } } ls(key, val === null ? null : JSON.stringify(val)); };
 const clone = o => JSON.parse(JSON.stringify(o));
 /* ---------- Eigene grosse Rückfragen statt Browser-Fenster (confirm/alert) ---------- */
 // frage(text, { ok, nein, gefahr }) → Promise<true|false>; meldung(text) → Promise (nur OK)
-function frage(msg, o = {}) {
-  if (!document.getElementById('imaskCss')) {
-    const st = document.createElement('style'); st.id = 'imaskCss';
-    st.textContent = `dialog.imask{border:0;border-radius:16px;padding:0;width:min(680px,94vw);max-height:90vh;background:var(--surface,var(--panel,#fff));color:var(--text,var(--fg,#1d211e));box-shadow:0 18px 60px rgba(0,0,0,.45);font-family:inherit}
-dialog.imask::backdrop{background:rgba(0,0,0,.45)}
-.imask-in{display:flex;gap:18px;padding:26px 28px 18px;align-items:flex-start;max-height:calc(90vh - 96px);overflow:auto}
-.imask-ic{font-size:40px;line-height:1;flex:none}
-.imask-msg{font-size:19px;line-height:1.5;white-space:pre-line;word-break:break-word;padding-top:4px}
-.imask-msg b{font-weight:700}
-.imask-btns{display:flex;justify-content:flex-end;gap:14px;padding:16px 28px 24px;flex-wrap:wrap}
-.imask-btns button{font:inherit;font-size:18px;font-weight:600;padding:13px 28px;min-width:150px;border-radius:12px;cursor:pointer;border:2px solid var(--line,#c9cfc9);background:var(--surface-2,var(--bg,#f2f2ee));color:inherit}
-.imask-btns .imask-ok{background:var(--accent,#2f6b3f);border-color:var(--accent,#2f6b3f);color:var(--accent-fg,#fff)}
-.imask-btns .imask-ok.gefahr{background:#b3261e;border-color:#b3261e;color:#fff}
-.imask-btns button:focus-visible{outline:3px solid #f2b705;outline-offset:2px}`;
-    document.head.appendChild(st);
-  }
-  return new Promise(res => {
-    const isInfo = !!o.info, txt = String(msg ?? '');
-    const gefahr = !isInfo && (o.gefahr ?? /lösch|entfern|stornier|verwerf|ersetz|abmeld|zurück in die Entwürfe/i.test(txt));
-    const d = document.createElement('dialog'); d.className = 'imask';
-    d.innerHTML = `<div class="imask-in"><div class="imask-ic">${isInfo ? 'ℹ️' : gefahr ? '⚠️' : '❓'}</div><div class="imask-msg"></div></div><div class="imask-btns">${isInfo ? '' : '<button type="button" class="imask-no"></button>'}<button type="button" class="imask-ok"></button></div>`;
-    d.querySelector('.imask-msg').textContent = txt;
-    const ok = d.querySelector('.imask-ok'), no = d.querySelector('.imask-no');
-    ok.textContent = o.ok || (gefahr ? (/lösch/i.test(txt) ? 'Ja, löschen' : /entfern/i.test(txt) ? 'Ja, entfernen' : /stornier/i.test(txt) ? 'Ja, stornieren' : 'Ja') : 'OK'); if (gefahr) ok.classList.add('gefahr');
-    if (no) no.textContent = o.nein || 'Abbrechen';
-    let fertig = false;
-    const done = v => { if (fertig) return; fertig = true; try { d.close(); } catch { } d.remove(); res(v); };
-    ok.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); done(true); });
-    if (no) no.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); done(false); });
-    d.addEventListener('cancel', e => { e.preventDefault(); done(isInfo); });
-    d.addEventListener('click', e => e.stopPropagation());
-    d.addEventListener('keydown', e => e.stopPropagation());
-    document.body.appendChild(d); d.showModal();
-    (gefahr && no ? no : ok).focus();
-  });
-}
-function meldung(msg) { return frage(msg, { info: true }); }
-function toast(msg, ms) { ms = ms || Math.max(4000, Math.min(9000, String(msg).length * 70)); const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), ms); }
-function download(name, content, type) {
-  const blob = content instanceof Blob ? content : new Blob([content], { type });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
-  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
-}
 const fold = s => String(s || '').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/é|è|ê/g, 'e').replace(/ß/g, 'ss')
   .replace(/gebrüder|gebrueder|gebr\./g, 'gebr ').replace(/[^a-z0-9]+/g, ' ').trim();
 const tokKey = s => fold(s).split(' ').filter(Boolean).sort().join(' ');

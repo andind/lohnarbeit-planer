@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.23', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.24', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -11,9 +11,6 @@ const QUELLEN = ['Manuell', 'Formular', 'Scan', 'Scan + Formular'];
 const DEF_MODEL = 'claude-sonnet-5-5';
 
 /* ================= Hilfsfunktionen ================= */
-const $ = (s, el = document) => el.querySelector(s);
-const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const pad = n => String(n).padStart(2, '0');
 const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -24,53 +21,9 @@ const fmtQty = n => (n == null || isNaN(n)) ? '' : Number(n).toLocaleString('de-
 const chf = n => (n == null || isNaN(n)) ? '' : Number(n).toLocaleString('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const num = v => { if (v === '' || v == null) return null; if (typeof v === 'number') return isFinite(v) ? v : null; const n = parseFloat(String(v).replace(',', '.').replace(/['’\s]/g, '')); return isNaN(n) ? null : n; };
 const r2 = n => Math.round(n * 100) / 100;
-const ls = (key, val) => { try { if (val === undefined) return localStorage.getItem(key); if (val === null) localStorage.removeItem(key); else localStorage.setItem(key, val); } catch { return null; } };
 const lsJson = (key, val) => { if (val === undefined) { try { return JSON.parse(ls(key) || 'null'); } catch { return null; } } ls(key, val === null ? null : JSON.stringify(val)); };
 /* ---------- Eigene grosse Rückfragen statt Browser-Fenster (confirm/alert) ---------- */
 // frage(text, { ok, nein, gefahr }) → Promise<true|false>; meldung(text) → Promise (nur OK)
-function frage(msg, o = {}) {
-  if (!document.getElementById('imaskCss')) {
-    const st = document.createElement('style'); st.id = 'imaskCss';
-    st.textContent = `dialog.imask{border:0;border-radius:16px;padding:0;width:min(680px,94vw);max-height:90vh;background:var(--surface,var(--panel,#fff));color:var(--text,var(--fg,#1d211e));box-shadow:0 18px 60px rgba(0,0,0,.45);font-family:inherit}
-dialog.imask::backdrop{background:rgba(0,0,0,.45)}
-.imask-in{display:flex;gap:18px;padding:26px 28px 18px;align-items:flex-start;max-height:calc(90vh - 96px);overflow:auto}
-.imask-ic{font-size:40px;line-height:1;flex:none}
-.imask-msg{font-size:19px;line-height:1.5;white-space:pre-line;word-break:break-word;padding-top:4px}
-.imask-msg b{font-weight:700}
-.imask-btns{display:flex;justify-content:flex-end;gap:14px;padding:16px 28px 24px;flex-wrap:wrap}
-.imask-btns button{font:inherit;font-size:18px;font-weight:600;padding:13px 28px;min-width:150px;border-radius:12px;cursor:pointer;border:2px solid var(--line,#c9cfc9);background:var(--surface-2,var(--bg,#f2f2ee));color:inherit}
-.imask-btns .imask-ok{background:var(--accent,#2f6b3f);border-color:var(--accent,#2f6b3f);color:var(--accent-fg,#fff)}
-.imask-btns .imask-ok.gefahr{background:#b3261e;border-color:#b3261e;color:#fff}
-.imask-btns button:focus-visible{outline:3px solid #f2b705;outline-offset:2px}`;
-    document.head.appendChild(st);
-  }
-  return new Promise(res => {
-    const isInfo = !!o.info, txt = String(msg ?? '');
-    const gefahr = !isInfo && (o.gefahr ?? /lösch|entfern|stornier|verwerf|ersetz|abmeld|zurück in die Entwürfe/i.test(txt));
-    const d = document.createElement('dialog'); d.className = 'imask';
-    d.innerHTML = `<div class="imask-in"><div class="imask-ic">${isInfo ? 'ℹ️' : gefahr ? '⚠️' : '❓'}</div><div class="imask-msg"></div></div><div class="imask-btns">${isInfo ? '' : '<button type="button" class="imask-no"></button>'}<button type="button" class="imask-ok"></button></div>`;
-    d.querySelector('.imask-msg').textContent = txt;
-    const ok = d.querySelector('.imask-ok'), no = d.querySelector('.imask-no');
-    ok.textContent = o.ok || (gefahr ? (/lösch/i.test(txt) ? 'Ja, löschen' : /entfern/i.test(txt) ? 'Ja, entfernen' : /stornier/i.test(txt) ? 'Ja, stornieren' : 'Ja') : 'OK'); if (gefahr) ok.classList.add('gefahr');
-    if (no) no.textContent = o.nein || 'Abbrechen';
-    let fertig = false;
-    const done = v => { if (fertig) return; fertig = true; try { d.close(); } catch { } d.remove(); res(v); };
-    ok.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); done(true); });
-    if (no) no.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); done(false); });
-    d.addEventListener('cancel', e => { e.preventDefault(); done(isInfo); });
-    d.addEventListener('click', e => e.stopPropagation());
-    d.addEventListener('keydown', e => e.stopPropagation());
-    document.body.appendChild(d); d.showModal();
-    (gefahr && no ? no : ok).focus();
-  });
-}
-function meldung(msg) { return frage(msg, { info: true }); }
-function toast(msg, ms) { ms = ms || Math.max(4000, Math.min(9000, String(msg).length * 70)); const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), ms); }
-function download(name, content, type) {
-  const blob = content instanceof Blob ? content : new Blob([content], { type });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
-  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
-}
 // Namen vergleichbar machen (Umlaute, Satzzeichen, Reihenfolge der Wörter)
 const fold = s => String(s || '').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/é|è|ê/g, 'e').replace(/ß/g, 'ss')
   .replace(/gebrüder|gebrueder|gebr\./g, 'gebr ').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -192,7 +145,6 @@ const Auth = {
     ls('mv_tok', null); ls('mv_user', null); Sync.setState('login'); App.render();
   }
 };
-const dbxArg = o => JSON.stringify(o).replace(/[\u007f-￿]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
 const Drive = {
   path() { const p = (CFG.dataPath || '/vermietung.json').trim(); return p.startsWith('/') ? p : '/' + p; },
   async req(url, opt = {}) {
@@ -467,7 +419,7 @@ function einsatzDialog(id, preset = {}) {
       <label class="fld"><span>Einheit</span><select class="input" name="einheit">${optList(EINHEITEN.map(u => [u, u]), einhOf(e))}</select></label>
       <label class="fld"><span>Preis CHF/Einheit</span><input class="input" name="preis" inputmode="decimal" value="${e.preis ?? ''}" placeholder="${m && m.preis != null ? chf(m.preis) + ' (Maschine)' : 'Maschinenpreis'}"></label></div>
     <label class="fld"><span>Bemerkung</span><input class="input" name="bem" value="${esc(e.bem || '')}"></label>
-    <label class="tog" style="margin-bottom:12px"><input type="checkbox" name="ohneRapport" ${e.ohneRapport ? 'checked' : ''}> nicht im Rapport und nicht in der Abrechnungsliste</label>
+    <label class="tog" style="margin-bottom:12px"><input type="checkbox" name="ohneRapport" ${e.ohneRapport ? 'checked' : ''}> nicht im Rapport und nicht an IM-Faktura</label>
     ${id ? `<div class="box small">Quelle: ${esc(e.quelle || '–')}${e.importAm ? ' · importiert ' + fmtDate(e.importAm) : ''}${isDone(e) && e.abgerechnetAm ? ' · abgerechnet am ' + fmtDate(e.abgerechnetAm) : ''}${isStorno(e) && e.storniertAm ? ' · storniert am ' + fmtDate(e.storniertAm) : ''}${origTxt ? '<br>Ursprünglich: ' + esc(origTxt) : ''}</div>` : ''}`,
     `${id ? '<button type="button" class="btn danger" data-act="delEinsatz" data-id="' + id + '">Löschen</button>' : ''}<span class="spacer"></span>
      ${id ? `${isStorno(e) ? '' : '<button class="btn" value="storno" title="Speichern und als storniert markieren">Stornieren</button>'}${isDone(e) ? '<button class="btn" value="offen">Wieder offen</button>' : '<button class="btn" value="done" title="Speichern und als abgerechnet markieren">✓ Abgerechnet</button>'}` : '<button class="btn" value="weiter">Speichern + weiter</button>'}<button class="btn primary" value="ok">Speichern</button>`,
@@ -1204,9 +1156,9 @@ function impSave() {
   App.f.einsaetze = Object.assign(defFilter(), { q: '' }); App.sort = { key: 'datum', dir: -1 }; App.go('einsaetze');
 }
 
-/* ================= Ansicht Abrechnung: Kundenrapporte, Abrechnungsliste ================= */
+/* ================= Ansicht Abrechnung: Kundenrapporte, An IM-Faktura (Abrechnungsliste für AgroFaktura in v1.24 entfernt) ================= */
 /* Auswahl: einzelne Zeilen (App.abr.rows, anfangs leer). Kunde ankreuzen = alle seine Zeilen (ohne stornierte und ohne «nicht im Rapport»).
-   Nur ausgewählte Zeilen kommen in Rapport und Abrechnungsliste. */
+   Nur ausgewählte Zeilen kommen in Rapport und an IM-Faktura. */
 function abrGroups() { // L = Einsätze im Filter, R = davon ausgewählt (nie stornierte)
   const list = applyFilter(Store.all('einsaetze'), App.f.abr), g = new Map(), S = App.abr.rows;
   list.forEach(e => { if (!g.has(e.kunde)) g.set(e.kunde, []); g.get(e.kunde).push(e); });
@@ -1240,7 +1192,7 @@ function viewAbrechnung() {
         <button class="btn small" data-act="abrFaktOne" data-id="${g.k.id}" title="Nur diesen Kunden an IM-Faktura senden (ausgewählte Zeilen, sonst alle offenen) und als abgerechnet markieren" ${nW ? '' : 'disabled'}>📤 An IM-Faktura</button></td></tr>`;
     const sub = isOpen ? g.L.map(e => { const m = masch(e.maschine) || {}, b = betragOf(e), st = isStorno(e), on = App.abr.rows.has(e.id) && !st;
       return `<tr class="sub click ${on ? 'sel' : ''} ${st ? 'off storno' : ''} ${isDone(e) ? 'done' : ''}" data-act="abrEntry" data-id="${e.id}" title="Anklicken = Details"><td></td>
-        <td class="cb" style="text-align:left"><input type="checkbox" data-act="abrRow" data-id="${e.id}" ${on ? 'checked' : ''} ${st ? 'disabled' : ''} title="${st ? 'storniert – nie im Rapport' : 'Zeile auswählen (Rapport, Abrechnungsliste, abrechnen)'}">${e.ohneRapport ? ' <span class="chip warn small">nicht im Rapport</span>' : ''}</td>
+        <td class="cb" style="text-align:left"><input type="checkbox" data-act="abrRow" data-id="${e.id}" ${on ? 'checked' : ''} ${st ? 'disabled' : ''} title="${st ? 'storniert – nie im Rapport' : 'Zeile auswählen (Rapport, An IM-Faktura, abrechnen)'}">${e.ohneRapport ? ' <span class="chip warn small">nicht im Rapport</span>' : ''}</td>
         <td class="small">${e.datum ? fmtDate(e.datum) : 'ohne Datum'}</td><td class="small">${esc(m.artNr || '')} ${esc(m.name || '?')}${e.bem ? ' · ' + esc(e.bem) : ''}</td>
         <td class="n small">${einhOf(e) === 'ha' ? fmtQty(e.menge) : ''}</td><td class="n small">${einhOf(e) === 'h' ? fmtQty(e.menge) : ''}</td><td class="n small">${b != null && !st ? chf(b) : ''}</td>
         <td class="small">${statusChip(e)}</td><td class="small muted">Details ›</td></tr>`; }).join('') : '';
@@ -1255,12 +1207,11 @@ function viewAbrechnung() {
   if (App.sub.abrKompakt) return { tb: '', html: `<div class="filters">${faktBtn}${doneBtn}<button class="btn small" data-act="abrKompakt" title="Titel und Filterleiste wieder anzeigen">▼ Leiste einblenden</button></div>${table}` };
   return { tb: `<h1>Abrechnung</h1>`,
     html: filterBar('abr', { search: false, maschine: false, kunde: false, storno: true }) +
-    `<div class="filters"><button class="btn primary" data-act="abrPrint" ${sel.length ? '' : 'disabled'}>🖨 Rapporte (${sel.length})</button><button class="btn" data-act="abrList" ${sel.length ? '' : 'disabled'}>🖨 Abrechnungsliste</button>
-      <button class="btn" data-act="abrXlsx" ${sel.length ? '' : 'disabled'}>⬇ Abrechnungsliste Excel</button>${faktBtn}${doneBtn}
+    `<div class="filters"><button class="btn primary" data-act="abrPrint" ${sel.length ? '' : 'disabled'}>🖨 Rapporte (${sel.length})</button>${faktBtn}${doneBtn}
       ${G.length ? `<button class="btn small" data-act="abrExpAll">${G.every(g => open.has(g.k.id)) ? 'Alle zuklappen' : 'Alle Zeilen zeigen'}</button>` : ''}
       <button class="btn small" data-act="abrKompakt" title="Titel und Filterleiste ausblenden">▲ Leiste ausblenden</button></div>
-    ${anyPreis ? '' : '<div class="box warn small">Noch keine Preise erfasst – Rapporte und Abrechnungsliste zeigen nur Mengen. Preise unter <a href="#" data-act="goMasch">Stammdaten › Maschinen</a> eintragen.</div>'}
-    <details class="help"><summary>ℹ Bedienung</summary>Kunde ankreuzen = alle seine Zeilen auswählen; mit ▸ aufklappen und Zeilen einzeln an- oder abwählen. Nur ausgewählte Zeilen kommen in Rapport und Abrechnungsliste.
+    ${anyPreis ? '' : '<div class="box warn small">Noch keine Preise erfasst – Rapporte zeigen nur Mengen. Preise unter <a href="#" data-act="goMasch">Stammdaten › Maschinen</a> eintragen.</div>'}
+    <details class="help"><summary>ℹ Bedienung</summary>Kunde ankreuzen = alle seine Zeilen auswählen; mit ▸ aufklappen und Zeilen einzeln an- oder abwählen. Nur ausgewählte Zeilen kommen in Rapport und an IM-Faktura.
       Zeile anklicken = Details (bearbeiten, stornieren, als abgerechnet markieren). Rapport: eine Seite pro Kunde, ohne Seitenzahlen; vor dem Drucken lassen sich die Artikelpreise nur für diesen Ausdruck anpassen.</details>
     ${table}` };
 }
@@ -1288,16 +1239,6 @@ function rapportHtml(k, L, preise) {
     ${preise && s.chf ? `<tr class="tot"><td></td><td>Total CHF${s.ohnePreis ? ' (ohne ' + s.ohnePreis + ' Einsätze ohne Preis)' : ''}</td><td></td><td></td><td></td><td></td><td class="n">${chf(s.chf)}</td></tr>` : ''}
     </tbody></table></div>`;
 }
-function abrListHtml(G) {
-  G = G.filter(g => g.R.length).map(g => Object.assign({}, g, { L: g.R }));
-  const tot = sumUp(G.flatMap(g => g.L));
-  return `<div class="bill alist"><img class="lhead" src="logo.jpg" alt=""><h2>Abrechnungsliste Maschinenvermietung</h2>
-    <div class="meta">${G.length} Kunden${zeitraum(G.flatMap(g => g.L)) ? ' · Zeitraum ' + zeitraum(G.flatMap(g => g.L)) : ''} · Stand ${fmtDate(todayIso())}${tot.chf ? ' · Total CHF ' + chf(tot.chf) : ''}</div>
-    ${G.map(g => { const S = sumByArt(g.L), s = sumUp(g.L); return `<div class="akd"><h3>${g.k.nr ? 'Kd-Nr. ' + esc(g.k.nr) : 'Neukunde'} – ${esc(g.k.name)}</h3>
-      <table class="btab"><thead><tr><th class="n" style="width:16mm">Art.-Nr.</th><th>Bezeichnung</th><th class="n" style="width:22mm">Menge</th><th style="width:16mm">Einheit</th><th class="n" style="width:22mm">Preis</th><th class="n" style="width:28mm">Betrag CHF</th></tr></thead><tbody>
-      ${S.map(x => `<tr><td class="n">${esc(x.art)}</td><td>${esc(x.name)}</td><td class="n">${fmtQty(x.menge)}</td><td>${esc(x.einheit)}</td><td class="n">${x.preis != null ? chf(x.preis) : ''}</td><td class="n">${x.betrag != null ? chf(x.betrag) : ''}</td></tr>`).join('')}
-      ${s.chf ? `<tr class="tot"><td></td><td>Total</td><td></td><td></td><td></td><td class="n">${chf(s.chf)}</td></tr>` : ''}</tbody></table></div>`; }).join('')}</div>`;
-}
 function printHtml(html, after) { // after: wird nach dem Druckfenster einmal aufgerufen
   const pa = $('#printArea'); pa.innerHTML = html;
   document.body.classList.add('printing');
@@ -1318,14 +1259,14 @@ function prePrint(kind, ids) {
     if (!arts.has(k)) arts.set(k, { k, art: m.artNr || '', name: m.name || '?', einheit: einhOf(e), std: m.preis != null && (m.einheit || 'ha') === einhOf(e) ? m.preis : null, menge: 0, n: 0 });
     const x = arts.get(k); x.menge = r2(x.menge + (e.menge || 0)); x.n++; });
   const A = [...arts.values()].sort((a, b) => String(a.art).localeCompare(String(b.art), 'de', { numeric: true }));
-  const title = { rapport: G.length === 1 ? `Rapport ${G[0].k.name}` : `${G.length} Kundenrapporte`, liste: 'Abrechnungsliste', xlsx: 'Abrechnungsliste Excel', faktura: `An IM-Faktura (${G.length} ${G.length === 1 ? 'Kunde' : 'Kunden'})` }[kind];
+  const title = { rapport: G.length === 1 ? `Rapport ${G[0].k.name}` : `${G.length} Kundenrapporte`, faktura: `An IM-Faktura (${G.length} ${G.length === 1 ? 'Kunde' : 'Kunden'})` }[kind];
   openDlg(title + ' – Preise', `<p class="muted small">Preise gelten <b>nur für diesen Ausdruck</b> – die Maschinenpreise in den Stammdaten bleiben unverändert. Leer = ohne Preis.</p>
     ${kind === 'rapport' ? `<label class="tog" style="margin-bottom:10px"><input type="checkbox" name="preise" ${Store.cfg().rapportPreise ? 'checked' : ''}> Preise und Beträge im Rapport anzeigen</label>` : ''}
     <div class="dscroll" style="max-height:none"><table class="dtab"><thead><tr><th class="n">Art.-Nr.</th><th>Maschine</th><th class="n">Menge</th><th class="n">Standard</th><th class="n">Preis CHF</th></tr></thead><tbody>
     ${A.map((x, i) => `<tr><td class="n">${esc(x.art)}</td><td>${esc(x.name)}<div class="small muted">${x.n} Einsätze</div></td><td class="n">${fmtQty(x.menge)} ${esc(x.einheit)}</td>
       <td class="n">${x.std != null ? chf(x.std) : '–'}</td><td class="n"><input class="input" name="p${i}" inputmode="decimal" value="${x.std ?? ''}" style="width:110px;text-align:right"> <span class="small">/ ${esc(x.einheit)}</span></td></tr>`).join('')}
     </tbody></table></div>${eigen ? `<p class="small muted">${eigen} Einsätze haben einen eigenen Preis im Einsatz – dieser bleibt.</p>` : ''}`,
-    `<span class="spacer"></span><button class="btn primary" value="ok">${kind === 'xlsx' ? '⬇ Excel erstellen' : kind === 'faktura' ? '📤 Senden' : '🖨 Drucken'}</button>`,
+    `<span class="spacer"></span><button class="btn primary" value="ok">${kind === 'faktura' ? '📤 Senden' : '🖨 Drucken'}</button>`,
     { wide: true, onSubmit: fd => {
       PRICE_OV = new Map(A.map((x, i) => [x.k, num(fd.get('p' + i))]));
       try {
@@ -1336,16 +1277,8 @@ function prePrint(kind, ids) {
           printHtml(G.map(g => rapportHtml(g.k, g.R, preise)).join(''), offen.length ? () => abrNachRapport(offen, G.length) : null);
           setTimeout(() => { document.title = 'IM-Vermietung'; }, 3000);
         } else if (kind === 'faktura') { const ov = new Map(PRICE_OV); setTimeout(() => fakturaSendVm(G, ov), 50); }
-        else if (kind === 'liste') printHtml(abrListHtml(G));
-        else abrXlsx(G);
       } finally { PRICE_OV = null; }
     } });
-}
-function abrXlsx(G) {
-  G = G.map(g => Object.assign({}, g, { L: g.R }));
-  const rows = [['Kd-Nr.', 'Kunde', 'Art.-Nr.', 'Bezeichnung', 'Menge', 'Einheit', 'Preis CHF', 'Betrag CHF', 'Einsätze']];
-  G.forEach(g => sumByArt(g.L).forEach(x => rows.push([g.k.nr ? +g.k.nr || g.k.nr : 'Neukunde', g.k.name, +x.art || x.art, x.name, x.menge, x.einheit, x.preis ?? '', x.betrag ?? '', x.n])));
-  download(`Abrechnungsliste_${todayIso()}.xlsx`, xlsxBlob([{ name: 'Abrechnungsliste', rows }, { name: 'Einsätze', rows: einsatzRows(G.flatMap(g => g.L)) }]));
 }
 // An IM-Faktura senden (v1.14): je Kunde eine Übergabe-Datei /faktura-eingang/<id>.json – eine Position «100 Maschinenmiete gemäss Rapport»,
 // der Rapport (alle Einsätze mit Datum) als Beilage; die Zeilen werden danach als abgerechnet markiert (e.fakt = Übergabe-ID)
@@ -1408,27 +1341,6 @@ async function abrDoneSel() { // nur angehakte Zeilen («im Rapport») der angek
   setStatus(L.map(e => e.id), 'abgerechnet'); toast(`${L.length} Einsätze als abgerechnet markiert`);
 }
 
-/* ---------- Sicherungsplan aller IM-Programme (NAS-Dienst jd-sync ab v69 schreibt /Sicherungen/status.json) – gleicher Code in IM-Verwaltung, IM-Vermietung, IM-Faktura ---------- */
-const SICH = { d: null, at: 0, busy: false, err: '' };
-async function sichLoad(read, rerender, force) {
-  if (SICH.busy || (!force && Date.now() - SICH.at < 300000)) return;
-  SICH.busy = true; SICH.at = Date.now();
-  try { SICH.d = await read('/Sicherungen/status.json'); SICH.err = SICH.d ? '' : 'noch keine Statusdatei'; } catch (e) { SICH.d = null; SICH.err = 'noch keine Statusdatei (NAS-Dienst ab Version 69 nötig)'; }
-  SICH.busy = false; rerender();
-}
-function sichHtml(own, { pruefung = 'eigene' } = {}) {
-  const D = SICH.d, e = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  if (!D) return `<p class="small" style="color:var(--muted)">Automatische Sicherung: ${SICH.busy ? 'Status wird geladen …' : e(SICH.err || 'Status wird geladen …')}</p>`;
-  const dt = x => x ? new Date(x).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '–', alt = Date.now() - Date.parse(D.stand) > 2 * 864e5;
-  const fehler = (D.quellen || []).filter(q => q.aktiv && q.ok === false);
-  const rows = (D.quellen || []).filter(q => q.aktiv).map(q => `<tr${q.name === own ? ' style="font-weight:600"' : ''}><td>${e(q.name)}</td><td>${q.ok === false ? `<span style="color:#b5580b">⚠ Fehler</span> <span class="small">${e(q.error)}</span>` : q.fehlt ? '<span class="small">keine Daten</span>' : `✓ ${e(dt(q.at))}${q.unv ? ' <span class="small">(unverändert)</span>' : ''}`}${q.warn ? ` <span style="color:#b5580b" class="small">weniger Einträge: ${e(q.warn.join(', '))}</span>` : ''}</td><td class="small">${e(q.counts || '')}</td></tr>`).join('');
-  const P = D.pruefung, pts = P ? (P.punkte || []).filter(x => pruefung === 'alle' || x.prog === own) : [];
-  return `<div class="sichbox" style="border:1px solid var(--line,#ddd);border-radius:10px;padding:10px 12px;margin:8px 0;${alt || fehler.length ? 'background:#fff4e5' : ''}">
-    <p style="margin:0 0 6px"><b>Automatische Sicherung (NAS-Dienst)</b> – zuletzt ${e(dt(D.stand))}${alt ? ' <b style="color:#b5580b">· seit über 2 Tagen keine Sicherung – NAS-Dienst prüfen!</b>' : ''}<br><span class="small">${e(D.plan || '')} · Ablage ${e((D.ablage || []).join(' + '))} · Dropbox › Sicherungen</span></p>
-    <table class="small" style="width:100%;border-collapse:collapse">${rows}</table>
-    ${P && pruefung !== 'keine' ? `<p class="small" style="margin:8px 0 0"><b>Prüfung der Verknüpfungen zwischen den Programmen</b> (${e(dt(P.at))}): ${pts.length ? pts.map(x => `<br>${x.sev === 'fehler' ? '⚠' : 'ℹ'} ${pruefung === 'alle' ? e(x.prog) + ': ' : ''}${e(x.titel)} (${x.n}) – <span style="color:var(--muted)">${e(x.items.slice(0, 6).join(' · '))}${x.n > 6 ? ' …' : ''}</span>`).join('') : '✓ keine Auffälligkeiten'}</p>` : ''}
-  </div>`;
-}
 /* ================= Ansicht Mehr: Dropbox, Scan, Datensicherung ================= */
 function viewMehr() {
   const user = ls('mv_user');
@@ -1549,55 +1461,6 @@ function readCsv(text) {
   if (cell || row.length) { row.push(cell); rows.push(row); }
   return rows;
 }
-const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
-const crc32 = u8 => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
-function zipStore(files) { // ZIP ohne Kompression (für Excel ausreichend)
-  const enc = new TextEncoder(), parts = [], central = []; let off = 0;
-  files.forEach(f => {
-    const name = enc.encode(f.name), data = typeof f.data === 'string' ? enc.encode(f.data) : f.data, crc = crc32(data);
-    const h = new DataView(new ArrayBuffer(30));
-    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
-    h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true); h.setUint16(26, name.length, true);
-    parts.push(new Uint8Array(h.buffer), name, data);
-    const c = new DataView(new ArrayBuffer(46));
-    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true);
-    c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, name.length, true); c.setUint32(42, off, true);
-    central.push(new Uint8Array(c.buffer), name);
-    off += 30 + name.length + data.length;
-  });
-  const csize = central.reduce((s, p) => s + p.length, 0), e = new DataView(new ArrayBuffer(22));
-  e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, csize, true); e.setUint32(16, off, true);
-  return new Blob([...parts, ...central, new Uint8Array(e.buffer)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-}
-const xEsc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
-const xCol = i => { let s = ''; i++; while (i) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
-function xSheet(rows) {
-  const widths = rows[0].map((_, c) => Math.min(60, Math.max(8, ...rows.slice(0, 400).map(r => String(r.at(c) ?? '').length + 2))));
-  const cell = (v, r, c) => {
-    const ref = xCol(c) + (r + 1);
-    if (v == null || v === '') return '';
-    if (typeof v === 'number' && isFinite(v)) return `<c r="${ref}"${r === 0 ? ' s="1"' : ''}><v>${v}</v></c>`;
-    return `<c r="${ref}" t="inlineStr"${r === 0 ? ' s="1"' : ''}><is><t xml:space="preserve">${xEsc(v)}</t></is></c>`;
-  };
-  const last = xCol(rows[0].length - 1) + rows.length;
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
-<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>
-<sheetData>${rows.map((r, ri) => `<row r="${ri + 1}">${r.map((v, ci) => cell(v, ri, ci)).join('')}</row>`).join('')}</sheetData>
-${rows.length > 1 ? `<autoFilter ref="A1:${last}"/>` : ''}</worksheet>`;
-}
-function xlsxBlob(sheets) {
-  const names = sheets.map(s => s.name.replace(/[\[\]:*?\/\\]/g, '-').slice(0, 31));
-  const files = [
-    { name: '[Content_Types].xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${names.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>` },
-    { name: '_rels/.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
-    { name: 'xl/workbook.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((n, i) => `<sheet name="${xEsc(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets>${names.map((n, i) => sheets[i].rows.length > 1 ? `<definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${xEsc(n)}'!$A$1:$${xCol(sheets[i].rows[0].length - 1)}$${sheets[i].rows.length}</definedName></definedNames>` : '').join('').replace(/<\/definedNames><definedNames>/g, '')}</workbook>` },
-    { name: 'xl/_rels/workbook.xml.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${names.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${names.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
-    { name: 'xl/styles.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF2F6B3A"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>` },
-    ...sheets.map((s, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: xSheet(s.rows) }))
-  ];
-  return zipStore(files);
-}
 
 /* ================= Ereignisse ================= */
 function setF(k, patch) { Object.assign(App.f[k], patch); if (k === 'einsaetze') App.sel.clear(); App.saveUi(); rerenderKeepFocus(); }
@@ -1665,8 +1528,6 @@ document.addEventListener('click', async ev => {
     case 'claudeTest': claudeTest(); break;
     case 'abrOne': prePrint('rapport', [id]); break;
     case 'abrPrint': prePrint('rapport'); break;
-    case 'abrList': prePrint('liste'); break;
-    case 'abrXlsx': prePrint('xlsx'); break;
     case 'abrFakt': prePrint('faktura'); break;
     case 'abrFaktOne': prePrint('faktura', [id]); break;
     case 'abrEntry': einsatzDialog(id); break;

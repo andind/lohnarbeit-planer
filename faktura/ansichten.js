@@ -1,26 +1,5 @@
 /* IM-Faktura – Ansichten, Dialoge, Ereignisse, Start */
 'use strict';
-/* ---------- Sicherungsplan aller IM-Programme (NAS-Dienst jd-sync ab v69 schreibt /Sicherungen/status.json) – gleicher Code in IM-Verwaltung, IM-Vermietung, IM-Faktura ---------- */
-const SICH = { d: null, at: 0, busy: false, err: '' };
-async function sichLoad(read, rerender, force) {
-  if (SICH.busy || (!force && Date.now() - SICH.at < 300000)) return;
-  SICH.busy = true; SICH.at = Date.now();
-  try { SICH.d = await read('/Sicherungen/status.json'); SICH.err = SICH.d ? '' : 'noch keine Statusdatei'; } catch (e) { SICH.d = null; SICH.err = 'noch keine Statusdatei (NAS-Dienst ab Version 69 nötig)'; }
-  SICH.busy = false; rerender();
-}
-function sichHtml(own, { pruefung = 'eigene' } = {}) {
-  const D = SICH.d, e = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  if (!D) return `<p class="small" style="color:var(--muted)">Automatische Sicherung: ${SICH.busy ? 'Status wird geladen …' : e(SICH.err || 'Status wird geladen …')}</p>`;
-  const dt = x => x ? new Date(x).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '–', alt = Date.now() - Date.parse(D.stand) > 2 * 864e5;
-  const fehler = (D.quellen || []).filter(q => q.aktiv && q.ok === false);
-  const rows = (D.quellen || []).filter(q => q.aktiv).map(q => `<tr${q.name === own ? ' style="font-weight:600"' : ''}><td>${e(q.name)}</td><td>${q.ok === false ? `<span style="color:#b5580b">⚠ Fehler</span> <span class="small">${e(q.error)}</span>` : q.fehlt ? '<span class="small">keine Daten</span>' : `✓ ${e(dt(q.at))}${q.unv ? ' <span class="small">(unverändert)</span>' : ''}`}${q.warn ? ` <span style="color:#b5580b" class="small">weniger Einträge: ${e(q.warn.join(', '))}</span>` : ''}</td><td class="small">${e(q.counts || '')}</td></tr>`).join('');
-  const P = D.pruefung, pts = P ? (P.punkte || []).filter(x => pruefung === 'alle' || x.prog === own) : [];
-  return `<div class="sichbox" style="border:1px solid var(--line,#ddd);border-radius:10px;padding:10px 12px;margin:8px 0;${alt || fehler.length ? 'background:#fff4e5' : ''}">
-    <p style="margin:0 0 6px"><b>Automatische Sicherung (NAS-Dienst)</b> – zuletzt ${e(dt(D.stand))}${alt ? ' <b style="color:#b5580b">· seit über 2 Tagen keine Sicherung – NAS-Dienst prüfen!</b>' : ''}<br><span class="small">${e(D.plan || '')} · Ablage ${e((D.ablage || []).join(' + '))} · Dropbox › Sicherungen</span></p>
-    <table class="small" style="width:100%;border-collapse:collapse">${rows}</table>
-    ${P && pruefung !== 'keine' ? `<p class="small" style="margin:8px 0 0"><b>Prüfung der Verknüpfungen zwischen den Programmen</b> (${e(dt(P.at))}): ${pts.length ? pts.map(x => `<br>${x.sev === 'fehler' ? '⚠' : 'ℹ'} ${pruefung === 'alle' ? e(x.prog) + ': ' : ''}${e(x.titel)} (${x.n}) – <span style="color:var(--muted)">${e(x.items.slice(0, 6).join(' · '))}${x.n > 6 ? ' …' : ''}</span>`).join('') : '✓ keine Auffälligkeiten'}</p>` : ''}
-  </div>`;
-}
 
 
 const App = {
@@ -81,7 +60,7 @@ function viewRechnungen() {
     ${!Store.all('rechnungen').length ? `<div class="panel"><h2>Willkommen bei IM-Faktura</h2><p>So geht es los:</p><ol class="small muted">
       <li>Unter <a href="#" data-act="go" data-v="mehr">Mehr › Firma & QR-Konto</a> die <b>QR-IBAN</b> eintragen (steht im E-Banking bzw. auf dem Kontoblatt «QR-IBAN»).</li>
       <li>Unter <a href="#" data-act="go" data-v="import">Import</a> die Kunden aus der IM-Vermietung / IM-Verwaltung übernehmen und Adressen ergänzen.</li>
-      <li>Artikel erfassen oder übernehmen, dann «＋ Rechnung» oder eine Abrechnungsliste importieren.</li></ol></div>` : ''}
+      <li>Artikel erfassen oder übernehmen, dann «＋ Rechnung» – oder aus IM-Verwaltung/IM-Vermietung «📤 An IM-Faktura» senden.</li></ol></div>` : ''}
     <div class="mlist">${L.map(r => `<div class="mcard ${App.sel.has(r.id) ? 'sel' : ''}" data-act="editR" data-id="${r.id}"><div class="cb"><input type="checkbox" data-act="selOne" data-id="${r.id}" ${App.sel.has(r.id) ? 'checked' : ''}></div>
       <div class="grow"><div class="t">${esc(kName(r.kunde))}</div><div class="s">${r.nr ? 'Nr. ' + esc(r.nr) : 'Entwurf'} · ${fmtDate(r.datum)}${r.betreff ? ' · ' + esc(r.betreff) : ''}</div><div class="s">${stChip(r)}</div></div>
       <div class="q">${chf(calc(r).total)}${isOP(r) && bezahlt(r) ? `<div class="small muted">offen ${chf(offenBetrag(r))}</div>` : ''}</div></div>`).join('') || '<div class="empty">Keine Rechnungen</div>'}</div>
@@ -492,27 +471,7 @@ function viewOP() {
 
 /* ================= Import ================= */
 function viewImport() {
-  const I = App.imp;
-  if (I) {
-    const K = kundenSorted();
-    return { tb: `<h1>Import prüfen</h1><button class="btn" data-act="impCancel">Abbrechen</button><button class="btn primary" data-act="impCreate">✓ ${I.groups.filter(g => g.sel).length} Entwürfe erstellen</button>`,
-      html: `<div class="filters"><span class="lbl">${esc(I.fname)} · ${I.groups.length} Kunden · ${I.groups.reduce((s, g) => s + g.items.length, 0)} Positionen · CHF ${chf(I.groups.reduce((s, g) => s + impTotal(g), 0))}</span></div>
-      <div class="filters"><label class="fld" style="margin:0;min-width:260px"><span>Betreff der Rechnungen</span><input class="input" data-in="impBetreff" value="${esc(I.betreff)}" placeholder="z. B. Maschinenmiete 2026"></label>
-        <label class="tog"><input type="checkbox" data-in="impOpt" data-k="kNeu" ${I.kNeu ? 'checked' : ''}> unbekannte Kunden neu anlegen</label>
-        ${I.vm ? `<label class="tog"><input type="checkbox" data-in="impOpt" data-k="miete" ${I.miete ? 'checked' : ''}> Maschinenmiete als eine Zeile «${MIETE_ART} ${esc(artByNr(MIETE_ART)?.bez || 'Maschinenmiete gemäss Rapport')}», Einzelheiten als Beilage</label>${I.miete && !artByNr(MIETE_ART) ? `<span class="small warnc">Artikel ${MIETE_ART} fehlt noch (Stammdaten › Artikel)</span>` : ''}` : ''}
-        ${I.miete ? '' : `<label class="tog"><input type="checkbox" data-in="impOpt" data-k="artNeu" ${I.artNeu ? 'checked' : ''}> fehlende Artikel anlegen</label>`}
-        <label class="tog"><input type="checkbox" data-in="impOpt" data-k="append" ${I.append ? 'checked' : ''}> an bestehenden Entwurf des Kunden anhängen</label></div>
-      <div class="dscroll"><table class="dtab"><thead><tr><th class="cb"></th><th>Aus der Liste</th><th>Kunde in IM-Faktura</th><th>Positionen</th><th class="n">Total CHF</th></tr></thead><tbody>
-      ${I.groups.map((g, i) => `<tr class="${g.sel ? '' : 'off'}"><td class="cb"><input type="checkbox" data-in="impSel" data-i="${i}" ${g.sel ? 'checked' : ''}></td>
-        <td>${g.kd ? `<span class="nr">${esc(g.kd)}</span> ` : ''}${esc(g.kn)}</td>
-        <td><select class="input" data-in="impK" data-i="${i}" style="min-width:220px">${optList(K.map(k => [k.id, kLabel(k)]), g.kId, I.kNeu ? '＋ neu anlegen' : '– nicht zugeordnet –')}</select>${g.kId && !kAdrOk(kunde(g.kId)) ? '<div class="small warnc">Adresse unvollständig</div>' : ''}${g.how === 'ähnlich' ? '<div class="small warnc">ähnlicher Name – bitte prüfen</div>' : ''}</td>
-        <td class="small">${g.items.map(it => `${esc(it.art ? it.art + ' ' : '')}${esc(it.bez)}: ${fmtNum(it.menge, 3)} ${esc(it.einh)} × ${it.preis != null ? chf(it.preis) : '<span class="warnc">ohne Preis</span>'}${it.artNeu && !I.miete ? ' <span class="chip small">neuer Artikel</span>' : ''}`).join('<br>')}</td>
-        <td class="n">${chf(impTotal(g))}</td></tr>`).join('')}</tbody></table></div>` };
-  }
   return { tb: '<h1>Import</h1>', html: `<div class="cols"><div>
-    <div class="panel"><h2>Abrechnungsliste → Rechnungsentwürfe</h2>
-      <p>Excel- oder CSV-Datei mit einer Zeile pro Position einlesen, z. B. <b>«Abrechnungsliste Excel»</b> aus der IM-Vermietung (Kd-Nr., Kunde, Art.-Nr., Bezeichnung, Menge, Einheit, Preis, Betrag) oder die Abrechnung aus der IM-Verwaltung (CSV). Pro Kunde entsteht ein Entwurf, den du vor dem Abschliessen prüfen kannst.</p>
-      <div class="btns"><label class="btn primary">Datei wählen…<input type="file" accept=".xlsx,.csv,.txt" data-in="impAbrFile" hidden></label></div></div>
     <div class="panel"><h2>Zahlungen (camt.054)</h2><p>Gutschriften aus dem E-Banking einlesen und über die QR-Referenz den Rechnungen zuordnen.</p>
       <div class="btns"><label class="btn">Datei wählen…<input type="file" accept=".xml,.zip" multiple data-in="camtFile" hidden></label></div></div>
   </div><div>
@@ -664,7 +623,7 @@ function buchPanel() {
   const B = buchCfg(), dir = ls('mf_buchdir'), bi = (k, l, x = '') => `<label class="fld"><span>${l}</span><input class="input" data-in="buch" data-k="${k}" value="${esc(B[k] ?? '')}" inputmode="numeric" ${x}></label>`;
   return `<div class="panel"><h2>Buchhaltung (AgroOffice)</h2>
     <p class="small">Gebucht werden nur <b>Zahlungseingänge</b>: Bank direkt an die Ertragskonten der Artikel, je MWST-Satz inkl. MWST (vereinnahmt), mit der Rechnungs-Nr. als Beleg. AgroOffice nimmt beim Import nur Konten 1000–8999 und 9910/9911 an. Datei im Abacus-Format «XML-Buchungen» – in AgroOffice unter Grundeinstellungen › Import den Ordner eintragen.</p>
-    <div class="three">${bi('bank', 'Bankkonto')}${bi('hilfs', 'Hilfskonto (leer = direkt)', 'placeholder="leer"')}${bi('kontoStd', 'Standard-Ertragskonto')}</div>
+    <div class="three">${bi('bank', 'Bankkonto')}${bi('kontoStd', 'Standard-Ertragskonto')}</div>
     <div class="three">${bi('kontoAufw', 'Standard-Aufwandkonto (Positionen «Aufwand», z. B. übernommenes Saatgut)')}</div>
     <div class="three">${bi('kontoGeb', 'Mahngebühren')}${bi('kontoUeber', 'Überzahlungen')}${bi('mwstKonto', 'MWST-Konto')}</div>
     <div class="three">${Store.cfg().mwst.filter(m => +m.satz).map(m => `<label class="fld"><span>MWST-Code ${mwstTxt(m.satz)}</span><input class="input" data-in="buchCode" data-k="${m.satz}" value="${esc(B.codes[String(m.satz)] || '')}" maxlength="3"></label>`).join('')}</div>
@@ -766,8 +725,6 @@ document.addEventListener('click', async ev => {
     case 'mwstAdd': { const m = Store.cfg().mwst; m.push({ satz: 0, name: '' }); Store.setCfg({ mwst: m }); App.render(); break; }
     case 'mwstDel': { const m = Store.cfg().mwst; m.splice(+t.dataset.i, 1); Store.setCfg({ mwst: m }); App.render(); break; }
     // Import
-    case 'impCancel': App.imp = null; App.render(); break;
-    case 'impCreate': impAbrCreate(); break;
     case 'kDbx': impKundenDbx(t.dataset.src); break;
     case 'imvLink': imvLinkDialog(); break;
     case 'kimpAll': $$('#dlgForm input[type=checkbox][name^="s"]:not(:disabled)').forEach(x => { x.checked = t.checked; }); break;
@@ -820,7 +777,6 @@ function onInput(ev) {
   if (k === 'opq') { App.f.op.q = t.value; App.saveUi(); rerenderKeep(t); }
   if (k === 'kq') { App.f.k.q = t.value; App.saveUi(); rerenderKeep(t); }
   if (k === 'aq') { App.f.a.q = t.value; App.saveUi(); rerenderKeep(t); }
-  if (k === 'impBetreff' && App.imp) App.imp.betreff = t.value;
 }
 function rerenderKeep(t) { const key = `[data-in="${t.dataset.in}"]`, pos = t.selectionStart; App.render(); const n = $(key); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch {} } }
 function setPath(o, path, v) { const p = path.split('.'); if (p.length === 1) return { [path]: v }; return { [p[0]]: Object.assign({}, o[p[0]], { [p[1]]: v }) }; }
@@ -849,13 +805,9 @@ function onChange(ev) {
     case 'mahn': { const m = Store.cfg().mahn, i = +t.dataset.i, f = t.dataset.f; m[i][f] = f === 'gebuehr' || f === 'frist' ? (num(v) ?? 0) : v; Store.setCfg({ mahn: m }); break; }
     case 'logoFile': if (t.files[0]) { const fr = new FileReader(); fr.onload = () => { if (fr.result.length > 400000) { toast('Bild zu gross (max. ca. 300 KB)'); return; } Store.setCfg({ logo: fr.result }); App.render(); }; fr.readAsDataURL(t.files[0]); } t.value = ''; break;
     case 'restoreFile': if (t.files[0]) restore(t.files[0]); t.value = ''; break;
-    case 'impAbrFile': if (t.files[0]) impAbrFile(t.files[0]); t.value = ''; break;
     case 'impKFile': if (t.files[0]) impKundenFile(t.files[0]); t.value = ''; break;
     case 'impAFile': if (t.files[0]) impArtFile(t.files[0]); t.value = ''; break;
     case 'camtFile': if (t.files.length) impCamt([...t.files]); t.value = ''; break;
-    case 'impSel': App.imp.groups[+t.dataset.i].sel = t.checked; App.render(); break;
-    case 'impK': App.imp.groups[+t.dataset.i].kId = v; App.imp.groups[+t.dataset.i].how = ''; App.render(); break;
-    case 'impOpt': App.imp[t.dataset.k] = t.checked; App.render(); break;
   }
 }
 document.addEventListener('input', onInput);

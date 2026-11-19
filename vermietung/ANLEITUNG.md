@@ -1,6 +1,6 @@
-# IM-Vermietung v1.23 – Anleitung (Stand 19.11.2026)
+# IM-Vermietung v1.24 – Anleitung (Stand 19.11.2026)
 
-Eigenständige App für die Maschinenvermietung: Einsätze erfassen und importieren, auswerten, Kundenrapporte und Abrechnungsliste drucken.
+Eigenständige App für die Maschinenvermietung: Einsätze erfassen und importieren, auswerten, Kundenrapporte drucken und an IM-Faktura senden.
 Eigene Kunden, Maschinen und Einsätze in einer eigenen Datei (`vermietung.json`) – unabhängig von der IM-Verwaltung.
 
 ## Einrichten (einmalig)
@@ -45,7 +45,7 @@ aus `startdaten.json`.
 - **Abrechnung** – Zeitraum und Status wählen (Standard: offen); «Stornierte anzeigen» blendet stornierte Zeilen ein.
   Anfangs ist **nichts ausgewählt**.
   - Kunde ankreuzen = alle seine Zeilen auswählen. Mit ▸ aufklappen und Zeilen einzeln an- oder abwählen.
-    **Nur ausgewählte Zeilen** kommen in Rapport und Abrechnungsliste.
+    **Nur ausgewählte Zeilen** kommen in Rapport und an IM-Faktura.
   - Zeile anklicken = Details: bearbeiten, «Stornieren» oder «✓ Abgerechnet» (mit Rückfrage – direkt in der Zeile geht das bewusst nicht).
   - *Ausgewählte Zeilen abgerechnet*: markiert alle ausgewählten offenen Zeilen auf einmal.
   - «▲ Leiste ausblenden» blendet Titel, Filter und die übrigen Knöpfe aus – es bleiben nur «Ausgewählte Zeilen abgerechnet»
@@ -56,8 +56,7 @@ aus `startdaten.json`.
   - Nach dem Druckfenster fragt die App, ob die rapportierten (offenen) Zeilen als abgerechnet markiert werden sollen.
   - **«📤 An IM-Faktura»** (Leiste oder je Kundenzeile hinter «Rapport»): je Kunde eine Rechnungsposition Art. 100 «Maschinenmiete gemäss Rapport»
     mit Zeitraum (erster–letzter Einsatz), der Rapport 1:1 als Beilage; die Zeilen werden danach abgerechnet. Vorher fragt das Preisfenster.
-  - *Abrechnungsliste*: pro Kunde Art.-Nr., Bezeichnung, Menge, Preis, Betrag (auch als Excel) – nur noch nötig, falls ohne IM-Faktura abgerechnet wird.
-  - **Storniert**: zählt nirgends mehr (Rapport, Abrechnungsliste, Auswertung); sichtbar mit «Stornierte anzeigen».
+  - **Storniert**: zählt nirgends mehr (Rapport, IM-Faktura, Auswertung); sichtbar mit «Stornierte anzeigen».
 - **Stammdaten** – Kunden und Maschinen (Art.-Nr. ab 101, Einheit ha/h, Preis).
   **Kunden kommen aus IM-Faktura** (bei jedem Synchronisieren und mit «⟳ Kunden aus IM-Faktura»): Name, Kd-Nr., Adresse und Status sind hier gesperrt,
   Namensvarianten und Bemerkung bleiben eigen. Kunden «nur hier» (Neukunden aus dem Import) legt IM-Faktura beim ersten Senden an.
@@ -68,4 +67,4 @@ aus `startdaten.json`.
   die letzte Sicherung jeder Datei und Auffälligkeiten bei den Verknüpfungen (z. B. Kunde mit IM-Faktura doppelt verknüpft).
 
 ## Bei Updates
-`config.js` nicht überschreiben. Version in `app.js` (`APP_VERSION`, `APP_STAND`) und `CACHE` in `sw.js` gleich erhöhen.
+`config.js` nicht überschreiben. Der Ordner `gemeinsam/` (gemeinsamer Code `im-basis.js`) gehört dazu und muss mit hochgeladen werden. Version in `app.js` (`APP_VERSION`, `APP_STAND`) und `CACHE` in `sw.js` gleich erhöhen.

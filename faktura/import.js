@@ -1,4 +1,4 @@
-/* IM-Faktura – Import: Abrechnungslisten (IM-Vermietung, IM-Verwaltung, beliebige Excel/CSV), Kunden, Artikel, Zahlungen (camt.054) */
+/* IM-Faktura – Import: Kunden, Artikel, Zahlungen (camt.054) */
 'use strict';
 
 async function readTable(file) { return /\.csv$|\.txt$/i.test(file.name) ? readCsv(await file.text()) : await readXlsx(await file.arrayBuffer()); }
@@ -25,79 +25,12 @@ function mapDialog(title, rows, FIELDS, det, onOk, need) {
 }
 const pick = (r, map, f) => map[f] != null ? r[map[f]] : '';
 
-/* ---------- Abrechnungsliste → Rechnungsentwürfe ---------- */
-const ABR_F = [['kdnr', 'Kunden-Nr.', /^(kd|kunden|kunde)[-\s.]*n(r|o|ummer)\.?$|^kdnr/i], ['kunde', 'Kunde (Name)', /^(kunde|name|mieter|kundenname|auftraggeber)$/i],
-  ['art', 'Art.-Nr.', /^art(ikel)?[-\s.]*(nr|nummer)\.?$|^artikel$/i], ['bez', 'Bezeichnung', /bezeichnung|maschine|arbeit|beschreibung|leistung|text/i],
-  ['menge', 'Menge', /^(menge|anzahl|fläche|flaeche|stunden|ha)\b/i], ['einh', 'Einheit', /^einh/i], ['preis', 'Preis', /^(preis|ansatz|einzelpreis)/i],
-  ['betrag', 'Betrag', /^(betrag|total|summe)/i], ['datum', 'Datum', /^datum/i]];
-async function impAbrFile(file) {
-  let rows; try { rows = await readTable(file); } catch (e) { toast('Datei nicht lesbar: ' + e.message, 6000); return; }
-  if (!rows.length) { toast('Datei ist leer'); return; }
-  const det = detectCols(rows, ABR_F);
-  const go = d => impAbrBuild(rows, d, file.name);
-  if (det.n >= 4 && (det.map.kdnr != null || det.map.kunde != null) && (det.map.betrag != null || det.map.preis != null)) go(det);
-  else mapDialog('Abrechnungsliste', rows, ABR_F, det, go, ['kunde', 'kdnr']);
-}
+/* Abrechnungsliste → Rechnungsentwürfe in v1.36 entfernt (ersetzt durch den Eingang aus IM-Verwaltung/IM-Vermietung). */
 function matchKunde(nr, name) {
   const K = Store.all('kunden'), n = nrKey(nr);
   if (n && /^\d+$/.test(n)) { const k = K.find(x => nrKey(x.nr) === n); if (k) return { k, how: 'nr' }; }
   if (name) { let best = null, bs = 0; K.forEach(x => { const s = Math.max(simil(name, x.name), ...(x.aliases || []).map(a => simil(name, a))); if (s > bs) { bs = s; best = x; } }); if (best && bs >= 0.86) return { k: best, how: bs > 0.99 ? 'name' : 'ähnlich' }; }
   return null;
-}
-function impAbrBuild(rows, { hi, map }, fname) {
-  const items = [];
-  rows.slice(hi + 1).forEach(r => {
-    const kd = String(pick(r, map, 'kdnr') ?? '').trim(), kn = String(pick(r, map, 'kunde') ?? '').trim();
-    if (!kd && !kn) return; if (/^(total|summe)/i.test(kn) || /^(total|summe)/i.test(kd)) return;
-    let menge = num(pick(r, map, 'menge')), preis = num(pick(r, map, 'preis')), betrag = num(pick(r, map, 'betrag'));
-    const art = String(pick(r, map, 'art') ?? '').trim(), a = artByNr(art);
-    let bez = String(pick(r, map, 'bez') ?? '').trim() || a?.bez || '';
-    const einh = String(pick(r, map, 'einh') ?? '').trim() || a?.einheit || '';
-    if (preis == null && betrag != null && menge) preis = r2(betrag / menge);
-    if (menge == null && betrag != null) { menge = 1; preis = preis ?? betrag; }
-    if (preis == null && a && a.preis != null) preis = a.preis;
-    if (!bez && !art) return;
-    const dt = map.datum != null ? excelDate(pick(r, map, 'datum')) : '';
-    if (dt) bez = `${fmtDate(dt)} ${bez}`;
-    items.push({ kd: /^\d+$/.test(nrKey(kd)) ? nrKey(kd) : '', kn, art, bez, menge, einh, preis, mwst: a ? a.mwst ?? Store.cfg().mwstDef : Store.cfg().mwstDef, artNeu: !!art && !a });
-  });
-  if (!items.length) { toast('Keine Positionen gefunden – Spalten prüfen'); return; }
-  const G = new Map();
-  items.forEach(it => { const key = it.kd || fold(it.kn); if (!G.has(key)) G.set(key, { kd: it.kd, kn: it.kn, items: [] }); G.get(key).items.push(it); });
-  const vm = (rows[hi] || []).some(c => /^eins(ä|ae)tze/i.test(String(c || '').trim())) || /abrechnungsliste|vermiet/i.test(fname);
-  App.imp = { fname, vm, miete: vm, betreff: vm ? 'Maschinenmiete' : '',
-    groups: [...G.values()].map(g => { const m = matchKunde(g.kd, g.kn); return Object.assign(g, { kId: m?.k.id || '', how: m?.how || '', sel: true }); }), artNeu: true, kNeu: true, append: false };
-  App.go('import');
-}
-const MIETE_ART = '100';
-const impTotal = g => r2(g.items.reduce((s, i) => s + r2((i.menge ?? 1) * (i.preis || 0)), 0));
-function impAbrCreate() {
-  const I = App.imp, c = Store.cfg(); if (!I) return;
-  const G = I.groups.filter(g => g.sel); if (!G.length) { toast('Keine Kunden ausgewählt'); return; }
-  // fehlende Artikel anlegen
-  if (I.artNeu && !I.miete) {
-    const neu = new Map(); G.forEach(g => g.items.forEach(i => { if (i.art && !artByNr(i.art) && !neu.has(nrKey(i.art))) neu.set(nrKey(i.art), { id: uid(), artNr: i.art, bez: i.bez.replace(/^\d{2}\.\d{2}\.\d{4}\s+/, ''), einheit: i.einh, preis: i.preis, mwst: c.mwstDef, aktiv: true }); }));
-    if (neu.size) Store.putMany('artikel', [...neu.values()], { silent: true });
-  }
-  let nNeuK = 0, nR = 0; const out = [];
-  G.forEach(g => {
-    let k = kunde(g.kId);
-    if (!k) { if (!I.kNeu) return; k = { id: uid(), nr: g.kd || '', name: g.kn || ('Kunde ' + g.kd), aktiv: true, land: 'CH' }; Store.put('kunden', k, { silent: true }); nNeuK++; }
-    let pos, beilage = null;
-    if (I.miete) { // Version A: eine Zeile «100 Maschinenmiete gemäss Rapport», Einzelheiten als Beilage
-      const a = artByNr(MIETE_ART), tot = impTotal(g);
-      pos = [newPos({ art: MIETE_ART, bez: a?.bez || 'Maschinenmiete gemäss Rapport', menge: 1, einh: a?.einheit || '', preis: tot, mwst: a?.mwst ?? 8.1, konto: a?.konto || '3411' })];
-      beilage = { titel: 'Rapport Maschinenmiete', cols: [['Art.-Nr.', '', 'ca'], ['Maschine', ''], ['Menge', 'q', 'cm'], ['Einheit', '', 'ce'], ['Preis', 'chf', 'cp'], ['Betrag CHF', 'chf', 'cb']],
-        rows: g.items.map(i => [i.art, i.bez, i.menge, i.einh, i.preis, r2((i.menge ?? 1) * (i.preis || 0))]), total: tot, quelle: I.fname };
-    } else pos = g.items.map(i => { const a = artByNr(i.art); return newPos({ art: i.art, bez: i.bez, menge: i.menge, einh: i.einh, preis: i.preis, mwst: a?.mwst ?? i.mwst, konto: a?.konto || '' }); });
-    let r = I.append ? Store.all('rechnungen').find(x => x.kunde === k.id && statusOf(x) === 'entwurf') : null;
-    if (r) { r = clone(r); r.pos.push(...pos); } else { r = newRechnung({ kunde: k.id, frist: k.frist ?? c.frist, betreff: I.betreff || '', quelle: I.fname }); r.pos = pos; }
-    if (beilage) addBeilage(r, beilage);
-    out.push(r); nR++;
-  });
-  Store.putMany('rechnungen', out, { silent: true });
-  App.imp = null; App.f.r = Object.assign(App.f.r, { status: 'entwurf' }); App.go('rechnungen');
-  toast(`${nR} Rechnungsentwürfe erstellt${nNeuK ? ` · ${nNeuK} neue Kunden (Adresse ergänzen!)` : ''}`, 5000);
 }
 
 /* ---------- Kunden übernehmen ---------- */

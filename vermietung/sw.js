@@ -1,6 +1,6 @@
 // Service Worker: App offline verfügbar machen (Netz zuerst, sonst Zwischenspeicher)
-const CACHE = 'vermietung-v1.23';
-const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest', 'startdaten.json',
+const CACHE = 'vermietung-v1.24';
+const FILES = ['./', 'index.html', '../gemeinsam/im-basis.js?v=1', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest', 'startdaten.json',
   'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'logo.jpg'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => Promise.all(FILES.map(f => c.add(f).catch(() => null))))); self.skipWaiting(); });
 self.addEventListener('activate', e => {
