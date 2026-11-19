@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken) wie IM-Vermietung: Daten lokal im Browser + Abgleich mit Dropbox (/faktura.json). */
 'use strict';
 
-const APP_VERSION = '1.23', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.24', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/faktura.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'artikel', 'rechnungen', 'einstellungen'];
 const EINHEITEN = ['ha', 'h', 'Stk', 'Pausch.', 'km', 'm³', 't', 'kg', 'l', 'a'];
@@ -240,7 +240,11 @@ function qrData(r, betrag) {
 // Prüfung vor dem Abschliessen
 // Abrechnungsperiode (v1.17): von/bis von Hand, sonst aus den Positionsdaten
 function periode(r) {
-  const ds = (r.pos || []).map(p => p.datum).filter(Boolean).sort();
+  // v1.24: erstes und letztes Datum aller Positionen – Datum, Zeitraum von/bis (Übergabe) und Datumsangaben in der Bemerkung (z. B. «05.02.2026 – 05.08.2026»)
+  const ds = [];
+  (r.pos || []).forEach(p => { [p.datum, p.von, p.bis].forEach(d => { if (/^\d{4}-\d{2}-\d{2}$/.test(d || '')) ds.push(d); });
+    if (!p.von && !p.bis) String(p.bem || '').replace(/\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/g, (m, d, mo, y) => { ds.push(`${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`); return m; }); });
+  ds.sort();
   const von = r.perVon || ds[0] || '', bis = r.perBis || ds[ds.length - 1] || von;
   return von ? { von, bis, auto: !r.perVon && !r.perBis } : null;
 }

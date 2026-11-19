@@ -338,3 +338,5 @@ dialog { max-height: calc(var(--appH, 100dvh) - 24px); }
 .doc .dper { font-size: 9.5pt; margin: -1.5mm 0 3mm; color: #222; }
 .doc .itab .dbeschr { font-size: 8.5pt; color: #333; margin-top: 0.3mm; }
 .postab .pbeschr { margin: 2px 2px 0; line-height: 1.25; }
+
+.input.autoval { color: var(--muted, #6b726c); font-style: italic; }

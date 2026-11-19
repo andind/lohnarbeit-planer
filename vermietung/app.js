@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.21', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.22', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -1382,7 +1382,7 @@ async function fakturaSendVm(G, ov) {
       const k = g.k, now = new Date().toISOString(), id = 'imm-' + (k.id || 'k') + '-' + Date.now().toString(36) + n;
       const T = { v: 1, id, app: 'IM-Vermietung', appVer: APP_VERSION, am: now, betreff: 'Maschinenmiete',
         kunde: { fkId: k.fkId || '', vmId: k.id, nr: k.nr || '', name: k.name || '', strasse: k.strasse || '', zusatz: k.zusatz || '', plz: k.plz || '', ort: k.ort || '', mail: k.mail || '', tel: k.tel || '' },
-        pos: [{ kind: 'miete', art: '100', bez: 'Maschinenmiete gemäss Rapport', bem: zeitraum(L) || '', menge: 1, einh: '', preis: tot }],
+        pos: [{ kind: 'miete', art: '100', bez: 'Maschinenmiete gemäss Rapport', bem: zeitraum(L) || '', ...(() => { const ds = L.map(e => e.datum).filter(Boolean).sort(); return ds.length ? { von: ds[0], bis: ds[ds.length - 1] } : {}; })(), menge: 1, einh: '', preis: tot }],
         beilage: Object.assign(beilageAusdruck('Rapport Maschinenmiete', rapportHtml(k, L, true), 'IM-Vermietung'), { total: tot }), // 1:1 der Rapport mit Preisen
         refs: L.map(e => ({ app: 'imm', id: e.id, nr: '' })) };
       await Drive.writeJson(`/faktura-eingang/${id}.json`, T);

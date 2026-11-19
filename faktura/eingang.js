@@ -85,7 +85,7 @@ const Eingang = {
     if (!p.datum && p.bez) { const x = altPos(p.bez); if (x) p = Object.assign({}, p, x); }
     if (p.kind === 'text') return newPos({ typ: 'text', bez: p.bez || '' });
     const a = p.kind === 'psm' ? artByNr(p.art || E.artPsm) : p.kind === 'miete' ? artByNr(p.art || E.artMiete) : artByNr(p.art);
-    return newPos({ art: p.kind === 'psm' ? (p.art || E.artPsm || '') : (p.art || (p.kind === 'miete' ? E.artMiete : '')), bez: a?.bez || p.bez || '', bem: p.bem || '', datum: p.datum || '', menge: p.menge ?? 1, einh: p.einh || a?.einheit || '', preis: p.preis ?? a?.preis ?? null,
+    return newPos({ art: p.kind === 'psm' ? (p.art || E.artPsm || '') : (p.art || (p.kind === 'miete' ? E.artMiete : '')), bez: a?.bez || p.bez || '', bem: p.bem || '', datum: p.datum || '', ...(p.von ? { von: p.von } : {}), ...(p.bis ? { bis: p.bis } : {}), menge: p.menge ?? 1, einh: p.einh || a?.einheit || '', preis: p.preis ?? a?.preis ?? null,
       mwst: p.mwst ?? a?.mwst ?? (p.kind === 'arbeit' ? +E.mwstArbeit : c.mwstDef), konto: p.konto || a?.konto || '', grp: p.grp || '', kind: p.kind || '' });
   },
   apply(T) {

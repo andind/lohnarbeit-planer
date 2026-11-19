@@ -93,8 +93,9 @@ function rechnungDialog(id, { keep = false } = {}) {
       <label class="fld"><span>Datum</span><input class="input" type="date" data-in="ed" data-k="datum" value="${esc(r.datum)}"></label>
       <label class="fld"><span>Zahlungsfrist (Tage)</span><input class="input" type="number" min="0" data-in="ed" data-k="frist" value="${esc(r.frist ?? c.frist)}"></label>
       <label class="fld"><span>Titel</span><input class="input" data-in="ed" data-k="titel" value="${esc(r.titel)}"></label>
-      ${(() => { const pe = periode(r) || {}; return `<label class="fld"><span>Abrechnungsperiode von</span><input class="input" type="date" data-in="ed" data-k="perVon" value="${esc(r.perVon || '')}" title="${pe.auto ? 'leer = aus den Positionsdaten: ' + fmtDate(pe.von) : ''}"></label>
-        <label class="fld"><span>bis ${pe.auto ? `<span class="muted small">(automatisch ${fmtDate(pe.von)} – ${fmtDate(pe.bis)})</span>` : ''}</span><input class="input" type="date" data-in="ed" data-k="perBis" value="${esc(r.perBis || '')}"></label>`; })()}
+      ${(() => { const pe = periode(r) || {}, aV = !r.perVon && pe.von, aB = !r.perBis && pe.bis; // v1.24: Vorgabe = erstes/letztes Datum der Positionen, angezeigt im Feld
+        return `<label class="fld"><span>Abrechnungsperiode von ${aV || aB ? '<span class="muted small">(aus den Positionen)</span>' : ''}</span><input class="input${aV ? ' autoval' : ''}" type="date" data-in="ed" data-k="perVon" value="${esc(r.perVon || pe.von || '')}" title="Vorgabe: erstes Datum der Positionen – eigenes Datum eintragen zum Ändern"></label>
+        <label class="fld"><span>bis</span><input class="input${aB ? ' autoval' : ''}" type="date" data-in="ed" data-k="perBis" value="${esc(r.perBis || pe.bis || '')}" title="Vorgabe: letztes Datum der Positionen – eigenes Datum eintragen zum Ändern"></label>`; })()}
       <label class="fld wide2"><span>Betreff (intern – wird nicht gedruckt)</span><input class="input" data-in="ed" data-k="betreff" value="${esc(r.betreff || '')}" placeholder="z. B. IM-Verwaltung, IM-Vermietung, Maschinenmiete 2026"></label>
     </div>
     <details class="help" ${r.textOben ? 'open' : ''}><summary>Text über den Positionen</summary><textarea class="input" data-in="ed" data-k="textOben" rows="2">${esc(r.textOben || '')}</textarea></details>

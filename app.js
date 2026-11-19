@@ -2105,10 +2105,11 @@ const faktErr = e => toast('Senden an IM-Faktura fehlgeschlagen: ' + (e && e.mes
 
 /* ---------- Spritzen › Abrechnung: pro Kunde, zusammengefasst ---------- */
 function fakturaSpritzT(b, von, bis, L) {
-  const T = fakturaT(b.k, 'Spritzarbeiten'), zr = `${fmtDate(von, { day: '2-digit', month: '2-digit', year: 'numeric' })} – ${fmtDate(bis, { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
-  const bb = billingFor(b.k, L.map(r => ({ a: r.a, fl: r.fl }))), m0 = L[0] ? fakturaMasch(L[0].a, { arbeit: L[0].a.arbeit }) : {};
+  const T = fakturaT(b.k, 'Spritzarbeiten'), bb = billingFor(b.k, L.map(r => ({ a: r.a, fl: r.fl }))), [d1, d2] = billSpan(bb); // v156: tatsächliches erstes/letztes Spritzdatum statt Filterzeitraum
+  const f2 = d => fmtDate(d, { day: '2-digit', month: '2-digit', year: 'numeric' }), zr = d1 === d2 ? f2(d1) : `${f2(d1)} – ${f2(d2)}`;
+  const m0 = L[0] ? fakturaMasch(L[0].a, { arbeit: L[0].a.arbeit }) : {};
   const ha = r2(bb.rows.reduce((s, r) => s + r.fl, 0)), genau = round05(ha * bb.preisHa) === round05(bb.tA); // sonst Betrag wie in der Abrechnung (Rundung je Auftrag)
-  T.pos.push({ kind: 'arbeit', art: m0.artNr || '', bez: 'Spritzarbeiten', bem: `${zr} gemäss Abrechnung (Beilage)${genau ? '' : ` – ${fmtNum(ha)} ha`}`, grp: 'Spritzarbeiten', menge: genau ? ha : 1, einh: genau ? 'ha' : '', preis: genau ? (bb.preisHa || null) : r2(bb.tA) });
+  T.pos.push({ kind: 'arbeit', art: m0.artNr || '', bez: 'Spritzarbeiten', von: d1, bis: d2, bem: `${zr} gemäss Abrechnung (Beilage)${genau ? '' : ` – ${fmtNum(ha)} ha`}`, grp: 'Spritzarbeiten', menge: genau ? ha : 1, einh: genau ? 'ha' : '', preis: genau ? (bb.preisHa || null) : r2(bb.tA) });
   const P = fakturaPsTeil(bb, von, bis); T.pos.push(...P.pos); T.beilage = P.beilage;
   T.refs = L.map(r => ({ app: 'imv', id: r.a.id, nr: r.a.nr || '' }));
   return T;
