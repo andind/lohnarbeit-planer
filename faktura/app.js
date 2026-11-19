@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken) wie IM-Vermietung: Daten lokal im Browser + Abgleich mit Dropbox (/faktura.json). */
 'use strict';
 
-const APP_VERSION = '1.26', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.27', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/faktura.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'artikel', 'rechnungen', 'einstellungen'];
 const EINHEITEN = ['ha', 'h', 'Stk', 'Pausch.', 'km', 'm³', 't', 'kg', 'l', 'a'];
@@ -202,6 +202,9 @@ function calc(r) {
   const roh = r2(netto + mwst), total = r.runden5 === false ? roh : round5(roh);
   return { rows, groups, netto, mwst, roh, rund: r2(total - roh), total };
 }
+// v1.27: Rabatt einer Position als Frankenbetrag (negativ) und Betrag vor Rabatt
+const posRabCHF = p => p.rabatt ? -r2((p.menge ?? 1) * (p.preis || 0) * (+p.rabatt || 0) / 100) : 0;
+const posBrutto = p => r2((p.menge ?? 1) * (p.preis || 0));
 // v1.26: Zusatzleistungen (p.zu = ID der Hauptposition) stehen direkt hinter ihrer Hauptposition
 function posOrdnen(r) {
   const P = r.pos || [], ids = new Set(P.map(p => p.id)), top = P.filter(p => !(p.zu && ids.has(p.zu) && p.zu !== p.id));

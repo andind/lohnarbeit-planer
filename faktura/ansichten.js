@@ -116,7 +116,7 @@ function edPaper(r) {
     return `<tr class="edrow${S.has(p.id) ? ' psel' : ''}${p.zu ? ' esub' : ''}" data-act="edPos" data-i="${i}">
       <td class="cs"><input type="checkbox" data-act="edSel" data-id="${p.id}" ${S.has(p.id) ? 'checked' : ''} title="ankreuzen – z. B. für Zusatzposten oder Teil-Abschluss"></td>
       <td class="ecd">${p.datum ? fmtDate(p.datum) : ''}</td>
-      <td><div class="ebez">${esc(p.bez || '').replace(/\n/g, '<br>') || '<span class="edempty">(ohne Bezeichnung)</span>'}${ohneArt ? ' <span class="chip warn small" title="Kein Artikel gewählt">ohne Art.-Nr.</span>' : ` <span class="eart">${esc(p.art)}</span>`}</div>${b ? `<div class="ebeschr">${esc(b).replace(/\n/g, '<br>')}</div>` : ''}${p.bem ? `<div class="ebem">${esc(p.bem).replace(/\n/g, '<br>')}</div>` : ''}${p.rabatt ? `<div class="erabp">Rabatt ${fmtNum(+p.rabatt)} %</div>` : ''}</td>
+      <td><div class="ebez">${esc(p.bez || '').replace(/\n/g, '<br>') || '<span class="edempty">(ohne Bezeichnung)</span>'}${ohneArt ? ' <span class="chip warn small" title="Kein Artikel gewählt">ohne Art.-Nr.</span>' : ` <span class="eart">${esc(p.art)}</span>`}</div>${b ? `<div class="ebeschr">${esc(b).replace(/\n/g, '<br>')}</div>` : ''}${p.bem ? `<div class="ebem">${esc(p.bem).replace(/\n/g, '<br>')}</div>` : ''}${p.rabatt ? `<div class="erabp">Rabatt ${fmtNum(+p.rabatt)} % auf CHF ${chf(posBrutto(p))}: ${chf(posRabCHF(p))}</div>` : ''}</td>
       <td class="n nowrap">${p.menge != null && p.menge !== '' ? qtyTxt(p.menge) : ''} ${esc(p.einh || '')}</td>
       <td class="n nowrap">${p.preis != null && p.preis !== '' ? chf(p.preis) : '<span class="edempty">–</span>'}</td>
       <td class="n nowrap emw">${p.mwst != null ? mwstTxt(p.mwst) : ''}</td>
@@ -199,7 +199,7 @@ function posDialog(i, { neu = false } = {}) {
       <label class="fld"><span>MWST</span><select class="input" name="mwst">${mwstOpts(p.mwst)}</select></label></div>
     <div class="two"><label class="fld"><span>Rabatt % <span class="muted small">(nur diese Position)</span></span><input class="input n" name="rabatt" inputmode="decimal" value="${p.rabatt || ''}" placeholder="0"></label>
       <label class="fld"><span>Zusatz zu <span class="muted small">(z. B. Strohhäckseln, Saatgut zum Auftrag)</span></span><select class="input" name="zu"><option value="">– eigene Position –</option>${r.pos.filter(q => q !== p && (q.typ || 'pos') === 'pos' && !q.zu).map(q => `<option value="${q.id}" ${p.zu === q.id ? 'selected' : ''}>${esc([q.datum ? fmtDate(q.datum) : '', String(q.bez || '').split('\n')[0], q.bem].filter(Boolean).join(' · ').slice(0, 80))}</option>`).join('')}</select></label></div>
-    <div class="pdbetrag">Betrag: <b id="pdBetrag">CHF ${chf(calc({ pos: [p] }).rows[0].betrag)}</b></div>`,
+    <div class="pdbetrag">Betrag: <b id="pdBetrag">CHF ${chf(calc({ pos: [p] }).rows[0].betrag)}${p.rabatt ? ` (Rabatt ${chf(posRabCHF(p))})` : ''}</b></div>`,
     `${neu ? '' : '<button class="btn danger" value="del" formnovalidate>✕ Position löschen</button>'}<button class="btn" value="back" formnovalidate>Abbrechen</button><span class="spacer"></span><button class="btn primary" value="ok">✓ Übernehmen</button>`, { onSubmit: async (fd, btn) => {
       if (btn === 'back') { back(); return false; }
       if (btn === 'del') {
@@ -213,7 +213,7 @@ function posDialog(i, { neu = false } = {}) {
       rechnungDialog(null, { keep: true }); return false; } });
   App.dlgBack = back;
   const F = $('#dlgForm'), f = n => F.querySelector(`[name=${n}]`);
-  const upd = () => { const q = { menge: num(f('menge').value), preis: num(f('preis').value), mwst: num(f('mwst').value), rabatt: num(f('rabatt').value) || 0 }; $('#pdBetrag').textContent = 'CHF ' + chf(calc({ inkl: r.inkl, pos: [q] }).rows[0].betrag); };
+  const upd = () => { const q = { menge: num(f('menge').value), preis: num(f('preis').value), mwst: num(f('mwst').value), rabatt: num(f('rabatt').value) || 0 }; $('#pdBetrag').textContent = 'CHF ' + chf(calc({ inkl: r.inkl, pos: [q] }).rows[0].betrag) + (q.rabatt ? ` (Rabatt ${chf(posRabCHF(q))})` : ''); };
   ['menge', 'preis', 'mwst', 'rabatt'].forEach(n => f(n).addEventListener('input', upd));
   f('art').addEventListener('change', async () => { const a = artByNr(f('art').value.trim()); if (!a) return;
     if (!f('bez').value.trim() || f('bez').value === p.bez && p._auto || await frage(`Bezeichnung durch den Titel des Artikels ersetzen?\n\n«${f('bez').value}» → «${a.bez}»`)) f('bez').value = a.bez;
