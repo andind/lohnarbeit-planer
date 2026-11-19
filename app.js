@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '141', APP_STAND = '19.11.2026';
+const APP_VERSION = '142', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -2093,22 +2093,29 @@ function fakturaAbrT(k, rows) {
   T.refs = rows.map(r => ({ app: 'imv', id: r.oid || '', jd: r.jid || '', nr: r.nr || '' }));
   return T;
 }
-async function fakturaAbrSend() {
-  const S = App.abrSel || new Set(), rows = abList().filter(r => S.has(r.id)); if (!rows.length) return;
+async function fakturaAbrSend(einzeln) { // einzeln (v142): ein Eintrag aus dem Fenster «Abrechnung – Eintrag» / «Arbeitsgang»
+  const S = App.abrSel || new Set(), rows = einzeln ? [einzeln] : abList().filter(r => S.has(r.id)); if (!rows.length) return false;
   const noK = rows.filter(r => !r.kid);
-  if (noK.length) { toast(`${noK.length} ${noK.length === 1 ? 'Eintrag hat' : 'Einträge haben'} keinen Kunden aus den Stammdaten («${noK[0].kunde || '–'}») – zuerst mit «✎ Kunde / Feld / Kultur ändern» zuordnen.`, 6000); return; }
+  if (noK.length) { toast(`${noK.length} ${noK.length === 1 ? 'Eintrag hat' : 'Einträge haben'} keinen Kunden aus den Stammdaten («${noK[0].kunde || '–'}») – zuerst mit «✎ Kunde / Feld / Kultur ändern» zuordnen.`, 6000); return false; }
   const G = groupBy(rows, r => r.kid), Ts = G.map(([kid, l]) => fakturaAbrT(Store.get('kunden', kid) || { id: kid }, l));
   const fehlt = Ts.reduce((s, T) => s + T.pos.filter(p => p.menge == null || p.preis == null).length, 0);
   const abr = rows.filter(r => r.abr).length, dop = rows.filter(r => (r.oid && (Store.get('auftraege', r.oid) || {}).fakt) || (r.jid && (jdbAbr(r.jid) || {}).fakt)).length;
   if (!confirm(`${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'} von ${G.length} ${G.length === 1 ? 'Kunde' : 'Kunden'} an IM-Faktura senden?\n\nJe Eintrag eine Position (in IM-Faktura mit Σ zusammenfassbar). Danach als abgerechnet markiert.`
     + (dop ? `\n\n⚠ ${dop} davon wurden schon einmal gesendet.` : abr ? `\n\n⚠ ${abr} davon sind schon als abgerechnet markiert.` : '')
-    + (fehlt ? `\n\n⚠ Bei ${fehlt} ${fehlt === 1 ? 'Position fehlt' : 'Positionen fehlen'} Menge oder Preis (Maschine › Ansatz) – in IM-Faktura ergänzen.` : ''))) return;
+    + (fehlt ? `\n\n⚠ Bei ${fehlt} ${fehlt === 1 ? 'Position fehlt' : 'Positionen fehlen'} Menge oder Preis (Maschine › Ansatz) – in IM-Faktura ergänzen.` : ''))) return false;
   try {
-    if (!await fakturaWrite(Ts)) return;
+    if (!await fakturaWrite(Ts)) return false;
     G.forEach(([, l], i) => fakturaMark(l.map(r => r.oid).filter(Boolean), l.map(r => r.jid).filter(Boolean), Ts[i]));
-    S.clear(); toast(`📤 ${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'} an IM-Faktura gesendet (${G.length} ${G.length === 1 ? 'Kunde' : 'Kunden'})`, 4000); App.render();
-  } catch (e) { faktErr(e); }
+    if (!einzeln) S.clear(); toast(`📤 ${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'} an IM-Faktura gesendet (${G.length} ${G.length === 1 ? 'Kunde' : 'Kunden'})`, 4000); App.render();
+    return true;
+  } catch (e) { faktErr(e); return false; }
 }
+// v142: einzelner Eintrag aus dem Detailfenster (Abrechnung › Eintrag oder Bericht › Arbeitsgang)
+async function fakturaEinzeln(abId) {
+  const r = abRows().find(x => abId.startsWith('jid:') ? x.jid === abId.slice(4) : x.id === abId); if (!r) { toast('Eintrag nicht gefunden'); return; }
+  if (await fakturaAbrSend(r)) Dlg.close();
+}
+const FAKT_BTN = id => `<button type="button" class="btn" data-ab="faktOne" data-id="${esc(id)}" title="Diesen Eintrag an IM-Faktura übergeben (erscheint dort in den Entwürfen des Kunden), danach als abgerechnet markiert">📤 An IM-Faktura</button>`;
 /* ================= Modul Spritzen ================= */
 const PROD_EINHEITEN = ['l', 'kg', 'g', 'ml', 'Stk'];
 const isSprayName = s => /spritz|pflanzenschutz/i.test(s || '');
@@ -4270,7 +4277,7 @@ function jdbDetail(id) {
     <p class="nr" style="margin-top:12px">Quelle: MyJohnDeere · ID ${esc(r.id)}</p>`;
   const ab = jdbAbr(r.id);
   setTimeout(() => { const b = $('#dlg .bedgrz'); if (b) bedGrzFill(b); }, 0);
-  Dlg.open('Arbeitsgang', body.replace('<table class="btab kv">', `${r.korr ? '<p class="korrhint">✎ Von Hand korrigiert (gilt nur in der IM-Verwaltung).</p>' : ''}<div class="btns" style="margin:0 0 8px"><button type="button" class="btn small" data-act="jbKorr" data-id="${esc(r.id)}" title="Kunde, Feld oder Kultur ändern, wenn MyJohnDeere den Arbeitsgang falsch zugeordnet hat">✎ Kunde / Feld / Kultur ändern</button></div><table class="btab kv">`), `${ab ? `<span class="badge verrechnet">✓ abgerechnet ${fmtDate(ab.am, { day: '2-digit', month: '2-digit', year: 'numeric' })}</span><button type="button" class="btn" data-act="jbMarkOne" data-id="${esc(r.id)}" data-v="0">Wieder offen</button>` : `<button type="button" class="btn primary" data-act="jbMarkOne" data-id="${esc(r.id)}" data-v="1">✓ Als abgerechnet markieren</button>`}<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
+  Dlg.open('Arbeitsgang', body.replace('<table class="btab kv">', `${r.korr ? '<p class="korrhint">✎ Von Hand korrigiert (gilt nur in der IM-Verwaltung).</p>' : ''}<div class="btns" style="margin:0 0 8px"><button type="button" class="btn small" data-act="jbKorr" data-id="${esc(r.id)}" title="Kunde, Feld oder Kultur ändern, wenn MyJohnDeere den Arbeitsgang falsch zugeordnet hat">✎ Kunde / Feld / Kultur ändern</button></div><table class="btab kv">`), `${ab ? `<span class="badge verrechnet">✓ abgerechnet ${fmtDate(ab.am, { day: '2-digit', month: '2-digit', year: 'numeric' })}</span><button type="button" class="btn" data-act="jbMarkOne" data-id="${esc(r.id)}" data-v="0">Wieder offen</button>` : `<button type="button" class="btn primary" data-act="jbMarkOne" data-id="${esc(r.id)}" data-v="1">✓ Als abgerechnet markieren</button>${FAKT_BTN('jid:' + r.id)}`}<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
 }
 /* Virtuelle Feldgrenzen aus den Bedeckungskarten: eigene Datei jd-grenzen.json (NAS-Dienst ab v53), erst bei Bedarf geladen */
 let bedGrzCache = null;
@@ -4685,7 +4692,7 @@ function abDetail(id) {
     <h4 style="margin:14px 0 6px">Vermessungen des Feldes${feLbl ? ` «${esc(feLbl)}»` : ''}</h4>${grenzenHtml(fe)}
     ${o && j ? `<p class="nr" style="margin-top:10px">${o.jdLink ? 'Von Hand verknüpft.' : 'Automatisch verbunden (Kunde, Datum, Arbeit, Feld).'} <a href="#" data-ab="unlink" data-id="${esc(r.id)}">Verknüpfung lösen</a></p>` : ''}`;
   setTimeout(() => { const b = $('#dlg .bedgrz'); if (b) bedGrzFill(b); }, 0);
-  Dlg.open('Abrechnung – Eintrag', body, `${r.abr ? `<span class="badge verrechnet">✓ abgerechnet${r.am ? ' ' + abD(r.am) : ''}</span><button type="button" class="btn" data-ab="markOne" data-id="${esc(r.id)}" data-v="0">Wieder offen</button>` : `<button type="button" class="btn primary" data-ab="markOne" data-id="${esc(r.id)}" data-v="1">✓ Als abgerechnet markieren</button>`}<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
+  Dlg.open('Abrechnung – Eintrag', body, `${r.abr ? `<span class="badge verrechnet">✓ abgerechnet${r.am ? ' ' + abD(r.am) : ''}</span><button type="button" class="btn" data-ab="markOne" data-id="${esc(r.id)}" data-v="0">Wieder offen</button>` : `<button type="button" class="btn primary" data-ab="markOne" data-id="${esc(r.id)}" data-v="1">✓ Als abgerechnet markieren</button>${FAKT_BTN(r.id)}`}<span class="spacer"></span><button type="button" class="btn" data-act="close">Schliessen</button>`, () => true);
 }
 function abLinkPick(id) {
   const r = abRows().find(x => x.id === id); if (!r) return;
@@ -4811,6 +4818,7 @@ document.addEventListener('click', e => {
     case 'more': A.limit = (A.limit || 300) + 300; App.render(); break;
     case 'mark': abMarkSel(t.dataset.v === '1'); break;
     case 'fakt': fakturaAbrSend(); break;
+    case 'faktOne': fakturaEinzeln(id); break;
     case 'markOne': { const r = abRows().find(x => x.id === id); if (!r) break; const on = t.dataset.v === '1'; abMark([r], on); toast(on ? 'Als abgerechnet markiert' : 'Wieder offen'); abDetail(id); break; }
     case 'selAllList': abList().forEach(r => S.add(r.id)); App.render(); break;
     case 'selNone': S.clear(); App.render(); break;
