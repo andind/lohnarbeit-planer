@@ -23,6 +23,7 @@ const App = {
   }
 };
 function openDlg(title, body, foot, { wide = false, onSubmit = null } = {}) {
+  App.dlgBack = null; // v1.25: Unterfenster (Position/Kopf) setzen danach eine Rückkehr zur Rechnung für × und Esc
   const d = $('#dlg'); d.classList.toggle('wide', wide);
   $('#dlgForm').innerHTML = `<div class="dh"><h2>${esc(title)}</h2><button type="button" class="x" data-act="dlgClose" aria-label="Schliessen">×</button></div><div class="db">${body}</div><div class="df">${foot}</div>`;
   $('#dlgForm').onsubmit = async ev => { if (!onSubmit) return; ev.preventDefault(); let res = onSubmit(new FormData($('#dlgForm')), ev.submitter?.value); if (res && typeof res.then === 'function') res = await res; if (res !== false) closeDlg(); };
@@ -87,39 +88,9 @@ function rechnungDialog(id, { keep = false } = {}) {
   const body = `${fix && s !== 'storniert' ? `<div class="box small">Abgeschlossen am ${fmtDate((r.abgeschlossen || '').slice(0, 10))} · ${stChip(r)} · Referenz ${esc(r.ref ? SwissQR.fmtRef(r.ref) : '–')}<br>Änderungen an einer verschickten Rechnung nur, wenn sie nochmals gedruckt und neu verschickt wird.</div>` : ''}
     ${s === 'storniert' ? '<div class="box warn">Diese Rechnung ist storniert.</div>' : ''}
     ${!fix && r.nrRes ? `<div class="box small">Zurückgenommene Rechnung – die Nummer <b>${esc(r.nrRes)}</b> bleibt reserviert und wird beim erneuten Abschliessen wieder verwendet (gleiche QR-Referenz). Die korrigierte Rechnung dem Kunden neu schicken.</div>` : ''}
-    <div class="edgrid">
-      <label class="fld"><span>Kunde</span><div class="row"><select class="input" data-in="ed" data-k="kunde" autofocus>${optList(kundenSorted().filter(x => x.aktiv !== false || x.id === r.kunde).map(x => [x.id, kLabel(x)]), r.kunde, '– Kunde wählen –')}</select><button type="button" class="btn" data-act="edNewK" title="Neuer Kunde">＋</button></div>
-        ${k && !kAdrOk(k) ? `<div class="hint warn">Adresse unvollständig – <a href="#" data-act="edEditK">ergänzen</a></div>` : k ? `<div class="hint">${esc([[k.strasse, k.hausnr].filter(Boolean).join(' '), [k.plz, k.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))} · <a href="#" data-act="edEditK">bearbeiten</a></div>` : ''}</label>
-      <label class="fld"><span>Datum</span><input class="input" type="date" data-in="ed" data-k="datum" value="${esc(r.datum)}"></label>
-      <label class="fld"><span>Zahlungsfrist (Tage)</span><input class="input" type="number" min="0" data-in="ed" data-k="frist" value="${esc(r.frist ?? c.frist)}"></label>
-      <label class="fld"><span>Titel</span><input class="input" data-in="ed" data-k="titel" value="${esc(r.titel)}"></label>
-      ${(() => { const pe = periode(r) || {}, aV = !r.perVon && pe.von, aB = !r.perBis && pe.bis; // v1.24: Vorgabe = erstes/letztes Datum der Positionen, angezeigt im Feld
-        return `<label class="fld"><span>Abrechnungsperiode von ${aV || aB ? '<span class="muted small">(aus den Positionen)</span>' : ''}</span><input class="input${aV ? ' autoval' : ''}" type="date" data-in="ed" data-k="perVon" value="${esc(r.perVon || pe.von || '')}" title="Vorgabe: erstes Datum der Positionen – eigenes Datum eintragen zum Ändern"></label>
-        <label class="fld"><span>bis</span><input class="input${aB ? ' autoval' : ''}" type="date" data-in="ed" data-k="perBis" value="${esc(r.perBis || pe.bis || '')}" title="Vorgabe: letztes Datum der Positionen – eigenes Datum eintragen zum Ändern"></label>`; })()}
-      <label class="fld wide2"><span>Betreff (intern – wird nicht gedruckt)</span><input class="input" data-in="ed" data-k="betreff" value="${esc(r.betreff || '')}" placeholder="z. B. IM-Verwaltung, IM-Vermietung, Maschinenmiete 2026"></label>
-    </div>
-    <details class="help" ${r.textOben ? 'open' : ''}><summary>Text über den Positionen</summary><textarea class="input" data-in="ed" data-k="textOben" rows="2">${esc(r.textOben || '')}</textarea></details>
-    <datalist id="artList">${artSorted().filter(a => a.aktiv !== false).map(a => `<option value="${esc(a.artNr)}">${esc(a.bez)}${a.preis != null ? ' · ' + chf(a.preis) + '/' + esc(a.einheit || '') : ''}</option>`).join('')}</datalist>
-    <div class="dscroll postab"><table class="dtab"><thead><tr><th class="cs" title="Positionen auswählen – z. B. für einen Zusatzposten"></th><th style="width:128px">Datum</th><th style="width:84px">Art.-Nr.</th><th>Bezeichnung / Bemerkung</th><th class="n" style="width:84px">Menge</th><th style="width:80px">Einh.</th><th class="n" style="width:96px">Preis</th><th style="width:84px">MWST</th><th class="n" style="width:96px">Betrag</th><th style="width:72px"></th></tr></thead><tbody>
-    ${r.pos.map((p, i) => (p.typ || 'pos') !== 'pos'
-      ? `<tr><td></td><td></td><td class="small muted">${p.typ === 'titel' ? 'Titel' : 'Text'}</td><td colspan="6"><textarea class="input" rows="1" data-in="edp" data-i="${i}" data-f="bez">${esc(p.bez)}</textarea></td><td class="nowrap">${posBtns(i)}</td></tr>`
-      : `<tr class="${(App.edSel || new Set()).has(p.id) ? 'psel' : ''}"><td class="cs"><input type="checkbox" data-act="edSel" data-id="${p.id}" ${(App.edSel || new Set()).has(p.id) ? 'checked' : ''}></td>
-        <td><input class="input" type="date" data-in="edp" data-i="${i}" data-f="datum" value="${esc(p.datum || '')}" title="Auftragsdatum – leer bei Zusatzpositionen"></td>
-        <td><input class="input" list="artList" data-in="edp" data-i="${i}" data-f="art" value="${esc(p.art || '')}"></td>
-        <td><textarea class="input" rows="1" data-in="edp" data-i="${i}" data-f="bez">${esc(p.bez)}</textarea>${posBeschr(p, r) ? `<div class="small muted pbeschr" title="Beschreibung aus dem Artikel">${esc(posBeschr(p, r)).replace(/\n/g, '<br>')}</div>` : ''}<input class="input pbem" data-in="edp" data-i="${i}" data-f="bem" value="${esc(p.bem || '')}" placeholder="Bemerkung (z. B. Kultur)"></td>
-        <td><input class="input n" inputmode="decimal" data-in="edp" data-i="${i}" data-f="menge" value="${p.menge ?? ''}"></td>
-        <td><input class="input" list="einhList" data-in="edp" data-i="${i}" data-f="einh" value="${esc(p.einh || '')}"></td>
-        <td><input class="input n" inputmode="decimal" data-in="edp" data-i="${i}" data-f="preis" value="${p.preis ?? ''}"></td>
-        <td><select class="input" data-in="edp" data-i="${i}" data-f="mwst">${mwstOpts(p.mwst)}</select></td>
-        <td class="n" id="pb${i}">${chf(calc({ pos: [p] }).rows[0].betrag)}</td><td class="nowrap">${posBtns(i)}</td></tr>`).join('')}
-    </tbody></table></div>
-    <datalist id="einhList">${EINHEITEN.map(e => `<option value="${e}">`).join('')}</datalist>
-    <div class="btns"><button type="button" class="btn small" data-act="edAdd" data-t="pos">＋ Position</button><button type="button" class="btn small" data-act="edAdd" data-t="text">＋ Textzeile</button><button type="button" class="btn small" data-act="edAdd" data-t="titel">＋ Zwischentitel</button><button type="button" class="btn small" data-act="edZus" title="Zusatzposten (z. B. Dieselzuschlag) für die angekreuzten Positionen – Menge = Summe der Positionen">＋ Zusatzposten${(App.edSel || new Set()).size ? ` (${App.edSel.size} ausgewählt)` : ''}</button><button type="button" class="btn small" data-act="edSum" title="Gleiche Positionen (gleiche Arbeit/Produkt, Preis, Einheit, MWST) zu einer Zeile zusammenfassen">Σ Zusammenfassen</button>
-      <label class="tog" style="margin-left:auto"><input type="checkbox" data-in="edInkl" ${r.inkl ? 'checked' : ''}> Preise inkl. MWST</label></div>
-    <div id="edTot" class="edtot">${edTotHtml(r)}</div>
+    ${edPaper(r)}
     ${beilagenOf(r).map((b, i) => `<div class="box small">📎 Beilage «${esc(b.titel)}»${b.html ? ` (Ausdruck aus ${esc(b.app || 'dem Absender-Programm')})` : ` mit ${b.rows.length} Zeilen`}${b.total != null ? ` (CHF ${chf(b.total)})` : ''} wird hinter der Rechnung gedruckt. <a href="#" data-act="edBeilDel" data-i="${i}">entfernen</a></div>`).join('')}
     ${(r.quellen || []).length ? `<div class="small muted" style="margin:-6px 0 10px">Herkunft: ${(r.quellen || []).map(q => `${esc(q.app)} ${fmtDate((q.am || '').slice(0, 10))}${(q.refs || []).length ? ' (' + q.refs.map(x => x.nr ? (q.app === 'IM-Verwaltung' ? 'Auftrag ' : '') + x.nr : '').filter(Boolean).join(', ') + ')' : ''}`).join(' · ')}</div>` : ''}
-    <label class="fld"><span>Text unter den Positionen</span><textarea class="input" data-in="ed" data-k="textUnten" rows="2">${esc(r.textUnten || '')}</textarea></label>
     ${fix ? zahlMahnInfo(r) : ''}`;
   const isNew = !Store.get('rechnungen', r.id);
   const foot = s === 'storniert'
@@ -130,6 +101,102 @@ function rechnungDialog(id, { keep = false } = {}) {
       ${fix ? '<button class="btn primary" value="print">🖨 Speichern & drucken</button>' : `${(App.edSel || new Set()).size && (App.edSel.size < r.pos.filter(p => (p.typ || 'pos') === 'pos').length) ? `<button class="btn" value="part" title="Nur die angekreuzten Positionen als Rechnung abschliessen – die übrigen bleiben im Entwurf">✓ Nur ${App.edSel.size} markierte abschliessen & drucken</button>` : ''}<button class="btn primary" value="final">✓ Abschliessen & drucken</button>`}`;
   openDlg(title, body, foot, { wide: true, onSubmit: (fd, btn) => edSubmit(btn) });
   autoGrow();
+}
+// v1.25: Rechnungsfenster wie die Vorschau (Papieransicht) – Kopf, Positionen und Texte anklicken öffnet ein Bearbeitungsfenster
+function edPaper(r) {
+  const c = Store.cfg(), k = kunde(r.kunde), S = App.edSel || new Set(), cc = calc(r), pe = periode(r);
+  const titel = r.nr ? `${r.titel || 'Rechnung'} Nr. ${r.nr}` : `${r.titel || 'Rechnung'}${r.nrRes ? ' Nr. ' + r.nrRes : ''}`;
+  const rows = r.pos.map((p, i) => {
+    const btns = `<td class="eact nowrap">${posBtns(i)}</td>`;
+    if ((p.typ || 'pos') !== 'pos') return `<tr class="edrow ${p.typ === 'titel' ? 'ettl' : 'etxt'}" data-act="edPos" data-i="${i}"><td class="cs"></td><td></td><td colspan="4">${esc(p.bez || '').replace(/\n/g, '<br>') || `<span class="edempty">(leere ${p.typ === 'titel' ? 'Zwischentitel' : 'Textzeile'} – antippen zum Schreiben)</span>`}</td>${btns}</tr>`;
+    const b = posBeschr(p, r), betrag = cc.rows[i] ? cc.rows[i].betrag : calc({ pos: [p] }).rows[0].betrag, ohneArt = !p.art;
+    return `<tr class="edrow${S.has(p.id) ? ' psel' : ''}" data-act="edPos" data-i="${i}">
+      <td class="cs"><input type="checkbox" data-act="edSel" data-id="${p.id}" ${S.has(p.id) ? 'checked' : ''} title="ankreuzen – z. B. für Zusatzposten oder Teil-Abschluss"></td>
+      <td class="ecd">${p.datum ? fmtDate(p.datum) : ''}</td>
+      <td><div class="ebez">${esc(p.bez || '').replace(/\n/g, '<br>') || '<span class="edempty">(ohne Bezeichnung)</span>'}${ohneArt ? ' <span class="chip warn small" title="Kein Artikel gewählt">ohne Art.-Nr.</span>' : ` <span class="eart">${esc(p.art)}</span>`}</div>${b ? `<div class="ebeschr">${esc(b).replace(/\n/g, '<br>')}</div>` : ''}${p.bem ? `<div class="ebem">${esc(p.bem).replace(/\n/g, '<br>')}</div>` : ''}</td>
+      <td class="n nowrap">${p.menge != null && p.menge !== '' ? qtyTxt(p.menge) : ''} ${esc(p.einh || '')}</td>
+      <td class="n nowrap">${p.preis != null && p.preis !== '' ? chf(p.preis) : '<span class="edempty">–</span>'}</td>
+      <td class="n nowrap emw">${p.mwst != null ? mwstTxt(p.mwst) : ''}</td>
+      <td class="n nowrap eb">${chf(betrag)}</td>${btns}</tr>`;
+  }).join('');
+  return `<div class="edpaper">
+    <div class="edhead">
+      <div class="edadr edclick" data-act="edKopf" data-f="kunde" title="Kunde wählen oder ändern">${k ? adrBlock(k) : '<span class="edempty">＋ Kunde wählen</span>'}
+        ${k && !kAdrOk(k) ? '<div class="hint warn">Adresse unvollständig – <a href="#" data-act="edEditK">ergänzen</a></div>' : ''}</div>
+      <div class="edmeta edclick" data-act="edKopf" data-f="datum" title="Datum, Zahlungsfrist ändern">${esc(c.ort ? c.ort + ', ' : '')}${fmtDate(r.datum)}<div class="small muted">Zahlbar innert ${esc(r.frist ?? c.frist)} Tagen</div>${r.betreff ? `<div class="small muted" title="Betreff – intern, wird nicht gedruckt">🔒 ${esc(r.betreff)}</div>` : ''}</div>
+    </div>
+    <div class="edtitle edclick" data-act="edKopf" data-f="titel" title="Titel und Abrechnungsperiode ändern">${esc(titel)}${r.nr ? '' : ' <span class="chip info small">Entwurf</span>'}</div>
+    <div class="edper edclick" data-act="edKopf" data-f="perVon" title="Abrechnungsperiode ändern">${pe ? `Abrechnungsperiode: ${fmtDate(pe.von)}${pe.bis && pe.bis !== pe.von ? ' – ' + fmtDate(pe.bis) : ''}${pe.auto ? ' <span class="muted small">(aus den Positionen)</span>' : ''}` : '<span class="edempty">＋ Abrechnungsperiode</span>'}</div>
+    <div class="edtext edclick" data-act="edKopf" data-f="textOben" title="Text über den Positionen">${r.textOben ? esc(r.textOben).replace(/\n/g, '<br>') : '<span class="edempty">＋ Text über den Positionen</span>'}</div>
+    <table class="edpos"><thead><tr><th class="cs"></th><th class="ecd">Datum</th><th>Bezeichnung</th><th class="n">Menge</th><th class="n">Preis</th><th class="n">MWST</th><th class="n">Betrag CHF</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="btns edadd"><button type="button" class="btn small" data-act="edAdd" data-t="pos">＋ Position</button><button type="button" class="btn small" data-act="edAdd" data-t="text">＋ Textzeile</button><button type="button" class="btn small" data-act="edAdd" data-t="titel">＋ Zwischentitel</button><button type="button" class="btn small" data-act="edZus" title="Zusatzposten (z. B. Dieselzuschlag) für die angekreuzten Positionen – Menge = Summe der Positionen">＋ Zusatzposten${S.size ? ` (${S.size} ausgewählt)` : ''}</button><button type="button" class="btn small" data-act="edSum" title="Gleiche Positionen (gleiche Arbeit/Produkt, Preis, Einheit, MWST) zu einer Zeile zusammenfassen">Σ Zusammenfassen</button>
+      <label class="tog" style="margin-left:auto"><input type="checkbox" data-in="edInkl" ${r.inkl ? 'checked' : ''}> Preise inkl. MWST</label></div>
+    <div id="edTot" class="edtot">${edTotHtml(r)}</div>
+    <div class="edtext edclick" data-act="edKopf" data-f="textUnten" title="Text unter den Positionen">${r.textUnten ? esc(r.textUnten).replace(/\n/g, '<br>') : '<span class="edempty">＋ Text unter den Positionen</span>'}</div>
+  </div><div class="small muted" style="margin:4px 0 10px">Zum Ändern Kunde, Datum, Titel, Texte oder eine Position antippen.</div>`;
+}
+// Kopfdaten bearbeiten (Kunde, Datum, Frist, Titel, Periode, Betreff, Texte)
+function kopfDialog(fokus) {
+  const r = App.ed, c = Store.cfg(), pe = periode(r) || {};
+  openDlg('Rechnung – Kopf und Texte', `<div class="edgrid">
+      <label class="fld"><span>Kunde</span><div class="row"><select class="input" name="kunde">${optList(kundenSorted().filter(x => x.aktiv !== false || x.id === r.kunde).map(x => [x.id, kLabel(x)]), r.kunde, '– Kunde wählen –')}</select><button type="button" class="btn" data-act="edNewK" title="Neuer Kunde">＋</button>${r.kunde ? '<button type="button" class="btn" data-act="edEditK" title="Adresse bearbeiten">✎</button>' : ''}</div></label>
+      <label class="fld"><span>Datum</span><input class="input" type="date" name="datum" value="${esc(r.datum)}"></label>
+      <label class="fld"><span>Zahlungsfrist (Tage)</span><input class="input" type="number" min="0" name="frist" value="${esc(r.frist ?? c.frist)}"></label>
+      <label class="fld"><span>Titel</span><input class="input" name="titel" value="${esc(r.titel || '')}" placeholder="Rechnung"></label>
+      <label class="fld"><span>Abrechnungsperiode von</span><input class="input" type="date" name="perVon" value="${esc(r.perVon || '')}"></label>
+      <label class="fld"><span>bis</span><input class="input" type="date" name="perBis" value="${esc(r.perBis || '')}"></label>
+      <label class="fld wide2"><span>Betreff (intern – wird nicht gedruckt)</span><input class="input" name="betreff" value="${esc(r.betreff || '')}"></label></div>
+    <div class="hint">Abrechnungsperiode leer = automatisch erstes und letztes Datum der Positionen${pe.auto && pe.von ? ` (jetzt ${fmtDate(pe.von)} – ${fmtDate(pe.bis)})` : ''}.</div>
+    <label class="fld"><span>Text über den Positionen</span><textarea class="input" name="textOben" rows="2">${esc(r.textOben || '')}</textarea></label>
+    <label class="fld"><span>Text unter den Positionen</span><textarea class="input" name="textUnten" rows="2">${esc(r.textUnten || '')}</textarea></label>`,
+    `<button class="btn" value="back" formnovalidate>Abbrechen</button><span class="spacer"></span><button class="btn primary" value="ok">✓ Übernehmen</button>`, { onSubmit: (fd, btn) => {
+      if (btn === 'ok') { const kAlt = r.kunde; ['kunde', 'datum', 'titel', 'perVon', 'perBis', 'betreff', 'textOben', 'textUnten'].forEach(f => r[f] = String(fd.get(f) ?? '').trim());
+        r.frist = fd.get('frist') === '' ? null : +fd.get('frist');
+        if (r.kunde !== kAlt) { const kk = kunde(r.kunde); if (kk && kk.frist != null && !r.nr) r.frist = kk.frist; } }
+      rechnungDialog(null, { keep: true }); return false; } });
+  App.dlgBack = () => rechnungDialog(null, { keep: true });
+  setTimeout(() => { const f = $(`#dlgForm [name="${fokus || 'kunde'}"]`); if (f) f.focus(); }, 40);
+}
+// Position bearbeiten
+function posDialog(i, { neu = false } = {}) {
+  const r = App.ed, p = r.pos[i]; if (!p) return;
+  const back = () => { if (neu) r.pos.splice(i, 1); rechnungDialog(null, { keep: true }); };
+  if ((p.typ || 'pos') !== 'pos') {
+    openDlg(p.typ === 'titel' ? 'Zwischentitel' : 'Textzeile', `<label class="fld"><span>${p.typ === 'titel' ? 'Zwischentitel' : 'Text'}</span><textarea class="input" name="bez" rows="${p.typ === 'titel' ? 1 : 3}" autofocus>${esc(p.bez || '')}</textarea></label>`,
+      `<button class="btn" value="back" formnovalidate>Abbrechen</button><span class="spacer"></span><button class="btn primary" value="ok">✓ Übernehmen</button>`, { onSubmit: (fd, btn) => {
+        if (btn !== 'ok') { back(); return false; }
+        p.bez = String(fd.get('bez') || ''); if (neu && !p.bez.trim()) r.pos.splice(i, 1); rechnungDialog(null, { keep: true }); return false; } });
+    App.dlgBack = back; return;
+  }
+  const art = artSorted().filter(a => a.aktiv !== false);
+  openDlg(neu ? 'Neue Position' : 'Position bearbeiten', `<datalist id="artList">${art.map(a => `<option value="${esc(a.artNr)}">${esc(a.bez)}${a.preis != null ? ' · ' + chf(a.preis) + '/' + esc(a.einheit || '') : ''}</option>`).join('')}</datalist><datalist id="einhList">${EINHEITEN.map(e => `<option value="${e}">`).join('')}</datalist>
+    <div class="two"><label class="fld"><span>Artikel (Art.-Nr.)</span><input class="input" name="art" list="artList" value="${esc(p.art || '')}" autofocus></label>
+      <label class="fld"><span>Datum <span class="muted small">(Auftragsdatum, leer bei Zusatzposten)</span></span><input class="input" type="date" name="datum" value="${esc(p.datum || '')}"></label></div>
+    <label class="fld"><span>Bezeichnung</span><textarea class="input" name="bez" rows="2">${esc(p.bez || '')}</textarea></label>
+    <div class="small muted pbeschr" id="pdBeschr">${esc(posBeschr(p, r) || '').replace(/\n/g, '<br>')}</div>
+    <label class="fld"><span>Bemerkung <span class="muted small">(kleine Zeile unter der Bezeichnung, z. B. Kultur)</span></span><input class="input" name="bem" value="${esc(p.bem || '')}"></label>
+    <div class="four"><label class="fld"><span>Menge</span><input class="input n" name="menge" inputmode="decimal" value="${p.menge ?? ''}"></label>
+      <label class="fld"><span>Einheit</span><input class="input" name="einh" list="einhList" value="${esc(p.einh || '')}"></label>
+      <label class="fld"><span>Preis</span><input class="input n" name="preis" inputmode="decimal" value="${p.preis ?? ''}"></label>
+      <label class="fld"><span>MWST</span><select class="input" name="mwst">${mwstOpts(p.mwst)}</select></label></div>
+    <div class="pdbetrag">Betrag: <b id="pdBetrag">CHF ${chf(calc({ pos: [p] }).rows[0].betrag)}</b></div>`,
+    `${neu ? '' : '<button class="btn danger" value="del" formnovalidate>✕ Position löschen</button>'}<button class="btn" value="back" formnovalidate>Abbrechen</button><span class="spacer"></span><button class="btn primary" value="ok">✓ Übernehmen</button>`, { onSubmit: async (fd, btn) => {
+      if (btn === 'back') { back(); return false; }
+      if (btn === 'del') {
+        if (!await frage(`Position${p.art ? ' ' + p.art : ''} «${String(p.bez || '').split('\n')[0].slice(0, 60)}»\n${fmtNum(+p.menge || 0, 3)} ${p.einh || ''} × ${chf(+p.preis || 0)} = CHF ${chf(calc({ pos: [p] }).rows[0].betrag)}\n\nwirklich aus der Rechnung löschen?`)) return false;
+        r.pos.splice(i, 1); rechnungDialog(null, { keep: true }); return false; }
+      const a = artByNr(String(fd.get('art') || '').trim());
+      Object.assign(p, { art: String(fd.get('art') || '').trim(), datum: String(fd.get('datum') || ''), bez: String(fd.get('bez') || ''), bem: String(fd.get('bem') || '').trim(), menge: num(fd.get('menge')), einh: String(fd.get('einh') || '').trim(), preis: num(fd.get('preis')), mwst: num(fd.get('mwst')) });
+      if (a && a.konto) p.konto = a.konto;
+      rechnungDialog(null, { keep: true }); return false; } });
+  App.dlgBack = back;
+  const F = $('#dlgForm'), f = n => F.querySelector(`[name=${n}]`);
+  const upd = () => { const q = { menge: num(f('menge').value), preis: num(f('preis').value), mwst: num(f('mwst').value) }; $('#pdBetrag').textContent = 'CHF ' + chf(calc({ inkl: r.inkl, pos: [q] }).rows[0].betrag); };
+  ['menge', 'preis', 'mwst'].forEach(n => f(n).addEventListener('input', upd));
+  f('art').addEventListener('change', async () => { const a = artByNr(f('art').value.trim()); if (!a) return;
+    if (!f('bez').value.trim() || f('bez').value === p.bez && p._auto || await frage(`Bezeichnung durch den Titel des Artikels ersetzen?\n\n«${f('bez').value}» → «${a.bez}»`)) f('bez').value = a.bez;
+    if (a.einheit) f('einh').value = a.einheit; if (a.preis != null) f('preis').value = a.preis; if (a.mwst != null) f('mwst').value = String(a.mwst);
+    $('#pdBeschr').innerHTML = esc(a.beschr || '').replace(/\n/g, '<br>'); upd(); });
 }
 // v1.16: Nur die angekreuzten Positionen abschliessen und drucken – Rest bleibt im Entwurf. Die reservierte Nummer (zurückgenommene Rechnung) geht an den abgeschlossenen Teil.
 function teilAbschluss() {
@@ -546,7 +613,7 @@ document.addEventListener('click', async ev => {
   switch (act) {
     case 'go': App.go(t.dataset.v); break;
     case 'sub': App.sub.stamm = t.dataset.v; App.saveUi(); App.render(); break;
-    case 'dlgClose': closeDlg(); break;
+    case 'dlgClose': if (App.dlgBack) { const f = App.dlgBack; App.dlgBack = null; f(); } else closeDlg(); break;
     case 'sync': if (!Auth.configured()) App.go('mehr'); else if (!Auth.hasSession()) Auth.login(); else { Sync.run(); Eingang.check(); } break;
     case 'login': Auth.login(); break;
     case 'logout': if (await frage('Von Dropbox abmelden? Die Daten bleiben auf diesem Gerät.')) Auth.logout(); break;
@@ -600,7 +667,9 @@ document.addEventListener('click', async ev => {
     case 'newA': artikelDialog(null); break;
     case 'editA': artikelDialog(id); break;
     // Rechnungseditor
-    case 'edAdd': App.ed.pos.push(newPos(t.dataset.t === 'pos' ? {} : { typ: t.dataset.t, bez: '' })); edRerender(); setTimeout(() => { const x = $$('#dlgForm tbody tr').pop()?.querySelector('input,textarea'); if (x) x.focus(); }, 40); break;
+    case 'edAdd': App.ed.pos.push(newPos(t.dataset.t === 'pos' ? {} : { typ: t.dataset.t, bez: '' })); posDialog(App.ed.pos.length - 1, { neu: true }); break;
+    case 'edPos': if (ev.target.closest('.eact, .cs')) break; posDialog(+t.dataset.i); break;
+    case 'edKopf': if (ev.target.closest('a,button')) break; kopfDialog(t.dataset.f); break;
     case 'edDel': { // Rückfrage (v1.13) – ausser bei leeren Zeilen
       const i = +t.dataset.i, p = App.ed.pos[i]; if (!p) break;
       const leer = !String(p.bez || '').trim() && !p.art && !(+p.preis) && !(+p.menge > 1);
@@ -680,6 +749,7 @@ function onChange(ev) {
 document.addEventListener('input', onInput);
 document.addEventListener('change', onChange);
 $('#tabs').addEventListener('click', ev => { const b = ev.target.closest('button[data-view]'); if (b) App.go(b.dataset.view); });
+$('#dlg').addEventListener('cancel', e => { if (App.dlgBack) { e.preventDefault(); const f = App.dlgBack; App.dlgBack = null; f(); } });
 $('#dlg').addEventListener('close', () => { App.render(); });
 document.addEventListener('keydown', ev => { if (ev.key === 'Enter' && ev.target.matches('#dlgForm input:not([type=checkbox]):not([type=file])')) { ev.preventDefault(); ev.target.dispatchEvent(new Event('change', { bubbles: true })); return; } if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'n' && !$('#dlg').open) { ev.preventDefault(); rechnungDialog(null); } });
 window.addEventListener('online', () => Sync.run());
