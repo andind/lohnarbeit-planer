@@ -1329,3 +1329,7 @@ body.fsmode #selbar { left: 12px; }
 .fktab tr.fkz td { background: rgba(80,120,200,.05); }
 .fktab tr.fkadd td { border-top: 0; padding-top: 2px; }
 .fktab tbody.fkent + tbody.fkent tr:first-child td { border-top: 2px solid var(--line); }
+/* v150: Artikelauswahl in «Abrechnung › Eintrag» nicht abschneiden, bei wenig Platz nach oben; fehlender Artikel rot */
+.fkdet .tscroll { overflow: visible; }
+.fktab .combo-up .combo-sug { top: auto; bottom: calc(100% + 2px); }
+.fktab .fkmiss .combo-in, .fktab select.fkmiss { border-color: #c0392b; box-shadow: 0 0 0 2px rgba(192,57,43,.18); }

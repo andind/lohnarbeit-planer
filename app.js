@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '149', APP_STAND = '19.11.2026';
+const APP_VERSION = '150', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -2185,6 +2185,16 @@ function fkPos(FK, r, d, k) {
     pos.push({ kind: 'ware', art: z.art, bez: tx(`${(a && a.bez) || z.bem || 'Zusatzartikel'}${fl}`, a ? z.bem : ''), grp: (a && a.bez) || '', menge: z.menge, einh: z.einh || (a && a.einheit) || '', preis: z.preis }); });
   return { pos, ps };
 }
+// v150: Ohne Artikel keine Übergabe – fehlende Artikel melden und im Formular rot markieren
+function fkMissing(FK, items) {
+  const L = []; items.forEach(x => fkPos(FK, x.r, x.d, x.k).pos.forEach(p => { if ((p.kind === 'arbeit' || p.kind === 'ware') && !p.art) L.push(`${x.k.name || x.r.kunde || '–'}: ${p.bez.split('\n')[0]}`); })); return L;
+}
+function fkMarkMissing(F) {
+  let n = 0; F.querySelectorAll('select.fka').forEach(sl => { const tr = sl.closest('tr'), cb = tr && tr.querySelector('input[type=checkbox]');
+    const leer = tr && tr.classList.contains('fkz') && ![...tr.querySelectorAll('input')].some(i => i.value.trim()) && !sl.value;
+    const miss = !sl.value && (!cb || cb.checked) && !leer; (sl.closest('.combo') || sl).classList.toggle('fkmiss', miss); if (miss) n++; }); return n;
+}
+const fkMissMsg = L => `Bitte zuerst einen Artikel wählen – ohne Artikel kann nicht an IM-Faktura übertragen werden:\n\n${L.slice(0, 12).map(x => '• ' + x).join('\n')}${L.length > 12 ? `\n… und ${L.length - 12} weitere` : ''}`;
 // Felder verdrahten: Betrag, Artikelwechsel (Preis/Einheit), Zusatzartikel hinzufügen/entfernen, «alle Artikel»
 function fkWire(F, FK, ent, onChange) { // ent: j → { r, d, title }
   const betr = () => F.querySelectorAll('tr.fkr').forEach(tr => { const td = tr.querySelector('.fkb'); if (!td) return; const cb = tr.querySelector('input[type=checkbox]'), on = !cb || cb.checked;
@@ -2196,8 +2206,11 @@ function fkWire(F, FK, ent, onChange) { // ent: j → { r, d, title }
   F.addEventListener('change', e => {
     if (e.target.matches('[data-fkall]')) { F.querySelectorAll('select.fka').forEach(sl => { const v = sl.value, arb = sl.dataset.arb; sl.innerHTML = fkArtOpts(FK, v, arb ? arb.split('|') : null, e.target.checked); sl.value = v; }); return; }
     const a = e.target.closest('select.fka'); if (a) { const x = fkArtOf(FK, a.value); if (x) { if (x.preis != null && a.dataset.p) F.querySelector(`[name="${a.dataset.p}"]`).value = x.preis; if (a.dataset.e && x.einheit) F.querySelector(`[name="${a.dataset.e}"]`).value = x.einheit; } }
-    betr(); onChange && onChange();
+    betr(); if (F.querySelector('.fkmiss')) fkMarkMissing(F); onChange && onChange();
   });
+  // Auswahlliste nach oben öffnen, wenn unten im Fenster zu wenig Platz ist
+  F.addEventListener('focusin', e => { const c = e.target.closest('.fktab .combo'); if (!c) return; const sc = c.closest('.db, .dlg-body, form') || document.body;
+    const r = c.getBoundingClientRect(), b = Math.min(window.innerHeight, sc.getBoundingClientRect().bottom); c.classList.toggle('combo-up', b - r.bottom < 260 && r.top - sc.getBoundingClientRect().top > 260); });
   F.addEventListener('click', e => {
     const add = e.target.closest('.fkzadd'), del = e.target.closest('.fkzdel'); if (!add && !del) return; e.preventDefault();
     const j = (add || del).dataset.j, en = ent[j]; en.d = fkRead(F, j, en.d);
@@ -2210,6 +2223,7 @@ function fkWire(F, FK, ent, onChange) { // ent: j → { r, d, title }
 }
 // Übergaben bauen (je Kunde in IM-Faktura bzw. IMV-Kunde), schreiben, markieren
 async function fkSend(FK, items, einzeln) { // items: [{ r, d, k }]
+  if (fkMissing(FK, items).length) { toast('Ohne Artikel kann nicht an IM-Faktura übertragen werden.', 5000); return false; }
   const G = groupBy(items, x => (x.d.fk || '') + '|' + (x.k.id || '?' + norm(x.k.name)));
   const Ts = G.map(([, l]) => {
     const k = l[0].k, T = fakturaT(k, 'Lohnarbeiten'), fkId = l[0].d.fk, ps = [];
@@ -2253,6 +2267,7 @@ async function fakturaAbrSend(einzeln) { // Sendefenster für angekreuzte Eintr�
   Dlg.open(`An IM-Faktura senden – ${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'}`, fkHint(FK) + fkAllBox(FK) + body + '<p class="nr">Je Kunde eine Übergabe; sie erscheint in IM-Faktura unter Entwürfe. Die Bemerkung steht als zweite Zeile unter der Position. Danach werden die Einträge als abgerechnet markiert.</p>',
     `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">📤 Senden</button>`, fd => {
       const items = Object.entries(ent).map(([j, e]) => { const d = fkRead(Dlg.form, j, e.d); d.fk = String(fd.get('fk_' + e.gi) || ''); return { r: e.r, d, k: e.k }; });
+      const miss = fkMissing(FK, items); if (miss.length) { fkMarkMissing(Dlg.form); alert(fkMissMsg(miss)); return false; }
       fkSend(FK, items, einzeln).then(ok => { if (ok) { if (!einzeln) S.clear(); Dlg.close(); } });
       return false;
     });
@@ -2278,6 +2293,7 @@ async function fkDetailSend(btn) {
   const { FK, ent, k } = box._fk, e = ent.e0, d = fkRead(box, 'e0', e.d); d.fk = String((box.querySelector('[name=fk_det]') || {}).value || '');
   const sent = (e.r.oid && (Store.get('auftraege', e.r.oid) || {}).fakt) || (e.r.jid && (jdbAbr(e.r.jid) || {}).fakt);
   const P = fkPos(FK, e.r, d, k), tot = P.pos.reduce((a, p) => a + (p.menge != null && p.preis != null ? round05(p.menge * p.preis) : 0), 0);
+  const miss = fkMissing(FK, [{ r: e.r, d, k }]); if (miss.length) { fkMarkMissing(box); alert(fkMissMsg(miss)); return; }
   if (!confirm(`An IM-Faktura senden?\n\n${P.pos.map(p => `• ${p.bez.split('\n')[0]}: ${p.menge ?? '–'} ${p.einh || ''} × ${p.preis ?? '–'}`).join('\n')}\n\nTotal ca. CHF ${fmtNum(r2(tot))} (ohne MWST)${sent ? '\n\n⚠ Wurde schon einmal gesendet – wird nochmals übergeben.' : ''}`)) return;
   if (await fkSend(FK, [{ r: e.r, d, k }], true)) Dlg.close();
 }
