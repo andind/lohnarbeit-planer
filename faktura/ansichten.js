@@ -84,6 +84,7 @@ function selBar() {
 function rechnungDialog(id, { keep = false } = {}) {
   if (!keep) { const r = id ? Store.get('rechnungen', id) : newRechnung({ kunde: App.f.r.kunde || '' }); if (!r) return; App.ed = clone(r); if (!App.ed.pos.length) App.ed.pos.push(newPos()); }
   posOrdnen(App.ed);
+  if (keep) edAuto(); // v1.28: jede Änderung an einem Entwurf sofort speichern
   const r = App.ed, s = statusOf(r), fix = !!r.nr, c = Store.cfg(), k = kunde(r.kunde);
   const title = r.nr ? `${r.titel || 'Rechnung'} ${r.nr}` : (Store.get('rechnungen', r.id) ? `Rechnungsentwurf${r.nrRes ? ' (Nr. ' + r.nrRes + ')' : ''}` : 'Neue Rechnung');
   const body = `${fix && s !== 'storniert' ? `<div class="box small">Abgeschlossen am ${fmtDate((r.abgeschlossen || '').slice(0, 10))} · ${stChip(r)} · Referenz ${esc(r.ref ? SwissQR.fmtRef(r.ref) : '–')}<br>Änderungen an einer verschickten Rechnung nur, wenn sie nochmals gedruckt und neu verschickt wird.</div>` : ''}
@@ -98,7 +99,7 @@ function rechnungDialog(id, { keep = false } = {}) {
     ? `<button class="btn" value="unstorno">Storno aufheben</button><span class="spacer"></span><button class="btn" value="close">Schliessen</button>`
     : `${fix ? `<button class="btn danger" value="storno">Stornieren</button><button class="btn" value="revert" title="Rechnung zurück in die Entwürfe, um sie zu korrigieren (Nummer bleibt reserviert)">↩ Zurück zu Entwurf</button><button class="btn" value="copy">Kopie als Entwurf</button>` : (isNew ? '' : '<button class="btn danger" value="del" title="Entwurf stornieren und ins Archiv legen – zurückholen unter Entwürfe › Archiv">🗄 Stornieren & archivieren</button>')}
       <button class="btn" value="preview">👁 Vorschau</button>${fix ? '' : '<button class="btn" value="draftPrint" title="Entwurf mit Wasserzeichen und ohne QR-Zahlteil drucken – z. B. zum Kontrollieren">🖨 Entwurf drucken</button>'}<span class="spacer"></span>
-      <button class="btn" value="save">${fix ? 'Speichern' : 'Als Entwurf speichern'}</button>
+      ${fix ? '<button class="btn" value="save">Speichern</button>' : `<span class="small muted edauto" title="Entwürfe werden bei jeder Änderung automatisch gespeichert">${Store.get('rechnungen', r.id) ? '✓ automatisch gespeichert' : 'wird beim ersten Eintrag gespeichert'}</span>`}
       ${fix ? '<button class="btn primary" value="print">🖨 Speichern & drucken</button>' : `${(App.edSel || new Set()).size && (App.edSel.size < r.pos.filter(p => (p.typ || 'pos') === 'pos').length) ? `<button class="btn" value="part" title="Nur die angekreuzten Positionen als Rechnung abschliessen – die übrigen bleiben im Entwurf">✓ Nur ${App.edSel.size} markierte abschliessen & drucken</button>` : ''}<button class="btn primary" value="final">✓ Abschliessen & drucken</button>`}`;
   openDlg(title, body, foot, { wide: true, onSubmit: (fd, btn) => edSubmit(btn) });
   autoGrow();
@@ -313,6 +314,12 @@ function zahlMahnInfo(r) {
 }
 function autoGrow() { $$('#dlgForm textarea[data-in="edp"]').forEach(t => { t.style.height = 'auto'; t.style.height = Math.min(160, t.scrollHeight + 2) + 'px'; }); }
 function edRerender() { const sc = $('#dlg .db')?.scrollTop; rechnungDialog(null, { keep: true }); const db = $('#dlg .db'); if (db && sc) db.scrollTop = sc; }
+// v1.28: Entwurf automatisch speichern (ohne leere Zeilen; ein neuer leerer Entwurf erst, wenn Kunde oder eine Position da ist)
+function edAuto() {
+  const e = App.ed; if (!e || e.nr || e.storno) return;
+  const r = edClean(clone(e)); if (!Store.get('rechnungen', r.id) && !r.kunde && !r.pos.length) return;
+  Store.put('rechnungen', r, { silent: true });
+}
 function edSave(r) { Store.put('rechnungen', r, { silent: true }); App.ed = clone(r); }
 function edClean(r) { posOrdnen(r); r.pos = r.pos.filter(p => (p.typ || 'pos') !== 'pos' ? String(p.bez || '').trim() : (p.art || p.bez || p.preis != null)); return r; }
 async function edSubmit(btn) {
@@ -345,7 +352,7 @@ async function edInput(t, commit) {
     if (k === 'kunde' && commit) { const kk = kunde(t.value); if (kk && kk.frist != null && !r.nr) r.frist = kk.frist; edRerender(); }
     return;
   }
-  if (t.dataset.in === 'edInkl') { r.inkl = t.checked; $('#edTot').innerHTML = edTotHtml(r); return; }
+  if (t.dataset.in === 'edInkl') { r.inkl = t.checked; $('#edTot').innerHTML = edTotHtml(r); edAuto(); return; }
   const i = +t.dataset.i, f = t.dataset.f, p = r.pos[i]; if (!p) return;
   if (['menge', 'preis', 'mwst'].includes(f)) p[f] = num(t.value); else p[f] = t.value;
   if (f === 'art' && commit) { const a = artByNr(t.value); if (a) { if (!p.bez || p._auto || await frage(`Bezeichnung durch den Titel des Artikels ersetzen?\n\n«${p.bez}» → «${a.bez}»`)) { p.bez = a.bez; p._auto = true; } p.einh = a.einheit || p.einh; if (a.preis != null) p.preis = a.preis; p.mwst = a.mwst ?? p.mwst; p.konto = a.konto || ''; edRerender(); return; } }

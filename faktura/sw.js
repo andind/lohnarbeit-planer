@@ -1,5 +1,5 @@
 // Service Worker: App offline verfügbar machen (Netz zuerst, sonst Zwischenspeicher)
-const CACHE = 'faktura-v1.27';
+const CACHE = 'faktura-v1.28';
 const FILES = ['./', 'index.html', 'styles.css', 'qr.js', 'lib.js', 'app.js', 'druck.js', 'import.js', 'buchung.js', 'eingang.js', 'ansichten.js', 'config.js', 'manifest.webmanifest',
   'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'logo.jpg'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => Promise.all(FILES.map(f => c.add(f).catch(() => null))))); self.skipWaiting(); });
