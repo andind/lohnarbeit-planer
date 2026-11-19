@@ -25,7 +25,7 @@ const App = {
 function openDlg(title, body, foot, { wide = false, onSubmit = null } = {}) {
   const d = $('#dlg'); d.classList.toggle('wide', wide);
   $('#dlgForm').innerHTML = `<div class="dh"><h2>${esc(title)}</h2><button type="button" class="x" data-act="dlgClose" aria-label="Schliessen">×</button></div><div class="db">${body}</div><div class="df">${foot}</div>`;
-  $('#dlgForm').onsubmit = ev => { if (!onSubmit) return; ev.preventDefault(); if (onSubmit(new FormData($('#dlgForm')), ev.submitter?.value) !== false) closeDlg(); };
+  $('#dlgForm').onsubmit = async ev => { if (!onSubmit) return; ev.preventDefault(); let res = onSubmit(new FormData($('#dlgForm')), ev.submitter?.value); if (res && typeof res.then === 'function') res = await res; if (res !== false) closeDlg(); };
   if (!d.open) d.showModal();
   setTimeout(() => { const f = $('#dlgForm [autofocus]'); if (f && matchMedia('(min-width: 700px)').matches) f.focus(); }, 30);
 }
@@ -38,7 +38,7 @@ function rechList() {
   const f = App.f.r, q = fold(f.q);
   return Store.all('rechnungen').filter(r => {
     if (f.jahr && !(r.datum || '').startsWith(f.jahr)) return false;
-    if (f.status) { const s = statusOf(r); if (f.status === 'op' ? !isOP(r) : s !== f.status) return false; }
+    const s = statusOf(r); if (f.status ? (f.status === 'op' ? !isOP(r) : s !== f.status) : s === 'archiv') return false;
     if (f.kunde && r.kunde !== f.kunde) return false;
     if (q && !fold([r.nr, kName(r.kunde), kunde(r.kunde)?.nr, r.titel, r.betreff, ...(r.pos || []).map(p => p.bez)].join(' ')).includes(q)) return false;
     return true;
@@ -46,12 +46,12 @@ function rechList() {
 }
 function viewRechnungen() {
   const f = App.f.r, L = rechList(), years = [...new Set(Store.all('rechnungen').map(r => (r.datum || '').slice(0, 4)).filter(Boolean))].sort().reverse();
-  const sum = L.filter(r => !r.storno).reduce((s, r) => s + calc(r).total, 0), off = L.filter(isOP).reduce((s, r) => s + offenBetrag(r), 0);
+  const sum = L.filter(r => !r.storno && !r.archiv).reduce((s, r) => s + calc(r).total, 0), off = L.filter(isOP).reduce((s, r) => s + offenBetrag(r), 0);
   const nE = Store.all('rechnungen').filter(r => statusOf(r) === 'entwurf').length;
   const tb = `<h1>Rechnungen</h1><button class="btn" data-act="journal">⬇ Excel</button>`;
   const html = `<div class="filters">
       <select class="input" data-in="fr" data-k="jahr">${optList(years.map(y => [y, y]), f.jahr, 'Alle Jahre')}</select>
-      <select class="input" data-in="fr" data-k="status">${optList([['entwurf', `Entwürfe${nE ? ' (' + nE + ')' : ''}`], ['op', 'Offen + überfällig'], ['ueberfaellig', 'Überfällig'], ['bezahlt', 'Bezahlt'], ['storniert', 'Storniert']], f.status, 'Alle')}</select>
+      <select class="input" data-in="fr" data-k="status">${optList([['entwurf', `Entwürfe${nE ? ' (' + nE + ')' : ''}`], ['op', 'Offen + überfällig'], ['ueberfaellig', 'Überfällig'], ['bezahlt', 'Bezahlt'], ['storniert', 'Storniert'], ['archiv', 'Archivierte Entwürfe']], f.status, 'Alle')}</select>
       <select class="input" data-in="fr" data-k="kunde" style="max-width:240px">${optList(kundenSorted().map(k => [k.id, kLabel(k)]), f.kunde, 'Alle Kunden')}</select>
       <input class="input search" type="search" placeholder="Suchen (Nr., Kunde, Text)…" data-in="frq" value="${esc(f.q)}">
       <span class="lbl">${L.length} Rechnungen · CHF ${chf(sum)}${off ? ' · offen ' + chf(off) : ''}</span></div>
@@ -76,7 +76,7 @@ function selBar() {
   const R = [...App.sel].map(id => Store.get('rechnungen', id)).filter(Boolean), nE = R.filter(r => statusOf(r) === 'entwurf').length, nO = R.filter(isOP).length;
   b.hidden = false;
   b.innerHTML = `<b>${n} ausgewählt</b>${nE ? `<button class="btn primary" data-act="selFinal">✓ ${nE} abschliessen & drucken</button>` : ''}<button class="btn" data-act="selPrint">🖨 Drucken</button>
-    ${nO ? `<button class="btn" data-act="selMahn">✉ Mahnen (${nO})</button>` : ''}${R.length - nE && App.view === 'rechnungen' ? `<button class="btn" data-act="selRevert" title="Abgeschlossene Rechnungen ohne Zahlungen zurück in die Entwürfe">↩ Zurück zu Entwurf</button>` : ''}${nE > 1 && App.view === 'entwuerfe' ? `<button class="btn" data-act="selMerge" title="Ausgewählte Entwürfe desselben Kunden zu einem zusammenlegen">⇄ Zusammenlegen</button>` : ''}${nE ? `<button class="btn danger" data-act="selDel">Entwürfe löschen</button>` : ''}<button class="btn" data-act="selClear">✕</button>`;
+    ${nO ? `<button class="btn" data-act="selMahn">✉ Mahnen (${nO})</button>` : ''}${R.length - nE && App.view === 'rechnungen' ? `<button class="btn" data-act="selRevert" title="Abgeschlossene Rechnungen ohne Zahlungen zurück in die Entwürfe">↩ Zurück zu Entwurf</button>` : ''}${nE > 1 && App.view === 'entwuerfe' ? `<button class="btn" data-act="selMerge" title="Ausgewählte Entwürfe desselben Kunden zu einem zusammenlegen">⇄ Zusammenlegen</button>` : ''}${nE ? `<button class="btn danger" data-act="selDel" title="Stornieren und ins Archiv legen – zurückholen unter Entwürfe › Archiv">🗄 Entwürfe archivieren</button>` : ''}<button class="btn" data-act="selClear">✕</button>`;
 }
 
 /* ---------- Rechnung bearbeiten ---------- */
@@ -123,7 +123,7 @@ function rechnungDialog(id, { keep = false } = {}) {
   const isNew = !Store.get('rechnungen', r.id);
   const foot = s === 'storniert'
     ? `<button class="btn" value="unstorno">Storno aufheben</button><span class="spacer"></span><button class="btn" value="close">Schliessen</button>`
-    : `${fix ? `<button class="btn danger" value="storno">Stornieren</button><button class="btn" value="revert" title="Rechnung zurück in die Entwürfe, um sie zu korrigieren (Nummer bleibt reserviert)">↩ Zurück zu Entwurf</button><button class="btn" value="copy">Kopie als Entwurf</button>` : (isNew ? '' : '<button class="btn danger" value="del">Entwurf löschen</button>')}
+    : `${fix ? `<button class="btn danger" value="storno">Stornieren</button><button class="btn" value="revert" title="Rechnung zurück in die Entwürfe, um sie zu korrigieren (Nummer bleibt reserviert)">↩ Zurück zu Entwurf</button><button class="btn" value="copy">Kopie als Entwurf</button>` : (isNew ? '' : '<button class="btn danger" value="del" title="Entwurf stornieren und ins Archiv legen – zurückholen unter Entwürfe › Archiv">🗄 Stornieren & archivieren</button>')}
       <button class="btn" value="preview">👁 Vorschau</button>${fix ? '' : '<button class="btn" value="draftPrint" title="Entwurf mit Wasserzeichen und ohne QR-Zahlteil drucken – z. B. zum Kontrollieren">🖨 Entwurf drucken</button>'}<span class="spacer"></span>
       <button class="btn" value="save">${fix ? 'Speichern' : 'Als Entwurf speichern'}</button>
       ${fix ? '<button class="btn primary" value="print">🖨 Speichern & drucken</button>' : `${(App.edSel || new Set()).size && (App.edSel.size < r.pos.filter(p => (p.typ || 'pos') === 'pos').length) ? `<button class="btn" value="part" title="Nur die angekreuzten Positionen als Rechnung abschliessen – die übrigen bleiben im Entwurf">✓ Nur ${App.edSel.size} markierte abschliessen & drucken</button>` : ''}<button class="btn primary" value="final">✓ Abschliessen & drucken</button>`}`;
@@ -145,7 +145,7 @@ function teilAbschluss() {
       if (btn === 'back') { rechnungDialog(null, { keep: true }); return false; }
       const ids = new Set(sel.map(p => p.id)), mitB = B.filter((b, i) => fd.get('b' + i)), ohneB = B.filter((b, i) => !fd.get('b' + i));
       const f = Object.assign(clone(r), { id: uid(), pos: clone(r.pos.filter(p => ids.has(p.id))), beilagen: clone(mitB), quelle: (r.quelle || '') + ' (Teil)' }); delete f.beilage;
-      const e = rechnungFehler(f); if (e.length) { alert('Rechnung kann noch nicht abgeschlossen werden:\n\n• ' + e.join('\n• ')); return false; }
+      const e = rechnungFehler(f); if (e.length) { meldung('Rechnung kann noch nicht abgeschlossen werden:\n\n• ' + e.join('\n• ')); return false; }
       const rest = Object.assign(clone(r), { pos: r.pos.filter(p => !ids.has(p.id)), beilagen: clone(ohneB) }); delete rest.beilage; delete rest.nrRes;
       abschliessen(f); f.faellig = addDays(f.datum, f.frist ?? Store.cfg().frist);
       Store.put('rechnungen', f, { silent: true }); Store.put('rechnungen', rest, { silent: true }); S.clear(); App.ed = null;
@@ -217,30 +217,30 @@ function autoGrow() { $$('#dlgForm textarea[data-in="edp"]').forEach(t => { t.st
 function edRerender() { const sc = $('#dlg .db')?.scrollTop; rechnungDialog(null, { keep: true }); const db = $('#dlg .db'); if (db && sc) db.scrollTop = sc; }
 function edSave(r) { Store.put('rechnungen', r, { silent: true }); App.ed = clone(r); }
 function edClean(r) { r.pos = r.pos.filter(p => (p.typ || 'pos') !== 'pos' ? String(p.bez || '').trim() : (p.art || p.bez || p.preis != null)); return r; }
-function edSubmit(btn) {
+async function edSubmit(btn) {
   const r = edClean(clone(App.ed));
   if (btn === 'close') return;
-  if (btn === 'del') { if (!entwurfLoeschen([Store.get('rechnungen', r.id) || r])) return false; App.ed = null; return; }
-  if (btn === 'storno') { if (!confirm(`Rechnung ${r.nr} stornieren? Die Nummer bleibt belegt.`)) return false; r.storno = new Date().toISOString(); edSave(r); toast('Rechnung storniert'); return; }
+  if (btn === 'del') { if (!(await entwurfArchivieren([r]))) return false; App.ed = null; return; }
+  if (btn === 'storno') { if (!await frage(`Rechnung ${r.nr} stornieren? Die Nummer bleibt belegt.`)) return false; r.storno = new Date().toISOString(); edSave(r); toast('Rechnung storniert'); return; }
   if (btn === 'unstorno') { delete r.storno; edSave(r); return; }
   if (btn === 'copy') { const n = newRechnung(Object.assign(clone(r), { id: uid(), nr: '', ref: '', faellig: '', abgeschlossen: '', storno: undefined, zahlungen: [], mahnungen: [], datum: todayIso(), quelle: 'Kopie von ' + r.nr })); n.pos.forEach(p => { p.id = uid(); }); edSave(n); setTimeout(() => rechnungDialog(n.id), 50); toast('Kopie als Entwurf erstellt'); return; }
   if (btn === 'preview') { previewDocs([{ r }], { onPrint: () => { App.ed = r; edSubmit(r.nr ? 'print' : 'final'); }, onClose: () => rechnungDialog(null, { keep: true }) }); return false; }
   if (btn === 'save') { edSave(r); toast(r.nr ? 'Gespeichert' : 'Entwurf gespeichert'); return; }
   if (btn === 'draftPrint') { edSave(r); printDocs([{ r }], { title: docTitle([{ r }]) }); return false; }
   if (btn === 'revert') {
-    const e = zurueckFehler(r); if (e) { alert(`Rechnung ${r.nr} ${e}.`); return false; }
-    if (!confirm(`Rechnung ${r.nr} zurück in die Entwürfe nehmen?\n\nDie Nummer ${r.nr} bleibt reserviert und wird beim erneuten Abschliessen wieder verwendet.${(r.mahnungen || []).length ? ' Die ' + r.mahnungen.length + ' Mahnung(en) werden verworfen.' : ''}\nWurde die Rechnung schon verschickt, die korrigierte dem Kunden neu schicken.`)) return false;
+    const e = zurueckFehler(r); if (e) { meldung(`Rechnung ${r.nr} ${e}.`); return false; }
+    if (!await frage(`Rechnung ${r.nr} zurück in die Entwürfe nehmen?\n\nDie Nummer ${r.nr} bleibt reserviert und wird beim erneuten Abschliessen wieder verwendet.${(r.mahnungen || []).length ? ' Die ' + r.mahnungen.length + ' Mahnung(en) werden verworfen.' : ''}\nWurde die Rechnung schon verschickt, die korrigierte dem Kunden neu schicken.`)) return false;
     zuruecknehmen(r); edSave(r); toast(`Rechnung ${r.rueck[r.rueck.length - 1].nr} ist wieder ein Entwurf`); setTimeout(() => rechnungDialog(r.id), 50); return;
   }
   if (btn === 'part') { edSave(r); teilAbschluss(); return false; }
   if (btn === 'final') {
-    const e = rechnungFehler(r); if (e.length) { alert('Rechnung kann noch nicht abgeschlossen werden:\n\n• ' + e.join('\n• ')); return false; }
+    const e = rechnungFehler(r); if (e.length) { meldung('Rechnung kann noch nicht abgeschlossen werden:\n\n• ' + e.join('\n• ')); return false; }
     abschliessen(r); r.faellig = addDays(r.datum, r.frist ?? Store.cfg().frist); edSave(r);
     printDocs([{ r }], { title: docTitle([{ r }]) }); toast(`Rechnung ${r.nr} abgeschlossen`); return;
   }
   if (btn === 'print') { r.faellig = addDays(r.datum, r.frist ?? Store.cfg().frist); edSave(r); printDocs([{ r }], { title: docTitle([{ r }]) }); return; }
 }
-function edInput(t, commit) {
+async function edInput(t, commit) {
   const r = App.ed; if (!r) return;
   if (t.dataset.in === 'ed') {
     const k = t.dataset.k; r[k] = k === 'frist' ? (t.value === '' ? null : +t.value) : t.value;
@@ -250,7 +250,7 @@ function edInput(t, commit) {
   if (t.dataset.in === 'edInkl') { r.inkl = t.checked; $('#edTot').innerHTML = edTotHtml(r); return; }
   const i = +t.dataset.i, f = t.dataset.f, p = r.pos[i]; if (!p) return;
   if (['menge', 'preis', 'mwst'].includes(f)) p[f] = num(t.value); else p[f] = t.value;
-  if (f === 'art' && commit) { const a = artByNr(t.value); if (a) { if (!p.bez || p._auto || confirm(`Bezeichnung durch den Titel des Artikels ersetzen?\n\n«${p.bez}» → «${a.bez}»`)) { p.bez = a.bez; p._auto = true; } p.einh = a.einheit || p.einh; if (a.preis != null) p.preis = a.preis; p.mwst = a.mwst ?? p.mwst; p.konto = a.konto || ''; edRerender(); return; } }
+  if (f === 'art' && commit) { const a = artByNr(t.value); if (a) { if (!p.bez || p._auto || await frage(`Bezeichnung durch den Titel des Artikels ersetzen?\n\n«${p.bez}» → «${a.bez}»`)) { p.bez = a.bez; p._auto = true; } p.einh = a.einheit || p.einh; if (a.preis != null) p.preis = a.preis; p.mwst = a.mwst ?? p.mwst; p.konto = a.konto || ''; edRerender(); return; } }
   if (f === 'bez') { delete p._auto; t.style.height = 'auto'; t.style.height = Math.min(160, t.scrollHeight + 2) + 'px'; }
   const pb = $('#pb' + i); if (pb) pb.textContent = chf(calc({ pos: [p] }).rows[0].betrag);
   $('#edTot').innerHTML = edTotHtml(r);
@@ -394,8 +394,8 @@ function kundeDialog(id, { after } = {}) {
       <label class="tog" style="display:flex;margin-top:4px"><input type="checkbox" name="unlink"> Verknüpfungen lösen</label>
       <div class="hint">Zuordnen unter Stammdaten › «🔗 IM-Verwaltung verknüpfen».</div></div>` : ''}`,
     `${id && !used ? '<button class="btn danger" value="del">Löschen</button>' : ''}<span class="spacer"></span><button class="btn primary" value="ok">Speichern</button>`,
-    { onSubmit: (fd, btn) => {
-      if (btn === 'del') { if (!confirm('Kunde löschen?')) return false; Store.remove('kunden', k.id); return; }
+    { onSubmit: async (fd, btn) => {
+      if (btn === 'del') { if (!await frage('Kunde löschen?')) return false; Store.remove('kunden', k.id); return; }
       const x = Object.assign({}, k); ['name', 'nr', 'zusatz', 'strasse', 'hausnr', 'plz', 'ort', 'mail', 'tel', 'bem'].forEach(f => { x[f] = String(fd.get(f) || '').trim(); });
       x.land = (String(fd.get('land') || 'CH').trim() || 'CH').toUpperCase(); if (fd.get('unlink')) { x.imvIds = []; x.vmId = ''; } x.frist = fd.get('frist') === '' ? null : +fd.get('frist'); x.aktiv = fd.get('aktiv') !== '0';
       if (!x.name) { toast('Name fehlt'); return false; }
@@ -425,8 +425,8 @@ function artikelDialog(id) {
       <input class="input" name="arbNeu" placeholder="weitere Arbeit (mehrere mit Komma)" style="margin-top:6px"><div class="small muted">Beim Senden aus der IM-Verwaltung werden zu einer Arbeit nur die hier zugewiesenen Artikel angeboten (auf Wunsch alle).</div></div>
     <label class="tog"><input type="checkbox" name="aktiv" ${a.aktiv !== false ? 'checked' : ''}> aktiv (in der Auswahl)</label>`,
     `${id ? '<button class="btn danger" value="del">Löschen</button>' : ''}<span class="spacer"></span><button class="btn primary" value="ok">Speichern</button>`,
-    { onSubmit: (fd, btn) => {
-      if (btn === 'del') { if (!confirm('Artikel löschen?')) return false; Store.remove('artikel', a.id); return; }
+    { onSubmit: async (fd, btn) => {
+      if (btn === 'del') { if (!await frage('Artikel löschen?')) return false; Store.remove('artikel', a.id); return; }
       const arb = [...new Set([...fd.getAll('arb'), ...String(fd.get('arbNeu') || '').split(',').map(t => t.trim()).filter(Boolean)])];
       const x = Object.assign({}, a, { arbeiten: arb, artNr: String(fd.get('artNr') || '').trim(), bez: String(fd.get('bez') || '').trim(), beschr: String(fd.get('beschr') || '').trim(), einheit: String(fd.get('einheit') || '').trim(), preis: num(fd.get('preis')), mwst: num(fd.get('mwst')) ?? 0, konto: String(fd.get('konto') || '').replace(/\D/g, ''), aktiv: !!fd.get('aktiv') });
       if (!x.bez) { toast('Bezeichnung fehlt'); return false; }
@@ -528,7 +528,7 @@ function exportAll() {
 async function restore(file) {
   let d; try { d = JSON.parse(await file.text()); } catch { toast('Keine gültige Datensicherung'); return; }
   if (!d || !COLL.some(c => Array.isArray(d[c]))) { toast('Keine gültige Datensicherung'); return; }
-  if (!confirm(`Datensicherung mit ${(d.rechnungen || []).filter(x => !x.del).length} Rechnungen wiederherstellen? Der aktuelle Stand wird ersetzt (auch in Dropbox).`)) return;
+  if (!await frage(`Datensicherung mit ${(d.rechnungen || []).filter(x => !x.del).length} Rechnungen wiederherstellen? Der aktuelle Stand wird ersetzt (auch in Dropbox).`)) return;
   const now = Date.now(), cur = Store.data;
   COLL.forEach(c => { const ids = new Set((d[c] || []).map(x => x.id)); d[c] = (d[c] || []).map(x => Object.assign({}, x, { upd: now })); (cur[c] || []).forEach(x => { if (!ids.has(x.id)) d[c].push({ id: x.id, del: true, upd: now }); }); });
   Store.data = { v: 1, ...Object.fromEntries(COLL.map(c => [c, d[c]])) }; Store.save(); Sync.schedule(100); App.render(); toast('Datensicherung wiederhergestellt');
@@ -542,7 +542,7 @@ function testDoc() {
 }
 
 /* ================= Ereignisse ================= */
-document.addEventListener('click', ev => {
+document.addEventListener('click', async ev => {
   const t = ev.target.closest('[data-act]'); if (!t) return;
   const act = t.dataset.act, id = t.dataset.id;
   if (t.tagName === 'A') ev.preventDefault();
@@ -552,7 +552,7 @@ document.addEventListener('click', ev => {
     case 'dlgClose': closeDlg(); break;
     case 'sync': if (!Auth.configured()) App.go('mehr'); else if (!Auth.hasSession()) Auth.login(); else { Sync.run(); Eingang.check(); } break;
     case 'login': Auth.login(); break;
-    case 'logout': if (confirm('Von Dropbox abmelden? Die Daten bleiben auf diesem Gerät.')) Auth.logout(); break;
+    case 'logout': if (await frage('Von Dropbox abmelden? Die Daten bleiben auf diesem Gerät.')) Auth.logout(); break;
     case 'reload': location.reload(); break;
     case 'zoomIn': Zoom.by(1.15); break;
     case 'zoomOut': Zoom.by(1 / 1.15); break;
@@ -566,19 +566,21 @@ document.addEventListener('click', ev => {
     case 'selFinal': {
       const R = [...App.sel].map(x => Store.get('rechnungen', x)).filter(r => r && statusOf(r) === 'entwurf');
       const bad = R.map(r => [r, rechnungFehler(r)]).filter(x => x[1].length);
-      if (bad.length) { alert(`${bad.length} Entwürfe können nicht abgeschlossen werden:\n\n` + bad.slice(0, 12).map(([r, e]) => `• ${kName(r.kunde)}: ${e.join(', ')}`).join('\n')); if (bad.length === R.length) break; }
-      const ok = R.filter(r => !bad.some(b => b[0] === r)); if (!confirm(`${ok.length} Rechnungen abschliessen (Nummern vergeben) und drucken?`)) break;
+      if (bad.length) { meldung(`${bad.length} Entwürfe können nicht abgeschlossen werden:\n\n` + bad.slice(0, 12).map(([r, e]) => `• ${kName(r.kunde)}: ${e.join(', ')}`).join('\n')); if (bad.length === R.length) break; }
+      const ok = R.filter(r => !bad.some(b => b[0] === r)); if (!await frage(`${ok.length} Rechnungen abschliessen (Nummern vergeben) und drucken?`)) break;
       const out = ok.sort((a, b) => kName(a.kunde).localeCompare(kName(b.kunde), 'de')).map(r => { const x = clone(r); abschliessen(x); Store.put('rechnungen', x, { silent: true }); return x; });
       App.sel.clear(); App.render(); printDocs(out.map(r => ({ r })), { title: `Rechnungen ${out[0].nr}-${out[out.length - 1].nr}` }); break;
     }
     case 'selRevert': {
       const R = [...App.sel].map(x => Store.get('rechnungen', x)).filter(r => r && r.nr), ok = R.filter(r => !zurueckFehler(r)), bad = R.filter(r => zurueckFehler(r));
-      if (!ok.length) { alert('Keine der ausgewählten Rechnungen kann zurückgenommen werden:\n\n' + bad.map(r => `• ${r.nr}: ${zurueckFehler(r)}`).join('\n')); break; }
-      if (!confirm(`${ok.length} ${ok.length === 1 ? 'Rechnung' : 'Rechnungen'} (${ok.map(r => r.nr).join(', ')}) zurück in die Entwürfe nehmen? Die Nummern bleiben reserviert.${bad.length ? `\n\nNicht möglich: ${bad.map(r => r.nr + ' (' + zurueckFehler(r) + ')').join(', ')}` : ''}`)) break;
+      if (!ok.length) { meldung('Keine der ausgewählten Rechnungen kann zurückgenommen werden:\n\n' + bad.map(r => `• ${r.nr}: ${zurueckFehler(r)}`).join('\n')); break; }
+      if (!await frage(`${ok.length} ${ok.length === 1 ? 'Rechnung' : 'Rechnungen'} (${ok.map(r => r.nr).join(', ')}) zurück in die Entwürfe nehmen? Die Nummern bleiben reserviert.${bad.length ? `\n\nNicht möglich: ${bad.map(r => r.nr + ' (' + zurueckFehler(r) + ')').join(', ')}` : ''}`)) break;
       Store.putMany('rechnungen', ok.map(r => zuruecknehmen(clone(r))), { silent: true }); App.sel.clear(); App.render(); toast(`${ok.length} wieder in den Entwürfen`); break; }
     case 'selMerge': mergeDialog([...App.sel].map(x => Store.get('rechnungen', x)).filter(r => r && statusOf(r) === 'entwurf')); break;
-    case 'selDel': { const R = [...App.sel].map(x => Store.get('rechnungen', x)).filter(r => r && statusOf(r) === 'entwurf'); if (entwurfLoeschen(R)) { App.sel.clear(); App.render(); } break; }
-    case 'delE': { if (entwurfLoeschen([Store.get('rechnungen', id)])) { App.sel.delete(id); App.render(); } break; }
+    case 'selDel': { const R = [...App.sel].map(x => Store.get('rechnungen', x)).filter(r => r && statusOf(r) === 'entwurf'); if (await entwurfArchivieren(R)) { App.sel.clear(); App.render(); } break; }
+    case 'delE': { if (await entwurfArchivieren([Store.get('rechnungen', id)])) { App.sel.delete(id); App.render(); } break; }
+    case 'unarchE': entwurfZurueck(id); break;
+    case 'archToggle': App.archOpen = !App.archOpen; App.render(); break;
     case 'selMahn': mahnDialog([...App.sel]); break;
     case 'zahl': zahlDialog(id); break;
     case 'mahn': mahnDialog([id]); break;
@@ -607,14 +609,14 @@ document.addEventListener('click', ev => {
       const leer = !String(p.bez || '').trim() && !p.art && !(+p.preis) && !(+p.menge > 1);
       const was = p.typ === 'titel' ? `Zwischentitel «${p.bez || ''}»` : p.typ === 'text' ? `Textzeile «${String(p.bez || '').slice(0, 60)}»`
         : `Position${p.art ? ' ' + p.art : ''} «${String(p.bez || '').split('\n')[0].slice(0, 60)}»${p.preis != null && p.preis !== '' ? `\n${fmtNum(+p.menge || 0, 3)} ${p.einh || ''} × ${chf(+p.preis || 0)} = CHF ${chf((+p.menge || 0) * (+p.preis || 0))}` : ''}`;
-      if (!leer && !confirm(`${was}\n\nwirklich aus der Rechnung löschen?`)) break;
+      if (!leer && !await frage(`${was}\n\nwirklich aus der Rechnung löschen?`)) break;
       App.ed.pos.splice(i, 1); edRerender(); break; }
     case 'edUp': { const i = +t.dataset.i; if (i > 0) { const P = App.ed.pos; [P[i - 1], P[i]] = [P[i], P[i - 1]]; edRerender(); } break; }
     case 'edNewK': kundeDialog(null, { after: k => { App.ed.kunde = k.id; rechnungDialog(null, { keep: true }); } }); break;
     case 'edEditK': kundeDialog(App.ed.kunde, { after: () => rechnungDialog(null, { keep: true }) }); break;
     case 'edZahl': { const r = edClean(clone(App.ed)); edSave(r); zahlDialog(r.id, true); break; }
     case 'edMahn': { const r = edClean(clone(App.ed)); edSave(r); mahnDialog([r.id], true); break; }
-    case 'edBeilDel': if (confirm('Beilage entfernen?')) { const B = beilagenOf(App.ed); B.splice(+t.dataset.i, 1); delete App.ed.beilage; App.ed.beilagen = B; edRerender(); } break;
+    case 'edBeilDel': if (await frage('Beilage entfernen?')) { const B = beilagenOf(App.ed); B.splice(+t.dataset.i, 1); delete App.ed.beilage; App.ed.beilagen = B; edRerender(); } break;
     case 'edSel': { const S = App.edSel = App.edSel || new Set(); if (t.checked) S.add(t.dataset.id); else S.delete(t.dataset.id); edRerender(); break; }
     case 'edZus': zusatzDialog(); break;
     case 'edSum': { const n = zusammenfassen(App.ed); edRerender(); toast(n ? `${n} Positionen zusammengefasst` : 'Nichts zum Zusammenfassen'); break; }
@@ -626,7 +628,7 @@ document.addEventListener('click', ev => {
     case 'buchDir': Dir.pick().then(() => { if ($('#dlg').open) buchDialog(); }); break;
     case 'buchDirClear': Dir.clear().then(() => { ls('mf_buchdir', null); App.render(); }); break;
     case 'buchAgain': buchExport(buchZahlungenOf(id), id); break;
-    case 'buchUndo': { const L = buchZahlungenOf(id); if (!confirm(`${L.length} Zahlungen wieder als «nicht exportiert» markieren? (Nur wenn der Import in AgroOffice nicht geklappt hat – sonst wird doppelt gebucht.)`)) break;
+    case 'buchUndo': { const L = buchZahlungenOf(id); if (!await frage(`${L.length} Zahlungen wieder als «nicht exportiert» markieren? (Nur wenn der Import in AgroOffice nicht geklappt hat – sonst wird doppelt gebucht.)`)) break;
       const ch = new Map(); L.forEach(({ r, z }) => { const x = ch.get(r.id) || clone(r); const zz = x.zahlungen.find(q => q.id === z.id); if (zz) delete zz.exp; ch.set(r.id, x); });
       Store.putMany('rechnungen', [...ch.values()], { silent: true }); Store.setCfg({ buchExports: (Store.cfg().buchExports || []).filter(e => e.id !== id) }); buchDialog(); break; }
     case 'debExcel': debitorenExcel(($('[data-in=debStich]') || {}).value || `${new Date().getFullYear() - 1}-12-31`); break;

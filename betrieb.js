@@ -517,9 +517,9 @@ function ebParzDialog(id) {
 }
 const ebRichtOpts = cur => `<option value="">—</option>${EB_RICHT_L.map(r => `<option ${r === cur ? 'selected' : ''}>${r}</option>`).join('')}`;
 const ebRichtTxt = p => p && (p.ro || p.ru) ? `${p.ro || '–'} / ${p.ru || '–'}` : '';
-function ebParzMerge(fromId, toId) {
+async function ebParzMerge(fromId, toId) {
   const st = ebStamm(), from = st.parz.find(p => p.id === fromId), to = st.parz.find(p => p.id === toId); if (!from || !to) return;
-  if (!confirm(`«${ebParzLabel(from)}» mit «${ebParzLabel(to)}» zusammenführen? «${ebParzLabel(from)}» wird danach gelöscht.`)) return;
+  if (!await frage(`«${ebParzLabel(from)}» mit «${ebParzLabel(to)}» zusammenführen? «${ebParzLabel(from)}» wird danach gelöscht.`)) return;
   const has = r => [...r.schlaege, ...Object.values(r.varianten || {}).flat()].some(s => s.parz === fromId);
   const recs = ebYears().map(y => structuredClone(ebRecY(y))).filter(has);
   recs.forEach(r => [...r.schlaege, ...Object.values(r.varianten || {}).flat()].forEach(s => { if (s.parz === fromId) s.parz = toId; }));
@@ -711,7 +711,7 @@ function ebSchlagDialog(y, id, pre = {}, vid = '') {
       ${ebCopyOpts(rec, s) ? `<label class="fld ebcopy"><span>Planung übernehmen von</span><select class="input" name="gcopy" data-plain>${ebCopyOpts(rec, s)}</select></label>` : ''}
       ${rec.duenger.length ? `<div id="ebGaben">${(s.gaben || []).map(g => ebGabeRow(rec, g)).join('')}</div><div class="btns ebgbtns"><button type="button" class="btn small" data-ebg="add">＋ Gabe</button>${isNew || vid ? '' : `<button type="button" class="btn small" data-ebg="copyTo" title="Diese Gaben auf andere Parzellen desselben Jahres kopieren">⧉ Planung auf andere Parzellen kopieren …</button>`}</div>`
         : `<p class="nr">Für ${y} sind noch keine Dünger erfasst (Düngung › Dünger & Lager${ebGet(y - 1) && ebGet(y - 1).duenger.length ? ` – oder «Aus ${y - 1} übernehmen»` : ''}).</p>`}</div>`;
-  Dlg.open(`${isNew ? 'Neu' : esc(ebSchlagName(s))} · ${y}${vid ? ` · ${esc(ebVarOf(vid).name)}` : ''}`, body, saveFooter(isNew ? '' : `<button type="button" class="btn danger" data-eb="sDel" data-y="${y}" data-id="${s.id}" data-var="${vid}">Löschen</button>`), fd => {
+  Dlg.open(`${isNew ? 'Neu' : esc(ebSchlagName(s))} · ${y}${vid ? ` · ${esc(ebVarOf(vid).name)}` : ''}`, body, saveFooter(isNew ? '' : `<button type="button" class="btn danger" data-eb="sDel" data-y="${y}" data-id="${s.id}" data-var="${vid}">Löschen</button>`), async fd => {
     const r = structuredClone(ebRecY(y)), RA = ebArr(r, vid); const o = RA.find(x => x.id === s.id) || s; // auf einer Kopie arbeiten (Abbrechen ändert nichts)
     o.art = fd.get('art') === 'zwischen' ? 'zwischen' : 'haupt'; o.parz = fd.get('parz') || ''; o.name = o.parz ? '' : (fd.get('name') || '').trim();
     o.ha = ebNum(fd.get('ha')); o.auto = false; delete o.indiv;
@@ -744,7 +744,7 @@ function ebSchlagDialog(y, id, pre = {}, vid = '') {
       const ix = E.findIndex(x => x.id === ebId(y)), old = ix >= 0 ? E[ix] : null; if (ix >= 0) E[ix] = r; else E.push(r); // geplanten Stand kurz einsetzen
       let after; try { after = ebOverlaps(Pp, y, y + 4, vid); } finally { if (ix >= 0) E[ix] = old; else E.splice(E.indexOf(r), 1); }
       const neuMsg = [...after].filter(([k, m]) => before.get(k) !== m).map(([, m]) => m);
-      if (neuMsg.length && !confirm(`✖ Überschneidung der Kulturdauer:\n\n${neuMsg.join('\n')}\n\nTrotzdem speichern?`)) return false;
+      if (neuMsg.length && !await frage(`✖ Überschneidung der Kulturdauer:\n\n${neuMsg.join('\n')}\n\nTrotzdem speichern?`)) return false;
     }
     ebSaveY(r); return true;
   });
@@ -770,11 +770,11 @@ function ebWireSchlag(f, rec, s, A = rec.schlaege) {
     sum = r2(sum); f.rest.value = bed != null ? fmtNum(r2(bed + korr - sum)) : '';
     $('#ebNInfo', f).textContent = sum ? `geplant ${fmtNum(sum)} kg N/ha` : '';
   };
-  f.addEventListener('input', upd); f.addEventListener('change', e => {
+  f.addEventListener('input', upd); f.addEventListener('change', async e => {
     if (e.target.name === 'gcopy' && e.target.value) {
       const src = rec.schlaege.find(x => x.id === e.target.value), box = $('#ebGaben', f);
       if (src && box) {
-        if (!$$('.ebgabe', f).length || confirm(`Die bisherigen Gaben durch die Planung von ${ebSchlagName(src)} (${src.kultur}) ersetzen?`)) {
+        if (!$$('.ebgabe', f).length || await frage(`Die bisherigen Gaben durch die Planung von ${ebSchlagName(src)} (${src.kultur}) ersetzen?`)) {
           box.innerHTML = src.gaben.map(g => ebGabeRow(rec, { d: g.d, datum: g.datum, menge: g.menge })).join('');
           f.korr.value = src.korr ?? ''; toast(`Planung von ${ebSchlagName(src)} übernommen – mit Speichern bestätigen`);
         }
@@ -1211,16 +1211,16 @@ function ebVarRen() {
     const name = (fd.get('name') || '').trim(); if (!name) return false; const st = ebStamm(); st.varianten.find(x => x.id === v.id).name = name; ebSaveS(st);
   });
 }
-function ebVarDel() {
-  const S = ebState(), v = ebVarOf(S.vari); if (!v || !confirm(`Variante «${v.name}» löschen?`)) return;
+async function ebVarDel() {
+  const S = ebState(), v = ebVarOf(S.vari); if (!v || !await frage(`Variante «${v.name}» löschen?`)) return;
   const st = ebStamm(); st.varianten = st.varianten.filter(x => x.id !== v.id);
   const recs = ebYears().map(y => ebGet(y)).filter(r => r.varianten && r.varianten[v.id]).map(r => { const c = structuredClone(r); delete c.varianten[v.id]; return c; });
   Store.putMany('einstellungen', [structuredClone(st), ...recs]); S.vari = ''; ls('lp_ebVari', ''); App.render(); toast('Variante gelöscht');
 }
 // Variante wird Hauptplan: gleiche Kultur auf gleicher Parzelle behält Gaben, Zuordnungen und Spritzaufträge des Hauptplans
-function ebVarAdopt() {
+async function ebVarAdopt() {
   const S = ebState(), v = ebVarOf(S.vari); if (!v) return;
-  if (!confirm(`Variante «${v.name}» als Hauptplan ab ${ebCurYear() + 1} übernehmen?\n\nDie bisherige Planung dieser Jahre wird ersetzt. Wo dieselbe Kultur auf derselben Parzelle steht, bleiben Düngungsplanung und Zuordnungen erhalten. Mit ↶ lässt sich das rückgängig machen.`)) return;
+  if (!await frage(`Variante «${v.name}» als Hauptplan ab ${ebCurYear() + 1} übernehmen?\n\nDie bisherige Planung dieser Jahre wird ersetzt. Wo dieselbe Kultur auf derselben Parzelle steht, bleiben Düngungsplanung und Zuordnungen erhalten. Mit ↶ lässt sich das rückgängig machen.`)) return;
   const st = ebStamm(); st.varianten = st.varianten.filter(x => x.id !== v.id);
   const recs = ebFutYears().map(y => {
     const r = structuredClone(ebRecY(y)), V = (r.varianten || {})[v.id] || [], used = new Set(), map = new Map();
@@ -1234,7 +1234,7 @@ function ebVarAdopt() {
 }
 
 /* ================= Ereignisse ================= */
-document.addEventListener('click', e => {
+document.addEventListener('click', async e => {
   const t = e.target.closest('[data-eb]'); if (!t) return;
   const a = t.dataset.eb, id = t.dataset.id, S = ebState(); e.preventDefault(); e.stopPropagation();
   switch (a) {
@@ -1242,7 +1242,7 @@ document.addEventListener('click', e => {
     case 'stSub': S.stSub = t.dataset.v; ls('lp_ebStSub', S.stSub); App.render(); break;
     case 'dSub': S.dSub = t.dataset.v; ls('lp_ebDSub', S.dSub); App.render(); break;
     case 'kFarbeReset': { const st = ebStamm(), ku = st.kulturen.find(x => x.id === id); if (ku) { delete ku.farbe; ebSaveS(st); } break; }
-    case 'off': if (confirm('Modul «Eigener Betrieb» ausblenden? Die Daten bleiben gespeichert; einschalten unter Mehr › Einstellungen.')) { Store.setCfg({ ebOn: false }); App.go('auftraege'); } break;
+    case 'off': if (await frage('Modul «Eigener Betrieb» ausblenden? Die Daten bleiben gespeichert; einschalten unter Mehr › Einstellungen.')) { Store.setCfg({ ebOn: false }); App.go('auftraege'); } break;
     case 'start': { const st = ebStammBlank(); const k = ebKunde(); if (k) st.kunde = k.id; ebSaveS(st); S.sub = 'stamm'; S.stSub = 'parzellen'; break; }
     // Parzellen
     case 'parzNew': ebParzDialog(null); break;
@@ -1250,7 +1250,7 @@ document.addEventListener('click', e => {
     case 'parzDel': { const st = ebStamm(), p = st.parz.find(x => x.id === id); if (!p) break;
       const n = ebYears().reduce((t2, y) => t2 + ebGet(y).schlaege.filter(s => s.parz === id).length, 0) + st.boden.filter(b => b.parz === id).length + Store.all('auftraege').filter(a => a.parzelle === id).length;
       if (n) { toast(`«${ebParzLabel(p)}» wird in ${n} Einträgen verwendet – stattdessen inaktiv setzen oder zusammenführen.`, 5000); break; }
-      if (confirm(`Parzelle «${ebParzLabel(p)}» löschen?`)) { st.parz = st.parz.filter(x => x.id !== id); ebSaveS(st); Dlg.close(); } break; }
+      if (await frage(`Parzelle «${ebParzLabel(p)}» löschen?`)) { st.parz = st.parz.filter(x => x.id !== id); ebSaveS(st); Dlg.close(); } break; }
     case 'parzMerge': { const to = Dlg.form.merge && Dlg.form.merge.value; if (!to) { toast('Zuerst die Ziel-Parzelle wählen.'); break; } ebParzMerge(id, to); break; }
     case 'parzLink': { const st = ebStamm(), p = st.parz.find(x => x.id === id); if (!p) break; p.feld = t.dataset.f; ebSaveS(st); toast(`${ebParzLabel(p)} ↦ ${(feldById(p.feld) || {}).name || ''}`); break; }
     case 'parzLinkAll': { const st = ebStamm(), G = ebFeldGuessAll(st); let n = 0;
@@ -1273,7 +1273,7 @@ document.addEventListener('click', e => {
     case 'sEdit': ebSchlagDialog(+t.dataset.y, id, {}, t.dataset.var || ''); break;
     case 'sDel': { const y = +t.dataset.y, vid = ebUseVar(y, t.dataset.var) ? t.dataset.var : '', rec = ebRecY(y), A = ebArr(rec, vid), s = A.find(x => x.id === id); if (!s) break;
       const Z = s.art !== 'zwischen' ? A.filter(z => z.nach === s.id) : [], prevD = !vid && s.art !== 'zwischen' && ebGet(y - 1) && ebGet(y - 1).schlaege.some(x => x.parz === s.parz && s.parz && x.art !== 'zwischen' && !x.ende && ebIsDauer(x.kultur));
-      if (!confirm(`${s.kultur || 'Eintrag'} auf ${ebSchlagName(s)} (${y}) löschen?${Z.length ? ` Die Zwischenfrucht ${Z.map(z => z.kultur).join(', ')} wird mitgelöscht.` : ''}${(s.gaben || []).length || Z.some(z => (z.gaben || []).length) ? ' Die geplanten Gaben gehen verloren.' : ''}${prevD ? ` Die Dauerkultur aus ${y - 1} gilt damit als umgebrochen und wird nicht mehr weitergeführt.` : ''}`)) break;
+      if (!await frage(`${s.kultur || 'Eintrag'} auf ${ebSchlagName(s)} (${y}) löschen?${Z.length ? ` Die Zwischenfrucht ${Z.map(z => z.kultur).join(', ')} wird mitgelöscht.` : ''}${(s.gaben || []).length || Z.some(z => (z.gaben || []).length) ? ' Die geplanten Gaben gehen verloren.' : ''}${prevD ? ` Die Dauerkultur aus ${y - 1} gilt damit als umgebrochen und wird nicht mehr weitergeführt.` : ''}`)) break;
       if (vid) rec.varianten[vid] = A.filter(x => x.id !== id && !Z.includes(x)); else rec.schlaege = rec.schlaege.filter(x => x.id !== id && !Z.includes(x));
       if (prevD) ebDauerEnde(y, s.parz); ebSaveY(rec); Dlg.close(); break; }
     case 'ffPrint': ebFfPrintDialog(); break;
@@ -1289,17 +1289,17 @@ document.addEventListener('click', e => {
     case 'zfFromPrev': ebZfFromPrev(); break;
     case 'artNew': ebArtDialog(null); break;
     case 'artEdit': ebArtDialog(id); break;
-    case 'artDel': { const rec = ebRecY(S.y), x = rec.zf.arten.find(z => z.id === id); if (!x || !confirm(`«${x.name}» entfernen? Die Anteile in den Mischungen gehen verloren.`)) break;
+    case 'artDel': { const rec = ebRecY(S.y), x = rec.zf.arten.find(z => z.id === id); if (!x || !await frage(`«${x.name}» entfernen? Die Anteile in den Mischungen gehen verloren.`)) break;
       rec.zf.arten = rec.zf.arten.filter(z => z.id !== id); rec.zf.mix.forEach(m => { if (m.anteile) delete m.anteile[id]; }); ebSaveY(rec); Dlg.close(); break; }
     case 'mixNew': ebMixDialog(null); break;
     case 'mixEdit': ebMixDialog(id); break;
-    case 'mixDel': { const rec = ebRecY(S.y), m = rec.zf.mix.find(z => z.id === id); if (!m || !confirm(`Mischung «${m.name}» entfernen?`)) break;
+    case 'mixDel': { const rec = ebRecY(S.y), m = rec.zf.mix.find(z => z.id === id); if (!m || !await frage(`Mischung «${m.name}» entfernen?`)) break;
       rec.zf.mix = rec.zf.mix.filter(z => z.id !== id); rec.schlaege.forEach(s => { if (s.mix === id) s.mix = ''; }); ebSaveY(rec); Dlg.close(); break; }
     case 'zfPrint': ebZfPrint(); break;
     // Bodenproben
     case 'bNew': ebBodenDialog(null); break;
     case 'bEdit': ebBodenDialog(id); break;
-    case 'bDel': { const st = ebStamm(); if (!confirm('Bodenprobe löschen?')) break; st.boden = st.boden.filter(b => b.id !== id); ebSaveS(st); Dlg.close(); break; }
+    case 'bDel': { const st = ebStamm(); if (!await frage('Bodenprobe löschen?')) break; st.boden = st.boden.filter(b => b.id !== id); ebSaveS(st); Dlg.close(); break; }
     case 'bPrint': ebBPrint(); break;
     // Stammdaten
     case 'kNew': ebKulturDialog(); break;

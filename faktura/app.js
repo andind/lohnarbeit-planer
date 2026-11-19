@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken) wie IM-Vermietung: Daten lokal im Browser + Abgleich mit Dropbox (/faktura.json). */
 'use strict';
 
-const APP_VERSION = '1.21', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.22', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/faktura.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'artikel', 'rechnungen', 'einstellungen'];
 const EINHEITEN = ['ha', 'h', 'Stk', 'Pausch.', 'km', 'm³', 't', 'kg', 'l', 'a'];
@@ -26,6 +26,45 @@ const round5 = n => Math.round((n + Number.EPSILON) * 20) / 20;
 const ls = (key, val) => { try { if (val === undefined) return localStorage.getItem(key); if (val === null) localStorage.removeItem(key); else localStorage.setItem(key, val); } catch { return null; } };
 const lsJson = (key, val) => { if (val === undefined) { try { return JSON.parse(ls(key) || 'null'); } catch { return null; } } ls(key, val === null ? null : JSON.stringify(val)); };
 const clone = o => JSON.parse(JSON.stringify(o));
+/* ---------- Eigene grosse Rückfragen statt Browser-Fenster (confirm/alert) ---------- */
+// frage(text, { ok, nein, gefahr }) → Promise<true|false>; meldung(text) → Promise (nur OK)
+function frage(msg, o = {}) {
+  if (!document.getElementById('imaskCss')) {
+    const st = document.createElement('style'); st.id = 'imaskCss';
+    st.textContent = `dialog.imask{border:0;border-radius:16px;padding:0;width:min(680px,94vw);max-height:90vh;background:var(--surface,var(--panel,#fff));color:var(--text,var(--fg,#1d211e));box-shadow:0 18px 60px rgba(0,0,0,.45);font-family:inherit}
+dialog.imask::backdrop{background:rgba(0,0,0,.45)}
+.imask-in{display:flex;gap:18px;padding:26px 28px 18px;align-items:flex-start;max-height:calc(90vh - 96px);overflow:auto}
+.imask-ic{font-size:40px;line-height:1;flex:none}
+.imask-msg{font-size:19px;line-height:1.5;white-space:pre-line;word-break:break-word;padding-top:4px}
+.imask-msg b{font-weight:700}
+.imask-btns{display:flex;justify-content:flex-end;gap:14px;padding:16px 28px 24px;flex-wrap:wrap}
+.imask-btns button{font:inherit;font-size:18px;font-weight:600;padding:13px 28px;min-width:150px;border-radius:12px;cursor:pointer;border:2px solid var(--line,#c9cfc9);background:var(--surface-2,var(--bg,#f2f2ee));color:inherit}
+.imask-btns .imask-ok{background:var(--accent,#2f6b3f);border-color:var(--accent,#2f6b3f);color:var(--accent-fg,#fff)}
+.imask-btns .imask-ok.gefahr{background:#b3261e;border-color:#b3261e;color:#fff}
+.imask-btns button:focus-visible{outline:3px solid #f2b705;outline-offset:2px}`;
+    document.head.appendChild(st);
+  }
+  return new Promise(res => {
+    const isInfo = !!o.info, txt = String(msg ?? '');
+    const gefahr = !isInfo && (o.gefahr ?? /lösch|entfern|stornier|verwerf|ersetz|abmeld|zurück in die Entwürfe/i.test(txt));
+    const d = document.createElement('dialog'); d.className = 'imask';
+    d.innerHTML = `<div class="imask-in"><div class="imask-ic">${isInfo ? 'ℹ️' : gefahr ? '⚠️' : '❓'}</div><div class="imask-msg"></div></div><div class="imask-btns">${isInfo ? '' : '<button type="button" class="imask-no"></button>'}<button type="button" class="imask-ok"></button></div>`;
+    d.querySelector('.imask-msg').textContent = txt;
+    const ok = d.querySelector('.imask-ok'), no = d.querySelector('.imask-no');
+    ok.textContent = o.ok || (gefahr ? (/lösch/i.test(txt) ? 'Ja, löschen' : /entfern/i.test(txt) ? 'Ja, entfernen' : /stornier/i.test(txt) ? 'Ja, stornieren' : 'Ja') : 'OK'); if (gefahr) ok.classList.add('gefahr');
+    if (no) no.textContent = o.nein || 'Abbrechen';
+    let fertig = false;
+    const done = v => { if (fertig) return; fertig = true; try { d.close(); } catch { } d.remove(); res(v); };
+    ok.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); done(true); });
+    if (no) no.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); done(false); });
+    d.addEventListener('cancel', e => { e.preventDefault(); done(isInfo); });
+    d.addEventListener('click', e => e.stopPropagation());
+    d.addEventListener('keydown', e => e.stopPropagation());
+    document.body.appendChild(d); d.showModal();
+    (gefahr && no ? no : ok).focus();
+  });
+}
+function meldung(msg) { return frage(msg, { info: true }); }
 function toast(msg, ms) { ms = ms || Math.max(4000, Math.min(9000, String(msg).length * 70)); const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), ms); }
 function download(name, content, type) {
   const blob = content instanceof Blob ? content : new Blob([content], { type });
@@ -152,33 +191,38 @@ const offenBetrag = r => r2(calc(r).total + gebuehren(r) - bezahlt(r));
 const faelligAkt = r => (r.mahnungen || []).length ? r.mahnungen[r.mahnungen.length - 1].faellig : r.faellig;
 function statusOf(r) {
   if (r.storno) return 'storniert';
+  if (!r.nr && r.archiv) return 'archiv';
   if (!r.nr) return 'entwurf';
   if (offenBetrag(r) <= 0.004) return 'bezahlt';
   return faelligAkt(r) && faelligAkt(r) < todayIso() ? 'ueberfaellig' : 'offen';
 }
-const ST = { entwurf: ['Entwurf', 'info'], offen: ['Offen', ''], ueberfaellig: ['Überfällig', 'warn'], bezahlt: ['Bezahlt', 'ok'], storniert: ['Storniert', 'storno'] };
+const ST = { entwurf: ['Entwurf', 'info'], offen: ['Offen', ''], ueberfaellig: ['Überfällig', 'warn'], bezahlt: ['Bezahlt', 'ok'], storniert: ['Storniert', 'storno'], archiv: ['Archiviert', 'storno'] };
 const stChip = r => { const s = statusOf(r), [l, c] = ST[s]; const m = (r.mahnungen || []).length; return `<span class="chip ${c}">${l}</span>${m && s !== 'bezahlt' && s !== 'storniert' ? ` <span class="chip warn small">${m}. Mahnstufe</span>` : ''}`; };
 const isOP = r => ['offen', 'ueberfaellig'].includes(statusOf(r));
 function nextNr() {
-  const max = Store.all('rechnungen').reduce((m, r) => Math.max(m, parseInt(String(r.nr || r.nrRes || '').replace(/\D/g, '')) || 0, ...(r.freieNr || []).map(x => parseInt(x) || 0)), Math.max(0, ...(Store.cfg().freieNr || []).map(x => parseInt(x) || 0))); // gelöschte reservierte Nummern (cfg.freieNr) und reservierte Nummern (zurückgenommene Rechnungen) zählen mit
+  const max = Store.all('rechnungen').reduce((m, r) => Math.max(m, parseInt(String(r.nr || r.nrRes || '').replace(/\D/g, '')) || 0, ...(r.freieNr || []).map(x => parseInt(x) || 0)), Math.max(0, ...(Store.cfg().freieNr || []).map(x => parseInt(x) || 0))); // freigewordene (cfg.freieNr), reservierte (auch archivierte) Nummern (zurückgenommene Rechnungen) zählen mit
   return String(Math.max(+Store.cfg().nextNr || 1, max + 1));
 }
-// v1.21: Entwürfe löschen (auch zurückgenommene) – immer mit Bestätigung; reservierte Nummern bleiben gesperrt
-function entwurfLoeschen(R) {
-  R = R.filter(r => r && !r.nr);
+// v1.21: Entwürfe werden nie gelöscht, sondern storniert und archiviert (r.archiv) – zurückholen unter Entwürfe › Archiv
+async function entwurfArchivieren(R) {
+  R = R.filter(r => r && !r.nr && !r.archiv);
   if (!R.length) return false;
   const res = R.filter(r => r.nrRes), ein = R.filter(r => (r.quellen || []).some(q => q.app));
-  const zeilen = R.slice(0, 12).map(r => `• ${kName(r.kunde) || '(ohne Kunde)'} – ${(r.pos || []).filter(p => (p.typ || 'pos') === 'pos').length} Positionen – CHF ${chf(calc(r).total)}${r.nrRes ? ' – reservierte Nr. ' + r.nrRes : ''}`).join('\n') + (R.length > 12 ? `\n… und ${R.length - 12} weitere` : '');
-  const txt = `${R.length === 1 ? 'Diesen Rechnungsentwurf' : R.length + ' Rechnungsentwürfe'} wirklich löschen?\n\n${zeilen}`
-    + (res.length ? `\n\n⚠ Zurückgenommene Rechnung${res.length > 1 ? 'en' : ''}: die Nummer${res.length > 1 ? 'n' : ''} ${res.map(r => r.nrRes).join(', ')} wird nicht mehr vergeben (Lücke in der Nummernfolge). Wurde die Rechnung schon verschickt, dem Kunden mitteilen, dass sie ungültig ist.` : '')
-    + (ein.length ? '\n\nHinweis: In der IM-Verwaltung bzw. IM-Vermietung bleiben die Einträge als «an IM-Faktura gesendet» / abgerechnet markiert – dort bei Bedarf von Hand zurücksetzen.' : '')
-    + '\n\nDas Löschen kann nicht rückgängig gemacht werden.';
-  if (!confirm(txt)) return false;
-  if (res.length) { const c = Store.get('einstellungen', 'cfg') || {}; Store.setCfg({ freieNr: [...new Set([...(c.freieNr || []), ...res.map(r => r.nrRes), ...R.flatMap(r => r.freieNr || [])])] }); }
-  else { const fr = R.flatMap(r => r.freieNr || []); if (fr.length) { const c = Store.get('einstellungen', 'cfg') || {}; Store.setCfg({ freieNr: [...new Set([...(c.freieNr || []), ...fr])] }); } }
-  Store.remove('rechnungen', R.map(r => r.id));
-  toast(R.length === 1 ? 'Entwurf gelöscht' : R.length + ' Entwürfe gelöscht');
+  const zeilen = R.slice(0, 12).map(r => `• ${kName(r.kunde)} – ${(r.pos || []).filter(p => (p.typ || 'pos') === 'pos').length} Positionen – CHF ${chf(calc(r).total)}${r.nrRes ? ' – reservierte Nr. ' + r.nrRes : ''}`).join('\n') + (R.length > 12 ? `\n… und ${R.length - 12} weitere` : '');
+  const txt = `${R.length === 1 ? 'Diesen Rechnungsentwurf' : R.length + ' Rechnungsentwürfe'} stornieren und ins Archiv legen?\n\n${zeilen}`
+    + '\n\nDer Entwurf verschwindet aus der Liste, bleibt aber gespeichert und kann unter Entwürfe › Archiv jederzeit zurückgeholt werden.'
+    + (res.length ? `\n\nDie reservierte Nummer ${res.map(r => r.nrRes).join(', ')} bleibt gesperrt und wird nicht neu vergeben.` : '')
+    + (ein.length ? '\n\nIn der IM-Verwaltung bzw. IM-Vermietung bleiben die Einträge als «an IM-Faktura gesendet» markiert.' : '');
+  if (!await frage(txt, { ok: R.length === 1 ? 'Stornieren & archivieren' : R.length + ' archivieren', gefahr: true })) return false;
+  const am = new Date().toISOString();
+  Store.putMany('rechnungen', R.map(r => Object.assign(clone(r), { archiv: { am } })));
+  toast(R.length === 1 ? 'Entwurf storniert und archiviert – zurückholen unter Entwürfe › Archiv' : R.length + ' Entwürfe archiviert – zurückholen unter Entwürfe › Archiv');
   return true;
+}
+function entwurfZurueck(id) {
+  const r = Store.get('rechnungen', id); if (!r || !r.archiv) return;
+  const n = clone(r); n.rueckArchiv = (n.rueckArchiv || []).concat([{ archiviert: r.archiv.am, zurueck: new Date().toISOString() }]); delete n.archiv;
+  Store.put('rechnungen', n); toast('Entwurf zurückgeholt – er ist wieder unter Entwürfe');
 }
 function newRechnung(preset = {}) {
   const c = Store.cfg();

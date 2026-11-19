@@ -139,9 +139,9 @@ async function printDocs(docs, opt = {}) {
   if (!docs.length) return;
   const c = Store.cfg(), mitQr = docs.some(d => d.r.nr), mitB = docs.some(d => d.mahnung == null && beilagenOf(d.r).length);
   if (!opt.teil && mitQr && mitB && c.druckGetrennt !== false) {
-    if (!confirm(`Druck in zwei Aufträgen:\n\n1. ${docs.length === 1 ? 'Rechnung' : docs.length + ' Rechnungen/Mahnungen'} → ${c.fachRe || 'Rechnungspapier (Fach 2)'}\n2. danach die Beilagen → ${c.fachNormal || 'Normalpapier (Fach 1)'}\n\nIm Druckfenster jeweils den passenden Drucker bzw. das Fach wählen.`)) return;
-    return printDocs(docs, { title: opt.title, teil: 'rechnung', after: () => {
-      if (confirm(`Jetzt die Beilagen drucken → ${c.fachNormal || 'Normalpapier (Fach 1)'}?`)) printDocs(docs, { title: (opt.title || '') + ' Beilagen', teil: 'beilagen', after: opt.after });
+    if (!await frage(`Druck in zwei Aufträgen:\n\n1. ${docs.length === 1 ? 'Rechnung' : docs.length + ' Rechnungen/Mahnungen'} → ${c.fachRe || 'Rechnungspapier (Fach 2)'}\n2. danach die Beilagen → ${c.fachNormal || 'Normalpapier (Fach 1)'}\n\nIm Druckfenster jeweils den passenden Drucker bzw. das Fach wählen.`)) return;
+    return printDocs(docs, { title: opt.title, teil: 'rechnung', after: async () => {
+      if (await frage(`Jetzt die Beilagen drucken → ${c.fachNormal || 'Normalpapier (Fach 1)'}?`)) printDocs(docs, { title: (opt.title || '') + ' Beilagen', teil: 'beilagen', after: opt.after });
       else if (opt.after) opt.after(); } });
   }
   const { title, after } = opt;

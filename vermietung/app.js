@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.20', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.21', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -26,6 +26,45 @@ const num = v => { if (v === '' || v == null) return null; if (typeof v === 'num
 const r2 = n => Math.round(n * 100) / 100;
 const ls = (key, val) => { try { if (val === undefined) return localStorage.getItem(key); if (val === null) localStorage.removeItem(key); else localStorage.setItem(key, val); } catch { return null; } };
 const lsJson = (key, val) => { if (val === undefined) { try { return JSON.parse(ls(key) || 'null'); } catch { return null; } } ls(key, val === null ? null : JSON.stringify(val)); };
+/* ---------- Eigene grosse Rückfragen statt Browser-Fenster (confirm/alert) ---------- */
+// frage(text, { ok, nein, gefahr }) → Promise<true|false>; meldung(text) → Promise (nur OK)
+function frage(msg, o = {}) {
+  if (!document.getElementById('imaskCss')) {
+    const st = document.createElement('style'); st.id = 'imaskCss';
+    st.textContent = `dialog.imask{border:0;border-radius:16px;padding:0;width:min(680px,94vw);max-height:90vh;background:var(--surface,var(--panel,#fff));color:var(--text,var(--fg,#1d211e));box-shadow:0 18px 60px rgba(0,0,0,.45);font-family:inherit}
+dialog.imask::backdrop{background:rgba(0,0,0,.45)}
+.imask-in{display:flex;gap:18px;padding:26px 28px 18px;align-items:flex-start;max-height:calc(90vh - 96px);overflow:auto}
+.imask-ic{font-size:40px;line-height:1;flex:none}
+.imask-msg{font-size:19px;line-height:1.5;white-space:pre-line;word-break:break-word;padding-top:4px}
+.imask-msg b{font-weight:700}
+.imask-btns{display:flex;justify-content:flex-end;gap:14px;padding:16px 28px 24px;flex-wrap:wrap}
+.imask-btns button{font:inherit;font-size:18px;font-weight:600;padding:13px 28px;min-width:150px;border-radius:12px;cursor:pointer;border:2px solid var(--line,#c9cfc9);background:var(--surface-2,var(--bg,#f2f2ee));color:inherit}
+.imask-btns .imask-ok{background:var(--accent,#2f6b3f);border-color:var(--accent,#2f6b3f);color:var(--accent-fg,#fff)}
+.imask-btns .imask-ok.gefahr{background:#b3261e;border-color:#b3261e;color:#fff}
+.imask-btns button:focus-visible{outline:3px solid #f2b705;outline-offset:2px}`;
+    document.head.appendChild(st);
+  }
+  return new Promise(res => {
+    const isInfo = !!o.info, txt = String(msg ?? '');
+    const gefahr = !isInfo && (o.gefahr ?? /lösch|entfern|stornier|verwerf|ersetz|abmeld|zurück in die Entwürfe/i.test(txt));
+    const d = document.createElement('dialog'); d.className = 'imask';
+    d.innerHTML = `<div class="imask-in"><div class="imask-ic">${isInfo ? 'ℹ️' : gefahr ? '⚠️' : '❓'}</div><div class="imask-msg"></div></div><div class="imask-btns">${isInfo ? '' : '<button type="button" class="imask-no"></button>'}<button type="button" class="imask-ok"></button></div>`;
+    d.querySelector('.imask-msg').textContent = txt;
+    const ok = d.querySelector('.imask-ok'), no = d.querySelector('.imask-no');
+    ok.textContent = o.ok || (gefahr ? (/lösch/i.test(txt) ? 'Ja, löschen' : /entfern/i.test(txt) ? 'Ja, entfernen' : /stornier/i.test(txt) ? 'Ja, stornieren' : 'Ja') : 'OK'); if (gefahr) ok.classList.add('gefahr');
+    if (no) no.textContent = o.nein || 'Abbrechen';
+    let fertig = false;
+    const done = v => { if (fertig) return; fertig = true; try { d.close(); } catch { } d.remove(); res(v); };
+    ok.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); done(true); });
+    if (no) no.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); done(false); });
+    d.addEventListener('cancel', e => { e.preventDefault(); done(isInfo); });
+    d.addEventListener('click', e => e.stopPropagation());
+    d.addEventListener('keydown', e => e.stopPropagation());
+    document.body.appendChild(d); d.showModal();
+    (gefahr && no ? no : ok).focus();
+  });
+}
+function meldung(msg) { return frage(msg, { info: true }); }
 function toast(msg, ms) { ms = ms || Math.max(4000, Math.min(9000, String(msg).length * 70)); const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), ms); }
 function download(name, content, type) {
   const blob = content instanceof Blob ? content : new Blob([content], { type });
@@ -404,7 +443,7 @@ function selBar() {
 function openDlg(title, body, foot, { wide = false, onSubmit = null } = {}) {
   const d = $('#dlg'); d.classList.toggle('wide', wide);
   $('#dlgForm').innerHTML = `<div class="dh"><h2>${esc(title)}</h2><button type="button" class="x" data-act="dlgClose" aria-label="Schliessen">×</button></div><div class="db">${body}</div><div class="df">${foot}</div>`;
-  $('#dlgForm').onsubmit = ev => { if (!onSubmit) return; ev.preventDefault(); if (onSubmit(new FormData($('#dlgForm')), ev.submitter?.value) !== false) closeDlg(); };
+  $('#dlgForm').onsubmit = async ev => { if (!onSubmit) return; ev.preventDefault(); let res = onSubmit(new FormData($('#dlgForm')), ev.submitter?.value); if (res && typeof res.then === 'function') res = await res; if (res !== false) closeDlg(); };
   if (!d.open) d.showModal();
   setTimeout(() => { const f = $('#dlgForm [autofocus]'); if (f && matchMedia('(min-width: 700px)').matches) f.focus(); }, 30);
 }
@@ -432,11 +471,11 @@ function einsatzDialog(id, preset = {}) {
     ${id ? `<div class="box small">Quelle: ${esc(e.quelle || '–')}${e.importAm ? ' · importiert ' + fmtDate(e.importAm) : ''}${isDone(e) && e.abgerechnetAm ? ' · abgerechnet am ' + fmtDate(e.abgerechnetAm) : ''}${isStorno(e) && e.storniertAm ? ' · storniert am ' + fmtDate(e.storniertAm) : ''}${origTxt ? '<br>Ursprünglich: ' + esc(origTxt) : ''}</div>` : ''}`,
     `${id ? '<button type="button" class="btn danger" data-act="delEinsatz" data-id="' + id + '">Löschen</button>' : ''}<span class="spacer"></span>
      ${id ? `${isStorno(e) ? '' : '<button class="btn" value="storno" title="Speichern und als storniert markieren">Stornieren</button>'}${isDone(e) ? '<button class="btn" value="offen">Wieder offen</button>' : '<button class="btn" value="done" title="Speichern und als abgerechnet markieren">✓ Abgerechnet</button>'}` : '<button class="btn" value="weiter">Speichern + weiter</button>'}<button class="btn primary" value="ok">Speichern</button>`,
-    { onSubmit: (fd, btn) => {
+    { onSubmit: async (fd, btn) => {
       const menge = num(fd.get('menge'));
       if (!fd.get('kunde') || !fd.get('maschine') || menge == null) { toast('Kunde, Maschine und Menge angeben'); return false; }
-      if (btn === 'storno' && !confirm('Diesen Einsatz stornieren? Er zählt danach nirgends mehr (bleibt aber sichtbar).')) return false;
-      if (btn === 'done' && !confirm('Diesen Einsatz als abgerechnet markieren?')) return false;
+      if (btn === 'storno' && !await frage('Diesen Einsatz stornieren? Er zählt danach nirgends mehr (bleibt aber sichtbar).')) return false;
+      if (btn === 'done' && !await frage('Diesen Einsatz als abgerechnet markieren?')) return false;
       const st = btn === 'storno' ? 'storniert' : btn === 'done' ? 'abgerechnet' : btn === 'offen' ? 'offen' : fd.get('status');
       const obj = Object.assign({}, e, { id: e.id || 'e' + uid(), datum: fd.get('datum') || '', kunde: fd.get('kunde'), maschine: fd.get('maschine'), menge, einheit: fd.get('einheit'),
         preis: num(fd.get('preis')), bem: fd.get('bem').trim(), status: st, abgerechnetAm: st === 'abgerechnet' ? (e.abgerechnetAm || todayIso()) : '', storniertAm: st === 'storniert' ? (e.storniertAm || todayIso()) : '' });
@@ -512,11 +551,11 @@ function kundeDialog(id) {
     <label class="fld"><span>Bemerkung</span><input class="input" name="bem" value="${esc(k.bem || '')}"></label>
     ${id ? `<div class="box small">${n} Einsätze</div>` : ''}`,
     `${id && !fk ? `<button type="button" class="btn danger" data-act="delKunde" data-id="${id}">Löschen</button><button type="button" class="btn" data-act="mergeKunde" data-id="${id}">Zusammenführen…</button>` : ''}<span class="spacer"></span><button class="btn primary" value="ok">Speichern</button>`,
-    { onSubmit: fd => {
+    { onSubmit: async fd => {
       if (fk) { Store.put('kunden', Object.assign({}, k, { bem: fd.get('bem').trim(), aliases: linesOf(fd.get('aliases')).filter(a => fold(a) !== fold(k.name)) }), { silent: true }); return; }
       const name = fd.get('name').trim(); if (!name) return false;
       const nr = fd.get('nr').trim();
-      if (nr && kundenSorted().some(x => x.nr === nr && x.id !== id) && !confirm(`Die Kunden-Nr. ${nr} ist schon vergeben. Trotzdem speichern?`)) return false;
+      if (nr && kundenSorted().some(x => x.nr === nr && x.id !== id) && !await frage(`Die Kunden-Nr. ${nr} ist schon vergeben. Trotzdem speichern?`)) return false;
       const obj = Object.assign({}, k, { id: k.id || 'k' + uid(), nr, name, strasse: fd.get('strasse').trim(), zusatz: fd.get('zusatz').trim(), plz: fd.get('plz').trim(), ort: fd.get('ort').trim(),
         tel: fd.get('tel').trim(), mail: fd.get('mail').trim(), bem: fd.get('bem').trim(), aktiv: fd.get('aktiv') === '1', aliases: linesOf(fd.get('aliases')).filter(a => fold(a) !== fold(name)) });
       Store.put('kunden', obj, { silent: true });
@@ -1336,7 +1375,7 @@ async function fakturaSendVm(G, ov) {
     const schon = G.flatMap(g => g.R).filter(e => e.fakt).length;
     const ohne = G.flatMap(g => g.R).filter(e => preisOf(e) == null).length;
     if (ohne) { toast(`${ohne} Einsätze ohne Preis – Preise ergänzen, dann nochmals senden.`, 5000); return; }
-    if (!confirm(`${G.length} ${G.length === 1 ? 'Abrechnung' : 'Abrechnungen'} (${G.flatMap(g => g.R).length} Einsätze) an IM-Faktura senden und als abgerechnet markieren?${schon ? `\n\nAchtung: ${schon} Einsätze wurden schon einmal gesendet.` : ''}`)) return;
+    if (!await frage(`${G.length} ${G.length === 1 ? 'Abrechnung' : 'Abrechnungen'} (${G.flatMap(g => g.R).length} Einsätze) an IM-Faktura senden und als abgerechnet markieren?${schon ? `\n\nAchtung: ${schon} Einsätze wurden schon einmal gesendet.` : ''}`)) return;
     let n = 0; const ids = [];
     for (const g of G) {
       const L = g.R.slice().sort((a, b) => (a.datum || '').localeCompare(b.datum || '')), tot = r2(L.reduce((s, e) => s + (betragOf(e) || 0), 0));
@@ -1363,9 +1402,9 @@ function abrNachRapport(ids, nK) {
     `<span class="spacer"></span><button class="btn" value="nein">Nein, offen lassen</button><button class="btn primary" value="ja">✓ Ja, als abgerechnet markieren</button>`,
     { onSubmit: (fd, btn) => { if (btn !== 'ja') return; setStatus(L.map(e => e.id), 'abgerechnet'); L.forEach(e => App.abr.rows.delete(e.id)); toast(`${L.length} Einsätze als abgerechnet markiert`); } });
 }
-function abrDoneSel() { // nur angehakte Zeilen («im Rapport») der angekreuzten Kunden
+async function abrDoneSel() { // nur angehakte Zeilen («im Rapport») der angekreuzten Kunden
   const L = abrGroups().flatMap(g => g.R).filter(isOffen);
-  if (!L.length || !confirm(`${L.length} ausgewählte Einsätze als abgerechnet markieren (Datum heute)?`)) return;
+  if (!L.length || !await frage(`${L.length} ausgewählte Einsätze als abgerechnet markieren (Datum heute)?`)) return;
   setStatus(L.map(e => e.id), 'abgerechnet'); toast(`${L.length} Einsätze als abgerechnet markiert`);
 }
 
@@ -1416,7 +1455,7 @@ function exportAll() {
 async function restore(file) {
   let d; try { d = JSON.parse(await file.text()); } catch { toast('Keine gültige Datensicherung'); return; }
   if (!d || !COLL.some(c => Array.isArray(d[c]))) { toast('Keine gültige Datensicherung'); return; }
-  if (!confirm(`Datensicherung mit ${(d.einsaetze || []).filter(x => !x.del).length} Einsätzen wiederherstellen? Der aktuelle Stand wird ersetzt (auch in Dropbox).`)) return;
+  if (!await frage(`Datensicherung mit ${(d.einsaetze || []).filter(x => !x.del).length} Einsätzen wiederherstellen? Der aktuelle Stand wird ersetzt (auch in Dropbox).`)) return;
   const now = Date.now(), cur = Store.data;
   COLL.forEach(c => { // was in der Sicherung fehlt, wird gelöscht – alles mit neuer Zeit, damit es beim Abgleich gewinnt
     const ids = new Set((d[c] || []).map(x => x.id));
@@ -1547,7 +1586,7 @@ function rerenderKeepFocus() {
   App.render();
   if (key && /^(fQ|kq)$/.test(a.dataset.in)) { const n = $(key); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch {} } }
 }
-document.addEventListener('click', ev => {
+document.addEventListener('click', async ev => {
   const t = ev.target.closest('[data-act]'); if (!t) return;
   const act = t.dataset.act, id = t.dataset.id;
   if (t.tagName === 'A') ev.preventDefault();
@@ -1555,7 +1594,7 @@ document.addEventListener('click', ev => {
     case 'go': App.go(t.dataset.v); break;
     case 'sync': if (!Auth.configured()) { App.go('mehr'); } else if (!Auth.hasSession()) Auth.login(); else Sync.run(); break;
     case 'login': Auth.login(); break;
-    case 'logout': if (confirm('Von Dropbox abmelden? Die Daten bleiben auf diesem Gerät.')) Auth.logout(); break;
+    case 'logout': if (await frage('Von Dropbox abmelden? Die Daten bleiben auf diesem Gerät.')) Auth.logout(); break;
     case 'reload': location.reload(); break;
     case 'zoomIn': Zoom.by(1.15); break;
     case 'zoomOut': Zoom.by(1 / 1.15); break;
@@ -1569,25 +1608,25 @@ document.addEventListener('click', ev => {
     case 'selClear': App.sel.clear(); App.render(); break;
     case 'selDone': setStatus([...App.sel], 'abgerechnet'); App.sel.clear(); App.render(); break;
     case 'selOpen': setStatus([...App.sel], 'offen'); App.sel.clear(); App.render(); break;
-    case 'selStorno': if (confirm(`${App.sel.size} Einsätze stornieren?`)) { setStatus([...App.sel], 'storniert'); App.sel.clear(); App.render(); } break;
+    case 'selStorno': if (await frage(`${App.sel.size} Einsätze stornieren?`)) { setStatus([...App.sel], 'storniert'); App.sel.clear(); App.render(); } break;
     case 'selEdit': bulkEdit(); break;
-    case 'selDel': if (confirm(`${App.sel.size} Einsätze löschen?`)) { Store.remove('einsaetze', [...App.sel]); App.sel.clear(); App.render(); } break;
+    case 'selDel': if (await frage(`${App.sel.size} Einsätze löschen?`)) { Store.remove('einsaetze', [...App.sel]); App.sel.clear(); App.render(); } break;
     case 'sort': { const k = t.dataset.k; App.sort = App.sort.key === k ? { key: k, dir: -App.sort.dir } : { key: k, dir: k === 'datum' ? -1 : 1 }; App.saveUi(); App.render(); break; }
     case 'fReset': App.f[t.dataset.k] = Object.assign(defFilter(), t.dataset.k === 'abr' ? { status: 'offen' } : {}); App.saveUi(); App.render(); break;
     case 'exportEinsaetze': download(`Einsaetze_${todayIso()}.xlsx`, xlsxBlob([{ name: 'Einsätze', rows: einsatzRows(einsatzList()) }])); break;
     case 'dlgClose': closeDlg(); break;
-    case 'delEinsatz': if (confirm('Diesen Einsatz löschen?')) { $('#dlg').close(); Store.remove('einsaetze', id); } break;
+    case 'delEinsatz': if (await frage('Diesen Einsatz löschen?')) { $('#dlg').close(); Store.remove('einsaetze', id); } break;
     case 'quickKunde': quickKunde(); break;
     case 'sub': App.sub[t.dataset.g] = t.dataset.v; App.saveUi(); App.render(); break;
     case 'editKunde': kundeDialog(id); break;
     case 'editMasch': maschDialog(id); break;
-    case 'delKunde': if (Store.all('einsaetze').some(e => e.kunde === id)) { toast('Kunde hat Einsätze – zuerst zusammenführen oder Einsätze löschen', 5000); break; } if (confirm('Kunde löschen?')) { $('#dlg').close(); Store.remove('kunden', id); } break;
+    case 'delKunde': if (Store.all('einsaetze').some(e => e.kunde === id)) { toast('Kunde hat Einsätze – zuerst zusammenführen oder Einsätze löschen', 5000); break; } if (await frage('Kunde löschen?')) { $('#dlg').close(); Store.remove('kunden', id); } break;
     case 'mergeKunde': mergeKundeDialog(id); break;
-    case 'delMasch': if (confirm('Maschine löschen?')) { $('#dlg').close(); Store.remove('maschinen', id); } break;
+    case 'delMasch': if (await frage('Maschine löschen?')) { $('#dlg').close(); Store.remove('maschinen', id); } break;
     case 'impKundenliste': pickFile('.xlsx,.csv', impKundenliste); break;
     case 'auswJump': App.f.einsaetze = Object.assign(defFilter(), { von: App.f.ausw.von, bis: App.f.ausw.bis, status: App.f.ausw.status, [t.dataset.t]: id }); App.go('einsaetze'); break;
     case 'exportAusw': exportAusw(); break;
-    case 'impCancel': if (confirm('Prüfliste verwerfen? Es wird nichts übernommen.')) { App.imp = null; ls('mv_imp', null); App.render(); } break;
+    case 'impCancel': if (await frage('Prüfliste verwerfen? Es wird nichts übernommen.')) { App.imp = null; ls('mv_imp', null); App.render(); } break;
     case 'impSave': impSave(); break;
     case 'formRemap': formMapDialog(); break;
     case 'formFetch': formFetch(); break;

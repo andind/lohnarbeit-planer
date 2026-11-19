@@ -211,14 +211,14 @@ async function imvLinkDialog(nurOffen = true) {
         <td><input class="input" name="v${i}" list="fkList" value="${esc(val)}" placeholder="– nicht verknüpft –" style="${!x.cur && x.sug ? 'background:#fff6d6' : ''}"></td>
         <td>${x.cur ? '<span class="chip ok">verknüpft</span>' : x.sug ? `<span class="chip warn">Vorschlag (${esc(x.how)})</span>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`,
     `<span class="spacer"></span><button class="btn primary" value="ok">Speichern</button>`,
-    { wide: true, onSubmit: fd => {
+    { wide: true, onSubmit: async fd => {
       const map = new Map(K.map(k => [k.id, new Set((k.imvIds || []).filter(i => !L.some(v => v.id === i)))])), neu = [];
       let bad = 0;
       R.forEach((x, i) => { const t = String(fd.get('v' + i) || '').trim(); if (!t) return;
         if (t === IMV_NEU) { const st = splitStreet(x.v.adresse), po = splitPlzOrt(x.v.plz, x.v.ort);
           neu.push({ id: uid(), nr: /^\d+$/.test(nrKey(x.v.nr)) ? nrKey(x.v.nr) : '', name: x.v.name, anrede: x.v.anrede || '', ...st, ...po, land: 'CH', mail: x.v.mail || '', tel: x.v.tel || x.v.handy || '', aktiv: true, imvIds: [x.v.id] }); return; }
         const id = byLab.get(t); if (!id) { bad++; return; } map.get(id).add(x.v.id); });
-      if (bad && !confirm(`${bad} Eingaben passen zu keinem Kunden und werden übergangen. Trotzdem speichern?`)) return false;
+      if (bad && !await frage(`${bad} Eingaben passen zu keinem Kunden und werden übergangen. Trotzdem speichern?`)) return false;
       const ch = K.filter(k => { const a = [...map.get(k.id)].sort().join(), b = [...(k.imvIds || [])].sort().join(); return a !== b; }).map(k => Object.assign(clone(k), { imvIds: [...map.get(k.id)] }));
       Store.putMany('kunden', [...ch, ...neu]); toast(`${ch.length} Kunden verknüpft${neu.length ? ` · ${neu.length} neu angelegt (Adresse prüfen)` : ''}`, 5000);
     } });
@@ -244,13 +244,13 @@ async function impArtVm() {
     artMerge((d.maschinen || []).filter(m => !m.del && m.artNr).map(m => ({ artNr: m.artNr, bez: m.name, einheit: m.einheit, preis: m.preis ?? null })), 'IM-Vermietung (Maschinen)');
   } catch (e) { toast(e.message, 6000); }
 }
-function artMerge(L, quelle) {
+async function artMerge(L, quelle) {
   const c = Store.cfg(); let neu = 0, upd = 0; const out = [];
   L.forEach(n => { const a = n.artNr ? artByNr(n.artNr) : Store.all('artikel').find(x => fold(x.bez) === fold(n.bez));
     if (a) { const x = clone(a); let ch = false; ['bez', 'einheit', 'beschr'].forEach(f => { if (n[f] && !x[f]) { x[f] = n[f]; ch = true; } }); if (n.preis != null && n.preis !== x.preis) { x.preis = n.preis; ch = true; } if (n.mwst != null && n.mwst !== x.mwst) { x.mwst = n.mwst; ch = true; } if (n.konto && n.konto !== x.konto) { x.konto = n.konto; ch = true; } if (ch) { out.push(x); upd++; } }
     else { out.push({ id: uid(), artNr: n.artNr, bez: n.bez, ...(n.beschr ? { beschr: n.beschr } : {}), einheit: n.einheit || '', preis: n.preis, mwst: n.mwst ?? c.mwstDef, konto: n.konto || '', aktiv: true }); neu++; } });
   if (!out.length) { toast(`${quelle}: nichts Neues`); return; }
-  if (!confirm(`${quelle}: ${neu} neue Artikel, ${upd} Preise/Angaben aktualisieren?`)) return;
+  if (!await frage(`${quelle}: ${neu} neue Artikel, ${upd} Preise/Angaben aktualisieren?`)) return;
   Store.putMany('artikel', out); toast(`${neu + upd} Artikel übernommen`);
 }
 

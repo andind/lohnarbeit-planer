@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '154', APP_STAND = '19.11.2026';
+const APP_VERSION = '155', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -51,6 +51,45 @@ function toast(msg, ms) { ms = ms || Math.max(4000, Math.min(9000, String(msg).l
   const t = $('#toast'); t.textContent = msg; t.classList.add('show');
   clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), ms);
 }
+/* ---------- Eigene grosse Rückfragen statt Browser-Fenster (confirm/alert) ---------- */
+// frage(text, { ok, nein, gefahr }) → Promise<true|false>; meldung(text) → Promise (nur OK)
+function frage(msg, o = {}) {
+  if (!document.getElementById('imaskCss')) {
+    const st = document.createElement('style'); st.id = 'imaskCss';
+    st.textContent = `dialog.imask{border:0;border-radius:16px;padding:0;width:min(680px,94vw);max-height:90vh;background:var(--surface,var(--panel,#fff));color:var(--text,var(--fg,#1d211e));box-shadow:0 18px 60px rgba(0,0,0,.45);font-family:inherit}
+dialog.imask::backdrop{background:rgba(0,0,0,.45)}
+.imask-in{display:flex;gap:18px;padding:26px 28px 18px;align-items:flex-start;max-height:calc(90vh - 96px);overflow:auto}
+.imask-ic{font-size:40px;line-height:1;flex:none}
+.imask-msg{font-size:19px;line-height:1.5;white-space:pre-line;word-break:break-word;padding-top:4px}
+.imask-msg b{font-weight:700}
+.imask-btns{display:flex;justify-content:flex-end;gap:14px;padding:16px 28px 24px;flex-wrap:wrap}
+.imask-btns button{font:inherit;font-size:18px;font-weight:600;padding:13px 28px;min-width:150px;border-radius:12px;cursor:pointer;border:2px solid var(--line,#c9cfc9);background:var(--surface-2,var(--bg,#f2f2ee));color:inherit}
+.imask-btns .imask-ok{background:var(--accent,#2f6b3f);border-color:var(--accent,#2f6b3f);color:var(--accent-fg,#fff)}
+.imask-btns .imask-ok.gefahr{background:#b3261e;border-color:#b3261e;color:#fff}
+.imask-btns button:focus-visible{outline:3px solid #f2b705;outline-offset:2px}`;
+    document.head.appendChild(st);
+  }
+  return new Promise(res => {
+    const isInfo = !!o.info, txt = String(msg ?? '');
+    const gefahr = !isInfo && (o.gefahr ?? /lösch|entfern|stornier|verwerf|ersetz|abmeld|zurück in die Entwürfe/i.test(txt));
+    const d = document.createElement('dialog'); d.className = 'imask';
+    d.innerHTML = `<div class="imask-in"><div class="imask-ic">${isInfo ? 'ℹ️' : gefahr ? '⚠️' : '❓'}</div><div class="imask-msg"></div></div><div class="imask-btns">${isInfo ? '' : '<button type="button" class="imask-no"></button>'}<button type="button" class="imask-ok"></button></div>`;
+    d.querySelector('.imask-msg').textContent = txt;
+    const ok = d.querySelector('.imask-ok'), no = d.querySelector('.imask-no');
+    ok.textContent = o.ok || (gefahr ? (/lösch/i.test(txt) ? 'Ja, löschen' : /entfern/i.test(txt) ? 'Ja, entfernen' : /stornier/i.test(txt) ? 'Ja, stornieren' : 'Ja') : 'OK'); if (gefahr) ok.classList.add('gefahr');
+    if (no) no.textContent = o.nein || 'Abbrechen';
+    let fertig = false;
+    const done = v => { if (fertig) return; fertig = true; try { d.close(); } catch { } d.remove(); res(v); };
+    ok.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); done(true); });
+    if (no) no.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); done(false); });
+    d.addEventListener('cancel', e => { e.preventDefault(); done(isInfo); });
+    d.addEventListener('click', e => e.stopPropagation());
+    d.addEventListener('keydown', e => e.stopPropagation());
+    document.body.appendChild(d); d.showModal();
+    (gefahr && no ? no : ok).focus();
+  });
+}
+function meldung(msg) { return frage(msg, { info: true }); }
 function download(name, content, type) {
   const blob = content instanceof Blob ? content : new Blob([content], { type });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
@@ -588,7 +627,7 @@ function attachResize(h) {
 }
 /* ---------- Verschieben (einzeln oder mehrere) ---------- */
 // tgt: { unplan:true } | { datum, mid, minute?, top?, beforeId? }
-function moveOrders(ids, draggedId, tgt) {
+async function moveOrders(ids, draggedId, tgt) {
   const list = ids.map(id => Store.get('auftraege', id)).filter(a => a && isOpen(a)).map(a => ({ ...a }));
   if (!list.length) return;
   if (tgt.unplan) { list.forEach(a => { a.datum = ''; a.zeit = ''; a.status = 'offen'; }); Store.putMany('auftraege', list); return; }
@@ -602,7 +641,7 @@ function moveOrders(ids, draggedId, tgt) {
   };
   const plan = list.map(a => ({ a, ...target(a) }));
   const misfit = plan.filter(p => { const m = maschine(p.mid); return m && p.a.arbeit && !fits(m, p.a.arbeit) && p.mid !== (p.a.maschine || ''); });
-  if (misfit.length && !confirm(misfit.length === 1
+  if (misfit.length && !await frage(misfit.length === 1
     ? `«${maschine(misfit[0].mid).name}» ist nicht für «${misfit[0].a.arbeit}» erfasst. Trotzdem einplanen?`
     : `${misfit.length} Aufträge passen nicht zur Arbeitsart der Maschine. Trotzdem verschieben?`)) return;
   if (!groupShift) { // einzeln oder aus «nicht eingeplant»: als Block einfügen, Folgende rutschen nach
@@ -1539,12 +1578,12 @@ function quickKundeDialog() {
     <div class="df"><span class="spacer"></span><button type="button" class="btn" data-k2="close">Abbrechen</button><button type="submit" class="btn primary">Kunde speichern</button></div></form>`;
   const f2 = $('#dlg2Form');
   f2.addEventListener('click', e => { if (e.target.closest('[data-k2="close"]')) d2.close(); });
-  f2.addEventListener('submit', e => {
+  f2.addEventListener('submit', async e => {
     e.preventDefault();
     const fd = new FormData(f2), k = { id: uid() };
     ['nr', 'name', 'adresse', 'plz', 'ort', 'tel'].forEach(x => { k[x] = (fd.get(x) || '').trim(); });
     const dup = Store.all('kunden').find(x => norm(x.name) === norm(k.name) && (!k.ort || norm(x.ort) === norm(k.ort)));
-    if (dup && !confirm(`«${kundeLabel(dup)}» gibt es schon. Trotzdem neu anlegen?`)) return;
+    if (dup && !await frage(`«${kundeLabel(dup)}» gibt es schon. Trotzdem neu anlegen?`)) return;
     Store.put('kunden', k, { silent: true });
     const f = Dlg.form; f.kunde.value = kundeLabel(k); $('#kHint', f).textContent = ''; $('#kSug', f).hidden = true;
     f.kunde.dispatchEvent(new Event('input')); d2.close(); toast('Kunde angelegt');
@@ -1863,11 +1902,11 @@ function bulkMoveDialog() {
     </div>
     <label class="fld"><span>Maschine</span><select class="input" name="maschine"><option value="*">— jeweils unverändert —</option>${ms.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}</select></label>
     <p class="nr">Alle Aufträge kommen auf dieses Datum und docken nacheinander an (ab der Startzeit bzw. am Ende der bestehenden Aufträge).</p>`;
-  Dlg.open('Auswahl verschieben', body, saveFooter(), fd => {
+  Dlg.open('Auswahl verschieben', body, saveFooter(), async fd => {
     const datum = fd.get('datum'), mid = fd.get('maschine'), z = toMin(fd.get('zeit'));
     const list = sel.map(a => ({ ...a })).sort((x, y) => (x.datum || '9').localeCompare(y.datum || '9') || (startOf(x) ?? 9999) - (startOf(y) ?? 9999));
     const misfit = mid !== '*' && maschine(mid) ? list.filter(a => a.arbeit && !fits(maschine(mid), a.arbeit)) : [];
-    if (misfit.length && !confirm(`${misfit.length} Aufträge passen nicht zur Arbeitsart von «${maschine(mid).name}». Trotzdem verschieben?`)) return false;
+    if (misfit.length && !await frage(`${misfit.length} Aufträge passen nicht zur Arbeitsart von «${maschine(mid).name}». Trotzdem verschieben?`)) return false;
     const cursor = {}, ids = list.map(a => a.id);
     const frozen = z == null ? [] : [...new Set(list.map(a => mid === '*' ? (a.maschine || '') : mid))].flatMap(m => freezeDay(datum, m, ids));
     list.forEach(a => {
@@ -2005,7 +2044,7 @@ function exportCsv() {
   toast(`${list.length} Aufträge exportiert`);
 }
 // Rückfrage vor dem Löschen eines Auftrags (v147): zeigt, welcher Auftrag gelöscht wird, und warnt bei erledigten/verrechneten/an IM-Faktura gesendeten
-function auftragLoeschenOk(id) {
+async function auftragLoeschenOk(id) {
   const o = Store.get('auftraege', id); if (!o) return false;
   const st = o.status || 'offen', d = o.erledigtAm || o.datum || o.wunsch || '';
   const z = [[o.nr ? 'Auftrag ' + o.nr : 'Auftrag', kundeName(o.kunde)].join(' · '), [o.arbeit, o.kultur].filter(Boolean).join(', '), aFeld(o), d ? fmtDate(d, { day: '2-digit', month: '2-digit', year: 'numeric' }) : '', 'Status: ' + (STATUS[st] || st)].filter(Boolean);
@@ -2013,7 +2052,7 @@ function auftragLoeschenOk(id) {
   if (st === 'erledigt') w.push('⚠ Der Auftrag ist erledigt und noch nicht verrechnet.');
   if (st === 'verrechnet') w.push('⚠ Der Auftrag ist schon verrechnet.');
   if (o.fakt) w.push('⚠ Er wurde an IM-Faktura gesendet (' + fmtDate(String(o.fakt.am || '').slice(0, 10), { day: '2-digit', month: '2-digit', year: 'numeric' }) + ') – die Rechnung dort bleibt bestehen.');
-  return confirm('Diesen Auftrag wirklich löschen?\n\n' + z.join('\n') + (w.length ? '\n\n' + w.join('\n') : '') + '\n\nDas Löschen gilt auf allen Geräten.');
+  return frage('Diesen Auftrag wirklich löschen?\n\n' + z.join('\n') + (w.length ? '\n\n' + w.join('\n') : '') + '\n\nDas Löschen gilt auf allen Geräten.');
 }
 /* ================= An IM-Faktura senden (v139/v140) =================
    Aus Spritzen › Abrechnung (pro Kunde, Arbeit und Mittel zusammengefasst, Detailabrechnung als Beilage) und
@@ -2080,12 +2119,12 @@ async function fakturaSpritzSend(all) {
   const sel = bs.map(b => ({ b, L: b.rows.filter(r => statusOf(r.a) === 'erledigt') })).filter(x => x.L.length);
   if (!sel.length) {
     if (all || !bs.length) { toast('Keine offenen (erledigten, nicht verrechneten) Spritzaufträge im Zeitraum.', 4000); return; }
-    if (!confirm('Alle Aufträge dieser Abrechnung sind schon verrechnet. Trotzdem alle an IM-Faktura senden?')) return;
+    if (!await frage('Alle Aufträge dieser Abrechnung sind schon verrechnet. Trotzdem alle an IM-Faktura senden?')) return;
     sel.push({ b: bs[0], L: bs[0].rows });
   }
   const n = sel.reduce((s, x) => s + x.L.length, 0), dop = sel.reduce((s, x) => s + x.L.filter(r => r.a.fakt).length, 0);
   const ohne = sel.filter(x => !x.b.preisHa).map(x => x.b.k.name);
-  if (!confirm(`${n} ${n === 1 ? 'Spritzauftrag' : 'Spritzaufträge'} von ${sel.length} ${sel.length === 1 ? 'Kunde' : 'Kunden'} an IM-Faktura senden?\n\nJe Kunde: Arbeit und Mittel zusammengefasst, die Detailabrechnung als Beilage. Die Aufträge werden danach «verrechnet».`
+  if (!await frage(`${n} ${n === 1 ? 'Spritzauftrag' : 'Spritzaufträge'} von ${sel.length} ${sel.length === 1 ? 'Kunde' : 'Kunden'} an IM-Faktura senden?\n\nJe Kunde: Arbeit und Mittel zusammengefasst, die Detailabrechnung als Beilage. Die Aufträge werden danach «verrechnet».`
     + (dop ? `\n\n⚠ ${dop} davon wurden schon einmal gesendet.` : '') + (ohne.length ? `\n\n⚠ Ohne Spritzpreise: ${ohne.join(', ')}` : ''))) return;
   try {
     const Ts = sel.map(x => fakturaSpritzT(x.b, S.av, S.ab, x.L)); if (!await fakturaWrite(Ts)) return;
@@ -2214,11 +2253,11 @@ function fkWire(F, FK, ent, onChange) { // ent: j → { r, d, title }
   // Auswahlliste nach oben öffnen, wenn unten im Fenster zu wenig Platz ist
   F.addEventListener('focusin', e => { const c = e.target.closest('.fktab .combo'); if (!c) return; const sc = c.closest('.db, .dlg-body, form') || document.body;
     const r = c.getBoundingClientRect(), b = Math.min(window.innerHeight, sc.getBoundingClientRect().bottom); c.classList.toggle('combo-up', b - r.bottom < 260 && r.top - sc.getBoundingClientRect().top > 260); });
-  F.addEventListener('click', e => {
+  F.addEventListener('click', async e => {
     const add = e.target.closest('.fkzadd'), del = e.target.closest('.fkzdel'); if (!add && !del) return; e.preventDefault();
     const j = (add || del).dataset.j, en = ent[j]; en.d = fkRead(F, j, en.d);
     if (del) { const z = (en.d.zusatz || [])[+del.dataset.z] || {}, a = (FK && fkArtOf(FK, z.art)) || {};
-      if ((z.art || z.bem || +z.preis) && !confirm(`Zusatzartikel ${[z.art, a.bez].filter(Boolean).join(' ') || ''}${z.bem ? ' (' + z.bem + ')' : ''} wirklich entfernen?`)) return; }
+      if ((z.art || z.bem || +z.preis) && !await frage(`Zusatzartikel ${[z.art, a.bez].filter(Boolean).join(' ') || ''}${z.bem ? ' (' + z.bem + ')' : ''} wirklich entfernen?`)) return; }
     if (add) en.d.zusatz = [...(en.d.zusatz || []), { art: '', menge: en.d.menge, einh: '', preis: null, bem: '' }]; else en.d.zusatz.splice(+del.dataset.z, 1);
     rerender(j); onChange && onChange();
   });
@@ -2270,7 +2309,7 @@ async function fakturaAbrSend(einzeln) { // Sendefenster für angekreuzte Eintr�
   Dlg.open(`An IM-Faktura senden – ${rows.length} ${rows.length === 1 ? 'Eintrag' : 'Einträge'}`, fkHint(FK) + fkAllBox(FK) + body + '<p class="nr">Je Kunde eine Übergabe; sie erscheint in IM-Faktura unter Entwürfe. Die Bemerkung steht als zweite Zeile unter der Position. Danach werden die Einträge als abgerechnet markiert.</p>',
     `<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">📤 Senden</button>`, fd => {
       const items = Object.entries(ent).map(([j, e]) => { const d = fkRead(Dlg.form, j, e.d); d.fk = String(fd.get('fk_' + e.gi) || ''); return { r: e.r, d, k: e.k }; });
-      const miss = fkMissing(FK, items); if (miss.length) { fkMarkMissing(Dlg.form); alert(fkMissMsg(miss)); return false; }
+      const miss = fkMissing(FK, items); if (miss.length) { fkMarkMissing(Dlg.form); meldung(fkMissMsg(miss)); return false; }
       fkSend(FK, items, einzeln).then(ok => { if (ok) { if (!einzeln) S.clear(); Dlg.close(); } });
       return false;
     });
@@ -2296,8 +2335,8 @@ async function fkDetailSend(btn) {
   const { FK, ent, k } = box._fk, e = ent.e0, d = fkRead(box, 'e0', e.d); d.fk = String((box.querySelector('[name=fk_det]') || {}).value || '');
   const sent = (e.r.oid && (Store.get('auftraege', e.r.oid) || {}).fakt) || (e.r.jid && (jdbAbr(e.r.jid) || {}).fakt);
   const P = fkPos(FK, e.r, d, k), tot = P.pos.reduce((a, p) => a + (p.menge != null && p.preis != null ? round05(p.menge * p.preis) : 0), 0);
-  const miss = fkMissing(FK, [{ r: e.r, d, k }]); if (miss.length) { fkMarkMissing(box); alert(fkMissMsg(miss)); return; }
-  if (!confirm(`An IM-Faktura senden?\n\n${P.pos.map(p => `• ${p.bez.split('\n')[0]}: ${p.menge ?? '–'} ${p.einh || ''} × ${p.preis ?? '–'}`).join('\n')}\n\nTotal ca. CHF ${fmtNum(r2(tot))} (ohne MWST)${sent ? '\n\n⚠ Wurde schon einmal gesendet – wird nochmals übergeben.' : ''}`)) return;
+  const miss = fkMissing(FK, [{ r: e.r, d, k }]); if (miss.length) { fkMarkMissing(box); meldung(fkMissMsg(miss)); return; }
+  if (!await frage(`An IM-Faktura senden?\n\n${P.pos.map(p => `• ${p.bez.split('\n')[0]}: ${p.menge ?? '–'} ${p.einh || ''} × ${p.preis ?? '–'}`).join('\n')}\n\nTotal ca. CHF ${fmtNum(r2(tot))} (ohne MWST)${sent ? '\n\n⚠ Wurde schon einmal gesendet – wird nochmals übergeben.' : ''}`)) return;
   if (await fkSend(FK, [{ r: e.r, d, k }], true)) Dlg.close();
 }
 // v142: einzelner Eintrag aus dem Detailfenster (Abrechnung › Eintrag oder Bericht › Arbeitsgang)
@@ -2349,7 +2388,7 @@ function smallDialog(title, body, okLabel, onSubmit) {
     <div class="df"><span class="spacer"></span><button type="button" class="btn" data-k2="close">Abbrechen</button><button type="submit" class="btn primary">${okLabel}</button></div></form>`;
   const f2 = $('#dlg2Form');
   f2.addEventListener('click', e => { if (e.target.closest('[data-k2="close"]')) d2.close(); });
-  f2.addEventListener('submit', e => { e.preventDefault(); if (onSubmit(new FormData(f2)) !== false) d2.close(); });
+  f2.addEventListener('submit', async e => { e.preventDefault(); let res = onSubmit(new FormData(f2)); if (res && typeof res.then === 'function') res = await res; if (res !== false) d2.close(); });
   d2.showModal();
   const first = f2.querySelector('input'); if (first && matchMedia('(pointer:fine)').matches) first.focus();
 }
@@ -2663,9 +2702,9 @@ function productDialog(id, { fromOrder } = {}) {
     ${prodNext(p) ? `<p class="hintp panel">Geplante Änderung ab ${fmtDate(prodNext(p).ab, { day: '2-digit', month: '2-digit', year: 'numeric' })}: ${esc(prodNext(p).name)} · CHF ${chf(prodNext(p).preis)}</p>` : ''}` : ''}
     <label class="tog"><input type="checkbox" name="aktuell" ${p.aktuell !== false ? 'checked' : ''}> Aktuell (in der Auswahl anzeigen)</label>
     <div id="verlauf">${id ? verlaufHtml(p) : ''}</div>`;
-  const save = fd => {
+  const save = async fd => {
     const name = String(fd.get('name') || '').trim(); if (!name) return false;
-    if (Store.all('produkte').some(x => x.id !== p.id && norm(x.name) === norm(name)) && !confirm(`«${name}» gibt es schon. Trotzdem speichern?`)) return false;
+    if (Store.all('produkte').some(x => x.id !== p.id && norm(x.name) === norm(name)) && !await frage(`«${name}» gibt es schon. Trotzdem speichern?`)) return false;
     const old = p.name, zulassung = String(fd.get('zulassung') || '').trim(), preis = num(fd.get('preis')) ?? 0;
     let q = { ...p, einheit: fd.get('einheit'), inventar: num(fd.get('inventar')), aktuell: !!fd.get('aktuell') };
     if (!id) Object.assign(q, { name, zulassung, preis, geaendert: todayIso() });
@@ -2681,8 +2720,8 @@ function productDialog(id, { fromOrder } = {}) {
     return q;
   };
   if (fromOrder) {
-    smallDialog('Neues Produkt', body, 'Produkt speichern', fd => {
-      const r = save(fd); if (!r) return false;
+    smallDialog('Neues Produkt', body, 'Produkt speichern', async fd => {
+      const r = await save(fd); if (!r) return false;
       const f = Dlg.form;
       $$('select[name="pname"]', f).forEach(s => { const v = s.value; s.innerHTML = `<option value="">— Produkt —</option>${prodOptions(v.startsWith('n:') ? '' : v, v.startsWith('n:') ? v.slice(2) : '')}`; s.value = v; });
       const empty = $$('select[name="pname"]', f).find(s => !s.value);
@@ -2692,11 +2731,11 @@ function productDialog(id, { fromOrder } = {}) {
     return;
   }
   Dlg.open(id ? 'Produkt bearbeiten' : 'Neues Produkt', body,
-    saveFooter(id ? `<button type="button" class="btn danger" data-act="prodDelete" data-id="${p.id}">Löschen</button>` : ''), fd => !!save(fd));
+    saveFooter(id ? `<button type="button" class="btn danger" data-act="prodDelete" data-id="${p.id}">Löschen</button>` : ''), async fd => !!(await save(fd)));
   // Verlaufseintrag löschen (wird beim Speichern übernommen)
-  $('#verlauf', Dlg.form)?.addEventListener('click', e => {
+  $('#verlauf', Dlg.form)?.addEventListener('click', async e => {
     const b = e.target.closest('[data-vdel]'); if (!b) return;
-    if (!confirm('Diesen Eintrag aus dem Verlauf löschen?')) return;
+    if (!await frage('Diesen Eintrag aus dem Verlauf löschen?')) return;
     p.verlauf = (p.verlauf || []).filter(x => x.ab !== b.dataset.vdel);
     const cur = prodAt(p, todayIso()); Object.assign(p, { name: cur.name, zulassung: cur.zulassung, preis: cur.preis, _vchanged: true });
     const f = Dlg.form; f.name.value = p.name; f.zulassung.value = p.zulassung || ''; f.preis.value = p.preis ?? '';
@@ -3131,10 +3170,10 @@ function prodUsage() {
   return m;
 }
 const prodUnused = (seit, use = prodUsage()) => Store.all('produkte').filter(p => p.aktuell !== false && !(p.inventar > 0) && !((use.get(p.id) || {}).last >= seit));
-function prodDeactOld() {
+async function prodDeactOld() {
   const seit = App.spray.prseit || isoDate(addDays(new Date(), -730)), list = prodUnused(seit);
   if (!list.length) return;
-  if (!confirm(`${list.length} Produkte, die seit ${fmtDate(seit, { day: '2-digit', month: '2-digit', year: 'numeric' })} nicht mehr verwendet wurden, auf «nicht aktuell» setzen?\n\nSie erscheinen dann nicht mehr in der Auswahl beim Erfassen; bestehende Aufträge und Berichte bleiben unverändert.`)) return;
+  if (!await frage(`${list.length} Produkte, die seit ${fmtDate(seit, { day: '2-digit', month: '2-digit', year: 'numeric' })} nicht mehr verwendet wurden, auf «nicht aktuell» setzen?\n\nSie erscheinen dann nicht mehr in der Auswahl beim Erfassen; bestehende Aufträge und Berichte bleiben unverändert.`)) return;
   Store.putMany('produkte', list.map(p => ({ ...p, aktuell: false })));
   toast(`${list.length} Produkte auf «nicht aktuell» gesetzt`);
 }
@@ -3422,7 +3461,7 @@ function alSelToggle(el) {
   App.render();
 }
 function alSelAllList() { const S = App.alSel || (App.alSel = new Set()); alList().forEach(a => S.add(a.id)); App.render(); }
-function alSetStatus(st) {
+async function alSetStatus(st) {
   const S = App.alSel || new Set(), list = alList().filter(a => S.has(a.id));
   if (!list.length) return;
   const ch = [], skip = [];
@@ -3433,7 +3472,7 @@ function alSetStatus(st) {
   });
   if (!ch.length) { toast(skip.length ? 'Aufträge ohne Datum können nicht auf «Geplant» gesetzt werden – zuerst einplanen.' : `Alle ausgewählten Aufträge sind bereits «${STATUS[st]}».`); return; }
   const hint = st === 'offen' && ch.some(a => a.datum) ? '\nDie Einplanung (Datum, Zeit) wird dabei entfernt.' : (st === 'erledigt' || st === 'verrechnet') && ch.some(a => !a.datum && !a.erledigtAm) ? '\nAufträge ohne Datum erhalten das heutige Datum als «erledigt am».' : '';
-  if (!confirm(`${ch.length} ${ch.length === 1 ? 'Auftrag' : 'Aufträge'} auf «${STATUS[st]}» setzen?${skip.length ? `\n${skip.length} ohne Datum werden nicht auf «Geplant» gesetzt.` : ''}${hint}`)) return;
+  if (!await frage(`${ch.length} ${ch.length === 1 ? 'Auftrag' : 'Aufträge'} auf «${STATUS[st]}» setzen?${skip.length ? `\n${skip.length} ohne Datum werden nicht auf «Geplant» gesetzt.` : ''}${hint}`)) return;
   ch.forEach(a => {
     if (st === 'erledigt' || st === 'verrechnet') { if (!a.erledigtAm) a.erledigtAm = a.datum || todayIso(); if (!a.datum) a.datum = a.erledigtAm; }
     else { a.erledigtAm = ''; if (st === 'offen') { a.datum = ''; a.zeit = ''; } }
@@ -3841,7 +3880,7 @@ async function jdSyncOpen() {
     try { d = await Drive.readJson('/jd-sync.json'); src = 'Dropbox'; } catch (e) { d = null; }
   }
   if (!d) {
-    if (!confirm('Im Dropbox-Ordner wurde keine Abgleichsdatei «jd-sync.json» gefunden. Datei manuell wählen?')) return;
+    if (!await frage('Im Dropbox-Ordner wurde keine Abgleichsdatei «jd-sync.json» gefunden. Datei manuell wählen?')) return;
     const file = await pickFile('.json,application/json'); if (!file) return;
     try { d = JSON.parse(await readText(file)); src = file.name; } catch { toast('Datei konnte nicht gelesen werden'); return; }
   }
@@ -4045,7 +4084,7 @@ const GRZ_PENDING = new Set();
 async function grzAktivSetzen(el, fid) {
   const f = feldById(fid), g = f && (f.grenzen || []).find(x => x.id === el.dataset.gid);
   if (!f || !g || !f.jdId) return;
-  if (!confirm(`Vermessung «${g.name || '(ohne Namen)'}» beim Feld «${f.name}» in MyJohnDeere als aktive Feldgrenze setzen?\n\nDie bisher aktive Vermessung wird dabei inaktiv.`)) return;
+  if (!await frage(`Vermessung «${g.name || '(ohne Namen)'}» beim Feld «${f.name}» in MyJohnDeere als aktive Feldgrenze setzen?\n\nDie bisher aktive Vermessung wird dabei inaktiv.`)) return;
   const id = 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   try {
     await Drive.writeJson(`/jd-upload/${id}.json`, { id, art: 'grenze-status', at: new Date().toISOString(), von: 'IM-Verwaltung ' + APP_VERSION, name: g.name || f.name, feld: f.name, feldId: f.jdId, grenzeId: g.id, aktiv: true });
@@ -4305,14 +4344,14 @@ function jdbKorrDialog(id, back) {
     <label class="fld"><span>Kultur</span><input name="kultur" class="input" list="jdkorr-kul" value="${esc(r.kultur || '')}" autocomplete="off"><datalist id="jdkorr-kul">${kul.map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>
     <p class="nr">Die Änderung gilt nur in der IM-Verwaltung (Bericht, Abrechnung, Auswertungen). In MyJohnDeere bleibt der Arbeitsgang unverändert – dort bei Bedarf von Hand korrigieren.</p>`;
   const foot = `${r.korr ? '<button type="button" class="btn" data-korr="reset">Auf MyJohnDeere zurücksetzen</button>' : ''}<span class="spacer"></span><button type="button" class="btn" data-act="close">Abbrechen</button><button type="submit" class="btn primary">Speichern</button>`;
-  const ask = (lines, reset) => confirm(`${reset ? 'Korrektur entfernen und wieder die Angaben aus MyJohnDeere verwenden?' : 'Arbeitsgang wirklich ändern?'}\n\n${r.arbeit} vom ${dd}\n${lines.join('\n')}\n\nGilt nur in der IM-Verwaltung – MyJohnDeere bleibt unverändert.`);
-  Dlg.open('Arbeitsgang korrigieren', body, foot, fd => {
+  const ask = (lines, reset) => frage(`${reset ? 'Korrektur entfernen und wieder die Angaben aus MyJohnDeere verwenden?' : 'Arbeitsgang wirklich ändern?'}\n\n${r.arbeit} vom ${dd}\n${lines.join('\n')}\n\nGilt nur in der IM-Verwaltung – MyJohnDeere bleibt unverändert.`);
+  Dlg.open('Arbeitsgang korrigieren', body, foot, async fd => {
     const kid = fd.get('kunde'), kk = kid ? Store.get('kunden', kid) : null, fe = fd.get('feld') ? feldById(fd.get('feld')) : null;
     const neu = { kunde: kk ? (kk.jdName || kk.name) : r.kunde, feld: fe ? (fe.jdName || fe.name) : (fd.get('feld') === '' && kk && (!k0 || kk.id !== k0.id) ? '' : r.feld), fid: fe ? (fe.jdId || '') : (fd.get('feld') === '' && kk && (!k0 || kk.id !== k0.id) ? '' : r.fid), kultur: String(fd.get('kultur') || '').trim() };
     const lab = { kunde: 'Kunde', feld: 'Feld', kultur: 'Kultur' };
     const lines = ['kunde', 'feld', 'kultur'].filter(x => norm(neu[x]) !== norm(r[x])).map(x => `${lab[x]}: ${r[x] || '–'} → ${neu[x] || '–'}`);
     if (!lines.length) { toast('Keine Änderung'); return; }
-    if (!ask(lines)) return false;
+    if (!(await ask(lines))) return false;
     const rec = { id: JDB_KORR + id, jdkorr: true, am: todayIso() };
     ['kunde', 'feld', 'fid', 'kultur'].forEach(x => { if (String(neu[x] ?? '') !== String(o[x] ?? '')) rec[x] = neu[x]; });
     if (Object.keys(rec).length > 3) Store.put('einstellungen', rec); else if (r.korr) Store.put('einstellungen', { id: JDB_KORR + id, del: true });
@@ -4328,9 +4367,9 @@ function jdbKorrDialog(id, back) {
   };
   fill(); ks.addEventListener('change', fill);
   const rb = F.querySelector('[data-korr=reset]');
-  if (rb) rb.addEventListener('click', () => {
+  if (rb) rb.addEventListener('click', async () => {
     const lines = ['kunde', 'feld', 'kultur'].filter(x => norm(o[x]) !== norm(r[x])).map(x => `${({ kunde: 'Kunde', feld: 'Feld', kultur: 'Kultur' })[x]}: ${r[x] || '–'} → ${o[x] || '–'}`);
-    if (!ask(lines, true)) return;
+    if (!(await ask(lines, true))) return;
     Store.put('einstellungen', { id: JDB_KORR + id, del: true }); Dlg.close(); toast('Angaben aus MyJohnDeere wiederhergestellt'); if (back) setTimeout(back, 0);
   });
 }
@@ -5416,7 +5455,7 @@ const vbClean = s => String(s || '').replace(/\s+/g, ' ').replace(/(\w)- ?([a-z�
 const VB_SYN = [['weizen', 'ww'], ['triticale'], ['gerste'], ['mais'], ['rüben', 'zr'], ['hafer'], ['soja'], ['erbsen'], ['dinkel'], ['bohnen'], ['1x'], ['2x'], ['herbizid', 'hz'], ['ips', 'ip-suisse', 'ipsuisse'], ['intensiv', 'convisio', 'conviso'], ['gräser'], ['raps']];
 const vbFeat = s => { const t = ' ' + norm(s).replace(/[^a-z0-9äöüx\-]+/g, ' ') + ' '; return new Set(VB_SYN.map((g, i) => g.some(w => w.length <= 3 ? new RegExp(`[ /]${w}[ /,]`).test(t) || t.includes(' ' + w + ' ') : t.includes(w)) ? i : -1).filter(i => i >= 0)); };
 /* ---------- Ereignisse ---------- */
-document.addEventListener('click', e => {
+document.addEventListener('click', async e => {
   const t = e.target.closest('[data-vb]'); if (!t) return;
   const a = t.dataset.vb, id = t.dataset.id, S = App.spray;
   e.preventDefault(); e.stopPropagation();
@@ -5430,7 +5469,7 @@ document.addEventListener('click', e => {
   if (a === 'xlsx') return vbXlsx();
   if (a === 'mAdd') { t.closest('.vbbox').querySelector('.vbml').insertAdjacentHTML('beforeend', Dlg.vbMrow({})); return; }
   if (a === 'bAdd') { $('#vbB', Dlg.form).insertAdjacentHTML('beforeend', Dlg.vbBrow({})); return; }
-  if (a === 'bDel') { const bx = t.closest('.vbbox'); if ($$('.vbmrow select', bx).some(x => x.value) && !confirm('Behandlung mit ihren Mitteln entfernen?')) return; bx.remove(); return; }
+  if (a === 'bDel') { const bx = t.closest('.vbbox'); if ($$('.vbmrow select', bx).some(x => x.value) && !await frage('Behandlung mit ihren Mitteln entfernen?')) return; bx.remove(); return; }
   if (a === 'bUp') { const bx = t.closest('.vbbox'), pv = bx.previousElementSibling; if (pv) bx.parentNode.insertBefore(bx, pv); return; }
   if (a === 'progCopy') return vbCopyDialog(id);
   if (a === 'progMove') { const r = vbRec(), i = r.progs.findIndex(x => x.id === id), j = i + (+t.dataset.d); if (i < 0 || j < 0 || j >= r.progs.length) return; [r.progs[i], r.progs[j]] = [r.progs[j], r.progs[i]]; vbSave(r); return; }
@@ -5442,12 +5481,12 @@ document.addEventListener('click', e => {
   if (a === 'pzAdd') { t.closest('.vbpzbox').querySelector('.vbpzl').insertAdjacentHTML('beforeend', Dlg.vbPzLine({})); return; }
   if (a === 'pzDel') { t.closest('.vbpz').remove(); return; }
   if (a === 'progDel') {
-    const r = vbRec(), p = r.progs.find(x => x.id === id); if (!p || !confirm(`Spritzprogramm «${p.name}» mit seinen Flächen löschen?`)) return;
+    const r = vbRec(), p = r.progs.find(x => x.id === id); if (!p || !await frage(`Spritzprogramm «${p.name}» mit seinen Flächen löschen?`)) return;
     r.progs = r.progs.filter(x => x.id !== id); Object.values(r.fl).forEach(o => delete o[id]); Object.keys(r.parz).forEach(k => { if (k.endsWith('|' + id)) delete r.parz[k]; });
     Dlg.close(); vbSave(r); return;
   }
   if (a === 'rowDel') {
-    const r = vbRec(), row = r.rows.find(x => x.id === id); if (!row || !confirm(`«${vbRowName(row)}» mit allen Flächen aus dem Flächenplan entfernen?`)) return;
+    const r = vbRec(), row = r.rows.find(x => x.id === id); if (!row || !await frage(`«${vbRowName(row)}» mit allen Flächen aus dem Flächenplan entfernen?`)) return;
     r.rows = r.rows.filter(x => x.id !== id); delete r.fl[id]; Object.keys(r.parz).forEach(k => { if (k.startsWith(id + '|')) delete r.parz[k]; });
     Dlg.close(); vbSave(r); return;
   }
@@ -6092,7 +6131,7 @@ function rsNav() {
 }
 
 /* ---------- Ereignisse ---------- */
-document.addEventListener('click', e => {
+document.addEventListener('click', async e => {
   const t = e.target.closest('[data-rs]'); if (!t) return;
   const a = t.dataset.rs, id = t.dataset.id; e.preventDefault();
   const rec = () => rsRec();
@@ -6100,15 +6139,15 @@ document.addEventListener('click', e => {
     case 'sub': { const S = rsState(); S.sub = t.dataset.v; ls('lp_rsSub', S.sub); App.render(); break; }
     case 'start': { const r = rsBlank(rsYear()); rsSave(r); rsState().sub = 'sorten'; break; }
     case 'fromPrev': rsFromPrev(); break;
-    case 'off': if (confirm('Modul «Rübensamen» ausblenden? Die Daten bleiben gespeichert; einschalten unter Mehr › Einstellungen › Saisonmodule.')) { Store.setCfg({ rsOn: false }); App.go('auftraege'); } break;
+    case 'off': if (await frage('Modul «Rübensamen» ausblenden? Die Daten bleiben gespeichert; einschalten unter Mehr › Einstellungen › Saisonmodule.')) { Store.setCfg({ rsOn: false }); App.go('auftraege'); } break;
     case 'rowNew': rsRowDialog(null); break;
     case 'rowEdit': rsRowDialog(id); break;
-    case 'rowDel': { const r = rec(); const row = r.rows.find(x => x.id === id); if (row && confirm(`«${rsRowName(row)}» aus der Liste entfernen?`)) { r.rows = r.rows.filter(x => x.id !== id); rsSave(r); Dlg.close(); } break; }
+    case 'rowDel': { const r = rec(); const row = r.rows.find(x => x.id === id); if (row && await frage(`«${rsRowName(row)}» aus der Liste entfernen?`)) { r.rows = r.rows.filter(x => x.id !== id); rsSave(r); Dlg.close(); } break; }
     case 'slAdd': { const box = $('.rssll', Dlg.form); if (box && Dlg.rsSl) box.insertAdjacentHTML('beforeend', Dlg.rsSl({})); break; }
     case 'slDel': t.closest('.rssl')?.remove(); break;
     case 'mkOrder': rsOrderNew(id); break;
     case 'sortNew': rsSortDialog(); break;
-    case 'sDel': { const r = rec(), s = r.sorten.find(x => x.id === id); if (!s) break; const used = r.rows.some(x => (x.ha || {})[id]); if (!confirm(`Sorte «${s.name}» entfernen?${used ? ' Die erfassten Flächen dieser Sorte gehen verloren.' : ''}`)) break; r.sorten = r.sorten.filter(x => x.id !== id); r.rows.forEach(x => { if (x.ha) delete x.ha[id]; }); delete r.rest[id]; delete r.best[id]; rsSave(r); break; }
+    case 'sDel': { const r = rec(), s = r.sorten.find(x => x.id === id); if (!s) break; const used = r.rows.some(x => (x.ha || {})[id]); if (!await frage(`Sorte «${s.name}» entfernen?${used ? ' Die erfassten Flächen dieser Sorte gehen verloren.' : ''}`)) break; r.sorten = r.sorten.filter(x => x.id !== id); r.rows.forEach(x => { if (x.ha) delete x.ha[id]; }); delete r.rest[id]; delete r.best[id]; rsSave(r); break; }
     case 'sMove': { const r = rec(), i = r.sorten.findIndex(x => x.id === id), j = i + +t.dataset.d; if (i < 0 || j < 0 || j >= r.sorten.length) break; [r.sorten[i], r.sorten[j]] = [r.sorten[j], r.sorten[i]]; rsSave(r); break; }
     case 'exAdd': { const r = rec(); r.extra.push({ id: uid(), name: r.extra.length ? '' : 'Dardel', d: {} }); rsSave(r); break; }
     case 'exDel': { const r = rec(); r.extra = r.extra.filter(x => x.id !== id); rsSave(r); break; }
@@ -6273,7 +6312,7 @@ async function restoreBackup() {
   try {
     const d = JSON.parse(await readText(file));
     if (!COLL.some(c => Array.isArray(d[c]))) throw 0;
-    if (!confirm('Sicherung mit den aktuellen Daten zusammenführen? (Neuere Einträge bleiben erhalten)')) return;
+    if (!await frage('Sicherung mit den aktuellen Daten zusammenführen? (Neuere Einträge bleiben erhalten)')) return;
     Store.data = mergeData(Store.data, d); Store.save(); Sync.schedule(); App.render(); toast('Sicherung eingelesen');
   } catch { toast('Ungültige Sicherungsdatei.'); }
 }
@@ -6299,7 +6338,7 @@ document.addEventListener('click', async e => {
     case 'redo': Undo.again(); break;
     case 'sync': if (!Auth.configured()) { App.go('mehr'); toast('Dropbox ist noch nicht eingerichtet.'); } else if (!Auth.hasSession()) Auth.login(); else Sync.run(); break;
     case 'login': Auth.login(); break;
-    case 'logout': if (confirm('Abmelden? Die Daten bleiben auf diesem Gerät erhalten.')) Auth.logout(); break;
+    case 'logout': if (await frage('Abmelden? Die Daten bleiben auf diesem Gerät erhalten.')) Auth.logout(); break;
     case 'newOrder': orderDialog(); break;
     case 'newOrderFor': Dlg.close(); orderDialog(null, { kunde: id }); break;
     case 'editOrder': orderDialog(id); break;
@@ -6378,7 +6417,7 @@ document.addEventListener('click', async e => {
     case 'spBillPrintAll': { const S = App.spray, bs = billKunden(S).map(k => billing(k.id, S.av, S.ab, S.ag)).filter(b => b.rows.length); printHtml('Abrechnung Spritzarbeiten', bs.map(b => billingHtml(b, S.av, S.ab)).join(''), { noTitle: true, after: () => spBillAsk(bs) }); break; }
     case 'spBillMark': {
       const S = App.spray, b = billing(S.ak, S.av, S.ab, S.ag), ch = b.rows.filter(r => statusOf(r.a) === 'erledigt').map(r => ({ ...r.a, status: 'verrechnet' }));
-      if (ch.length && confirm(`${ch.length} Spritzaufträge als verrechnet markieren?`)) { Store.putMany('auftraege', ch); toast('Als verrechnet markiert'); } break;
+      if (ch.length && await frage(`${ch.length} Spritzaufträge als verrechnet markieren?`)) { Store.putMany('auftraege', ch); toast('Als verrechnet markiert'); } break;
     }
     case 'spNwPrint': printHtml('Pflanzenschutz-Nachweis', nachweisHtml(nachweisRows()), { noTitle: true }); break;
     case 'spNwCsv': nachweisCsv(); break;
@@ -6386,16 +6425,16 @@ document.addEventListener('click', async e => {
     case 'prodAddNew': productDialog(null); break;
     case 'prodDelete': {
       const n = sprayOrders().filter(a => prodList(a).some(p => p.pid === id)).length;
-      if (n) { if (confirm(`Das Produkt kommt in ${n} Aufträgen vor und kann nicht gelöscht werden. Stattdessen als «nicht aktuell» ausblenden?`)) { Store.put('produkte', { ...Store.get('produkte', id), aktuell: false }); Dlg.close(); } }
-      else if (confirm('Produkt löschen?')) { Store.remove('produkte', id); Dlg.close(); } break;
+      if (n) { if (await frage(`Das Produkt kommt in ${n} Aufträgen vor und kann nicht gelöscht werden. Stattdessen als «nicht aktuell» ausblenden?`)) { Store.put('produkte', { ...Store.get('produkte', id), aktuell: false }); Dlg.close(); } }
+      else if (await frage('Produkt löschen?')) { Store.remove('produkte', id); Dlg.close(); } break;
     }
     case 'parzNew': { const k = findKunde(f.kunde.value); if (!k) { toast('Zuerst den Kunden wählen'); break; } parzelleDialog(null, { kunde: k.id, fromOrder: true }); break; }
     case 'parzAdd': parzelleDialog(null, { kunde: App.spray.pk }); break;
     case 'parzEdit': parzelleDialog(id); break;
     case 'parzDelete': {
       const n = sprayOrders().filter(a => a.parzelle === id).length;
-      if (n) { if (confirm(`Die Parzelle kommt in ${n} Aufträgen vor. Stattdessen als inaktiv ausblenden?`)) { Store.put('parzellen', { ...Store.get('parzellen', id), aktiv: false }); Dlg.close(); } }
-      else if (confirm('Parzelle löschen?')) { Store.remove('parzellen', id); Dlg.close(); } break;
+      if (n) { if (await frage(`Die Parzelle kommt in ${n} Aufträgen vor. Stattdessen als inaktiv ausblenden?`)) { Store.put('parzellen', { ...Store.get('parzellen', id), aktiv: false }); Dlg.close(); } }
+      else if (await frage('Parzelle löschen?')) { Store.remove('parzellen', id); Dlg.close(); } break;
     }
     case 'prodAdd': $('#prodRows', f).insertAdjacentHTML('beforeend', prodRow()); break;
     case 'prodDel': { const r = t.closest('.prow'); if ($$('.prow', f).length > 1) r.remove(); else { r.querySelector('select').value = ''; r.querySelector('input').value = ''; } f._sprayUpd && f._sprayUpd(); break; }
@@ -6416,7 +6455,7 @@ document.addEventListener('click', async e => {
       Object.assign(a, { id: uid(), erfasst: Date.now(), nr: Store.nextAuftragNr(), status: 'offen', datum: '', zeit: '', erledigtAm: '', flaecheEff: null, stundenEff: null });
       Store.put('auftraege', a); Dlg.close(); orderDialog(a.id); toast('Kopie erstellt – z.B. anderen Kunden wählen'); break;
     }
-    case 'delOrder': if (auftragLoeschenOk(id)) { Store.remove('auftraege', id); Dlg.close(); toast('Auftrag gelöscht – rückgängig mit ↶ (Ctrl+Z)', 5000); } break;
+    case 'delOrder': if (await auftragLoeschenOk(id)) { Store.remove('auftraege', id); Dlg.close(); toast('Auftrag gelöscht – rückgängig mit ↶ (Ctrl+Z)', 5000); } break;
     case 'aFilter': App.filter.auftraege = t.dataset.v; App.alimit = 150; App.render(); break;
     case 'pMode': App.plan.mode = t.dataset.v; ls('lp_pmode', t.dataset.v); App.resetScroll = true; App.render(); break;
     case 'zoom': setZoom(App.zoom * (+t.dataset.d > 0 ? 1.25 : 0.8)); break;
@@ -6435,10 +6474,10 @@ document.addEventListener('click', async e => {
     case 'grzAktiv': grzAktivSetzen(t, id); break;
     case 'delKunde': {
       const n = Store.all('auftraege').filter(a => a.kunde === id).length;
-      if (confirm(n ? `Dieser Kunde hat ${n} Aufträge. Trotzdem löschen?` : 'Kunde löschen?')) { Store.remove('kunden', id); Dlg.close(); } break;
+      if (await frage(n ? `Dieser Kunde hat ${n} Aufträge. Trotzdem löschen?` : 'Kunde löschen?')) { Store.remove('kunden', id); Dlg.close(); } break;
     }
     case 'editMaschine': maschineDialog(id); break;
-    case 'delMaschine': if (confirm('Maschine löschen? (Tipp: «Aktiv» ausschalten behält sie in alten Aufträgen sichtbar)')) { Store.remove('maschinen', id); Dlg.close(); } break;
+    case 'delMaschine': if (await frage('Maschine löschen? (Tipp: «Aktiv» ausschalten behält sie in alten Aufträgen sichtbar)')) { Store.remove('maschinen', id); Dlg.close(); } break;
     case 'monAll': $$('input[name="mon"]', f).forEach(i => { i.checked = true; }); break;
     case 'monNone': $$('input[name="mon"]', f).forEach(i => { i.checked = false; }); break;
     case 'selMode': App.selMode = !App.selMode; if (!App.selMode) App.sel.clear(); App.render(); break;
@@ -6543,11 +6582,12 @@ document.addEventListener('change', e => {
 document.addEventListener('touchmove', e => { if (App.tdrag) e.preventDefault(); }, { passive: false });
 (async function init() {
   Dlg.el = $('#dlg'); Dlg.form = $('#dlgForm');
-  Dlg.el.addEventListener('submit', e => { // am Dialog, damit das Formular bei jedem Öffnen frisch ersetzt werden kann
+  Dlg.el.addEventListener('submit', async e => { // am Dialog, damit das Formular bei jedem Öffnen frisch ersetzt werden kann
     if (e.target !== Dlg.form) return;
     e.preventDefault();
     const after = Dlg.afterSave; Dlg.afterSave = null;
-    if (Dlg.onSubmit && Dlg.onSubmit(new FormData(Dlg.form)) !== false) { Dlg.close(); if (after) setTimeout(after, 0); }
+    if (!Dlg.onSubmit) return; const form = Dlg.form; let res = Dlg.onSubmit(new FormData(form)); if (res && typeof res.then === 'function') res = await res; // v154: Rückfragen sind asynchron
+    if (res !== false) { Dlg.close(); if (after) setTimeout(after, 0); } else if (Dlg.form === form && !Dlg.afterSave) Dlg.afterSave = after;
   });
   Dlg.el.addEventListener('cancel', () => { Dlg.onSubmit = null; });
   Dlg.el.addEventListener('close', () => { if (App.pendingRender) { App.pendingRender = false; setTimeout(() => App.render(), 0); } });
@@ -6823,10 +6863,10 @@ function chkMergeParz(ids) {
   Store.put('parzellen', T, { silent: true }); src.forEach(z => Store.remove('parzellen', z.id));
   return src.length;
 }
-function chkFix(run) {
+async function chkFix(run) {
   const C = chkRun(), c = C.find(x => x.fix && x.fix.run === run); if (!c) return;
   if (run === 'kult') { kuAssistant(); return; }
-  const n = chkCount(c); if (!confirm(`${c.fix.label}: ${n} ${n === 1 ? 'Eintrag' : 'Einträge'} – fortfahren?`)) return;
+  const n = chkCount(c); if (!await frage(`${c.fix.label}: ${n} ${n === 1 ? 'Eintrag' : 'Einträge'} – fortfahren?`)) return;
   const O = new Map(Store.all('auftraege').map(a => [a.id, a])), P = new Map(Store.all('parzellen').map(z => [z.id, z])), F = new Map(Store.all('felder').map(f => [f.id, f]));
   let done = 0;
   if (run === 'kult') { kuAssistant(); return; }
@@ -6855,12 +6895,12 @@ function chkFix(run) {
   else if (run === 'parzD') { c.groups.forEach(g => { done += chkMergeParz(g.ids); }); }
   App.render(); toast(`Bereinigt: ${done}`);
 }
-document.addEventListener('click', e => {
+document.addEventListener('click', async e => {
   const t = e.target.closest('[data-chk]'); if (!t) return; e.preventDefault();
   const a = t.dataset.chk;
   if (a === 'rerun') { App.render(); toast('Neu geprüft'); }
   if (a === 'fix') chkFix(t.dataset.v);
-  if (a === 'mergeOne') { const ids = t.dataset.ids.split(','); if (!confirm('Diese Einträge zusammenführen? Behalten wird der meistverwendete.')) return; const n = t.dataset.v === 'prodD' ? chkMergeProd(ids) : chkMergeParz(ids); App.render(); toast(`Zusammengeführt: ${n}`); }
+  if (a === 'mergeOne') { const ids = t.dataset.ids.split(','); if (!await frage('Diese Einträge zusammenführen? Behalten wird der meistverwendete.')) return; const n = t.dataset.v === 'prodD' ? chkMergeProd(ids) : chkMergeParz(ids); App.render(); toast(`Zusammengeführt: ${n}`); }
   if (a === 'go') { const v = t.dataset.v, y = +t.dataset.y || null;
     if (v === 'rueben') { if (typeof rsOn === 'function' && !rsOn()) Store.setCfg({ rsOn: true }); if (y) rsState().y = y; rsState().sub = 'flaechen'; App.go('rueben'); }
     else if (v === 'vb') { if (y) App.spray.vbY = y; App.spray.tab = 'vorbestellung'; App.spray.vbSub = 'flaechen'; App.go('spritzen'); }
