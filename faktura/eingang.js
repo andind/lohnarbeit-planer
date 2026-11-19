@@ -85,7 +85,7 @@ const Eingang = {
     if (!p.datum && p.bez) { const x = altPos(p.bez); if (x) p = Object.assign({}, p, x); }
     if (p.kind === 'text') return newPos({ typ: 'text', bez: p.bez || '' });
     const a = p.kind === 'psm' ? artByNr(p.art || E.artPsm) : p.kind === 'miete' ? artByNr(p.art || E.artMiete) : artByNr(p.art);
-    return newPos({ art: p.kind === 'psm' ? (p.art || E.artPsm || '') : (p.art || (p.kind === 'miete' ? E.artMiete : '')), bez: a?.bez || p.bez || '', bem: p.bem || '', datum: p.datum || '', ...(p.von ? { von: p.von } : {}), ...(p.bis ? { bis: p.bis } : {}), menge: p.menge ?? 1, einh: p.einh || a?.einheit || '', preis: p.preis ?? a?.preis ?? null,
+    return newPos({ art: p.kind === 'psm' ? (p.art || E.artPsm || '') : (p.art || (p.kind === 'miete' ? E.artMiete : '')), bez: a?.bez || p.bez || '', bem: p.bem || '', ...(p.kultur ? { kultur: p.kultur } : {}), datum: p.datum || '', ...(p.von ? { von: p.von } : {}), ...(p.bis ? { bis: p.bis } : {}), menge: p.menge ?? 1, einh: p.einh || a?.einheit || '', preis: p.preis ?? a?.preis ?? null,
       mwst: p.mwst ?? a?.mwst ?? (p.kind === 'arbeit' ? +E.mwstArbeit : c.mwstDef), konto: p.konto || a?.konto || '', grp: p.grp || '', kind: p.kind || '' });
   },
   apply(T) {
@@ -109,7 +109,7 @@ function zusammenfassen(r) {
   r.pos.forEach(p => {
     if ((p.typ || 'pos') !== 'pos' || p.zu || r.pos.some(q => q.zu === p.id)) { out.push(p); return; } // Zusatzleistungen und ihre Hauptposition bleiben einzeln
     const key = [p.grp || p.bez, p.art, p.preis, p.einh, p.mwst, p.konto, p.rabatt || 0].join('|');
-    if (idx.has(key)) { const x = idx.get(key); x.menge = r2((+x.menge || 0) + (+p.menge || 0)); x._n++; n++; if (x.datum !== p.datum) x.datum = ''; if ((x.bem || '') !== (p.bem || '')) x.bem = ''; return; }
+    if (idx.has(key)) { const x = idx.get(key); x.menge = r2((+x.menge || 0) + (+p.menge || 0)); x._n++; n++; if (x.datum !== p.datum) x.datum = ''; if ((x.bem || '') !== (p.bem || '')) x.bem = ''; if ((x.kultur || '') !== (p.kultur || '')) delete x.kultur; return; }
     const x = Object.assign({}, p, { _n: 1 }); idx.set(key, x); out.push(x);
   });
   out.forEach(p => { if (p._n > 1 && p.grp) p.bez = p.grp + (p.kind === 'arbeit' && p.einh ? ` (total)` : ''); delete p._n; });

@@ -400,3 +400,4 @@ table.edpos { width: 100%; border-collapse: collapse; margin-top: 6px; }
 .chip.danger { background: #fde7e5; border-color: transparent; color: #b3261e; font-weight: 700; }
 .eneg { color: #b3261e; }
 .edpos .ecode { font-size: 11px; color: #6b726c; font-weight: 400; margin-top: 1px; }
+.edpos .ehid { font-style: italic; opacity: .65; }

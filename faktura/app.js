@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken) wie IM-Vermietung: Daten lokal im Browser + Abgleich mit Dropbox (/faktura.json). */
 'use strict';
 
-const APP_VERSION = '1.33', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.34', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/faktura.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'artikel', 'rechnungen', 'einstellungen'];
 const EINHEITEN = ['ha', 'h', 'Stk', 'Pausch.', 'km', 'm³', 't', 'kg', 'l', 'a'];
@@ -322,8 +322,14 @@ function zuruecknehmen(r) {
 }
 // Artikelbeschreibung einer Position (v1.18): im Entwurf aus dem Artikel, beim Abschliessen in die Position übernommen (bleibt dann fest)
 const posBeschr = (p, r) => p.beschr != null ? p.beschr : (r && r.nr) ? '' : ((p.art && artByNr(p.art)) || {}).beschr || '';
+// v1.34: Kultur je Artikel ausblenden (Artikel «Kultur auf der Rechnung anzeigen» aus = a.ohneKultur) – z. B. Rübenernte, Rübensaat.
+// Kultur = Bemerkung aus der IM-Verwaltung (p.kultur); ältere Übergaben ohne p.kultur: Bemerkung einer Arbeit ohne Ziffern (keine Datumsangaben)
+const istKultur = p => p.kultur ? String(p.bem || '').trim() === String(p.kultur).trim() : (p.kind === 'arbeit' && !!p.bem && !/\d/.test(p.bem));
+const kulturAus = p => !!(p.bem && p.art && artByNr(p.art)?.ohneKultur && istKultur(p));
+const posBem = (p, r) => (r && r.nr) || !kulturAus(p) ? (p.bem || '') : ''; // abgeschlossen: wie beim Abschluss festgehalten
 function abschliessen(r) {
   const c = Store.cfg();
+  (r.pos || []).forEach(p => { if ((p.typ || 'pos') === 'pos' && kulturAus(p)) { p.bemAus = p.bem; p.bem = ''; } });
   (r.pos || []).forEach(p => { if ((p.typ || 'pos') === 'pos' && p.beschr == null) { const b = posBeschr(p, null); if (b) p.beschr = b; } });
   r.nr = r.nrRes || nextNr(); delete r.nrRes; // zurückgenommene Rechnung behält ihre Nummer (und damit die QR-Referenz)
   r.ref = SwissQR.isQrIban(c.iban) ? SwissQR.makeRef(c.refPrefix, r.nr) : '';
