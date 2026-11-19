@@ -113,14 +113,14 @@ function edPaper(r) {
     if (p.typ === 'zws') return `<tr class="edrow ezws" data-act="edPos" data-i="${i}"><td class="cs"></td><td></td><td colspan="4">${esc(p.bez || 'Zwischensumme')}</td><td class="n nowrap">${chf(cc.rows[i].zws)}</td>${btns}</tr>`;
     if (p.typ === 'rabatt') return `<tr class="edrow erab" data-act="edPos" data-i="${i}"><td class="cs"></td><td></td><td colspan="4"><div class="ebez">${esc(p.bez || 'Rabatt')}${p.proz != null && p.proz !== '' ? ' ' + fmtNum(+p.proz) + ' %' : ''}</div><div class="ebem">${p.bereich === 'alle' ? 'auf alle Positionen darüber' : 'auf den Block seit der letzten Zwischensumme'} · Basis CHF ${chf(cc.rows[i].basis || 0)}</div></td><td class="n nowrap eb">${chf(cc.rows[i].betrag)}</td>${btns}</tr>`;
     if ((p.typ || 'pos') !== 'pos') return `<tr class="edrow ${p.typ === 'titel' ? 'ettl' : 'etxt'}" data-act="edPos" data-i="${i}"><td class="cs"></td><td></td><td colspan="4">${esc(p.bez || '').replace(/\n/g, '<br>') || `<span class="edempty">(leere ${p.typ === 'titel' ? 'Zwischentitel' : 'Textzeile'} – antippen zum Schreiben)</span>`}</td>${btns}</tr>`;
-    const b = posBeschr(p, r), betrag = cc.rows[i] ? cc.rows[i].betrag : calc({ pos: [p] }).rows[0].betrag, ohneArt = !p.art;
+    const b = posBeschr(p, r), betrag = cc.rows[i] ? cc.rows[i].betrag : calc({ pos: [p] }).rows[0].betrag, ohneArt = !p.art, bf = r.nr ? [] : posBuchFehler(p), cd = r.nr ? '' : posCode(p);
     return `<tr class="edrow${S.has(p.id) ? ' psel' : ''}${p.zu ? ' esub' : ''}" data-act="edPos" data-i="${i}">
       <td class="cs"><input type="checkbox" data-act="edSel" data-id="${p.id}" ${S.has(p.id) ? 'checked' : ''} title="ankreuzen – z. B. für Zusatzposten oder Teil-Abschluss"></td>
       <td class="ecd">${p.datum ? fmtDate(p.datum) : ''}</td>
-      <td><div class="ebez">${esc(p.bez || '').replace(/\n/g, '<br>') || '<span class="edempty">(ohne Bezeichnung)</span>'}${ohneArt ? ' <span class="chip warn small" title="Kein Artikel gewählt">ohne Art.-Nr.</span>' : ` <span class="eart">${esc(p.art)}</span>`}</div>${b ? `<div class="ebeschr">${esc(b).replace(/\n/g, '<br>')}</div>` : ''}${p.bem ? `<div class="ebem">${esc(p.bem).replace(/\n/g, '<br>')}</div>` : ''}${p.konto || p.code || steuerTxt(p) ? `<div class="ebuch">${[steuerTxt(p) ? esc(steuerTxt(p)) : '', p.konto ? 'Konto ' + esc(p.konto) : '', p.code ? 'MWST-Code ' + esc(p.code) : ''].filter(Boolean).join(' · ')}</div>` : ''}${p.rabatt ? `<div class="erabp">Rabatt ${fmtNum(+p.rabatt)} % auf CHF ${chf(posBrutto(p))}: ${chf(posRabCHF(p))}</div>` : ''}</td>
+      <td><div class="ebez">${esc(p.bez || '').replace(/\n/g, '<br>') || '<span class="edempty">(ohne Bezeichnung)</span>'}${ohneArt ? ' <span class="chip warn small" title="Kein Artikel gewählt">ohne Art.-Nr.</span>' : ` <span class="eart">${esc(p.art)}</span>`}${bf.length ? ` <span class="chip danger small" title="Ohne Konto bzw. MWST-Code kann die Rechnung nicht abgeschlossen werden – antippen zum Ergänzen">⚠ ${esc(bf.join(', '))}</span>` : ''}</div>${b ? `<div class="ebeschr">${esc(b).replace(/\n/g, '<br>')}</div>` : ''}${p.bem ? `<div class="ebem">${esc(p.bem).replace(/\n/g, '<br>')}</div>` : ''}${p.konto || p.code || steuerTxt(p) ? `<div class="ebuch">${[steuerTxt(p) ? esc(steuerTxt(p)) : '', p.konto ? 'Konto ' + esc(kpTxt(p.konto)) : '', p.code ? 'MWST-Code ' + esc(p.code) : ''].filter(Boolean).join(' · ')}</div>` : ''}${p.rabatt ? `<div class="erabp">Rabatt ${fmtNum(+p.rabatt)} % auf CHF ${chf(posBrutto(p))}: ${chf(posRabCHF(p))}</div>` : ''}</td>
       <td class="n nowrap">${p.menge != null && p.menge !== '' ? qtyTxt(p.menge) : ''} ${esc(p.einh || '')}</td>
       <td class="n nowrap">${p.preis != null && p.preis !== '' ? chf(p.preis) : '<span class="edempty">–</span>'}</td>
-      <td class="n nowrap emw">${p.mwst != null ? mwstTxt(p.mwst) : ''}</td>
+      <td class="n nowrap emw">${p.mwst != null ? mwstTxt(p.mwst) : ''}${r.nr ? '' : `<div class="ecode" title="MWST-Code für AgroOffice – nur im Entwurf sichtbar, wird nicht gedruckt">${cd ? 'Code ' + esc(cd) : codeNoetig(p) ? '<span class="eneg">Code ?</span>' : 'ohne Code'}</div>`}</td>
       <td class="n nowrap eb${betrag < 0 ? ' eneg' : ''}">${chf(betrag)}</td>${btns}</tr>`;
   }).join('');
   return `<div class="edpaper">
@@ -206,8 +206,8 @@ function posDialog(i, { neu = false } = {}) {
       <div id="pdA" class="two"><label class="fld"><span>MWST-Satz festlegen</span><select class="input" name="asatz">${[['8.1', 'Normalsatz 8.1 %'], ['2.6', 'Reduzierter Satz 2.6 %'], ['3.8', 'Sondersatz 3.8 %'], ['urp', 'Reduzierter Satz (Urproduzent)'], ['0', 'Ohne MWST']].map(([v, t]) => `<option value="${v}" ${(p.urp ? 'urp' : String(+p.mwst || 0)) === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
         <label class="fld"><span>Vorsteuer</span><select class="input" name="vst">${[['1', 'Vorsteuer 1 (Material, Waren, Dienstleistungen)'], ['2', 'Vorsteuer 2 (Investitionen, übriger Betriebsaufwand)'], ['0', 'Keine Vorsteuer']].map(([v, t]) => `<option value="${v}" ${String(p.vst ?? '1') === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label></div>
       <div class="hint" id="pdStHint"></div></fieldset>
-    <details class="help" ${p.konto || p.code ? 'open' : ''}><summary>Buchhaltung: Konto und MWST-Code von Hand (für AgroOffice)</summary>
-      <div class="two"><label class="fld"><span>Konto <span class="muted small">(leer = vom Artikel)</span></span><input class="input" name="konto" inputmode="numeric" value="${esc(p.konto || '')}" placeholder="${esc(isAufw(p) ? (typeof buchCfg === 'function' ? buchCfg().kontoAufw || '' : '') : artByNr(p.art)?.konto || (typeof buchCfg === 'function' ? buchCfg().kontoStd || '' : ''))}"></label>
+    <details class="help" ${p.konto || p.code || posBuchFehler(p).length ? 'open' : ''}><summary>Buchhaltung: Konto und MWST-Code (für AgroOffice)</summary>
+      <div class="two"><label class="fld"><span>Konto <span class="muted small">(leer = vom Artikel)</span> <button type="button" class="btn small" id="pdKw">📒 Kontenplan …</button></span><input class="input" name="konto" inputmode="numeric" value="${esc(p.konto || '')}" placeholder="${esc(isAufw(p) ? artByNr(p.art)?.kontoAufw || '' : artByNr(p.art)?.konto || '')}"><span class="small muted" id="pdKn"></span></label>
         <label class="fld"><span>MWST-Code <span class="muted small">(leer = Standard des Satzes)</span></span><input class="input" name="code" list="codeList" value="${esc(p.code || '')}" placeholder="aus Mehr › Buchhaltung"></label></div>
       <datalist id="codeList">${typeof buchCfg === 'function' ? [...new Set([...Object.values(buchCfg().codes), ...Store.all('rechnungen').flatMap(x => (x.pos || []).map(q => q.code)).filter(Boolean)])].map(c => `<option value="${esc(c)}">`).join('') : ''}</datalist>
       <div class="hint">Gutschrift: Menge oder Preis negativ eintragen (z. B. Menge -3). Der Code wird normalerweise aus der Steuerart oben bestimmt (Tabelle in Mehr › Buchhaltung); hier nur eintragen, wenn er abweichen soll.</div></details>
@@ -231,6 +231,14 @@ function posDialog(i, { neu = false } = {}) {
       else { if (fd.get('z235')) p.z235 = true; if (fd.get('z205')) p.z205 = true; }
       if (p.st === 'aufwand' && a && p.konto === a.konto && !String(fd.get('konto') || '').trim()) delete p.konto; // Aufwand nicht aufs Ertragskonto des Artikels
       const zu = String(fd.get('zu') || ''); if (zu && zu !== p.id) { p.zu = zu; r.pos.forEach(q => { if (q.zu === p.id) delete q.zu; }); } else delete p.zu; posOrdnen(r);
+      // v1.32: Artikel fehlt in den Stammdaten oder hat kein AgroOffice-Konto → Kontenplan zur Auswahl
+      const kE = posKontoEig(p);
+      if (!kE || !kpOk(kE)) {
+        const w = await kontoWahl({ cur: kE, aufwand: isAufw(p), artikel: a && !isAufw(p) && !a.konto ? a : null,
+          info: `${p.art && !a ? `Art.-Nr. ${p.art} gibt es nicht in den Artikel-Stammdaten.` : !p.art ? 'Position ohne Artikel.' : isAufw(p) ? 'Aufwand-Position – bitte das Aufwandkonto wählen.' : kE ? `Konto ${kE} steht nicht im AgroOffice-Kontenplan.` : `Artikel ${a.artNr} «${a.bez}» hat kein AgroOffice-Konto.`}\n«${String(p.bez || '').split('\n')[0].slice(0, 70)}»` });
+        if (w) { p.konto = w.nr; if (w.art && a) { Store.put('artikel', Object.assign(clone(a), { konto: w.nr }), { silent: true }); toast(`Konto ${kpTxt(w.nr)} auch im Artikel ${a.artNr} gespeichert`); } }
+        else toast('Ohne Konto – die Rechnung kann erst mit Konto abgeschlossen werden', 4500);
+      }
       rechnungDialog(null, { keep: true }); return false; } });
   App.dlgBack = back;
   const F = $('#dlgForm'), f = n => F.querySelector(`[name=${n}]`);
@@ -244,10 +252,13 @@ function posDialog(i, { neu = false } = {}) {
     const k = codeKey(q), c = typeof buchCfg === 'function' ? (buchCfg().codes[k] || (k.startsWith('e:') ? buchCfg().codes[String(q.mwst)] : '') || '') : '';
     $('#pdStHint').innerHTML = `${esc(codeLabel(k))} → MWST-Code <b>${c ? esc(c) : '– noch nicht festgelegt (Mehr › Buchhaltung)'}</b>${q.urp ? '<br>Auf der Rechnung ohne MWST; in der Buchhaltung 2.6 % Vorsteuer (Art. 28 Abs. 2 MWSTG).' : ''}`; upd(); };
   F.querySelectorAll('[name=st],[name=asatz],[name=vst],[name=ziffer],[name=z235],[name=z205],[name=mwst]').forEach(x => x.addEventListener('change', stUpd)); stUpd();
+  const knUpd = () => { const v = f('konto').value.trim() || f('konto').placeholder; $('#pdKn').innerHTML = v ? (kpOk(v) ? esc(kpName(v)) + (f('konto').value.trim() ? '' : ' (vom Artikel)') : `<span class="eneg">Konto ${esc(v)} nicht im Kontenplan</span>`) : '<span class="eneg">kein Konto</span>'; };
+  f('konto').addEventListener('input', knUpd); knUpd();
+  $('#pdKw').addEventListener('click', async () => { const w = await kontoWahl({ cur: f('konto').value.trim() || f('konto').placeholder, aufwand: F.querySelector('[name=st]:checked')?.value === 'aufwand' }); if (w) { f('konto').value = w.nr; knUpd(); } });
   f('art').addEventListener('change', async () => { const a = artByNr(f('art').value.trim()); if (!a) return;
     if (!f('bez').value.trim() || f('bez').value === p.bez && p._auto || await frage(`Bezeichnung durch den Titel des Artikels ersetzen?\n\n«${f('bez').value}» → «${a.bez}»`)) f('bez').value = a.bez;
     if (a.einheit) f('einh').value = a.einheit; if (a.preis != null) f('preis').value = a.preis; if (a.mwst != null) f('mwst').value = String(a.mwst);
-    $('#pdBeschr').innerHTML = esc(a.beschr || '').replace(/\n/g, '<br>'); upd(); });
+    $('#pdBeschr').innerHTML = esc(a.beschr || '').replace(/\n/g, '<br>'); f('konto').placeholder = a.konto || ''; knUpd(); upd(); });
 }
 // v1.16: Nur die angekreuzten Positionen abschliessen und drucken – Rest bleibt im Entwurf. Die reservierte Nummer (zurückgenommene Rechnung) geht an den abgeschlossenen Teil.
 function teilAbschluss() {
@@ -302,15 +313,17 @@ function zusatzDialog() {
       <label class="fld"><span>Einheit</span><input class="input" name="einh" list="einhList" value="${esc(einh0)}"></label>
       <label class="fld"><span>Preis</span><input class="input n" name="preis" inputmode="decimal"></label>
       <label class="fld"><span>Bemerkung</span><input class="input" name="bem" placeholder="z. B. Dieselpreis ab 1.50"></label></div>
-    <label class="tog"><input type="checkbox" name="einzeln"> je Position ein eigener Zusatzposten (mit Datum und Menge der Position)</label>
+    <label class="tog"><input type="checkbox" name="einzeln"> je Position ein eigener Zusatzposten (mit der Menge der Position, ohne eigenes Datum)</label>
     <div class="hint">Menge = Summe der angekreuzten Positionen${new Set(sel.map(p => p.einh || '')).size > 1 ? ' mit gleicher Einheit wie der Artikel' : ''}. Der Zusatzposten wird hinter der letzten angekreuzten Position eingefügt.</div>`,
-    `<button class="btn" value="back" formnovalidate>← Zurück zur Rechnung</button><span class="spacer"></span><button class="btn primary" value="ok">＋ Einfügen</button>`, { onSubmit: (fd, btn) => {
+    `<button class="btn" value="back" formnovalidate>← Zurück zur Rechnung</button><span class="spacer"></span><button class="btn primary" value="ok">＋ Einfügen</button>`, { onSubmit: async (fd, btn) => {
       if (btn === 'back') { rechnungDialog(null, { keep: true }); return false; }
       const a = artByNr(String(fd.get('art') || '').trim()), einh = String(fd.get('einh') || '').trim(), base = { art: a ? a.artNr : String(fd.get('art') || '').trim(), bez: String(fd.get('bez') || '').trim() || (a && a.bez) || 'Zuschlag', bem: String(fd.get('bem') || '').trim(),
         einh, preis: num(fd.get('preis')), mwst: a && a.mwst != null ? a.mwst : sel[0].mwst, konto: (a && a.konto) || '', kind: 'zusatz' };
       if (base.preis == null && a && a.preis != null) base.preis = a.preis;
+      if (!base.konto || !kpOk(base.konto)) { const w = await kontoWahl({ cur: base.konto, artikel: a && !a.konto ? a : null, info: `${a ? `Artikel ${a.artNr} «${a.bez}» hat kein AgroOffice-Konto.` : 'Zusatzposten ohne Artikel aus den Stammdaten.'}\n«${base.bez}»` });
+        if (w) { base.konto = w.nr; if (w.art && a) Store.put('artikel', Object.assign(clone(a), { konto: w.nr }), { silent: true }); } }
       if (fd.get('einzeln')) { // je Position direkt dahinter
-        [...sel].reverse().forEach(p => { const i = r.pos.indexOf(p); r.pos.splice(i + 1, 0, newPos(Object.assign({}, base, { datum: p.datum || '', menge: p.menge, zu: p.zu || p.id }))); });
+        [...sel].reverse().forEach(p => { const i = r.pos.indexOf(p); r.pos.splice(i + 1, 0, newPos(Object.assign({}, base, { datum: '', menge: p.menge, zu: p.zu || p.id }))); }); // v1.32: Zusatzleistungen ohne eigenes Datum
       } else { const i = Math.max(...sel.map(p => r.pos.indexOf(p))); r.pos.splice(i + 1, 0, newPos(Object.assign({}, base, { menge: num(fd.get('menge')) ?? sumF(einh) }))); }
       S.clear(); rechnungDialog(null, { keep: true }); toast('Zusatzposten eingefügt'); return false;
     } });
@@ -553,7 +566,7 @@ function artikelDialog(id) {
     <div class="three"><label class="fld"><span>Einheit</span><input class="input" name="einheit" list="einhList2" value="${esc(a.einheit || '')}"><datalist id="einhList2">${EINHEITEN.map(e => `<option value="${e}">`).join('')}</datalist></label>
       <label class="fld"><span>Preis CHF</span><input class="input" name="preis" inputmode="decimal" value="${a.preis ?? ''}"></label>
       <label class="fld"><span>MWST</span><select class="input" name="mwst">${mwstOpts(a.mwst)}</select></label></div>
-    <label class="fld"><span>Ertragskonto (AgroOffice)</span><input class="input" name="konto" inputmode="numeric" value="${esc(a.konto || '')}" placeholder="leer = Standardkonto ${esc(buchCfg().kontoStd)}" style="max-width:220px"></label>
+    <label class="fld"><span>Ertragskonto (AgroOffice) <button type="button" class="btn small" id="adKw">📒 Kontenplan …</button></span><div class="row" style="align-items:center;gap:10px"><input class="input" name="konto" inputmode="numeric" value="${esc(a.konto || '')}" placeholder="nötig zum Abschliessen" style="max-width:160px"><span class="small muted" id="adKn"></span></div></label>
     <div class="fld"><span>Arbeiten in der IM-Verwaltung</span><div class="arbchips" id="arbChips">${arbChips(a.arbeiten || [])}</div>
       <input class="input" name="arbNeu" placeholder="weitere Arbeit (mehrere mit Komma)" style="margin-top:6px"><div class="small muted">Beim Senden aus der IM-Verwaltung werden zu einer Arbeit nur die hier zugewiesenen Artikel angeboten (auf Wunsch alle).</div></div>
     <label class="tog"><input type="checkbox" name="aktiv" ${a.aktiv !== false ? 'checked' : ''}> aktiv (in der Auswahl)</label>`,
@@ -567,6 +580,8 @@ function artikelDialog(id) {
       if (!x.arbeiten.length) delete x.arbeiten;
       Store.put('artikel', x);
     } });
+  { const F = $('#dlgForm'), ki = F.querySelector('[name=konto]'), kn = () => { const v = ki.value.trim(); $('#adKn').innerHTML = !v ? '<span class="eneg">kein Konto – Positionen mit diesem Artikel fragen nach dem Konto</span>' : kpOk(v) ? esc(kpName(v)) : `<span class="eneg">nicht im Kontenplan</span>`; };
+    ki.addEventListener('input', kn); kn(); $('#adKw').addEventListener('click', async () => { const w = await kontoWahl({ cur: ki.value.trim() }); if (w) { ki.value = w.nr; kn(); } }); }
   // Arbeitsarten aus der IM-Verwaltung nachladen und Auswahl ergänzen (gewählte bleiben angehakt)
   if (Auth.hasSession()) imvArbLoad().then(ok => { const box = $('#arbChips'); if (!ok || !box) return; const cur = [...box.querySelectorAll('input:checked')].map(i => i.value); box.innerHTML = arbChips(cur.length ? cur : (a.arbeiten || [])); });
 }

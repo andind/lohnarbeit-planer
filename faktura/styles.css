@@ -396,3 +396,7 @@ table.edpos { width: 100%; border-collapse: collapse; margin-top: 6px; }
 
 .pdst { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px 10px; margin: 6px 0 10px; }
 .pdst legend { font-size: 12px; color: var(--muted, #6b726c); padding: 0 4px; }
+/* v1.32: Buchhaltungsangaben im Entwurf */
+.chip.danger { background: #fde7e5; border-color: transparent; color: #b3261e; font-weight: 700; }
+.eneg { color: #b3261e; }
+.edpos .ecode { font-size: 11px; color: #6b726c; font-weight: 400; margin-top: 1px; }

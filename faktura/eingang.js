@@ -95,7 +95,7 @@ const Eingang = {
     if (T.app && !String(r.betreff || '').includes(T.app)) r.betreff = [r.betreff, T.app].filter(Boolean).join(', '); // Betreff = Herkunft (intern, nicht gedruckt)
     r.pos = r.pos.filter(p => (p.typ || 'pos') !== 'pos' || p.art || p.bez || p.preis != null); // leere Startzeile weg
     const gm = new Map(); // v1.26: Zusatzleistungen (Strohhäckseln, Saatgut, Schneckenkorn …) an ihren Auftrag hängen
-    (T.pos || []).forEach(p => { const np = this.posFor(p); if (p.gid) gm.set(p.gid, np.id); if (p.zuGid && gm.has(p.zuGid)) np.zu = gm.get(p.zuGid); r.pos.push(np); });
+    (T.pos || []).forEach(p => { const np = this.posFor(p); if (p.gid) gm.set(p.gid, np.id); if (p.zuGid && gm.has(p.zuGid)) { np.zu = gm.get(p.zuGid); np.datum = ''; } r.pos.push(np); }); // v1.32: Zusatzleistungen ohne eigenes Datum
     posOrdnen(r);
     if (T.beilage) addBeilage(r, T.beilage);
     r.quellen = (r.quellen || []).concat([{ app: T.app || '', am: T.am || new Date().toISOString(), refs: T.refs || [], text: T.text || '' }]);

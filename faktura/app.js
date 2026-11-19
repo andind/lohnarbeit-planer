@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken) wie IM-Vermietung: Daten lokal im Browser + Abgleich mit Dropbox (/faktura.json). */
 'use strict';
 
-const APP_VERSION = '1.31', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.32', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/faktura.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'artikel', 'rechnungen', 'einstellungen'];
 const EINHEITEN = ['ha', 'h', 'Stk', 'Pausch.', 'km', 'm³', 't', 'kg', 'l', 'a'];
@@ -302,6 +302,9 @@ function rechnungFehler(r) {
   if (!(r.pos || []).some(p => (p.typ || 'pos') === 'pos')) e.push('Keine Positionen');
   if (calc(r).total <= 0) e.push('Total muss grösser als 0 sein');
   if (!SwissQR.ibanOk(c.iban)) e.push('Noch keine gültige (QR-)IBAN unter Mehr › Firma & QR-Konto');
+  // v1.32: ohne AgroOffice-Konto oder MWST-Code (Ausnahme Aufwand ohne Vorsteuer) kein Abschluss
+  const pf = (r.pos || []).map(p => [p, posBuchFehler(p)]).filter(x => x[1].length);
+  if (pf.length) e.push(`${pf.length === 1 ? 'Eine Position ist' : pf.length + ' Positionen sind'} für die Buchhaltung nicht vollständig (Position antippen und Konto bzw. Steuerart wählen):\n` + pf.slice(0, 10).map(([p, f]) => `   – ${[p.datum ? fmtDate(p.datum) : '', p.art ? 'Art. ' + p.art : 'ohne Art.-Nr.', String(p.bez || '').split('\n')[0].slice(0, 40)].filter(Boolean).join(' ')}: ${f.join(', ')}`).join('\n') + (pf.length > 10 ? `\n   … und ${pf.length - 10} weitere` : ''));
   return e;
 }
 // Abgeschlossene Rechnung zurück in die Entwürfe (v1.12): Nummer bleibt reserviert (nrRes) und wird beim erneuten Abschliessen wieder verwendet.

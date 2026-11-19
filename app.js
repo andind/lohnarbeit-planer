@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '157', APP_STAND = '19.11.2026';
+const APP_VERSION = '158', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -2107,9 +2107,9 @@ const faktErr = e => toast('Senden an IM-Faktura fehlgeschlagen: ' + (e && e.mes
 function fakturaSpritzT(b, von, bis, L) {
   const T = fakturaT(b.k, 'Spritzarbeiten'), bb = billingFor(b.k, L.map(r => ({ a: r.a, fl: r.fl }))), [d1, d2] = billSpan(bb); // v156: tatsächliches erstes/letztes Spritzdatum statt Filterzeitraum
   const f2 = d => fmtDate(d, { day: '2-digit', month: '2-digit', year: 'numeric' }), zr = d1 === d2 ? f2(d1) : `${f2(d1)} – ${f2(d2)}`;
-  const m0 = L[0] ? fakturaMasch(L[0].a, { arbeit: L[0].a.arbeit }) : {};
-  const ha = r2(bb.rows.reduce((s, r) => s + r.fl, 0)), genau = round05(ha * bb.preisHa) === round05(bb.tA); // sonst Betrag wie in der Abrechnung (Rundung je Auftrag)
-  T.pos.push({ kind: 'arbeit', art: m0.artNr || '', bez: 'Spritzarbeiten', von: d1, bis: d2, bem: `${zr} gemäss Abrechnung (Beilage)${genau ? '' : ` – ${fmtNum(ha)} ha`}`, grp: 'Spritzarbeiten', menge: genau ? ha : 1, einh: genau ? 'ha' : '', preis: genau ? (bb.preisHa || null) : r2(bb.tA) });
+  // v158: Spritzarbeiten als Art. 30, Preis/ha aus den Stammdaten der IM-Verwaltung (Spritzpreise des Kunden); ohne Spritzpreis 1 × Total Arbeit
+  const ha = r2(bb.rows.reduce((s, r) => s + r.fl, 0)), mitHa = !!bb.preisHa;
+  T.pos.push({ kind: 'arbeit', art: SPRITZ_ART, bez: 'Spritzarbeiten', von: d1, bis: d2, bem: `${zr} gemäss Abrechnung (Beilage)`, grp: 'Spritzarbeiten', menge: mitHa ? ha : 1, einh: mitHa ? 'ha' : '', preis: mitHa ? bb.preisHa : r2(bb.tA) });
   const P = fakturaPsTeil(bb, von, bis); T.pos.push(...P.pos); T.beilage = P.beilage;
   T.refs = L.map(r => ({ app: 'imv', id: r.a.id, nr: r.a.nr || '' }));
   return T;
@@ -2179,7 +2179,7 @@ function fkDefaults(FK, r, k) {
   const o = r.oid ? Store.get('auftraege', r.oid) : null, spray = !!(o && isSpray(o)), m = fakturaMasch(o, r), arbs = [r.arbeit, o && o.arbeit].filter(Boolean);
   const as = spray ? [] : fkAssigned(FK, arbs), a1 = as.length === 1 ? as[0] : null;
   let einh = spray ? 'ha' : m.einheit === 'h' ? 'h' : 'ha'; const menge = einh === 'h' ? (r.std ?? r.dauer ?? null) : r.ha;
-  const art = a1 ? a1.artNr : as.length > 1 ? '' : (m.artNr || '');
+  const art = spray ? SPRITZ_ART : a1 ? a1.artNr : as.length > 1 ? '' : (m.artNr || ''); // v158: Spritzarbeiten = Art. 30 in IM-Faktura
   const preis = spray ? (fakturaSpray(o, k, r.ha ?? flOf(o)).preisHa || null) : a1 && a1.preis != null ? a1.preis : (m.ansatz ?? (fkArtOf(FK, art) || {}).preis ?? null);
   if (a1 && a1.einheit && !spray) einh = a1.einheit;
   const sa = fkAssigned(FK, ['Strohhäckseln']), s1 = sa.length === 1 ? sa[0] : sa.length ? null : FK.artikel.find(a => /stroh/i.test(a.bez || '') && /häck|hack/i.test(a.bez || '')) || null;
@@ -2224,7 +2224,7 @@ function fkPos(FK, r, d, k) {
     pos.push({ kind: 'arbeit', gid, art: d.art, datum: r.d || '', bez: aBez(d.art, 'Spritzen'), bem: bem(d.bem), grp: 'Spritzarbeiten', menge: d.menge, einh: d.einh, preis: d.preis });
     ps.push({ a: d.o, fl: d.menge ?? 0 });
   } else pos.push({ kind: 'arbeit', gid, art: d.art, datum: r.d || '', bez: aBez(d.art, r.arbeit || 'Arbeit'), bem: bem(d.bem), grp: r.arbeit || '', menge: d.menge, einh: d.einh, preis: d.preis });
-  if (d.dresch && d.stroh) pos.push({ kind: 'arbeit', zuGid: gid, art: d.strohArt, datum: r.d || '', bez: aBez(d.strohArt, 'Strohhäckseln'), bem: '', grp: 'Strohhäckseln', menge: d.strohHa, einh: 'ha', preis: d.strohPreis });
+  if (d.dresch && d.stroh) pos.push({ kind: 'arbeit', zuGid: gid, art: d.strohArt, bez: aBez(d.strohArt, 'Strohhäckseln'), bem: '', grp: 'Strohhäckseln', menge: d.strohHa, einh: 'ha', preis: d.strohPreis });
   (d.zusatz || []).filter(z => z.art || z.bem || z.menge != null).forEach(z => { const a = fkArtOf(FK, z.art); // Zusatzartikel ohne Datum
     pos.push({ kind: 'ware', zuGid: gid, art: z.art, bez: (a && a.bez) || z.bem || 'Zusatzartikel', bem: a ? z.bem : '', grp: (a && a.bez) || '', menge: z.menge, einh: z.einh || (a && a.einheit) || '', preis: z.preis }); });
   return { pos, ps };
@@ -2969,7 +2969,7 @@ function billingFor(k, it) {
 }
 const billSpan = b => { const ds = b.rows.map(r => dOf(r.a)).filter(Boolean).sort(); return [ds[0] || todayIso(), ds[ds.length - 1] || todayIso()]; };
 // Übergabe-Teil Pflanzenschutz (v149): Mittel als EIN Posten Art. 52, Beilage = Abrechnung Spritzarbeiten genau wie der Ausdruck in Spritzen › Abrechnung
-const PSM_ART = '52';
+const PSM_ART = '52', SPRITZ_ART = '30'; // Artikel in IM-Faktura: Pflanzenschutzmittel 52, Spritzarbeiten 30 (v158)
 function fakturaPsTeil(b, von, bis) {
   if (!von) [von, bis] = billSpan(b);
   const pos = b.tM > 0 ? [{ kind: 'psm', art: PSM_ART, bez: 'Pflanzenschutzmittel', bem: 'gemäss Abrechnung (Beilage)', grp: 'Pflanzenschutzmittel', menge: 1, einh: '', preis: r2(b.tM) }] : [];

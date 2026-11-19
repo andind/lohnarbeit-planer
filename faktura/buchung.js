@@ -22,6 +22,175 @@ const buchCfg = () => { const c = Store.cfg().buch || {}, o = Object.assign({}, 
 const belegNr = nr => { const B = buchCfg(), n = String(nr).replace(/\D/g, ''); return (String(B.belegPrefix || '').replace(/\D/g, '') + n.padStart(+B.belegStellen || 0, '0')).slice(0, 10); };
 const isAus = z => !!z.aus || z.bem === 'Rest ausgebucht';
 const posKonto = p => String(p.konto || artByNr(p.art)?.konto || buchCfg().kontoStd || '').trim();
+const KONTENPLAN = [ // v1.32: AgroOffice-Kontenplan (Ertrag 3xxx, Aufwand 4xxx–6xxx) – Auswahl für Positionen und Artikel
+  ['3010', 'Weizen', 'Ertrag Pflanzenbau'],
+  ['3020', 'Gerste', 'Ertrag Pflanzenbau'],
+  ['3022', 'Triticale', 'Ertrag Pflanzenbau'],
+  ['3024', 'Hafer', 'Ertrag Pflanzenbau'],
+  ['3032', 'Zuckerrüben', 'Ertrag Pflanzenbau'],
+  ['3036', 'Raps', 'Ertrag Pflanzenbau'],
+  ['3038', 'Mais', 'Ertrag Pflanzenbau'],
+  ['3042', 'Sojabohnen', 'Ertrag Pflanzenbau'],
+  ['3046', 'Eiweisserbsen', 'Ertrag Pflanzenbau'],
+  ['3060', 'Übriger Ertrag Pflanzenbau', 'Ertrag Pflanzenbau'],
+  ['3062', 'Raufutter', 'Ertrag Pflanzenbau'],
+  ['3064', 'Stroh', 'Ertrag Pflanzenbau'],
+  ['3078', 'Holz', 'Ertrag Pflanzenbau'],
+  ['3126', 'grosses Mastvieh', 'Ertrag Tierhaltung'],
+  ['3170', 'Übriger Ertrag Tierhaltung', 'Ertrag Tierhaltung'],
+  ['3201', 'Handelsertrag Pflanzenschutzmittel', 'Ertrag Handelsprodukte'],
+  ['3202', 'Handelsertrag Saatgut', 'Ertrag Handelsprodukte'],
+  ['3410', 'Arbeit für Dritte / Lohnbetrieb', 'Übriger Ertrag'],
+  ['3411', 'Vermietung Maschinen', 'Übriger Ertrag'],
+  ['3412', 'Mähdrescherei', 'Übriger Ertrag'],
+  ['3413', 'Direktsaat', 'Übriger Ertrag'],
+  ['3414', 'Rübenernte', 'Übriger Ertrag'],
+  ['3415', 'Pensionspferde', 'Übriger Ertrag'],
+  ['3416', 'Forstarbeiten', 'Übriger Ertrag'],
+  ['3500', 'Verschiedene Direktzahlungen (ohne Details)', 'Direktzahlungen'],
+  ['3600', 'Übriger Ertrag', 'Übriger Ertrag'],
+  ['3710', 'Naturalbezüge', 'Lieferungen an Betrieb und privat'],
+  ['3800', 'Skonti', 'Ertragsminderung'],
+  ['3805', 'Verluste Forderungen, Veränderung Wertber.', 'Ertragsminderung'],
+  ['3900', 'Bestandesänderungen unfertige Erzeugnisse', 'Bestandesänderung Ertrag'],
+  ['3901', 'Bestandesänderungen fertige Erzeugnisse', 'Bestandesänderung Ertrag'],
+  ['3910', 'Bestandesänderungen Pflanzenbau', 'Bestandesänderung Ertrag'],
+  ['3914', 'Bestandesänderungen Rindvieh', 'Bestandesänderung Ertrag'],
+  ['3915', 'Bestandesänderungen Masttiere', 'Bestandesänderung Ertrag'],
+  ['3918', 'Bestandesänderungen Schweine', 'Bestandesänderung Ertrag'],
+  ['3919', 'Bestandesänderungen übrige Tiere', 'Bestandesänderung Ertrag'],
+  ['3940', 'Bestandesänd. nicht fakt. Dienstleistungen', 'Bestandesänderung Ertrag'],
+  ['4010', 'Saatgut und Pflanzgut', 'Aufwand Pflanzenbau'],
+  ['4020', 'Dünger', 'Aufwand Pflanzenbau'],
+  ['4030', 'Pflanzenschutz', 'Aufwand Pflanzenbau'],
+  ['4040', 'Verarbeitungskosten', 'Aufwand Pflanzenbau'],
+  ['4050', 'Hagelversicherung', 'Aufwand Pflanzenbau'],
+  ['4060', 'Arbeit durch Dritte Pflanzbau', 'Aufwand Pflanzenbau'],
+  ['4070', 'Übriger Aufwand Pflanzenbau', 'Aufwand Pflanzenbau'],
+  ['4117', 'Zukauf Mastremonten', 'Aufwand Tierhaltung'],
+  ['4120', 'Zukauf Kraftfutter Rindvieh', 'Aufwand Tierhaltung'],
+  ['4123', 'Mineralstoff, Vitamine Rindvieh', 'Aufwand Tierhaltung'],
+  ['4124', 'Tierarzt, Medikamente Rindvieh', 'Aufwand Tierhaltung'],
+  ['4126', 'Viehversicherung Rindvieh', 'Aufwand Tierhaltung'],
+  ['4129', 'Übriger Aufwand Rindvieh', 'Aufwand Tierhaltung'],
+  ['4170', 'Übriger Aufwand Tierhaltung', 'Aufwand Tierhaltung'],
+  ['4175', 'Zukauf Raufutter, Stroh', 'Aufwand Tierhaltung'],
+  ['4410', 'Abrechnung Maschinengeminschaften', 'Übriger Aufwand'],
+  ['4600', 'Hilfs- und Verbrauchsmaterial', 'Übriger Aufwand'],
+  ['4800', 'Bestandesänderungen Vorräte', 'Bestandesänderung Aufwand'],
+  ['5000', 'Löhne', 'Personalkosten'],
+  ['5001', 'Entschädigung Hans Indermühle', 'Personalkosten'],
+  ['5005', 'Leistungen von Sozialversicherungen', 'Personalkosten'],
+  ['5020', 'Kost + Logis (Angestellte)', 'Personalkosten'],
+  ['5100', 'Naturallöhne Hans', 'Personalkosten'],
+  ['5700', 'AHV, IV, EO, ALV Angestellte', 'Personalkosten'],
+  ['5720', 'Berufliche Vorsorge Angestellte', 'Personalkosten'],
+  ['5740', 'Krankentaggeldversicherung Angestellte', 'Personalkosten'],
+  ['5890', 'Privatanteile Personalaufwand', 'Aufwandsminderung'],
+  ['5910', 'Persönliche AHV, IV, EO, FZ', 'Personalkosten'],
+  ['5920', 'Persönliche berufliche Vorsorge', 'Personalkosten'],
+  ['5930', 'Persönliche Unfallversicherung', 'Personalkosten'],
+  ['5940', 'Persönliche Taggeldversicherung', 'Personalkosten'],
+  ['6000', 'Pachtzins Gewerbe', 'Übriger Aufwand'],
+  ['6002', 'Pachtzins Grundstücke', 'Übriger Aufwand'],
+  ['6100', 'Unterhalt Maschinen', 'Übriger Aufwand'],
+  ['6104', 'Unterhalt Rübenernte', 'Übriger Aufwand'],
+  ['6105', 'Kleingeräte, Werkzeuge', 'Übriger Aufwand'],
+  ['6150', 'Unterhalt feste Einrichtungen', 'Übriger Aufwand'],
+  ['6160', 'Maschinenmiete', 'Übriger Aufwand'],
+  ['6161', 'Arbeiten durch Dritte Allgemein', 'Übriger Aufwand'],
+  ['6200', 'Unterhalt, Rep. Fahrzeuge, Zugkräfte', 'Übriger Aufwand'],
+  ['6201', 'Wartung/Reparaturen Mähdrescher', 'Übriger Aufwand'],
+  ['6210', 'Betriebsstoffe Fahrzeuge, Zugkräfte', 'Übriger Aufwand'],
+  ['6211', 'Betriebsstoffe Mähdrescher', 'Übriger Aufwand'],
+  ['6220', 'Versicherungen Fahrzeuge, Zugkräfte', 'Übriger Aufwand'],
+  ['6221', 'Versicherungen Mähdrescher', 'Übriger Aufwand'],
+  ['6230', 'Verkehrsabgaben Fahrzeuge, Zugkräfte', 'Übriger Aufwand'],
+  ['6231', 'Verkehrsabgaben Mähdrescher', 'Übriger Aufwand'],
+  ['6240', 'Unterhalt / Rep. Auto', 'Autokosten'],
+  ['6241', 'Treibstoff Auto', 'Autokosten'],
+  ['6242', 'Versicherungen Auto', 'Autokosten'],
+  ['6243', 'Verkehrsabgaben, Gebühren Auto', 'Autokosten'],
+  ['6270', 'Privatanteil Fahrzeugaufwand', 'Aufwandsminderung'],
+  ['6300', 'Sachversicherungen', 'Übriger Aufwand'],
+  ['6360', 'Abgaben und Gebühren', 'Übriger Aufwand'],
+  ['6400', 'Elektrizität', 'Übriger Aufwand'],
+  ['6420', 'Heizung', 'Übriger Aufwand'],
+  ['6430', 'Wasser', 'Übriger Aufwand'],
+  ['6460', 'Entsorgung, Abfall', 'Übriger Aufwand'],
+  ['6470', 'Privatanteil Strom, Tel, Heizung', 'Aufwandsminderung'],
+  ['6500', 'Büromaterial, Fachliteratur', 'Übriger Aufwand'],
+  ['6510', 'Telefon, Internet, Porti', 'Übriger Aufwand'],
+  ['6530', 'Buchführungs- und Beratungsaufwand', 'Übriger Aufwand'],
+  ['6560', 'Informatik', 'Übriger Aufwand'],
+  ['6700', 'Sonstiger Betriebsaufwand', 'Übriger Aufwand'],
+  ['6790', 'Privatanteile', 'Aufwandsminderung'],
+  ['6800', 'Wertber. Wertschriften des Anlagevermögens', 'Übriger Aufwand'],
+  ['6820', 'Abschr. u. Wertber. Maschinen/Apparate', 'Übriger Aufwand'],
+  ['6823', 'Abschr. und Wertber. Fahrzeuge', 'Übriger Aufwand'],
+  ['6824', 'Abschr. und Wertber. Personenwagen', 'Übriger Aufwand'],
+  ['6827', 'Abschr. u. Wertber. feste Einricht./Installationen', 'Übriger Aufwand'],
+  ['6830', 'Abschr. u. Wertber. Immob.Sachanl. (o.Det.)', 'Übriger Aufwand'],
+  ['6832', 'Abschr. und Wertber. Ökonomiegebäude', 'Übriger Aufwand'],
+  ['6833', 'Abschr. und Wertber. Leichtbauten', 'Übriger Aufwand'],
+  ['6836', 'Abschr. und Wertber. Wohnhaus', 'Übriger Aufwand'],
+  ['6838', 'Abschr. und Wertber. Boden', 'Übriger Aufwand'],
+  ['6900', 'Bankkreditzinsaufwand', 'Übriger Aufwand'],
+  ['6940', 'Bankspesen', 'Übriger Aufwand'],
+  ['6943', 'Kursverlust Finanzanlagen', 'Übriger Aufwand'],
+  ['6950', 'Erträge aus Bankguthaben', 'Übriger Ertrag'],
+  ['6960', 'Erträge aus Wertschriften des Anlageverm.', 'Übriger Ertrag']
+];
+const kpName = nr => (KONTENPLAN.find(k => k[0] === String(nr)) || [])[1] || '';
+const kpOk = nr => KONTENPLAN.some(k => k[0] === String(nr));
+const kpTxt = nr => nr ? `${nr}${kpName(nr) ? ' ' + kpName(nr) : ''}` : '';
+// Konto einer Position ohne Standard-Rückfall (Prüfung vor dem Abschliessen): eigenes Konto, sonst Konto des Artikels (Aufwand: Aufwandkonto des Artikels)
+const posKontoEig = p => String(p.konto || (isAufw(p) ? artByNr(p.art)?.kontoAufw : artByNr(p.art)?.konto) || '').trim();
+const posCode = p => String(p.code || buchCfg().codes[codeKey(p)] || (!isAufw(p) && buchCfg().codes[String(+p.mwst || 0)]) || '');
+const codeNoetig = p => !codeKey(p).endsWith(':v0'); // Aufwand ohne Vorsteuer braucht keinen MWST-Code
+function posBuchFehler(p) {
+  if ((p.typ || 'pos') !== 'pos') return [];
+  const e = [], k = posKontoEig(p);
+  if (!k) e.push('AgroOffice-Konto fehlt'); else if (!kpOk(k)) e.push(`Konto ${k} nicht im Kontenplan`);
+  if (codeNoetig(p) && !posCode(p)) e.push('MWST-Code fehlt');
+  return e;
+}
+// v1.32: Auswahlfenster Kontenplan (eigenes Fenster über dem offenen Dialog) → Promise { nr, art } oder null
+function kontoWahl({ cur = '', aufwand = false, info = '', artikel = null } = {}) {
+  if (!document.getElementById('kwahlCss')) {
+    const st = document.createElement('style'); st.id = 'kwahlCss';
+    st.textContent = `dialog.kwahl{border:0;border-radius:16px;padding:0;width:min(760px,96vw);max-height:92vh;background:var(--surface,#fff);color:var(--text,#1d211e);box-shadow:0 18px 60px rgba(0,0,0,.45);font-family:inherit;display:flex;flex-direction:column}
+dialog.kwahl:not([open]){display:none}dialog.kwahl::backdrop{background:rgba(0,0,0,.45)}
+.kw-h{padding:20px 24px 10px}.kw-h h2{margin:0 0 6px;font-size:20px}.kw-info{font-size:15px;white-space:pre-line;color:var(--muted,#5d665f)}
+.kw-h input[type=search]{width:100%;font:inherit;font-size:17px;padding:10px 12px;border-radius:10px;border:2px solid var(--line,#c9cfc9);margin-top:10px;box-sizing:border-box}
+.kw-l{overflow:auto;padding:0 24px 8px;flex:1;min-height:200px}.kw-g{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted,#5d665f);margin:12px 0 4px}
+.kw-l button{display:flex;gap:12px;width:100%;text-align:left;font:inherit;font-size:16px;padding:8px 10px;border:0;border-radius:8px;background:none;color:inherit;cursor:pointer}
+.kw-l button:hover,.kw-l button:focus-visible{background:var(--surface-2,#eef2ee);outline:none}.kw-l button.on{background:var(--accent,#2f6b3f);color:#fff}.kw-l button b{min-width:46px}
+.kw-f{display:flex;gap:14px;align-items:center;padding:12px 24px 20px;flex-wrap:wrap;border-top:1px solid var(--line,#ddd)}.kw-f label{font-size:15px;flex:1}
+.kw-f button{font:inherit;font-size:17px;font-weight:600;padding:11px 24px;border-radius:12px;cursor:pointer;border:2px solid var(--line,#c9cfc9);background:var(--surface-2,#f2f2ee);color:inherit}`;
+    document.head.appendChild(st);
+  }
+  return new Promise(res => {
+    const d = document.createElement('dialog'); d.className = 'kwahl';
+    const G = []; KONTENPLAN.forEach(([nr, name, g]) => { const t = (+nr[0] === 3 ? 'Ertrag' : 'Aufwand') + ' · ' + g; let x = G.find(y => y.t === t); if (!x) G.push(x = { t, auf: +nr[0] > 3, L: [] }); x.L.push([nr, name]); });
+    G.sort((a, b) => (aufwand ? b.auf - a.auf : a.auf - b.auf) || +a.L[0][0] - +b.L[0][0]);
+    d.innerHTML = `<div class="kw-h"><h2>AgroOffice-Konto wählen</h2><div class="kw-info"></div><input type="search" placeholder="Suchen: Nummer oder Name (z. B. 3410, Saatgut, Lohn) …"></div>
+      <div class="kw-l">${G.map(g => `<div class="kw-gr"><div class="kw-g">${esc(g.t)}</div>${g.L.map(([nr, n]) => `<button type="button" data-nr="${nr}" data-s="${esc(fold(nr + ' ' + n + ' ' + g.t))}" class="${nr === String(cur) ? 'on' : ''}"><b>${nr}</b><span>${esc(n)}</span></button>`).join('')}</div>`).join('')}</div>
+      <div class="kw-f">${artikel ? `<label><input type="checkbox" class="kw-art" checked> Konto auch im Artikel ${esc(artikel.artNr || '')} «${esc(artikel.bez || '')}» speichern</label>` : '<span style="flex:1"></span>'}<button type="button" class="kw-no">Ohne Konto weiter</button></div>`;
+    d.querySelector('.kw-info').textContent = info || 'Konto für die Buchhaltung (AgroOffice) wählen.';
+    document.body.appendChild(d);
+    let fertig = false;
+    const done = v => { if (fertig) return; fertig = true; const art = !!(artikel && d.querySelector('.kw-art')?.checked); d.close(); d.remove(); res(v ? { nr: v, art } : null); };
+    const q = d.querySelector('input[type=search]'), B = [...d.querySelectorAll('.kw-l button')];
+    const filt = () => { const f = fold(q.value.trim()); B.forEach(b => b.hidden = !!f && !b.dataset.s.includes(f)); d.querySelectorAll('.kw-gr').forEach(g => g.hidden = ![...g.querySelectorAll('button')].some(b => !b.hidden)); };
+    q.addEventListener('input', filt);
+    q.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const v = B.filter(b => !b.hidden); if (v.length === 1 || (v.length && /^\d{4}$/.test(q.value.trim()) && v[0].dataset.nr === q.value.trim())) done(v[0].dataset.nr); } });
+    B.forEach(b => b.addEventListener('click', () => done(b.dataset.nr)));
+    d.querySelector('.kw-no').addEventListener('click', () => done(null));
+    d.addEventListener('cancel', e => { e.preventDefault(); done(null); });
+    d.showModal(); setTimeout(() => { q.focus(); const on = d.querySelector('.kw-l button.on'); if (on) on.scrollIntoView({ block: 'center' }); }, 30);
+  });
+}
 
 // Betrag je Konto und MWST-Satz (inkl. MWST) einer Rechnung, Summe = Rechnungstotal (+ Mahngebühren)
 function fitCents(G, T) {
