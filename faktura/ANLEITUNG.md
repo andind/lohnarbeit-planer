@@ -1,4 +1,4 @@
-# IM-Faktura v1.5 – Anleitung
+# IM-Faktura v1.6 – Anleitung
 
 Eigenständige App für Rechnungen mit Schweizer **QR-Zahlteil** (QR-IBAN mit QR-Referenz), Offenen Posten,
 Zahlungsabgleich (camt.054) und Mahnungen. Eigene Daten (`faktura.json`), unabhängig von IM-Verwaltung und IM-Vermietung.
@@ -39,7 +39,7 @@ Zahlungsabgleich (camt.054) und Mahnungen. Eigene Daten (`faktura.json`), unabh�
 
 ## Buchhaltung AgroOffice (ab v1.1)
 - Gebucht werden nur **Zahlungseingänge** (vereinnahmte Entgelte): `1020 an Ertragskonto` je Konto und MWST-Satz, inkl. MWST,
-  mit MWST-Code; alle Teile einer Zahlung haben die Rechnungs-Nr. als Beleg (AgroOffice nimmt nur Zahlen an) und beginnen im Buchungstext mit «IM-<Rechnungs-Nr.>» (z. B. «IM-2 Zahlung Muster Hans»). (Ein Hilfskonto wie 9904 geht nicht: der AgroOffice-Import
+  mit MWST-Code; alle Teile einer Zahlung haben die Rechnungs-Nr. als Beleg (AgroOffice nimmt nur Zahlen an – getestet: «IM-2», «1-2», «IM 2» werden zu 0; mit Beleg-Präfix z. B. 9 → 92) und beginnen im Buchungstext mit «IM-<Rechnungs-Nr.>» (z. B. «IM-2 Zahlung Muster Hans»). (Ein Hilfskonto wie 9904 geht nicht: der AgroOffice-Import
   nimmt nur Konten 1000–8999 und 9910/9911 an.) Teilzahlungen werden anteilig aufgeteilt, ausgebuchte Restbeträge nicht gebucht,
   Überzahlungen auf 9910. Konten und MWST-Codes unter *Mehr › Buchhaltung (AgroOffice)*.
 - Beim Erfassen einer Zahlung von Hand wählst du das Konto, auf dem das Geld eingegangen ist (Bank, Kasse, Landikonto …);

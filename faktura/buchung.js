@@ -6,7 +6,7 @@
 'use strict';
 
 const DEF_BUCH = { bank: '1020', hilfs: '', mwstKonto: '2200', kontoStd: '3410', kontoGeb: '3600', kontoUeber: '9910',
-  codes: { '8.1': '303', '2.6': '313', '3.8': '343' }, version: '2022.00', mandant: '',
+  codes: { '8.1': '303', '2.6': '313', '3.8': '343' }, version: '2022.00', mandant: '', belegPrefix: '',
   zkonten: '1020 RB Betriebskonto; 1000 Kasse; 1025 Landikonto 8141; 1028 Landi Fakturatransfer; 1031 ZAF Pflanzerkonto' };
 // Konten für Zahlungseingänge (Bank, Kasse, Landi …) aus «1020 Name; 1000 Name»
 const zKonten = () => String(buchCfg().zkonten || '').split(/[;\n]+/).map(s => s.trim()).filter(Boolean).map(s => { const m = /^(\d{4})\s*(.*)$/.exec(s); return m ? { nr: m[1], name: m[2].trim() } : null; }).filter(Boolean);
@@ -54,7 +54,7 @@ function buchungen(L) {
   const B = buchCfg(), out = [];
   L.forEach(({ r, z }) => {
     // AgroOffice liest die Beleg-Nr. nur als Zahl («IM-2» wurde zu 0, 19.11.2026) → Beleg = Rechnungs-Nr., «IM-<Nr.>» am Anfang des Buchungstexts
-    const kn = kName(r.kunde).slice(0, 40), beleg = String(r.nr).replace(/\D/g, '').slice(0, 10), im = 'IM-' + r.nr;
+    const kn = kName(r.kunde).slice(0, 40), beleg = (String(B.belegPrefix || '').replace(/\D/g, '') + String(r.nr).replace(/\D/g, '')).slice(0, 10), im = 'IM-' + r.nr;
     // mit Hilfskonto: Bank an Hilfskonto (Total), dann Hilfskonto an Ertrag; ohne: direkt Bank an Ertrag je Konto/MWST-Satz
     const zk = zKontoOf(z), gegen = B.hilfs || zk;
     if (B.hilfs) out.push({ datum: z.datum, beleg, soll: zk, haben: B.hilfs, betrag: r2(+z.betrag), satz: null, text: `${im} Zahlung ${kn}`, zid: z.id });
