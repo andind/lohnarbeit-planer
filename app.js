@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '148', APP_STAND = '19.11.2026';
+const APP_VERSION = '149', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -2065,12 +2065,10 @@ const faktErr = e => toast('Senden an IM-Faktura fehlgeschlagen: ' + (e && e.mes
 /* ---------- Spritzen › Abrechnung: pro Kunde, zusammengefasst ---------- */
 function fakturaSpritzT(b, von, bis, L) {
   const T = fakturaT(b.k, 'Spritzarbeiten'), zr = `${fmtDate(von, { day: '2-digit', month: '2-digit', year: 'numeric' })} – ${fmtDate(bis, { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
-  const X = L.map(r => fakturaSpray(r.a, b.k, r.fl)), m0 = L[0] ? fakturaMasch(L[0].a, { arbeit: L[0].a.arbeit }) : {};
-  const ha = r2(X.reduce((s, x) => s + x.arbeit.menge, 0));
-  T.pos.push({ kind: 'arbeit', art: m0.artNr || '', bez: `Spritzarbeiten ${zr} gemäss Detailabrechnung (${L.length} ${L.length === 1 ? 'Auftrag' : 'Aufträge'})`, grp: 'Spritzarbeiten', menge: ha, einh: 'ha', preis: b.preisHa || null });
-  fakturaMittelSum(X.flatMap(x => x.mittel)).forEach(m => T.pos.push({ kind: 'psm', bez: m.name + (m.zul ? ` (${m.zul})` : ''), grp: 'Pflanzenschutzmittel', menge: m.menge, einh: m.einh, preis: m.preis || null }));
-  const rows = X.flatMap(x => x.rows);
-  T.beilage = { titel: 'Detailabrechnung Pflanzenschutz', untertitel: `Spritzarbeiten ${zr}`, cols: PS_COLS, rows, total: r2(rows.reduce((s, x) => s + (+x[6] || 0), 0)) };
+  const bb = billingFor(b.k, L.map(r => ({ a: r.a, fl: r.fl }))), m0 = L[0] ? fakturaMasch(L[0].a, { arbeit: L[0].a.arbeit }) : {};
+  const ha = r2(bb.rows.reduce((s, r) => s + r.fl, 0)), genau = round05(ha * bb.preisHa) === round05(bb.tA); // sonst Betrag wie in der Abrechnung (Rundung je Auftrag)
+  T.pos.push({ kind: 'arbeit', art: m0.artNr || '', bez: `Spritzarbeiten ${zr} gemäss Abrechnung (Beilage)${genau ? '' : ` – ${fmtNum(ha)} ha`}`, grp: 'Spritzarbeiten', menge: genau ? ha : 1, einh: genau ? 'ha' : '', preis: genau ? (bb.preisHa || null) : r2(bb.tA) });
+  const P = fakturaPsTeil(bb, von, bis); T.pos.push(...P.pos); T.beilage = P.beilage;
   T.refs = L.map(r => ({ app: 'imv', id: r.a.id, nr: r.a.nr || '' }));
   return T;
 }
@@ -2102,15 +2100,14 @@ function fakturaAbrT(k, rows) {
     if (o && isSpray(o)) {
       const x = fakturaSpray(o, k, r.ha ?? flOf(o)), m = fakturaMasch(o, r);
       T.pos.push({ kind: 'arbeit', art: m.artNr || '', bez: `${dt} Spritzen${x.parz ? ' – ' + x.parz : ''}`, grp: 'Spritzarbeiten', menge: x.arbeit.menge, einh: 'ha', preis: x.preisHa || null });
-      x.mittel.forEach(mm => T.pos.push({ kind: 'psm', bez: mm.name + (mm.zul ? ` (${mm.zul})` : ''), grp: 'Pflanzenschutzmittel', menge: mm.menge, einh: mm.einh, preis: mm.preis || null }));
-      ps.push(...x.rows); return;
+      ps.push({ a: o, fl: r.ha ?? flOf(o) }); return;
     }
     const m = fakturaMasch(o, r), einh = m.einheit === 'h' ? 'h' : 'ha';
     const menge = einh === 'h' ? (r.std ?? r.dauer ?? null) : r.ha;
     const txt = [r.arbeit, r.kultur].filter(Boolean).join(', ') + (r.feld ? ' – ' + r.feld : '');
     T.pos.push({ kind: 'arbeit', art: m.artNr || '', bez: `${dt} ${txt}`, grp: r.arbeit || '', menge: menge != null ? r2(menge) : null, einh, preis: m.ansatz ?? null });
   });
-  if (ps.length) T.beilage = { titel: 'Detailabrechnung Pflanzenschutz', cols: PS_COLS, rows: ps, total: r2(ps.reduce((s, x) => s + (+x[6] || 0), 0)) };
+  if (ps.length) { const P = fakturaPsTeil(billingFor(k, ps)); T.pos.push(...P.pos); T.beilage = P.beilage; }
   T.refs = rows.map(r => ({ app: 'imv', id: r.oid || '', jd: r.jid || '', nr: r.nr || '' }));
   return T;
 }
@@ -2179,11 +2176,9 @@ function fkRead(F, j, d) {
 }
 function fkPos(FK, r, d, k) {
   const dt = fmtDate(r.d, { day: '2-digit', month: '2-digit', year: '2-digit' }), fl = r.feld ? ' – ' + r.feld : '', pos = [], ps = [], tx = (b, m) => b + (m ? '\n' + m : '');
-  if (d.spray && d.o) {
-    const sp = fakturaSpray(d.o, k, d.menge ?? 0);
+  if (d.spray && d.o) { // Mittel kommen gesammelt als ein Posten Art. 52 (fkSend), Detail als Abrechnung Spritzarbeiten
     pos.push({ kind: 'arbeit', art: d.art, bez: tx(`${dt} Spritzen${fl}`, d.bem), grp: 'Spritzarbeiten', menge: d.menge, einh: d.einh, preis: d.preis });
-    sp.mittel.forEach(mm => pos.push({ kind: 'psm', bez: mm.name + (mm.zul ? ` (${mm.zul})` : ''), grp: 'Pflanzenschutzmittel', menge: mm.menge, einh: mm.einh, preis: mm.preis || null }));
-    ps.push(...sp.rows);
+    ps.push({ a: d.o, fl: d.menge ?? 0 });
   } else pos.push({ kind: 'arbeit', art: d.art, bez: tx(`${dt} ${r.arbeit || ''}${fl}`, d.bem), grp: r.arbeit || '', menge: d.menge, einh: d.einh, preis: d.preis });
   if (d.dresch && d.stroh) pos.push({ kind: 'arbeit', art: d.strohArt, bez: `${dt} Strohhäckseln${fl}`, grp: 'Strohhäckseln', menge: d.strohHa, einh: 'ha', preis: d.strohPreis });
   (d.zusatz || []).filter(z => z.art || z.bem || z.menge != null).forEach(z => { const a = fkArtOf(FK, z.art);
@@ -2220,7 +2215,7 @@ async function fkSend(FK, items, einzeln) { // items: [{ r, d, k }]
     const k = l[0].k, T = fakturaT(k, 'Lohnarbeiten'), fkId = l[0].d.fk, ps = [];
     if (fkId) { const f = FK.kunden.find(x => x.id === fkId); T.kunde.fkId = fkId; if (f) { T.kunde.name = f.name; T.kunde.nr = f.nr || T.kunde.nr; } }
     l.forEach(x => { const P = fkPos(FK, x.r, x.d, k); T.pos.push(...P.pos); ps.push(...P.ps); });
-    if (ps.length) T.beilage = { titel: 'Detailabrechnung Pflanzenschutz', cols: PS_COLS, rows: ps, total: r2(ps.reduce((a, x) => a + (+x[6] || 0), 0)) };
+    if (ps.length) { const P = fakturaPsTeil(billingFor(k, ps)); T.pos.push(...P.pos); T.beilage = P.beilage; }
     T.refs = l.map(x => ({ app: 'imv', id: x.r.oid || '', jd: x.r.jid || '', nr: x.r.nr || '' }));
     return T;
   });
@@ -2894,17 +2889,52 @@ function billing(kid, von, bis, mitGeplant) {
   const f = billFilter({ av: von, ab: bis, ag: mitGeplant });
   const orders = sprayOrders().filter(a => a.kunde === kid && dOf(a) && f(a)).sort(byKulturParz);
   let tA = 0, tM = 0;
-  const rows = orders.map(a => {
-    const fl = flOf(a), arbeit = round05(fl * preisHa);
-    const mittel = prodList(a).map(p => {
-      const pr = prodAt(prodOf(p), dOf(a)) || {}, preis = pr.preis || 0, preisZ = round05(preis * zu + preis), menge = (p.menge || 0) * fl, betrag = round05(menge * preisZ);
-      return { name: p.name, zulassung: pr.zulassung || '', mengeHa: p.menge, einheit: p.einheit || pr.einheit || '', menge, preis, preisZ, betrag };
-    });
-    const m = mittel.reduce((s, x) => s + x.betrag, 0); tA += arbeit; tM += m;
-    return { a, fl, arbeit, mittel, mittelTot: m };
-  });
+  const rows = orders.map(a => { const r = billRow(a, flOf(a), preisHa, zu); tA += r.arbeit; tM += r.mittelTot; return r; });
   return { k, preisHa, zu, rows, tA, tM, total: tA + tM };
 }
+function billRow(a, fl, preisHa, zu) {
+  const arbeit = round05(fl * preisHa);
+  const mittel = prodList(a).map(p => {
+    const pr = prodAt(prodOf(p), dOf(a)) || {}, preis = pr.preis || 0, preisZ = round05(preis * zu + preis), menge = (p.menge || 0) * fl, betrag = round05(menge * preisZ);
+    return { name: p.name, zulassung: pr.zulassung || '', mengeHa: p.menge, einheit: p.einheit || pr.einheit || '', menge, preis, preisZ, betrag };
+  });
+  return { a, fl, arbeit, mittel, mittelTot: mittel.reduce((s, x) => s + x.betrag, 0) };
+}
+// Abrechnung für ausgewählte Spritzaufträge (für IM-Faktura): it = [{ a, fl }]
+function billingFor(k, it) {
+  const preisHa = (k.preisSpritze || 0) + (k.preisFahrer || 0) + (k.preisTraktor || 0), zu = k.zuschlag || 0;
+  const rows = it.slice().sort((x, y) => byKulturParz(x.a, y.a)).map(x => billRow(x.a, x.fl, preisHa, zu));
+  const tA = rows.reduce((s, r) => s + r.arbeit, 0), tM = rows.reduce((s, r) => s + r.mittelTot, 0);
+  return { k, preisHa, zu, rows, tA, tM, total: tA + tM };
+}
+const billSpan = b => { const ds = b.rows.map(r => dOf(r.a)).filter(Boolean).sort(); return [ds[0] || todayIso(), ds[ds.length - 1] || todayIso()]; };
+// Übergabe-Teil Pflanzenschutz (v149): Mittel als EIN Posten Art. 52, Beilage = Abrechnung Spritzarbeiten genau wie der Ausdruck in Spritzen › Abrechnung
+const PSM_ART = '52';
+function fakturaPsTeil(b, von, bis) {
+  if (!von) [von, bis] = billSpan(b);
+  const pos = b.tM > 0 ? [{ kind: 'psm', art: PSM_ART, bez: 'Pflanzenschutzmittel gemäss Abrechnung (Beilage)', grp: 'Pflanzenschutzmittel', menge: 1, einh: '', preis: r2(b.tM) }] : [];
+  return { pos, beilage: Object.assign(beilageAusdruck('Abrechnung Spritzarbeiten', billingHtml(b, von, bis), 'IM-Verwaltung'), { total: r2(b.total) }) };
+}
+// Beilage für IM-Faktura als Original-Ausdruck: HTML + die dazu nötigen Stile (inkl. Druck-Stile, ohne #printArea), Bilder mit voller Adresse
+function beilageAusdruck(titel, html, app) {
+  const box = document.createElement('div'); box.innerHTML = html;
+  box.querySelectorAll('img[src]').forEach(i => i.setAttribute('src', new URL(i.getAttribute('src'), location.href).href));
+  box.querySelectorAll('[data-act]').forEach(e => { e.removeAttribute('data-act'); e.removeAttribute('data-id'); e.classList.remove('click'); });
+  const cls = new Set([...box.querySelectorAll('[class]')].flatMap(e => [...e.classList])), tags = new Set([...box.querySelectorAll('*')].map(e => e.tagName.toLowerCase()));
+  const hit = sel => [...sel.matchAll(/\.([\w-]+)/g)].some(m => cls.has(m[1]));
+  const clean = t => t.replace(/body\.printing\s+#printArea\s*/g, '').replace(/#printArea\s+/g, '').replace(/body\.printing\s+/g, '');
+  const root = [], out = [];
+  const take = r => { if (!r.selectorText) return; if (r.selectorText.trim() === ':root') { root.push(r.cssText.replace(':root', ':host')); return; } if (hit(r.selectorText)) out.push(clean(r.cssText)); };
+  for (const sh of document.styleSheets) { let rs; try { rs = sh.cssRules; } catch { continue; }
+    for (const r of rs) {
+      if (r.selectorText) take(r);
+      else if (r.media && /\bprint\b/.test(r.media.mediaText) && !/screen/.test(r.media.mediaText)) for (const x of r.cssRules) take(x); // Druck-Stile gelten in der Beilage immer
+    }
+  }
+  const bf = getComputedStyle(document.body).fontFamily;
+  return { titel, app, html: box.innerHTML, css: [...root, `:host { font-family: ${bf}; font-size: 10.5pt; line-height: 1.35; } ${[...tags].includes('table') ? 'table { border-collapse: collapse; }' : ''}`, ...out].join('\n') };
+}
+
 // Gliederung Erntejahr › Kultur › Parzelle: je Kultur eine eigene Tabelle (bleibt im Ausdruck möglichst auf einer Seite),
 // je Parzelle ein Block, der nie getrennt wird – lieber eine Seite mehr als ein unübersichtlicher Umbruch
 const BILL_COLS = '<colgroup><col style="width:10%"><col style="width:28%"><col style="width:16%"><col style="width:11%"><col style="width:11%"><col style="width:10%"><col style="width:14%"></colgroup>';

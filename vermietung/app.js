@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.16', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.17', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -1310,6 +1310,25 @@ function abrXlsx(G) {
 }
 // An IM-Faktura senden (v1.14): je Kunde eine Übergabe-Datei /faktura-eingang/<id>.json – eine Position «100 Maschinenmiete gemäss Rapport»,
 // der Rapport (alle Einsätze mit Datum) als Beilage; die Zeilen werden danach als abgerechnet markiert (e.fakt = Übergabe-ID)
+// Beilage für IM-Faktura als Original-Ausdruck: HTML + die dazu nötigen Stile (inkl. Druck-Stile, ohne #printArea), Bilder mit voller Adresse
+function beilageAusdruck(titel, html, app) {
+  const box = document.createElement('div'); box.innerHTML = html;
+  box.querySelectorAll('img[src]').forEach(i => i.setAttribute('src', new URL(i.getAttribute('src'), location.href).href));
+  box.querySelectorAll('[data-act]').forEach(e => { e.removeAttribute('data-act'); e.removeAttribute('data-id'); e.classList.remove('click'); });
+  const cls = new Set([...box.querySelectorAll('[class]')].flatMap(e => [...e.classList])), tags = new Set([...box.querySelectorAll('*')].map(e => e.tagName.toLowerCase()));
+  const hit = sel => [...sel.matchAll(/\.([\w-]+)/g)].some(m => cls.has(m[1]));
+  const clean = t => t.replace(/body\.printing\s+#printArea\s*/g, '').replace(/#printArea\s+/g, '').replace(/body\.printing\s+/g, '');
+  const root = [], out = [];
+  const take = r => { if (!r.selectorText) return; if (r.selectorText.trim() === ':root') { root.push(r.cssText.replace(':root', ':host')); return; } if (hit(r.selectorText)) out.push(clean(r.cssText)); };
+  for (const sh of document.styleSheets) { let rs; try { rs = sh.cssRules; } catch { continue; }
+    for (const r of rs) {
+      if (r.selectorText) take(r);
+      else if (r.media && /\bprint\b/.test(r.media.mediaText) && !/screen/.test(r.media.mediaText)) for (const x of r.cssRules) take(x); // Druck-Stile gelten in der Beilage immer
+    }
+  }
+  const bf = getComputedStyle(document.body).fontFamily;
+  return { titel, app, html: box.innerHTML, css: [...root, `:host { font-family: ${bf}; font-size: 10.5pt; line-height: 1.35; } ${[...tags].includes('table') ? 'table { border-collapse: collapse; }' : ''}`, ...out].join('\n') };
+}
 async function fakturaSendVm(G, ov) {
   if (!Auth.hasSession()) { toast('Für die Übergabe an IM-Faktura mit Dropbox anmelden.', 4000); return; }
   PRICE_OV = ov;
@@ -1325,8 +1344,7 @@ async function fakturaSendVm(G, ov) {
       const T = { v: 1, id, app: 'IM-Vermietung', appVer: APP_VERSION, am: now, betreff: 'Maschinenmiete',
         kunde: { fkId: k.fkId || '', vmId: k.id, nr: k.nr || '', name: k.name || '', strasse: k.strasse || '', zusatz: k.zusatz || '', plz: k.plz || '', ort: k.ort || '', mail: k.mail || '', tel: k.tel || '' },
         pos: [{ kind: 'miete', art: '100', bez: `Maschinenmiete gemäss Rapport${zeitraum(L) ? ' (' + zeitraum(L) + ')' : ''}`, menge: 1, einh: '', preis: tot }],
-        beilage: { titel: 'Rapport Maschinenmiete', cols: [['Datum', '', 'cd'], ['Art.-Nr.', '', 'ca'], ['Maschine', ''], ['Menge', 'q', 'cm'], ['Einheit', '', 'ce'], ['Preis', 'chf', 'cp'], ['Betrag CHF', 'chf', 'cb']],
-          rows: L.map(e => { const m = masch(e.maschine) || {}; return [e.datum ? fmtDate(e.datum) : '', m.artNr || '', (m.name || '') + (e.bem ? ' – ' + e.bem : ''), e.menge, einhOf(e), preisOf(e), betragOf(e)]; }), total: tot },
+        beilage: Object.assign(beilageAusdruck('Rapport Maschinenmiete', rapportHtml(k, L, true), 'IM-Vermietung'), { total: tot }), // 1:1 der Rapport mit Preisen
         refs: L.map(e => ({ app: 'imm', id: e.id, nr: '' })) };
       await Drive.writeJson(`/faktura-eingang/${id}.json`, T);
       Store.putMany('einsaetze', L.map(e => Object.assign({}, e, { status: 'abgerechnet', abgerechnetAm: e.abgerechnetAm || todayIso(), fakt: id })), { silent: true });

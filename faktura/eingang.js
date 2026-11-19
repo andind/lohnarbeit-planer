@@ -27,12 +27,16 @@ Object.assign(Drive, {
 });
 
 /* ---------- Beilagen (mehrere pro Rechnung, gleicher Titel wird zusammengeführt) ---------- */
-const beilagenOf = r => [...(r.beilage ? [r.beilage] : []), ...(r.beilagen || [])].filter(b => b && (b.rows || []).length);
+// Beilage als Tabelle (cols/rows) oder – seit v1.14 – als Original-Ausdruck des Absender-Programms (html + css, 1:1 wie dort gedruckt)
+const beilOk = b => b && ((b.rows || []).length || b.html);
+const beilagenOf = r => [...(r.beilage ? [r.beilage] : []), ...(r.beilagen || [])].filter(beilOk);
 function addBeilage(r, b) {
-  if (!b || !(b.rows || []).length) return;
+  if (!beilOk(b)) return;
   if (r.beilage) { r.beilagen = [r.beilage, ...(r.beilagen || [])]; delete r.beilage; }
   r.beilagen = r.beilagen || [];
-  const x = r.beilagen.find(y => y.titel === b.titel && JSON.stringify(y.cols) === JSON.stringify(b.cols));
+  if (b.html) { const x = r.beilagen.find(y => y.html && y.titel === b.titel && y.css === b.css);
+    if (x) { x.html += b.html; x.total = b.total != null ? r2((x.total || 0) + b.total) : x.total; } else r.beilagen.push(clone(b)); return; }
+  const x = r.beilagen.find(y => !y.html && y.titel === b.titel && JSON.stringify(y.cols) === JSON.stringify(b.cols));
   if (x) { x.rows = x.rows.concat(b.rows); x.total = r2((x.total || 0) + (b.total || 0)); }
   else r.beilagen.push(clone(b));
 }
@@ -79,8 +83,8 @@ const Eingang = {
   posFor(p) {
     const E = einCfg(), c = Store.cfg();
     if (p.kind === 'text') return newPos({ typ: 'text', bez: p.bez || '' });
-    const a = p.kind === 'psm' ? artByNr(E.artPsm) : p.kind === 'miete' ? artByNr(p.art || E.artMiete) : artByNr(p.art);
-    return newPos({ art: p.kind === 'psm' ? '' : (p.art || (p.kind === 'miete' ? E.artMiete : '')), bez: p.bez || a?.bez || '', menge: p.menge ?? 1, einh: p.einh || a?.einheit || '', preis: p.preis ?? a?.preis ?? null,
+    const a = p.kind === 'psm' ? artByNr(p.art || E.artPsm) : p.kind === 'miete' ? artByNr(p.art || E.artMiete) : artByNr(p.art);
+    return newPos({ art: p.kind === 'psm' ? (p.art || E.artPsm || '') : (p.art || (p.kind === 'miete' ? E.artMiete : '')), bez: p.bez || a?.bez || '', menge: p.menge ?? 1, einh: p.einh || a?.einheit || '', preis: p.preis ?? a?.preis ?? null,
       mwst: p.mwst ?? a?.mwst ?? (p.kind === 'arbeit' ? +E.mwstArbeit : c.mwstDef), konto: p.konto || a?.konto || '', grp: p.grp || '', kind: p.kind || '' });
   },
   apply(T) {

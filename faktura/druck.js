@@ -106,7 +106,16 @@ async function docsHtml(docs) {
   return docs.map(d => renderDoc(d.mahnung != null ? mahnungParts(d.r, d.mahnung) : rechnungParts(d.r), d.r) + (d.mahnung == null ? beilagenOf(d.r).map(b => renderBeilage(d.r, b)).join('') : '')).join('');
 }
 // Beilage hinter der Rechnung (z. B. Rapport Maschinenmiete): { titel, cols: [[Titel, 'n'|'']], rows: [[…]], total }
+// Original-Ausdruck als Beilage: eigener Bereich mit Shadow DOM (Stile des Absenders bleiben getrennt), Seitenränder über @page beil
+const BEILX = new Map(); let beilN = 0;
+function renderBeilageHtml(r, B) { const k = 'b' + (++beilN); BEILX.set(k, B); return `<div class="beilx" data-k="${k}"></div>`; }
+function beilAttach(root) {
+  (root || document).querySelectorAll('.beilx[data-k]').forEach(el => { const B = BEILX.get(el.dataset.k); if (!B || el.shadowRoot) return;
+    el.attachShadow({ mode: 'open' }).innerHTML = `<style>${B.css || ''}\n:host { display: block; color: #000; background: #fff; }</style>${B.html}`; });
+}
+const beilImgs = root => [...(root || document).querySelectorAll('.beilx')].flatMap(el => el.shadowRoot ? [...el.shadowRoot.querySelectorAll('img')] : []);
 function renderBeilage(r, B) {
+  if (B && B.html) return renderBeilageHtml(r, B);
   if (!B || !(B.rows || []).length) return '';
   const h = measurer(), full = PAGE.h - PAGE.top - PAGE.bottom - 6;
   const titel = `Beilage zu ${r.titel || 'Rechnung'} ${r.nr ? 'Nr. ' + r.nr : '(Entwurf)'}`;
@@ -125,13 +134,13 @@ function renderBeilage(r, B) {
 async function printDocs(docs, { title, after } = {}) {
   if (!docs.length) return;
   const html = await docsHtml(docs);
-  const pa = $('#printArea'); pa.innerHTML = html;
+  const pa = $('#printArea'); pa.innerHTML = html; beilAttach(pa);
   document.body.classList.add('printing'); const oldT = document.title;
   if (title) document.title = title.replace(/[\\/:*?"<>|]/g, '-');
   let fertig = false;
   const done = () => { document.body.classList.remove('printing'); document.title = oldT; window.removeEventListener('afterprint', done); if (!fertig) { fertig = true; if (after) setTimeout(after, 200); } };
   window.addEventListener('afterprint', done);
-  const imgs = [...pa.querySelectorAll('img')].filter(i => !i.complete);
+  const imgs = [...pa.querySelectorAll('img'), ...beilImgs(pa)].filter(i => !i.complete);
   await Promise.race([Promise.all(imgs.map(i => new Promise(res => { i.onload = i.onerror = res; }))), new Promise(res => setTimeout(res, 3000))]);
   setTimeout(() => { window.print(); setTimeout(done, 1000); }, 50);
 }
@@ -142,6 +151,7 @@ async function previewDocs(docs, { onPrint, onClose } = {}) {
   openDlg('Vorschau', `<div class="pview"><div class="pscale">${html}</div></div>`,
     `<span class="small muted">PDF: im Druckfenster «Als PDF speichern» wählen.</span><span class="spacer"></span><button class="btn" value="close">Schliessen</button><button class="btn primary" value="print">🖨 Drucken / PDF</button>`,
     { wide: true, onSubmit: (fd, btn) => { if (btn === 'print') { if (onPrint) onPrint(); else printDocs(docs, { title: docTitle(docs) }); } else if (onClose) { setTimeout(onClose, 30); } } });
+  beilAttach($('.pscale'));
   const fit = () => { const v = $('.pview'), s = $('.pscale'); if (!v || !s) return; const k = Math.min(1, (v.clientWidth - 8) / (210 * 96 / 25.4)); s.style.zoom = k; };
   setTimeout(fit, 20);
 }

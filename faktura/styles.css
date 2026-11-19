@@ -312,3 +312,9 @@ dialog { max-height: calc(var(--appH, 100dvh) - 24px); }
 .arbchip { margin: 0; }
 
 .dwm { position: absolute; left: 0; right: 0; top: 118mm; text-align: center; font: 700 96pt/1 Arial, sans-serif; letter-spacing: 6mm; color: rgba(200, 30, 30, .13); transform: rotate(-32deg); pointer-events: none; z-index: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+/* Beilage als Original-Ausdruck (IM-Verwaltung / IM-Vermietung) */
+.beilx { width: 210mm; box-sizing: border-box; padding: 14mm 15mm 14mm 18mm; background: #fff; color: #000; font: 10.5pt/1.35 Arial, Helvetica, sans-serif; }
+.pview .beilx { margin: 0 auto 12px; box-shadow: 0 2px 10px rgba(0,0,0,.3); }
+@page beil { size: A4; margin: 14mm 15mm 14mm 18mm; }
+@media print { #printArea .beilx { page: beil; width: auto; padding: 0; break-before: page; page-break-before: always; box-shadow: none; } }
