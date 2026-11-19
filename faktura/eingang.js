@@ -82,6 +82,7 @@ const Eingang = {
   },
   posFor(p) {
     const E = einCfg(), c = Store.cfg();
+    if (!p.datum && p.bez) { const x = altPos(p.bez); if (x) p = Object.assign({}, p, x); }
     if (p.kind === 'text') return newPos({ typ: 'text', bez: p.bez || '' });
     const a = p.kind === 'psm' ? artByNr(p.art || E.artPsm) : p.kind === 'miete' ? artByNr(p.art || E.artMiete) : artByNr(p.art);
     return newPos({ art: p.kind === 'psm' ? (p.art || E.artPsm || '') : (p.art || (p.kind === 'miete' ? E.artMiete : '')), bez: a?.bez || p.bez || '', bem: p.bem || '', datum: p.datum || '', menge: p.menge ?? 1, einh: p.einh || a?.einheit || '', preis: p.preis ?? a?.preis ?? null,
@@ -89,7 +90,7 @@ const Eingang = {
   },
   apply(T) {
     const k = this.kundeFor(T);
-    let r = Store.all('rechnungen').filter(x => x.kunde === k.id && statusOf(x) === 'entwurf' && !x.nrRes).sort((a, b) => (b.upd || 0) - (a.upd || 0))[0];
+    let r = Store.all('rechnungen').filter(x => x.kunde === k.id && statusOf(x) === 'entwurf').sort((a, b) => (b.nrRes ? 1 : 0) - (a.nrRes ? 1 : 0) || (b.upd || 0) - (a.upd || 0))[0]; // v1.16: immer in den Entwurf des Kunden
     r = r ? clone(r) : newRechnung({ kunde: k.id, frist: k.frist ?? Store.cfg().frist, betreff: T.app || T.betreff || '', quelle: T.app || 'Eingang' });
     if (T.app && !String(r.betreff || '').includes(T.app)) r.betreff = [r.betreff, T.app].filter(Boolean).join(', '); // Betreff = Herkunft (intern, nicht gedruckt)
     r.pos = r.pos.filter(p => (p.typ || 'pos') !== 'pos' || p.art || p.bez || p.preis != null); // leere Startzeile weg
@@ -123,7 +124,38 @@ function kLink(k, K) {
   return ch;
 }
 /* ---------- Ansicht «Entwürfe» ---------- */
+// Altes Übergabeformat (IM-Verwaltung bis v150): «13.07.26 Ernte – Gorenmatt\nWintergerste» → Datum + Bemerkung
+function altPos(bez) {
+  const m = String(bez).match(/^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})\s+([\s\S]*)$/); if (!m) return null;
+  const y = m[3].length === 2 ? '20' + m[3] : m[3], datum = `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  const [l1, ...rest] = m[4].split('\n'), i = l1.indexOf(' – ');
+  return { datum, bez: (i > 0 ? l1.slice(0, i) : l1).trim(), bem: [i > 0 ? l1.slice(i + 3).trim() : '', ...rest.map(s => s.trim())].filter(Boolean).join(' · ') };
+}
+// v1.16: Entwürfe desselben Kunden immer zu einem zusammenführen (zurückgenommene Rechnung mit reservierter Nummer bleibt das Ziel;
+// zwei verschiedene reservierte Nummern werden nicht zusammengelegt). Dabei alte Positionen mit Datum im Text aufteilen.
+function entwuerfeZusammen() {
+  const D = Store.all('rechnungen').filter(r => statusOf(r) === 'entwurf' && r.kunde), out = [], del = [];
+  const G = new Map(); D.forEach(r => { if (!G.has(r.kunde)) G.set(r.kunde, []); G.get(r.kunde).push(r); });
+  [...G.values()].forEach(l => {
+    const res = l.filter(r => r.nrRes), basis = res[0] || l.slice().sort((a, b) => (a.datum || '').localeCompare(b.datum || '') || (a.upd || 0) - (b.upd || 0))[0];
+    const rest = l.filter(r => r !== basis && !r.nrRes); if (!rest.length) return;
+    const t = clone(basis);
+    rest.forEach(r => { t.pos.push(...clone(r.pos)); beilagenOf(r).forEach(b => addBeilage(t, b)); t.quellen = (t.quellen || []).concat(r.quellen || []);
+      if (r.betreff) t.betreff = [...new Set([...(t.betreff || '').split(', '), ...r.betreff.split(', ')].filter(Boolean))].join(', '); del.push(r.id); });
+    out.push(t);
+  });
+  let fix = 0; // alte Positionen aufteilen
+  Store.all('rechnungen').filter(r => statusOf(r) === 'entwurf' && !del.includes(r.id)).forEach(r0 => {
+    const r = out.find(x => x.id === r0.id) || clone(r0); let ch = false;
+    r.pos.forEach(p => { if ((p.typ || 'pos') === 'pos' && !p.datum && !p.bem) { const x = altPos(p.bez || ''); if (x) { Object.assign(p, x); const a = p.art && artByNr(p.art); if (a) p.bez = a.bez; ch = true; fix++; } } });
+    if (ch && !out.includes(r)) out.push(r);
+  });
+  if (out.length) Store.putMany('rechnungen', out, { silent: true });
+  if (del.length) Store.remove('rechnungen', del);
+  return { n: del.length, fix };
+}
 function viewEntwuerfe() {
+  { const z = entwuerfeZusammen(); if (z.n || z.fix) setTimeout(() => toast([z.n ? `${z.n} ${z.n === 1 ? 'Entwurf' : 'Entwürfe'} mit dem Entwurf desselben Kunden zusammengeführt` : '', z.fix ? `${z.fix} Positionen: Datum aus dem Text übernommen` : ''].filter(Boolean).join(' · '), 5000), 50); }
   const L = Store.all('rechnungen').filter(r => statusOf(r) === 'entwurf').sort((a, b) => kName(a.kunde).localeCompare(kName(b.kunde), 'de'));
   const tot = L.reduce((s, r) => s + calc(r).total, 0);
   const warn = r => { const w = [], k = kunde(r.kunde);

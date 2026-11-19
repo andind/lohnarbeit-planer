@@ -124,9 +124,31 @@ function rechnungDialog(id, { keep = false } = {}) {
     : `${fix ? `<button class="btn danger" value="storno">Stornieren</button><button class="btn" value="revert" title="Rechnung zurück in die Entwürfe, um sie zu korrigieren (Nummer bleibt reserviert)">↩ Zurück zu Entwurf</button><button class="btn" value="copy">Kopie als Entwurf</button>` : (isNew || r.nrRes ? '' : '<button class="btn danger" value="del">Löschen</button>')}
       <button class="btn" value="preview">👁 Vorschau</button>${fix ? '' : '<button class="btn" value="draftPrint" title="Entwurf mit Wasserzeichen und ohne QR-Zahlteil drucken – z. B. zum Kontrollieren">🖨 Entwurf drucken</button>'}<span class="spacer"></span>
       <button class="btn" value="save">${fix ? 'Speichern' : 'Als Entwurf speichern'}</button>
-      ${fix ? '<button class="btn primary" value="print">🖨 Speichern & drucken</button>' : '<button class="btn primary" value="final">✓ Abschliessen & drucken</button>'}`;
+      ${fix ? '<button class="btn primary" value="print">🖨 Speichern & drucken</button>' : `${(App.edSel || new Set()).size && (App.edSel.size < r.pos.filter(p => (p.typ || 'pos') === 'pos').length) ? `<button class="btn" value="part" title="Nur die angekreuzten Positionen als Rechnung abschliessen – die übrigen bleiben im Entwurf">✓ Nur ${App.edSel.size} markierte abschliessen & drucken</button>` : ''}<button class="btn primary" value="final">✓ Abschliessen & drucken</button>`}`;
   openDlg(title, body, foot, { wide: true, onSubmit: (fd, btn) => edSubmit(btn) });
   autoGrow();
+}
+// v1.16: Nur die angekreuzten Positionen abschliessen und drucken – Rest bleibt im Entwurf. Die reservierte Nummer (zurückgenommene Rechnung) geht an den abgeschlossenen Teil.
+function teilAbschluss() {
+  const r = App.ed, S = App.edSel || new Set(), sel = r.pos.filter(p => S.has(p.id) && (p.typ || 'pos') === 'pos');
+  if (!sel.length) return;
+  const B = beilagenOf(r), kinds = new Set(sel.map(p => p.kind || '')), arts = new Set(sel.map(p => String(p.art || '')));
+  const passt = b => /maschinenmiete/i.test(b.titel) ? kinds.has('miete') || arts.has(einCfg().artMiete) : /spritz|pflanzenschutz/i.test(b.titel) ? kinds.has('psm') || sel.some(p => /spritz/i.test(p.grp || p.bez)) : true;
+  const tot = calc({ pos: sel, inkl: r.inkl }).total;
+  openDlg('Markierte Positionen abschliessen', `<p>${sel.length} von ${r.pos.filter(p => (p.typ || 'pos') === 'pos').length} Positionen werden als <b>eigene Rechnung</b> abgeschlossen und gedruckt (CHF ${chf(tot)}). Die übrigen bleiben im Entwurf.</p>
+    <div class="dscroll" style="max-height:30vh"><table class="dtab">${sel.map(p => `<tr><td>${p.datum ? fmtDate(p.datum) : ''}</td><td>${esc(p.bez)}${p.bem ? `<div class="small muted">${esc(p.bem)}</div>` : ''}</td><td class="n">${fmtNum(+p.menge || 0, 3)} ${esc(p.einh || '')}</td><td class="n">${chf(calc({ pos: [p], inkl: r.inkl }).rows[0].betrag)}</td></tr>`).join('')}</table></div>
+    ${B.length ? `<p class="small"><b>Beilagen zur abgeschlossenen Rechnung:</b></p>${B.map((b, i) => `<label class="tog" style="display:flex"><input type="checkbox" name="b${i}" ${passt(b) ? 'checked' : ''}> ${esc(b.titel)}</label>`).join('')}<div class="hint">Nicht angekreuzte Beilagen bleiben beim Entwurf.</div>` : ''}
+    ${r.nrRes ? `<div class="hint">Die reservierte Nummer ${esc(r.nrRes)} geht an diese Rechnung.</div>` : ''}`,
+    `<button class="btn" value="back" formnovalidate>← Zurück zur Rechnung</button><span class="spacer"></span><button class="btn primary" value="ok">✓ Abschliessen & drucken</button>`, { onSubmit: (fd, btn) => {
+      if (btn === 'back') { rechnungDialog(null, { keep: true }); return false; }
+      const ids = new Set(sel.map(p => p.id)), mitB = B.filter((b, i) => fd.get('b' + i)), ohneB = B.filter((b, i) => !fd.get('b' + i));
+      const f = Object.assign(clone(r), { id: uid(), pos: clone(r.pos.filter(p => ids.has(p.id))), beilagen: clone(mitB), quelle: (r.quelle || '') + ' (Teil)' }); delete f.beilage;
+      const e = rechnungFehler(f); if (e.length) { alert('Rechnung kann noch nicht abgeschlossen werden:\n\n• ' + e.join('\n• ')); return false; }
+      const rest = Object.assign(clone(r), { pos: r.pos.filter(p => !ids.has(p.id)), beilagen: clone(ohneB) }); delete rest.beilage; delete rest.nrRes;
+      abschliessen(f); f.faellig = addDays(f.datum, f.frist ?? Store.cfg().frist);
+      Store.put('rechnungen', f, { silent: true }); Store.put('rechnungen', rest, { silent: true }); S.clear(); App.ed = null;
+      printDocs([{ r: f }], { title: docTitle([{ r: f }]) }); toast(`Rechnung ${f.nr} mit ${sel.length} Positionen abgeschlossen – ${rest.pos.filter(p => (p.typ || 'pos') === 'pos').length} Positionen bleiben im Entwurf`, 5000);
+    } });
 }
 // Zusatzposten für mehrere Positionen (z. B. Dieselzuschlag beim Dreschen): Menge = Summe der angekreuzten Positionen (gleiche Einheit wie der Artikel), ein Posten total oder je Position
 function zusatzDialog() {
@@ -190,6 +212,7 @@ function edSubmit(btn) {
     if (!confirm(`Rechnung ${r.nr} zurück in die Entwürfe nehmen?\n\nDie Nummer ${r.nr} bleibt reserviert und wird beim erneuten Abschliessen wieder verwendet.${(r.mahnungen || []).length ? ' Die ' + r.mahnungen.length + ' Mahnung(en) werden verworfen.' : ''}\nWurde die Rechnung schon verschickt, die korrigierte dem Kunden neu schicken.`)) return false;
     zuruecknehmen(r); edSave(r); toast(`Rechnung ${r.rueck[r.rueck.length - 1].nr} ist wieder ein Entwurf`); setTimeout(() => rechnungDialog(r.id), 50); return;
   }
+  if (btn === 'part') { edSave(r); teilAbschluss(); return false; }
   if (btn === 'final') {
     const e = rechnungFehler(r); if (e.length) { alert('Rechnung kann noch nicht abgeschlossen werden:\n\n• ' + e.join('\n• ')); return false; }
     abschliessen(r); r.faellig = addDays(r.datum, r.frist ?? Store.cfg().frist); edSave(r);

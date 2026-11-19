@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken) wie IM-Vermietung: Daten lokal im Browser + Abgleich mit Dropbox (/faktura.json). */
 'use strict';
 
-const APP_VERSION = '1.15', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.16', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/faktura.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'artikel', 'rechnungen', 'einstellungen'];
 const EINHEITEN = ['ha', 'h', 'Stk', 'Pausch.', 'km', 'm³', 't', 'kg', 'l', 'a'];
