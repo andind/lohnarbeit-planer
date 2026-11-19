@@ -46,6 +46,10 @@ Zahlungsabgleich (camt.054) und Mahnungen. Eigene Daten (`faktura.json`), unabh�
 - Kundenliste aus **AgroOffice Fakturierung** (Export «Kunden» als Excel): Import › Kunden übernehmen › «Excel (AgroOffice)…». Neue Kunden werden angelegt, fehlende Angaben ergänzt; abweichende Angaben (z. B. neue Adresse) werden mit dem Häkchen «überschreiben» aus der Liste übernommen.
 - Einmalig zu Beginn: Import › Kunden übernehmen › zuerst «Excel (AgroOffice)…», dann «Aus IM-Vermietung» (verknüpft die Vermietungskunden), danach «🔗 Mit IM-Verwaltung verknüpfen».
 
+## Rechnung zurücknehmen, Entwurf drucken (ab v1.12)
+- Abgeschlossene Rechnung öffnen › «↩ Zurück zu Entwurf» (oder in der Liste auswählen › «↩ Zurück zu Entwurf»). Sie steht dann wieder unter Entwürfe und lässt sich bearbeiten. Die Nummer bleibt reserviert; beim erneuten «Abschliessen & drucken» erhält sie dieselbe Nummer und QR-Referenz. Nur möglich, solange keine Zahlung erfasst ist; Mahnungen werden verworfen.
+- Entwürfe drucken: im Editor «🖨 Entwurf drucken», in den Entwürfen 🖨 je Zeile oder mehrere auswählen › «Drucken». Der Ausdruck trägt das Wasserzeichen ENTWURF und hat keinen QR-Zahlteil.
+
 ## Technik
 - Dateien: `index.html`, `styles.css`, `qr.js` (eigener QR-Encoder + Zahlteil nach SIX, SPC 0200, Swico S1),
   `lib.js` (Dropbox, Excel), `app.js` (Daten, Berechnung), `druck.js` (A4-Seiten, Seitenumbruch), `import.js`, `ansichten.js`,

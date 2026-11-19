@@ -310,3 +310,5 @@ dialog { max-height: calc(var(--appH, 100dvh) - 24px); }
 /* v1.11: Arbeiten der IM-Verwaltung am Artikel */
 .arbchips { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .arbchip { margin: 0; }
+
+.dwm { position: absolute; left: 0; right: 0; top: 118mm; text-align: center; font: 700 96pt/1 Arial, sans-serif; letter-spacing: 6mm; color: rgba(200, 30, 30, .13); transform: rotate(-32deg); pointer-events: none; z-index: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }

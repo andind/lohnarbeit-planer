@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken) wie IM-Vermietung: Daten lokal im Browser + Abgleich mit Dropbox (/faktura.json). */
 'use strict';
 
-const APP_VERSION = '1.11', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.12', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/faktura.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'artikel', 'rechnungen', 'einstellungen'];
 const EINHEITEN = ['ha', 'h', 'Stk', 'Pausch.', 'km', 'm³', 't', 'kg', 'l', 'a'];
@@ -160,7 +160,7 @@ const ST = { entwurf: ['Entwurf', 'info'], offen: ['Offen', ''], ueberfaellig: [
 const stChip = r => { const s = statusOf(r), [l, c] = ST[s]; const m = (r.mahnungen || []).length; return `<span class="chip ${c}">${l}</span>${m && s !== 'bezahlt' && s !== 'storniert' ? ` <span class="chip warn small">${m}. Mahnstufe</span>` : ''}`; };
 const isOP = r => ['offen', 'ueberfaellig'].includes(statusOf(r));
 function nextNr() {
-  const max = Store.all('rechnungen').reduce((m, r) => Math.max(m, parseInt(String(r.nr || '').replace(/\D/g, '')) || 0), 0);
+  const max = Store.all('rechnungen').reduce((m, r) => Math.max(m, parseInt(String(r.nr || r.nrRes || '').replace(/\D/g, '')) || 0), 0); // reservierte Nummern (zurückgenommene Rechnungen) zählen mit
   return String(Math.max(+Store.cfg().nextNr || 1, max + 1));
 }
 function newRechnung(preset = {}) {
@@ -186,9 +186,22 @@ function rechnungFehler(r) {
   if (!SwissQR.ibanOk(c.iban)) e.push('Noch keine gültige (QR-)IBAN unter Mehr › Firma & QR-Konto');
   return e;
 }
+// Abgeschlossene Rechnung zurück in die Entwürfe (v1.12): Nummer bleibt reserviert (nrRes) und wird beim erneuten Abschliessen wieder verwendet.
+// Nicht möglich mit erfassten Zahlungen; Mahnungen werden verworfen.
+function zurueckFehler(r) {
+  if (!r.nr) return 'ist schon ein Entwurf';
+  if (r.storno) return 'ist storniert – zuerst «Storno aufheben»';
+  if ((r.zahlungen || []).length) return 'hat schon Zahlungen – zurücknehmen nur ohne Zahlungen möglich';
+  return '';
+}
+function zuruecknehmen(r) {
+  (r.rueck = r.rueck || []).push({ am: new Date().toISOString(), nr: r.nr, mahn: (r.mahnungen || []).length });
+  r.nrRes = r.nr; r.nr = ''; r.ref = ''; r.abgeschlossen = ''; r.faellig = ''; r.mahnungen = [];
+  return r;
+}
 function abschliessen(r) {
   const c = Store.cfg();
-  r.nr = nextNr();
+  r.nr = r.nrRes || nextNr(); delete r.nrRes; // zurückgenommene Rechnung behält ihre Nummer (und damit die QR-Referenz)
   r.ref = SwissQR.isQrIban(c.iban) ? SwissQR.makeRef(c.refPrefix, r.nr) : '';
   r.faellig = addDays(r.datum, r.frist ?? c.frist);
   r.abgeschlossen = new Date().toISOString();

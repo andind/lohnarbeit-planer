@@ -85,7 +85,7 @@ const Eingang = {
   },
   apply(T) {
     const k = this.kundeFor(T);
-    let r = Store.all('rechnungen').filter(x => x.kunde === k.id && statusOf(x) === 'entwurf').sort((a, b) => (b.upd || 0) - (a.upd || 0))[0];
+    let r = Store.all('rechnungen').filter(x => x.kunde === k.id && statusOf(x) === 'entwurf' && !x.nrRes).sort((a, b) => (b.upd || 0) - (a.upd || 0))[0];
     r = r ? clone(r) : newRechnung({ kunde: k.id, frist: k.frist ?? Store.cfg().frist, betreff: T.betreff || '', quelle: T.app || 'Eingang' });
     if (!r.betreff && T.betreff) r.betreff = T.betreff;
     r.pos = r.pos.filter(p => (p.typ || 'pos') !== 'pos' || p.art || p.bez || p.preis != null); // leere Startzeile weg
@@ -135,10 +135,10 @@ function viewEntwuerfe() {
     <div class="dscroll"><table class="dtab"><thead><tr><th class="cb"><input type="checkbox" data-act="selAllE" ${L.length && L.every(r => App.sel.has(r.id)) ? 'checked' : ''}></th><th>Kunde</th><th>Herkunft</th><th>Positionen</th><th>Beilagen</th><th>Hinweise</th><th class="n">Total CHF</th><th></th></tr></thead><tbody>
     ${L.map(r => { const P = (r.pos || []).filter(p => (p.typ || 'pos') === 'pos'), w = warn(r), B = beilagenOf(r);
       return `<tr class="click ${App.sel.has(r.id) ? 'sel' : ''}" data-act="editR" data-id="${r.id}"><td class="cb"><input type="checkbox" data-act="selOne" data-id="${r.id}" ${App.sel.has(r.id) ? 'checked' : ''}></td>
-      <td>${esc(kName(r.kunde))}${kunde(r.kunde)?.nr ? ` <span class="nr">${esc(kunde(r.kunde).nr)}</span>` : ''}${r.betreff ? `<div class="small muted">${esc(r.betreff)}</div>` : ''}</td><td>${src(r)}</td>
+      <td>${esc(kName(r.kunde))}${kunde(r.kunde)?.nr ? ` <span class="nr">${esc(kunde(r.kunde).nr)}</span>` : ''}${r.betreff ? `<div class="small muted">${esc(r.betreff)}</div>` : ''}${r.nrRes ? `<div class="small"><span class="chip info">↩ Nr. ${esc(r.nrRes)} zurückgenommen</span></div>` : ''}</td><td>${src(r)}</td>
       <td class="small">${P.length} · ${esc(P.slice(0, 3).map(p => p.grp || p.bez).join(', '))}${P.length > 3 ? ' …' : ''}</td><td class="small">${B.map(b => '📎 ' + esc(b.titel)).join('<br>')}</td>
       <td>${w.map(x => `<span class="chip warn small">${esc(x)}</span>`).join(' ')}</td><td class="n">${chf(calc(r).total)}</td>
-      <td class="nowrap"><button class="btn small" data-act="sumR" data-id="${r.id}" title="gleiche Positionen zusammenfassen">Σ</button></td></tr>`; }).join('')}
+      <td class="nowrap"><button class="btn small" data-act="printE" data-id="${r.id}" title="Entwurf drucken (Wasserzeichen, ohne QR-Zahlteil)">🖨</button> <button class="btn small" data-act="sumR" data-id="${r.id}" title="gleiche Positionen zusammenfassen">Σ</button></td></tr>`; }).join('')}
     </tbody></table>${L.length ? '' : '<div class="empty">Keine Entwürfe – Abrechnungen aus IM-Verwaltung (Auftrag › «An IM-Faktura») und IM-Vermietung (Abrechnung › «An IM-Faktura») erscheinen hier.</div>'}</div>
     <details class="help" style="margin-top:8px"><summary>ℹ So funktioniert der Eingang</summary>In der IM-Verwaltung unter Spritzen › Abrechnung bzw. Verwaltung › Abrechnung «📤 An IM-Faktura» drücken; in der IM-Vermietung unter Abrechnung Zeilen auswählen und «📤 An IM-Faktura». Die Abrechnung landet in Dropbox und wird hier beim Start, beim Synchronisieren und mit «Eingang prüfen» übernommen – als Positionen im Entwurf des Kunden (gibt es keinen, wird einer angelegt). Der Kunde wird über die Verknüpfung erkannt (Stammdaten › «🔗 IM-Verwaltung verknüpfen»), sonst über Nr./Name; unbekannte Kunden werden mit der Adresse aus dem Absender-Programm angelegt und gleich verknüpft.
       Pflanzenschutzmittel erhalten MWST und Konto von Artikel ${esc(einCfg().artPsm)}, Arbeiten ohne passenden Artikel ${mwstTxt(einCfg().mwstArbeit)} MWST. «Σ» fasst gleiche Positionen zusammen; die Einzelheiten stehen in der Beilage.</details>`;

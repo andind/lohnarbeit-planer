@@ -24,11 +24,12 @@ function docHead(r, { titel, meta, text }) {
     <div class="dadr ${links ? 'l' : 'r'}">${links ? `<div class="dad">${adrBlock(k)}</div><div class="dinfo">${info}</div>` : `<div class="dinfo">${info}</div><div class="dad">${adrBlock(k)}</div>`}</div>
     <div class="dtitle">${esc(titel)}</div>${text ? `<div class="dtext">${esc(text).replace(/\n/g, '<br>')}</div>` : ''}`;
 }
+const WM = '<div class="dwm">ENTWURF</div>'; // Wasserzeichen auf Entwürfen
 const contHead = (r, titel) => `<div class="dcont">${esc(titel)} · ${esc(docK(r)?.name || '')} – Fortsetzung</div>`;
 
 function rechnungParts(r) {
   const c = Store.cfg(), cc = calc(r), k = docK(r), multi = cc.groups.length > 1 || cc.groups.some(g => g.satz);
-  const titel = `${r.titel || 'Rechnung'} Nr. ${r.nr || '(Entwurf)'}`;
+  const titel = r.nr ? `${r.titel || 'Rechnung'} Nr. ${r.nr}` : `${r.titel || 'Rechnung'} – Entwurf${r.nrRes ? ' (Nr. ' + r.nrRes + ')' : ''}`;
   const meta = [['Datum', `${c.ort ? c.ort + ', ' : ''}${fmtDate(r.datum)}`], ...(r.nr ? [['Rechnung Nr.', r.nr]] : []), ...(k?.nr ? [['Kunden-Nr.', k.nr]] : []),
     ['Zahlbar bis', fmtDate(r.faellig || addDays(r.datum, r.frist ?? c.frist))], ...(c.firma.uid ? [['MWST-Nr.', c.firma.uid]] : [])];
   const head = docHead(r, { titel: r.betreff ? `${titel} – ${r.betreff}` : titel, meta, text: r.textOben });
@@ -43,7 +44,7 @@ function rechnungParts(r) {
       : `<tr><td>Total ${g.satz ? 'exkl. MWST' + (cc.groups.length > 1 ? ' (' + mwstTxt(g.satz) + ')' : '') : 'ohne MWST'}</td><td class="n">${chf(g.netto)}</td></tr>${g.satz ? `<tr><td>MWST ${mwstTxt(g.satz)}</td><td class="n">${chf(g.mwst)}</td></tr>` : ''}`).join('')}
     ${cc.rund ? `<tr class="sm"><td>Rundung</td><td class="n">${chf(cc.rund)}</td></tr>` : ''}
     <tr class="tot"><td>Total CHF</td><td class="n">${chf(cc.total)}</td></tr></table>`;
-  const foot = `${sums}<div class="dfoot">${r.textUnten ? esc(r.textUnten).replace(/\n/g, '<br>') + '<br>' : ''}Zahlbar bis ${fmtDate(r.faellig || addDays(r.datum, r.frist ?? c.frist))} (${r.frist ?? c.frist} Tage netto) mit dem untenstehenden QR-Zahlteil.</div>`;
+  const foot = `${sums}<div class="dfoot">${r.textUnten ? esc(r.textUnten).replace(/\n/g, '<br>') + '<br>' : ''}${r.nr ? `Zahlbar bis ${fmtDate(r.faellig || addDays(r.datum, r.frist ?? c.frist))} (${r.frist ?? c.frist} Tage netto) mit dem untenstehenden QR-Zahlteil.` : 'Entwurf – nicht zur Zahlung. Der QR-Zahlteil folgt mit der definitiven Rechnung.'}</div>`;
   return { titel, head, thead, rows, foot, qr: r.nr ? qrData(r) : null };
 }
 // Mahnung: stufe = Index in r.mahnungen
@@ -87,7 +88,7 @@ function paginate(P) {
 }
 function renderDoc(P, r) {
   const { pages, qrPage } = paginate(P), n = pages.length;
-  return pages.map((p, i) => `<div class="page doc">
+  return pages.map((p, i) => `<div class="page doc">${r.nr ? '' : WM}
     ${p.first ? P.head : contHead(r, P.titel)}
     ${p.rows.length ? `<table class="itab">${P.thead}<tbody>${p.rows.join('')}</tbody></table>` : ''}
     ${p.foot ? P.foot : ''}${p.qrOnly ? `<div class="dfoot">Zahlteil zu ${esc(P.titel)}</div>` : ''}
@@ -108,7 +109,7 @@ async function docsHtml(docs) {
 function renderBeilage(r, B) {
   if (!B || !(B.rows || []).length) return '';
   const h = measurer(), full = PAGE.h - PAGE.top - PAGE.bottom - 6;
-  const titel = `Beilage zu ${r.titel || 'Rechnung'} Nr. ${r.nr || '(Entwurf)'}`;
+  const titel = `Beilage zu ${r.titel || 'Rechnung'} ${r.nr ? 'Nr. ' + r.nr : '(Entwurf)'}`;
   const head = `<img class="dlogo" src="${esc(logoSrc())}" alt="" style="aspect-ratio:${LOGO.w}/${LOGO.h};max-height:24mm"><div class="dtitle">${esc(B.titel || 'Beilage')}</div><div class="dtext">${esc(titel)} · ${esc(docK(r)?.name || '')}</div>`;
   const thead = `<thead><tr>${B.cols.map(([t, n, cl]) => `<th class="${n ? 'n' : ''} ${cl || ''}">${esc(t)}</th>`).join('')}</tr></thead>`;
   const cell = (v, n) => n ? (typeof v === 'number' ? (n === 'chf' ? chf(v) : qtyTxt(v)) : esc(v ?? '')) : esc(v ?? '');
@@ -119,7 +120,7 @@ function renderBeilage(r, B) {
   const pages = []; let cur = { rows: [], first: true }, y = headH + thH;
   rows.forEach((x, i) => { if (cur.rows.length && y + rowH[i] > full) { pages.push(cur); cur = { rows: [] }; y = contH + thH; } cur.rows.push(x); y += rowH[i]; });
   if (y + footH > full) { pages.push(cur); cur = { rows: [] }; } cur.foot = true; pages.push(cur);
-  return pages.map((p, i) => `<div class="page doc">${p.first ? head : contHead(r, B.titel)}${p.rows.length ? tab(p.rows) : ''}${p.foot ? foot : ''}${pages.length > 1 ? `<div class="dpno">Beilage Seite ${i + 1} von ${pages.length}</div>` : ''}</div>`).join('');
+  return pages.map((p, i) => `<div class="page doc">${r.nr ? '' : WM}${p.first ? head : contHead(r, B.titel)}${p.rows.length ? tab(p.rows) : ''}${p.foot ? foot : ''}${pages.length > 1 ? `<div class="dpno">Beilage Seite ${i + 1} von ${pages.length}</div>` : ''}</div>`).join('');
 }
 async function printDocs(docs, { title, after } = {}) {
   if (!docs.length) return;

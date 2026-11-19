@@ -76,16 +76,17 @@ function selBar() {
   const R = [...App.sel].map(id => Store.get('rechnungen', id)).filter(Boolean), nE = R.filter(r => statusOf(r) === 'entwurf').length, nO = R.filter(isOP).length;
   b.hidden = false;
   b.innerHTML = `<b>${n} ausgewählt</b>${nE ? `<button class="btn primary" data-act="selFinal">✓ ${nE} abschliessen & drucken</button>` : ''}<button class="btn" data-act="selPrint">🖨 Drucken</button>
-    ${nO ? `<button class="btn" data-act="selMahn">✉ Mahnen (${nO})</button>` : ''}${nE ? `<button class="btn danger" data-act="selDel">Entwürfe löschen</button>` : ''}<button class="btn" data-act="selClear">✕</button>`;
+    ${nO ? `<button class="btn" data-act="selMahn">✉ Mahnen (${nO})</button>` : ''}${R.length - nE && App.view === 'rechnungen' ? `<button class="btn" data-act="selRevert" title="Abgeschlossene Rechnungen ohne Zahlungen zurück in die Entwürfe">↩ Zurück zu Entwurf</button>` : ''}${nE ? `<button class="btn danger" data-act="selDel">Entwürfe löschen</button>` : ''}<button class="btn" data-act="selClear">✕</button>`;
 }
 
 /* ---------- Rechnung bearbeiten ---------- */
 function rechnungDialog(id, { keep = false } = {}) {
   if (!keep) { const r = id ? Store.get('rechnungen', id) : newRechnung({ kunde: App.f.r.kunde || '' }); if (!r) return; App.ed = clone(r); if (!App.ed.pos.length) App.ed.pos.push(newPos()); }
   const r = App.ed, s = statusOf(r), fix = !!r.nr, c = Store.cfg(), k = kunde(r.kunde);
-  const title = r.nr ? `${r.titel || 'Rechnung'} ${r.nr}` : (Store.get('rechnungen', r.id) ? 'Rechnungsentwurf' : 'Neue Rechnung');
+  const title = r.nr ? `${r.titel || 'Rechnung'} ${r.nr}` : (Store.get('rechnungen', r.id) ? `Rechnungsentwurf${r.nrRes ? ' (Nr. ' + r.nrRes + ')' : ''}` : 'Neue Rechnung');
   const body = `${fix && s !== 'storniert' ? `<div class="box small">Abgeschlossen am ${fmtDate((r.abgeschlossen || '').slice(0, 10))} · ${stChip(r)} · Referenz ${esc(r.ref ? SwissQR.fmtRef(r.ref) : '–')}<br>Änderungen an einer verschickten Rechnung nur, wenn sie nochmals gedruckt und neu verschickt wird.</div>` : ''}
     ${s === 'storniert' ? '<div class="box warn">Diese Rechnung ist storniert.</div>' : ''}
+    ${!fix && r.nrRes ? `<div class="box small">Zurückgenommene Rechnung – die Nummer <b>${esc(r.nrRes)}</b> bleibt reserviert und wird beim erneuten Abschliessen wieder verwendet (gleiche QR-Referenz). Die korrigierte Rechnung dem Kunden neu schicken.</div>` : ''}
     <div class="edgrid">
       <label class="fld"><span>Kunde</span><div class="row"><select class="input" data-in="ed" data-k="kunde" autofocus>${optList(kundenSorted().filter(x => x.aktiv !== false || x.id === r.kunde).map(x => [x.id, kLabel(x)]), r.kunde, '– Kunde wählen –')}</select><button type="button" class="btn" data-act="edNewK" title="Neuer Kunde">＋</button></div>
         ${k && !kAdrOk(k) ? `<div class="hint warn">Adresse unvollständig – <a href="#" data-act="edEditK">ergänzen</a></div>` : k ? `<div class="hint">${esc([[k.strasse, k.hausnr].filter(Boolean).join(' '), [k.plz, k.ort].filter(Boolean).join(' ')].filter(Boolean).join(', '))} · <a href="#" data-act="edEditK">bearbeiten</a></div>` : ''}</label>
@@ -118,8 +119,8 @@ function rechnungDialog(id, { keep = false } = {}) {
   const isNew = !Store.get('rechnungen', r.id);
   const foot = s === 'storniert'
     ? `<button class="btn" value="unstorno">Storno aufheben</button><span class="spacer"></span><button class="btn" value="close">Schliessen</button>`
-    : `${fix ? `<button class="btn danger" value="storno">Stornieren</button><button class="btn" value="copy">Kopie als Entwurf</button>` : (isNew ? '' : '<button class="btn danger" value="del">Löschen</button>')}
-      <button class="btn" value="preview">👁 Vorschau</button><span class="spacer"></span>
+    : `${fix ? `<button class="btn danger" value="storno">Stornieren</button><button class="btn" value="revert" title="Rechnung zurück in die Entwürfe, um sie zu korrigieren (Nummer bleibt reserviert)">↩ Zurück zu Entwurf</button><button class="btn" value="copy">Kopie als Entwurf</button>` : (isNew || r.nrRes ? '' : '<button class="btn danger" value="del">Löschen</button>')}
+      <button class="btn" value="preview">👁 Vorschau</button>${fix ? '' : '<button class="btn" value="draftPrint" title="Entwurf mit Wasserzeichen und ohne QR-Zahlteil drucken – z. B. zum Kontrollieren">🖨 Entwurf drucken</button>'}<span class="spacer"></span>
       <button class="btn" value="save">${fix ? 'Speichern' : 'Als Entwurf speichern'}</button>
       ${fix ? '<button class="btn primary" value="print">🖨 Speichern & drucken</button>' : '<button class="btn primary" value="final">✓ Abschliessen & drucken</button>'}`;
   openDlg(title, body, foot, { wide: true, onSubmit: (fd, btn) => edSubmit(btn) });
@@ -152,6 +153,12 @@ function edSubmit(btn) {
   if (btn === 'copy') { const n = newRechnung(Object.assign(clone(r), { id: uid(), nr: '', ref: '', faellig: '', abgeschlossen: '', storno: undefined, zahlungen: [], mahnungen: [], datum: todayIso(), quelle: 'Kopie von ' + r.nr })); n.pos.forEach(p => { p.id = uid(); }); edSave(n); setTimeout(() => rechnungDialog(n.id), 50); toast('Kopie als Entwurf erstellt'); return; }
   if (btn === 'preview') { previewDocs([{ r }], { onPrint: () => { App.ed = r; edSubmit(r.nr ? 'print' : 'final'); }, onClose: () => rechnungDialog(null, { keep: true }) }); return false; }
   if (btn === 'save') { edSave(r); toast(r.nr ? 'Gespeichert' : 'Entwurf gespeichert'); return; }
+  if (btn === 'draftPrint') { edSave(r); printDocs([{ r }], { title: docTitle([{ r }]) }); return false; }
+  if (btn === 'revert') {
+    const e = zurueckFehler(r); if (e) { alert(`Rechnung ${r.nr} ${e}.`); return false; }
+    if (!confirm(`Rechnung ${r.nr} zurück in die Entwürfe nehmen?\n\nDie Nummer ${r.nr} bleibt reserviert und wird beim erneuten Abschliessen wieder verwendet.${(r.mahnungen || []).length ? ' Die ' + r.mahnungen.length + ' Mahnung(en) werden verworfen.' : ''}\nWurde die Rechnung schon verschickt, die korrigierte dem Kunden neu schicken.`)) return false;
+    zuruecknehmen(r); edSave(r); toast(`Rechnung ${r.rueck[r.rueck.length - 1].nr} ist wieder ein Entwurf`); setTimeout(() => rechnungDialog(r.id), 50); return;
+  }
   if (btn === 'final') {
     const e = rechnungFehler(r); if (e.length) { alert('Rechnung kann noch nicht abgeschlossen werden:\n\n• ' + e.join('\n• ')); return false; }
     abschliessen(r); r.faellig = addDays(r.datum, r.frist ?? Store.cfg().frist); edSave(r);
@@ -485,7 +492,12 @@ document.addEventListener('click', ev => {
       const out = ok.sort((a, b) => kName(a.kunde).localeCompare(kName(b.kunde), 'de')).map(r => { const x = clone(r); abschliessen(x); Store.put('rechnungen', x, { silent: true }); return x; });
       App.sel.clear(); App.render(); printDocs(out.map(r => ({ r })), { title: `Rechnungen ${out[0].nr}-${out[out.length - 1].nr}` }); break;
     }
-    case 'selDel': { const R = [...App.sel].map(x => Store.get('rechnungen', x)).filter(r => r && statusOf(r) === 'entwurf'); if (R.length && confirm(`${R.length} Entwürfe löschen?`)) { Store.remove('rechnungen', R.map(r => r.id)); App.sel.clear(); App.render(); } break; }
+    case 'selRevert': {
+      const R = [...App.sel].map(x => Store.get('rechnungen', x)).filter(r => r && r.nr), ok = R.filter(r => !zurueckFehler(r)), bad = R.filter(r => zurueckFehler(r));
+      if (!ok.length) { alert('Keine der ausgewählten Rechnungen kann zurückgenommen werden:\n\n' + bad.map(r => `• ${r.nr}: ${zurueckFehler(r)}`).join('\n')); break; }
+      if (!confirm(`${ok.length} ${ok.length === 1 ? 'Rechnung' : 'Rechnungen'} (${ok.map(r => r.nr).join(', ')}) zurück in die Entwürfe nehmen? Die Nummern bleiben reserviert.${bad.length ? `\n\nNicht möglich: ${bad.map(r => r.nr + ' (' + zurueckFehler(r) + ')').join(', ')}` : ''}`)) break;
+      Store.putMany('rechnungen', ok.map(r => zuruecknehmen(clone(r))), { silent: true }); App.sel.clear(); App.render(); toast(`${ok.length} wieder in den Entwürfen`); break; }
+    case 'selDel': { const R = [...App.sel].map(x => Store.get('rechnungen', x)).filter(r => r && statusOf(r) === 'entwurf' && !r.nrRes); if (R.length && confirm(`${R.length} Entwürfe löschen?`)) { Store.remove('rechnungen', R.map(r => r.id)); App.sel.clear(); App.render(); } break; }
     case 'selMahn': mahnDialog([...App.sel]); break;
     case 'zahl': zahlDialog(id); break;
     case 'mahn': mahnDialog([id]); break;
@@ -517,6 +529,7 @@ document.addEventListener('click', ev => {
     case 'edMahn': { const r = edClean(clone(App.ed)); edSave(r); mahnDialog([r.id], true); break; }
     case 'edBeilDel': if (confirm('Beilage entfernen?')) { const B = beilagenOf(App.ed); B.splice(+t.dataset.i, 1); delete App.ed.beilage; App.ed.beilagen = B; edRerender(); } break;
     case 'edSum': { const n = zusammenfassen(App.ed); edRerender(); toast(n ? `${n} Positionen zusammengefasst` : 'Nichts zum Zusammenfassen'); break; }
+    case 'printE': { const r = Store.get('rechnungen', id); if (r) printDocs([{ r }], { title: docTitle([{ r }]) }); break; }
     case 'sumR': { const r = Store.get('rechnungen', id); if (!r) break; const x = clone(r), n = zusammenfassen(x); if (n) { Store.put('rechnungen', x); toast(`${n} Positionen zusammengefasst`); } else toast('Nichts zum Zusammenfassen'); break; }
     case 'einCheck': Eingang.check({ quiet: false }); break;
     case 'selAllE': { const L = Store.all('rechnungen').filter(r => statusOf(r) === 'entwurf'); const all = L.every(r => App.sel.has(r.id)); L.forEach(r => all ? App.sel.delete(r.id) : App.sel.add(r.id)); App.render(); break; }
