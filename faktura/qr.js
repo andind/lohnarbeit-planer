@@ -175,7 +175,7 @@ const SwissQR = (() => {
     const db = b.db && clean(b.db.name) ? lines(b.db).map(esc).join('<br>') : '';
     const refTxt = ref ? (isQrIban(b.iban) ? fmtRef(ref) : ref.replace(/(.{4})/g, '$1 ').trim()) : '';
     const qr = QRCode.svg(payload(b), { mm: 46, cross: true, maxVer: 25 });
-    return `<div class="qrbill${trennlinie ? ' cut' : ''}">${trennlinie ? '<div class="qcuttxt">Vor der Einzahlung abzutrennen</div>' : ''}
+    return `<div class="qrbill${trennlinie ? ' cut' : ''}">${trennlinie ? '<span class="qsc qsch">✂</span><span class="qsc qscv">✂</span>' : ''}
       <div class="qrec">
         <div class="qt">Empfangsschein</div>
         <div class="qinfo">

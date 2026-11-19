@@ -279,7 +279,9 @@ details.help summary { cursor: pointer; width: max-content; }
 /* ---------- QR-Zahlteil 210 × 105 mm (Style Guide SIX) ---------- */
 .qrbill { position: absolute; left: 0; bottom: 0; width: 210mm; height: 105mm; display: flex; background: #fff; color: #000; font-family: Arial, Helvetica, sans-serif; box-sizing: border-box; }
 .qrbill.cut { border-top: 0.2mm dashed #000; }
-.qrbill .qcuttxt { position: absolute; top: -4mm; left: 0; right: 0; text-align: center; font-size: 7pt; }
+.qrbill .qsc { position: absolute; font-size: 13pt; line-height: 1; background: #fff; color: #000; font-family: 'Segoe UI Symbol', 'DejaVu Sans', Arial, sans-serif; }
+.qrbill .qsch { top: -2.4mm; left: 8mm; padding: 0 1mm; } /* Schere auf der waagrechten Linie */
+.qrbill .qscv { top: 6mm; left: 62mm; transform: translateX(-50%) rotate(-90deg); padding: 1mm 0; } /* Schere auf der senkrechten Linie */
 .qrbill .qrec { width: 62mm; height: 105mm; padding: 5mm; box-sizing: border-box; position: relative; }
 .qrbill.cut .qrec { border-right: 0.2mm dashed #000; }
 .qrbill .qpay { width: 148mm; height: 105mm; padding: 5mm; box-sizing: border-box; display: flex; }

@@ -99,7 +99,7 @@ function renderDoc(P, r) {
 function qrBlock(b) {
   const e = SwissQR.check(b);
   if (e.length) return `<div class="qrerr">QR-Zahlteil nicht möglich: ${esc(e.join(' · '))}</div>`;
-  try { return SwissQR.html(b, { trennlinie: Store.cfg().trennlinie !== false }); } catch (x) { return `<div class="qrerr">QR-Zahlteil: ${esc(x.message)}</div>`; }
+  try { return SwissQR.html(b, { trennlinie: true }); } catch (x) { return `<div class="qrerr">QR-Zahlteil: ${esc(x.message)}</div>`; }
 }
 // docs: [{ r, mahnung: idx }]
 async function docsHtml(docs, teil) { // teil: 'rechnung' = ohne Beilagen, 'beilagen' = nur Beilagen
@@ -133,17 +133,9 @@ function renderBeilage(r, B) {
   if (y + footH > full) { pages.push(cur); cur = { rows: [] }; } cur.foot = true; pages.push(cur);
   return pages.map((p, i) => `<div class="page doc">${r.nr ? '' : WM}${p.first ? head : contHead(r, B.titel)}${p.rows.length ? tab(p.rows) : ''}${p.foot ? foot : ''}${pages.length > 1 ? `<div class="dpno">Beilage Seite ${i + 1} von ${pages.length}</div>` : ''}</div>`).join('');
 }
-// v1.17: Zwei Papierfächer – Rechnungen mit QR-Zahlteil auf perforiertes Rechnungspapier (Fach 2), Beilagen auf Normalpapier (Fach 1).
-// Der Browser kann das Fach nicht wählen → zwei Druckaufträge; im Druckfenster jeweils den passenden Drucker/die Voreinstellung wählen.
+// v1.23: Kein perforiertes Papier mehr – alles in einem Druckauftrag auf Normalpapier, Zahlteil mit Schnittlinien und Scherensymbol.
 async function printDocs(docs, opt = {}) {
   if (!docs.length) return;
-  const c = Store.cfg(), mitQr = docs.some(d => d.r.nr), mitB = docs.some(d => d.mahnung == null && beilagenOf(d.r).length);
-  if (!opt.teil && mitQr && mitB && c.druckGetrennt !== false) {
-    if (!await frage(`Druck in zwei Aufträgen:\n\n1. ${docs.length === 1 ? 'Rechnung' : docs.length + ' Rechnungen/Mahnungen'} → ${c.fachRe || 'Rechnungspapier (Fach 2)'}\n2. danach die Beilagen → ${c.fachNormal || 'Normalpapier (Fach 1)'}\n\nIm Druckfenster jeweils den passenden Drucker bzw. das Fach wählen.`)) return;
-    return printDocs(docs, { title: opt.title, teil: 'rechnung', after: async () => {
-      if (await frage(`Jetzt die Beilagen drucken → ${c.fachNormal || 'Normalpapier (Fach 1)'}?`)) printDocs(docs, { title: (opt.title || '') + ' Beilagen', teil: 'beilagen', after: opt.after });
-      else if (opt.after) opt.after(); } });
-  }
   const { title, after } = opt;
   const html = await docsHtml(docs, opt.teil);
   const pa = $('#printArea'); pa.innerHTML = html; beilAttach(pa);
