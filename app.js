@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '142', APP_STAND = '19.11.2026';
+const APP_VERSION = '143', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -2000,6 +2000,8 @@ function exportCsv() {
    nach Dropbox /faktura-eingang/<id>.json gelegt. IM-Faktura übernimmt sie in den Rechnungsentwurf des Kunden (Reiter Entwürfe).
    Gesendete Aufträge werden «verrechnet» (o.fakt = {am, id}), Arbeitsgänge «abgerechnet» (jdabr-… mit fakt). */
 const FAKT_PATH = '/faktura-eingang';
+// v143: Hinweis «IM-F» in der Spalte Abgerechnet, wenn an IM-Faktura übermittelt (fakt = {am, id})
+const faktMark = f => f ? ` <b class="faktm" title="An IM-Faktura übermittelt${f.am ? ' am ' + new Date(f.am).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : ''}">IM-F</b>` : '';
 const PS_COLS = [['Datum', '', 'cd'], ['Parzelle / Kultur', ''], ['Position', ''], ['Menge', 'q', 'cm'], ['Einheit', '', 'ce'], ['Ansatz', 'chf', 'cp'], ['Betrag CHF', 'chf', 'cb']];
 function fakturaKunde(k) { return { imvId: k.id || '', nr: k.nr || '', name: k.name || '', anrede: k.anrede || '', adresse: k.adresse || '', plz: k.plz || '', ort: k.ort || '', mail: k.mail || '', tel: k.tel || k.handy || '' }; }
 const fakturaId = kid => 'imv-' + (kid || 'k') + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
@@ -4158,7 +4160,7 @@ const JDB_COLS = [
   { id: 'produkte', l: 'Produkte / Sorte', w: 220, v: r => [jdbProdTxt(r), r.sorten].filter(Boolean).join(' · ') },
   { id: 'menge', l: 'Menge/ha', w: 90, n: 1, v: r => r.menge },
   { id: 'gesamt', l: 'Gesamtmenge', w: 190, v: r => jdbGesTxt(r) },
-  { id: 'abr', l: 'Abgerechnet', w: 104, v: r => { const x = jdbAbr(r.id); return x ? '✓ ' + fmtDate(x.am, { day: '2-digit', month: '2-digit', year: '2-digit' }) : ''; }, html: r => { const x = jdbAbr(r.id); return x ? `<span class="badge verrechnet">✓ ${fmtDate(x.am, { day: '2-digit', month: '2-digit', year: '2-digit' })}</span>` : '<span class="nr">offen</span>'; } }
+  { id: 'abr', l: 'Abgerechnet', w: 104, v: r => { const x = jdbAbr(r.id); return x ? '✓ ' + fmtDate(x.am, { day: '2-digit', month: '2-digit', year: '2-digit' }) + (x.fakt ? ' IM-F' : '') : ''; }, html: r => { const x = jdbAbr(r.id); return x ? `<span class="badge verrechnet">✓ ${fmtDate(x.am, { day: '2-digit', month: '2-digit', year: '2-digit' })}${faktMark(x.fakt)}</span>` : '<span class="nr">offen</span>'; } }
 ];
 // B = Fläche aus der Bedeckungskarte berechnet (NAS-Dienst, ohne Überlappungen)
 const BED_MARK = '<span class="bedm" title="aus der Bedeckungskarte berechnet (ohne Überlappungen)">B</span>';
@@ -4490,7 +4492,7 @@ function abRow(o, j, km) {
   const d = o ? (o.erledigtAm || o.datum) : j.d;
   const abJ = j ? jdbAbr(j.id) : null, abO = o && statusOf(o) === 'verrechnet';
   const abr = o ? abO : !!abJ, am = o ? (o.verrechnetAm || (abJ && abJ.am) || '') : (abJ ? abJ.am : '');
-  return { korr: j ? j.korr || 0 : 0, kid: k ? k.id : '', id: o ? 'o:' + o.id : 'j:' + j.id, oid: o ? o.id : '', jid: j ? j.id : '', src: o && j ? 'beide' : o ? 'planer' : 'jd', d, start: j ? j.start : '', end: j ? j.end : '',
+  return { fakt: (o && o.fakt) || (abJ && abJ.fakt) || null, korr: j ? j.korr || 0 : 0, kid: k ? k.id : '', id: o ? 'o:' + o.id : 'j:' + j.id, oid: o ? o.id : '', jid: j ? j.id : '', src: o && j ? 'beide' : o ? 'planer' : 'jd', d, start: j ? j.start : '', end: j ? j.end : '',
     dauer: j ? j.dauer : null, std: o ? (o.stundenEff ?? dauerOf(o) ?? null) : null, nr: o ? o.nr || '' : '',
     kunde: k ? k.name : (j ? j.kunde : ''), feld: (o && aFeld(o)) || (j ? j.feld : ''), arbeit: o ? o.arbeit || '' : j.arbeit, kultur: (o && o.kultur) || (j ? j.kultur : ''),
     haP, haE, haG, genau, haJ, haB, ha, haQ, quelle: j ? j.quelle : '', maschine: (m && m.name) || (j ? j.maschine : ''), fahrer: j ? j.fahrer : '',
@@ -4574,7 +4576,7 @@ const AB_COLS = [
   { id: 'produkte', l: 'Produkte / Sorte', w: 220, v: r => r.produkte },
   { id: 'gesamt', l: 'Gesamtmenge', w: 190, v: r => r.gesamt || '' },
   { id: 'notiz', l: 'Bemerkung', w: 160, v: r => r.notiz },
-  { id: 'abr', l: 'Abgerechnet', w: 104, v: r => r.abr ? '✓ ' + (r.am ? abD(r.am) : '') : '', html: r => r.abr ? `<span class="badge verrechnet">✓ ${r.am ? abD(r.am) : 'abgerechnet'}</span>` : '<span class="nr">offen</span>' }
+  { id: 'abr', l: 'Abgerechnet', w: 104, v: r => r.abr ? '✓ ' + (r.am ? abD(r.am) : '') + (r.fakt ? ' IM-F' : '') : '', html: r => r.abr ? `<span class="badge verrechnet">✓ ${r.am ? abD(r.am) : 'abgerechnet'}${faktMark(r.fakt)}</span>` : '<span class="nr">offen</span>' }
 ];
 const AB_DEF = { order: ['datum', 'src', 'nr', 'arbeit', 'kunde', 'feld', 'haG', 'haE', 'haB', 'haJ', 'ha', 'std', 'dauer', 'maschine', 'kultur', 'produkte', 'gesamt', 'abr'], w: {} };
 function abColCfg() {

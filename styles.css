@@ -1296,3 +1296,5 @@ body.fsmode #selbar { left: 12px; }
 .korrm { color: #b26a00; font-size: .85em; }
 .korrhint { margin: 0 0 8px; padding: 6px 10px; border-radius: 6px; background: #fff4e0; color: #7a4a00; font-size: 13px; }
 @media print { .korrm { display: none !important; } }
+/* v143: Hinweis IM-F (an IM-Faktura übermittelt) */
+.faktm { margin-left: 4px; padding: 0 4px; border-radius: 4px; background: rgba(255,255,255,.65); font-size: .85em; letter-spacing: .02em; }
