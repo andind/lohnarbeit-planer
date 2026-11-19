@@ -29,10 +29,10 @@ function fitCents(G, T) {
 }
 function rGroups(r) {
   const c = calc(r), m = new Map();
-  c.rows.filter(p => (p.typ || 'pos') === 'pos').forEach(p => {
-    const s = +p.mwst || 0, k = posKonto(p), b = r.inkl ? p.betrag : p.betrag * (1 + s / 100), key = k + '|' + s;
+  c.rows.forEach(p => (p.parts || []).forEach(t => { // v1.26: Rabatte anteilig auf Konto/MWST der rabattierten Positionen
+    const s = +t.satz || 0, k = posKonto(Object.assign({}, p, { konto: t.konto, art: t.art || p.art })), b = r.inkl ? t.b : t.b * (1 + s / 100), key = k + '|' + s;
     m.set(key, (m.get(key) || 0) + b);
-  });
+  }));
   let G = [...m.entries()].map(([key, b]) => { const [konto, s] = key.split('|'); return { konto, satz: +s, b }; });
   const raw = G.reduce((s, g) => s + g.b, 0);
   G = raw ? fitCents(G.map(g => Object.assign(g, { b: g.b * c.total / raw })), c.total) : [];

@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '156', APP_STAND = '19.11.2026';
+const APP_VERSION = '157', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -2219,13 +2219,14 @@ function fkRead(F, j, d) {
 // v151: Position mit Datum (Auftragsdatum), Bezeichnung = Titel des Artikels in IM-Faktura, Bemerkung als eigene Zeile darunter (v152: ohne Feldnamen – intern, verwirrt Kunden; Vorgabe = Kultur)
 function fkPos(FK, r, d, k) {
   const bem = (...x) => x.filter(Boolean).join(' · '), aBez = (nr, alt) => ((fkArtOf(FK, nr) || {}).bez) || alt, pos = [], ps = [];
+  const gid = 'g' + Math.random().toString(36).slice(2, 10); // v157: Zusatzleistungen (Strohhäckseln, Zusatzartikel) gehören in IM-Faktura sichtbar zu ihrem Auftrag
   if (d.spray && d.o) { // Mittel kommen gesammelt als ein Posten Art. 52 (fkSend), Detail als Abrechnung Spritzarbeiten
-    pos.push({ kind: 'arbeit', art: d.art, datum: r.d || '', bez: aBez(d.art, 'Spritzen'), bem: bem(d.bem), grp: 'Spritzarbeiten', menge: d.menge, einh: d.einh, preis: d.preis });
+    pos.push({ kind: 'arbeit', gid, art: d.art, datum: r.d || '', bez: aBez(d.art, 'Spritzen'), bem: bem(d.bem), grp: 'Spritzarbeiten', menge: d.menge, einh: d.einh, preis: d.preis });
     ps.push({ a: d.o, fl: d.menge ?? 0 });
-  } else pos.push({ kind: 'arbeit', art: d.art, datum: r.d || '', bez: aBez(d.art, r.arbeit || 'Arbeit'), bem: bem(d.bem), grp: r.arbeit || '', menge: d.menge, einh: d.einh, preis: d.preis });
-  if (d.dresch && d.stroh) pos.push({ kind: 'arbeit', art: d.strohArt, datum: r.d || '', bez: aBez(d.strohArt, 'Strohhäckseln'), bem: '', grp: 'Strohhäckseln', menge: d.strohHa, einh: 'ha', preis: d.strohPreis });
+  } else pos.push({ kind: 'arbeit', gid, art: d.art, datum: r.d || '', bez: aBez(d.art, r.arbeit || 'Arbeit'), bem: bem(d.bem), grp: r.arbeit || '', menge: d.menge, einh: d.einh, preis: d.preis });
+  if (d.dresch && d.stroh) pos.push({ kind: 'arbeit', zuGid: gid, art: d.strohArt, datum: r.d || '', bez: aBez(d.strohArt, 'Strohhäckseln'), bem: '', grp: 'Strohhäckseln', menge: d.strohHa, einh: 'ha', preis: d.strohPreis });
   (d.zusatz || []).filter(z => z.art || z.bem || z.menge != null).forEach(z => { const a = fkArtOf(FK, z.art); // Zusatzartikel ohne Datum
-    pos.push({ kind: 'ware', art: z.art, bez: (a && a.bez) || z.bem || 'Zusatzartikel', bem: a ? z.bem : '', grp: (a && a.bez) || '', menge: z.menge, einh: z.einh || (a && a.einheit) || '', preis: z.preis }); });
+    pos.push({ kind: 'ware', zuGid: gid, art: z.art, bez: (a && a.bez) || z.bem || 'Zusatzartikel', bem: a ? z.bem : '', grp: (a && a.bez) || '', menge: z.menge, einh: z.einh || (a && a.einheit) || '', preis: z.preis }); });
   return { pos, ps };
 }
 // v150: Ohne Artikel keine Übergabe – fehlende Artikel melden und im Formular rot markieren

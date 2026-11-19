@@ -35,9 +35,12 @@ function rechnungParts(r) {
   const pe = periode(r), sub = pe ? `Abrechnungsperiode: ${fmtDate(pe.von)}${pe.bis && pe.bis !== pe.von ? ' – ' + fmtDate(pe.bis) : ''}` : '';
   const head = docHead(r, { titel, meta, text: r.textOben, sub });
   const thead = `<thead><tr><th class="cd">Datum</th><th>Bezeichnung</th><th class="n cm">Menge</th><th class="ce">Einh.</th><th class="n cp">Preis</th>${multi ? '<th class="n cv">MWST</th>' : ''}<th class="n cb">Betrag CHF</th></tr></thead>`;
-  const rows = cc.rows.map(p => (p.typ === 'text' ? `<tr class="txt"><td></td><td colspan="${multi ? 6 : 5}">${esc(p.bez).replace(/\n/g, '<br>')}</td></tr>`
+  const ncol = multi ? 6 : 5, rabTxt = p => p.proz != null && p.proz !== '' ? `${fmtNum(+p.proz)} %` : '';
+  const rows = cc.rows.map(p => (p.typ === 'zws' ? `<tr class="zws"><td></td><td colspan="${ncol - 1}">${esc(p.bez || 'Zwischensumme')}</td><td class="n">${chf(p.zws)}</td></tr>`
+    : p.typ === 'rabatt' ? `<tr class="rab"><td></td><td colspan="${ncol - 1}">${esc(p.bez || 'Rabatt')}${rabTxt(p) ? ' ' + rabTxt(p) : ''}${p.bereich === 'alle' ? '' : ''}<span class="dbem"> auf CHF ${chf(p.basis)}</span></td><td class="n">${chf(p.betrag)}</td></tr>`
+    : p.typ === 'text' ? `<tr class="txt"><td></td><td colspan="${multi ? 6 : 5}">${esc(p.bez).replace(/\n/g, '<br>')}</td></tr>`
     : p.typ === 'titel' ? `<tr class="ttl"><td></td><td colspan="${multi ? 6 : 5}">${esc(p.bez)}</td></tr>`
-    : `<tr><td class="cd">${p.datum ? fmtDate(p.datum) : ''}</td><td>${esc(p.bez).replace(/\n/g, '<br>')}${posBeschr(p, r) ? `<div class="dbeschr">${esc(posBeschr(p, r)).replace(/\n/g, '<br>')}</div>` : ''}${p.bem ? `<div class="dbem">${esc(p.bem).replace(/\n/g, '<br>')}</div>` : ''}${p.rabatt ? `<span class="drab"> (Rabatt ${fmtNum(p.rabatt)} %)</span>` : ''}</td><td class="n">${qtyTxt(p.menge)}</td><td class="ce">${esc(p.einh || '')}</td><td class="n">${chf(p.preis)}</td>${multi ? `<td class="n">${mwstTxt(p.mwst || 0)}</td>` : ''}<td class="n">${chf(p.betrag)}</td></tr>`));
+    : `<tr${p.zu ? ' class="sub"' : ''}><td class="cd">${p.datum ? fmtDate(p.datum) : ''}</td><td>${p.zu ? '<span class="dsubm">+ </span>' : ''}${esc(p.bez).replace(/\n/g, '<br>')}${posBeschr(p, r) ? `<div class="dbeschr">${esc(posBeschr(p, r)).replace(/\n/g, '<br>')}</div>` : ''}${p.bem ? `<div class="dbem">${esc(p.bem).replace(/\n/g, '<br>')}</div>` : ''}${p.rabatt ? `<span class="drab"> (Rabatt ${fmtNum(p.rabatt)} %)</span>` : ''}</td><td class="n">${qtyTxt(p.menge)}</td><td class="ce">${esc(p.einh || '')}</td><td class="n">${chf(p.preis)}</td>${multi ? `<td class="n">${mwstTxt(p.mwst || 0)}</td>` : ''}<td class="n">${chf(p.betrag)}</td></tr>`));
   const inkl = r.inkl;
   const sums = `<table class="dsum">
     ${cc.groups.map(g => inkl

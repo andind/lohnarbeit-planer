@@ -83,6 +83,7 @@ function selBar() {
 /* ---------- Rechnung bearbeiten ---------- */
 function rechnungDialog(id, { keep = false } = {}) {
   if (!keep) { const r = id ? Store.get('rechnungen', id) : newRechnung({ kunde: App.f.r.kunde || '' }); if (!r) return; App.ed = clone(r); if (!App.ed.pos.length) App.ed.pos.push(newPos()); }
+  posOrdnen(App.ed);
   const r = App.ed, s = statusOf(r), fix = !!r.nr, c = Store.cfg(), k = kunde(r.kunde);
   const title = r.nr ? `${r.titel || 'Rechnung'} ${r.nr}` : (Store.get('rechnungen', r.id) ? `Rechnungsentwurf${r.nrRes ? ' (Nr. ' + r.nrRes + ')' : ''}` : 'Neue Rechnung');
   const body = `${fix && s !== 'storniert' ? `<div class="box small">Abgeschlossen am ${fmtDate((r.abgeschlossen || '').slice(0, 10))} · ${stChip(r)} · Referenz ${esc(r.ref ? SwissQR.fmtRef(r.ref) : '–')}<br>Änderungen an einer verschickten Rechnung nur, wenn sie nochmals gedruckt und neu verschickt wird.</div>` : ''}
@@ -108,12 +109,14 @@ function edPaper(r) {
   const titel = r.nr ? `${r.titel || 'Rechnung'} Nr. ${r.nr}` : `${r.titel || 'Rechnung'}${r.nrRes ? ' Nr. ' + r.nrRes : ''}`;
   const rows = r.pos.map((p, i) => {
     const btns = `<td class="eact nowrap">${posBtns(i)}</td>`;
+    if (p.typ === 'zws') return `<tr class="edrow ezws" data-act="edPos" data-i="${i}"><td class="cs"></td><td></td><td colspan="4">${esc(p.bez || 'Zwischensumme')}</td><td class="n nowrap">${chf(cc.rows[i].zws)}</td>${btns}</tr>`;
+    if (p.typ === 'rabatt') return `<tr class="edrow erab" data-act="edPos" data-i="${i}"><td class="cs"></td><td></td><td colspan="4"><div class="ebez">${esc(p.bez || 'Rabatt')}${p.proz != null && p.proz !== '' ? ' ' + fmtNum(+p.proz) + ' %' : ''}</div><div class="ebem">${p.bereich === 'alle' ? 'auf alle Positionen darüber' : 'auf den Block seit der letzten Zwischensumme'} · Basis CHF ${chf(cc.rows[i].basis || 0)}</div></td><td class="n nowrap eb">${chf(cc.rows[i].betrag)}</td>${btns}</tr>`;
     if ((p.typ || 'pos') !== 'pos') return `<tr class="edrow ${p.typ === 'titel' ? 'ettl' : 'etxt'}" data-act="edPos" data-i="${i}"><td class="cs"></td><td></td><td colspan="4">${esc(p.bez || '').replace(/\n/g, '<br>') || `<span class="edempty">(leere ${p.typ === 'titel' ? 'Zwischentitel' : 'Textzeile'} – antippen zum Schreiben)</span>`}</td>${btns}</tr>`;
     const b = posBeschr(p, r), betrag = cc.rows[i] ? cc.rows[i].betrag : calc({ pos: [p] }).rows[0].betrag, ohneArt = !p.art;
-    return `<tr class="edrow${S.has(p.id) ? ' psel' : ''}" data-act="edPos" data-i="${i}">
+    return `<tr class="edrow${S.has(p.id) ? ' psel' : ''}${p.zu ? ' esub' : ''}" data-act="edPos" data-i="${i}">
       <td class="cs"><input type="checkbox" data-act="edSel" data-id="${p.id}" ${S.has(p.id) ? 'checked' : ''} title="ankreuzen – z. B. für Zusatzposten oder Teil-Abschluss"></td>
       <td class="ecd">${p.datum ? fmtDate(p.datum) : ''}</td>
-      <td><div class="ebez">${esc(p.bez || '').replace(/\n/g, '<br>') || '<span class="edempty">(ohne Bezeichnung)</span>'}${ohneArt ? ' <span class="chip warn small" title="Kein Artikel gewählt">ohne Art.-Nr.</span>' : ` <span class="eart">${esc(p.art)}</span>`}</div>${b ? `<div class="ebeschr">${esc(b).replace(/\n/g, '<br>')}</div>` : ''}${p.bem ? `<div class="ebem">${esc(p.bem).replace(/\n/g, '<br>')}</div>` : ''}</td>
+      <td><div class="ebez">${esc(p.bez || '').replace(/\n/g, '<br>') || '<span class="edempty">(ohne Bezeichnung)</span>'}${ohneArt ? ' <span class="chip warn small" title="Kein Artikel gewählt">ohne Art.-Nr.</span>' : ` <span class="eart">${esc(p.art)}</span>`}</div>${b ? `<div class="ebeschr">${esc(b).replace(/\n/g, '<br>')}</div>` : ''}${p.bem ? `<div class="ebem">${esc(p.bem).replace(/\n/g, '<br>')}</div>` : ''}${p.rabatt ? `<div class="erabp">Rabatt ${fmtNum(+p.rabatt)} %</div>` : ''}</td>
       <td class="n nowrap">${p.menge != null && p.menge !== '' ? qtyTxt(p.menge) : ''} ${esc(p.einh || '')}</td>
       <td class="n nowrap">${p.preis != null && p.preis !== '' ? chf(p.preis) : '<span class="edempty">–</span>'}</td>
       <td class="n nowrap emw">${p.mwst != null ? mwstTxt(p.mwst) : ''}</td>
@@ -129,7 +132,7 @@ function edPaper(r) {
     <div class="edper edclick" data-act="edKopf" data-f="perVon" title="Abrechnungsperiode ändern">${pe ? `Abrechnungsperiode: ${fmtDate(pe.von)}${pe.bis && pe.bis !== pe.von ? ' – ' + fmtDate(pe.bis) : ''}${pe.auto ? ' <span class="muted small">(aus den Positionen)</span>' : ''}` : '<span class="edempty">＋ Abrechnungsperiode</span>'}</div>
     <div class="edtext edclick" data-act="edKopf" data-f="textOben" title="Text über den Positionen">${r.textOben ? esc(r.textOben).replace(/\n/g, '<br>') : '<span class="edempty">＋ Text über den Positionen</span>'}</div>
     <table class="edpos"><thead><tr><th class="cs"></th><th class="ecd">Datum</th><th>Bezeichnung</th><th class="n">Menge</th><th class="n">Preis</th><th class="n">MWST</th><th class="n">Betrag CHF</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="btns edadd"><button type="button" class="btn small" data-act="edAdd" data-t="pos">＋ Position</button><button type="button" class="btn small" data-act="edAdd" data-t="text">＋ Textzeile</button><button type="button" class="btn small" data-act="edAdd" data-t="titel">＋ Zwischentitel</button><button type="button" class="btn small" data-act="edZus" title="Zusatzposten (z. B. Dieselzuschlag) für die angekreuzten Positionen – Menge = Summe der Positionen">＋ Zusatzposten${S.size ? ` (${S.size} ausgewählt)` : ''}</button><button type="button" class="btn small" data-act="edSum" title="Gleiche Positionen (gleiche Arbeit/Produkt, Preis, Einheit, MWST) zu einer Zeile zusammenfassen">Σ Zusammenfassen</button>
+    <div class="btns edadd"><button type="button" class="btn small" data-act="edAdd" data-t="pos">＋ Position</button><button type="button" class="btn small" data-act="edAdd" data-t="text">＋ Textzeile</button><button type="button" class="btn small" data-act="edAdd" data-t="titel">＋ Zwischentitel</button><button type="button" class="btn small" data-act="edAdd" data-t="zws" title="Zwischensumme der Positionen seit der letzten Zwischensumme">＋ Zwischensumme</button><button type="button" class="btn small" data-act="edAdd" data-t="rabatt" title="Rabatt auf einen Block (seit der letzten Zwischensumme) oder auf die ganze Rechnung – für Rabatt auf eine einzelne Position die Position antippen">＋ Rabatt</button><button type="button" class="btn small" data-act="edZus" title="Zusatzposten (z. B. Dieselzuschlag) für die angekreuzten Positionen – Menge = Summe der Positionen">＋ Zusatzposten${S.size ? ` (${S.size} ausgewählt)` : ''}</button><button type="button" class="btn small" data-act="edSum" title="Gleiche Positionen (gleiche Arbeit/Produkt, Preis, Einheit, MWST) zu einer Zeile zusammenfassen">Σ Zusammenfassen</button>
       <label class="tog" style="margin-left:auto"><input type="checkbox" data-in="edInkl" ${r.inkl ? 'checked' : ''}> Preise inkl. MWST</label></div>
     <div id="edTot" class="edtot">${edTotHtml(r)}</div>
     <div class="edtext edclick" data-act="edKopf" data-f="textUnten" title="Text unter den Positionen">${r.textUnten ? esc(r.textUnten).replace(/\n/g, '<br>') : '<span class="edempty">＋ Text unter den Positionen</span>'}</div>
@@ -161,11 +164,26 @@ function kopfDialog(fokus) {
 function posDialog(i, { neu = false } = {}) {
   const r = App.ed, p = r.pos[i]; if (!p) return;
   const back = () => { if (neu) r.pos.splice(i, 1); rechnungDialog(null, { keep: true }); };
+  if (p.typ === 'rabatt') { // v1.26: Rabatt auf Block oder ganze Rechnung
+    const art = p.proz != null && p.proz !== '' ? 'proz' : 'betrag';
+    openDlg(neu ? 'Rabatt einfügen' : 'Rabatt bearbeiten', `<label class="fld"><span>Text</span><input class="input" name="bez" value="${esc(p.bez || 'Rabatt')}" autofocus></label>
+      <div class="two"><label class="fld"><span>Art</span><select class="input" name="art"><option value="proz" ${art === 'proz' ? 'selected' : ''}>Prozent</option><option value="betrag" ${art === 'betrag' ? 'selected' : ''}>Betrag CHF</option></select></label>
+        <label class="fld"><span>Wert</span><input class="input n" name="wert" inputmode="decimal" value="${art === 'proz' ? (p.proz ?? '') : (p.betrag ?? '')}"></label></div>
+      <label class="fld"><span>Gilt für</span><select class="input" name="bereich"><option value="block" ${p.bereich !== 'alle' ? 'selected' : ''}>Block – Positionen seit der letzten Zwischensumme (bzw. der Block direkt über einer Zwischensumme)</option><option value="alle" ${p.bereich === 'alle' ? 'selected' : ''}>Alle Positionen darüber (ganze Rechnung, wenn der Rabatt zuunterst steht)</option></select></label>
+      <div class="hint">Der Rabatt wird anteilig auf MWST-Satz und Konto der betroffenen Positionen verteilt. Für einen Rabatt auf eine einzelne Position die Position antippen (Feld «Rabatt %»). Mit ▲ ▼ an die richtige Stelle schieben.</div>`,
+      `${neu ? '' : '<button class="btn danger" value="del" formnovalidate>✕ Rabatt löschen</button>'}<button class="btn" value="back" formnovalidate>Abbrechen</button><span class="spacer"></span><button class="btn primary" value="ok">✓ Übernehmen</button>`, { onSubmit: async (fd, btn) => {
+        if (btn === 'back') { back(); return false; }
+        if (btn === 'del') { if (!await frage(`Rabatt «${p.bez || 'Rabatt'}» wirklich aus der Rechnung löschen?`)) return false; r.pos.splice(i, 1); rechnungDialog(null, { keep: true }); return false; }
+        const w = num(fd.get('wert')); p.bez = String(fd.get('bez') || '').trim() || 'Rabatt'; p.bereich = fd.get('bereich') === 'alle' ? 'alle' : 'block';
+        if (fd.get('art') === 'proz') { p.proz = w; delete p.betrag; } else { p.betrag = w; delete p.proz; }
+        rechnungDialog(null, { keep: true }); return false; } });
+    App.dlgBack = back; return;
+  }
   if ((p.typ || 'pos') !== 'pos') {
-    openDlg(p.typ === 'titel' ? 'Zwischentitel' : 'Textzeile', `<label class="fld"><span>${p.typ === 'titel' ? 'Zwischentitel' : 'Text'}</span><textarea class="input" name="bez" rows="${p.typ === 'titel' ? 1 : 3}" autofocus>${esc(p.bez || '')}</textarea></label>`,
+    openDlg(p.typ === 'titel' ? 'Zwischentitel' : p.typ === 'zws' ? 'Zwischensumme' : 'Textzeile', `<label class="fld"><span>${p.typ === 'titel' ? 'Zwischentitel' : p.typ === 'zws' ? 'Text der Zwischensumme' : 'Text'}</span><textarea class="input" name="bez" rows="${p.typ === 'titel' ? 1 : 3}" autofocus>${esc(p.bez || '')}</textarea></label>`,
       `<button class="btn" value="back" formnovalidate>Abbrechen</button><span class="spacer"></span><button class="btn primary" value="ok">✓ Übernehmen</button>`, { onSubmit: (fd, btn) => {
         if (btn !== 'ok') { back(); return false; }
-        p.bez = String(fd.get('bez') || ''); if (neu && !p.bez.trim()) r.pos.splice(i, 1); rechnungDialog(null, { keep: true }); return false; } });
+        p.bez = String(fd.get('bez') || ''); if (p.typ === 'zws' && !p.bez.trim()) p.bez = 'Zwischensumme'; if (neu && !p.bez.trim()) r.pos.splice(i, 1); rechnungDialog(null, { keep: true }); return false; } });
     App.dlgBack = back; return;
   }
   const art = artSorted().filter(a => a.aktiv !== false);
@@ -179,6 +197,8 @@ function posDialog(i, { neu = false } = {}) {
       <label class="fld"><span>Einheit</span><input class="input" name="einh" list="einhList" value="${esc(p.einh || '')}"></label>
       <label class="fld"><span>Preis</span><input class="input n" name="preis" inputmode="decimal" value="${p.preis ?? ''}"></label>
       <label class="fld"><span>MWST</span><select class="input" name="mwst">${mwstOpts(p.mwst)}</select></label></div>
+    <div class="two"><label class="fld"><span>Rabatt % <span class="muted small">(nur diese Position)</span></span><input class="input n" name="rabatt" inputmode="decimal" value="${p.rabatt || ''}" placeholder="0"></label>
+      <label class="fld"><span>Zusatz zu <span class="muted small">(z. B. Strohhäckseln, Saatgut zum Auftrag)</span></span><select class="input" name="zu"><option value="">– eigene Position –</option>${r.pos.filter(q => q !== p && (q.typ || 'pos') === 'pos' && !q.zu).map(q => `<option value="${q.id}" ${p.zu === q.id ? 'selected' : ''}>${esc([q.datum ? fmtDate(q.datum) : '', String(q.bez || '').split('\n')[0], q.bem].filter(Boolean).join(' · ').slice(0, 80))}</option>`).join('')}</select></label></div>
     <div class="pdbetrag">Betrag: <b id="pdBetrag">CHF ${chf(calc({ pos: [p] }).rows[0].betrag)}</b></div>`,
     `${neu ? '' : '<button class="btn danger" value="del" formnovalidate>✕ Position löschen</button>'}<button class="btn" value="back" formnovalidate>Abbrechen</button><span class="spacer"></span><button class="btn primary" value="ok">✓ Übernehmen</button>`, { onSubmit: async (fd, btn) => {
       if (btn === 'back') { back(); return false; }
@@ -188,11 +208,13 @@ function posDialog(i, { neu = false } = {}) {
       const a = artByNr(String(fd.get('art') || '').trim());
       Object.assign(p, { art: String(fd.get('art') || '').trim(), datum: String(fd.get('datum') || ''), bez: String(fd.get('bez') || ''), bem: String(fd.get('bem') || '').trim(), menge: num(fd.get('menge')), einh: String(fd.get('einh') || '').trim(), preis: num(fd.get('preis')), mwst: num(fd.get('mwst')) });
       if (a && a.konto) p.konto = a.konto;
+      const rb = num(fd.get('rabatt')); if (rb) p.rabatt = rb; else delete p.rabatt;
+      const zu = String(fd.get('zu') || ''); if (zu && zu !== p.id) { p.zu = zu; r.pos.forEach(q => { if (q.zu === p.id) delete q.zu; }); } else delete p.zu; posOrdnen(r);
       rechnungDialog(null, { keep: true }); return false; } });
   App.dlgBack = back;
   const F = $('#dlgForm'), f = n => F.querySelector(`[name=${n}]`);
-  const upd = () => { const q = { menge: num(f('menge').value), preis: num(f('preis').value), mwst: num(f('mwst').value) }; $('#pdBetrag').textContent = 'CHF ' + chf(calc({ inkl: r.inkl, pos: [q] }).rows[0].betrag); };
-  ['menge', 'preis', 'mwst'].forEach(n => f(n).addEventListener('input', upd));
+  const upd = () => { const q = { menge: num(f('menge').value), preis: num(f('preis').value), mwst: num(f('mwst').value), rabatt: num(f('rabatt').value) || 0 }; $('#pdBetrag').textContent = 'CHF ' + chf(calc({ inkl: r.inkl, pos: [q] }).rows[0].betrag); };
+  ['menge', 'preis', 'mwst', 'rabatt'].forEach(n => f(n).addEventListener('input', upd));
   f('art').addEventListener('change', async () => { const a = artByNr(f('art').value.trim()); if (!a) return;
     if (!f('bez').value.trim() || f('bez').value === p.bez && p._auto || await frage(`Bezeichnung durch den Titel des Artikels ersetzen?\n\n«${f('bez').value}» → «${a.bez}»`)) f('bez').value = a.bez;
     if (a.einheit) f('einh').value = a.einheit; if (a.preis != null) f('preis').value = a.preis; if (a.mwst != null) f('mwst').value = String(a.mwst);
@@ -259,7 +281,7 @@ function zusatzDialog() {
         einh, preis: num(fd.get('preis')), mwst: a && a.mwst != null ? a.mwst : sel[0].mwst, konto: (a && a.konto) || '', kind: 'zusatz' };
       if (base.preis == null && a && a.preis != null) base.preis = a.preis;
       if (fd.get('einzeln')) { // je Position direkt dahinter
-        [...sel].reverse().forEach(p => { const i = r.pos.indexOf(p); r.pos.splice(i + 1, 0, newPos(Object.assign({}, base, { datum: p.datum || '', menge: p.menge }))); });
+        [...sel].reverse().forEach(p => { const i = r.pos.indexOf(p); r.pos.splice(i + 1, 0, newPos(Object.assign({}, base, { datum: p.datum || '', menge: p.menge, zu: p.zu || p.id }))); });
       } else { const i = Math.max(...sel.map(p => r.pos.indexOf(p))); r.pos.splice(i + 1, 0, newPos(Object.assign({}, base, { menge: num(fd.get('menge')) ?? sumF(einh) }))); }
       S.clear(); rechnungDialog(null, { keep: true }); toast('Zusatzposten eingefügt'); return false;
     } });
@@ -267,7 +289,15 @@ function zusatzDialog() {
       art.addEventListener('change', () => { const a = artByNr(art.value.trim()); if (!a) return; F.querySelector('[name=bez]').value = a.bez; if (a.preis != null) F.querySelector('[name=preis]').value = a.preis;
         if (a.einheit) { F.querySelector('[name=einh]').value = a.einheit; F.querySelector('[name=menge]').value = sumF(a.einheit) || sumF(''); } }); }
 }
-const posBtns = i => `<button type="button" class="ib" data-act="edUp" data-i="${i}" title="nach oben">▲</button><button type="button" class="ib" data-act="edDel" data-i="${i}" title="Position löschen">✕</button>`;
+const posBtns = i => `<button type="button" class="ib" data-act="edUp" data-i="${i}" title="nach oben">▲</button><button type="button" class="ib" data-act="edDown" data-i="${i}" title="nach unten">▼</button><button type="button" class="ib" data-act="edDel" data-i="${i}" title="Position löschen">✕</button>`;
+// v1.26: verschieben nach oben/unten – Hauptposition mit ihren Zusatzleistungen als Block, Zusatzleistung nur innerhalb ihres Auftrags
+function edMove(i, dir) {
+  const r = posOrdnen(App.ed), P = r.pos, p = P[i]; if (!p) return;
+  if (p.zu) { const j = i + dir; if (P[j] && P[j].zu === p.zu) [P[i], P[j]] = [P[j], P[i]]; else toast('Zusatzleistungen bleiben bei ihrem Auftrag – zum Lösen die Position antippen und «Zusatz zu» leeren', 4500); return; }
+  const B = []; P.forEach(q => { if (q.zu && B.length && B[B.length - 1][0].id === q.zu) B[B.length - 1].push(q); else B.push([q]); });
+  const bi = B.findIndex(b => b[0] === p), bj = bi + dir; if (bj < 0 || bj >= B.length) return;
+  [B[bi], B[bj]] = [B[bj], B[bi]]; r.pos = B.flat();
+}
 function edTotHtml(r) {
   const c = calc(r);
   return `<table>${c.groups.map(g => r.inkl ? `<tr><td>Total ${g.satz ? 'inkl. ' + mwstTxt(g.satz) : 'ohne'} MWST</td><td class="n">${chf(g.brutto)}</td></tr>${g.satz ? `<tr class="muted"><td>davon MWST</td><td class="n">${chf(g.mwst)}</td></tr>` : ''}`
@@ -284,7 +314,7 @@ function zahlMahnInfo(r) {
 function autoGrow() { $$('#dlgForm textarea[data-in="edp"]').forEach(t => { t.style.height = 'auto'; t.style.height = Math.min(160, t.scrollHeight + 2) + 'px'; }); }
 function edRerender() { const sc = $('#dlg .db')?.scrollTop; rechnungDialog(null, { keep: true }); const db = $('#dlg .db'); if (db && sc) db.scrollTop = sc; }
 function edSave(r) { Store.put('rechnungen', r, { silent: true }); App.ed = clone(r); }
-function edClean(r) { r.pos = r.pos.filter(p => (p.typ || 'pos') !== 'pos' ? String(p.bez || '').trim() : (p.art || p.bez || p.preis != null)); return r; }
+function edClean(r) { posOrdnen(r); r.pos = r.pos.filter(p => (p.typ || 'pos') !== 'pos' ? String(p.bez || '').trim() : (p.art || p.bez || p.preis != null)); return r; }
 async function edSubmit(btn) {
   const r = edClean(clone(App.ed));
   if (btn === 'close') return;
@@ -581,7 +611,7 @@ function journal() {
   L.forEach(r => { const c = calc(r), k = kunde(r.kunde) || {}, gm = new Map(c.groups.map(g => [g.satz, g]));
     rows.push([+r.nr || r.nr, r.datum, k.nr ? +k.nr || k.nr : '', k.name || '', r.betreff || '', ...sätze.flatMap(s => [gm.get(s)?.netto ?? '', gm.get(s)?.mwst ?? '']), c.rund || '', c.total, gebuehren(r) || '', bezahlt(r) || '', r.storno ? '' : offenBetrag(r), r.faellig || '', ST[statusOf(r)][0], (r.mahnungen || []).length || '', r.ref || '', (r.zahlungen || []).map(z => z.datum).sort().pop() || '']); });
   download(`Rechnungsjournal_${todayIso()}.xlsx`, xlsxBlob([{ name: 'Rechnungen', rows }, { name: 'Positionen', rows: [['Nr.', 'Datum', 'Kunde', 'Art.-Nr.', 'Bezeichnung', 'Menge', 'Einheit', 'Preis', 'MWST %', 'Betrag', 'Konto'],
-    ...L.filter(r => !r.storno).flatMap(r => calc(r).rows.filter(p => (p.typ || 'pos') === 'pos').map(p => [+r.nr || r.nr, r.datum, kName(r.kunde), p.art || '', p.bez, p.menge ?? '', p.einh || '', p.preis ?? '', p.mwst ?? '', p.betrag, +posKonto(p) || posKonto(p)]))] },
+    ...L.filter(r => !r.storno).flatMap(r => calc(r).rows.filter(p => (p.typ || 'pos') === 'pos' || p.typ === 'rabatt').map(p => [+r.nr || r.nr, r.datum, kName(r.kunde), p.art || '', p.bez, p.menge ?? '', p.einh || '', p.preis ?? '', p.mwst ?? '', p.betrag, +posKonto(p) || posKonto(p)]))] },
     { name: 'Zahlungen', rows: [['Nr.', 'Kunde', 'Datum', 'Betrag', 'Konto', 'Quelle', 'AgroOffice'], ...L.flatMap(r => (r.zahlungen || []).map(z => [+r.nr || r.nr, kName(r.kunde), z.datum, z.betrag, isAus(z) ? '' : +zKontoOf(z), z.quelle === 'camt' ? 'camt' : z.bem || '', isAus(z) ? 'nicht gebucht (ausgebucht)' : z.exp ? 'exportiert' : 'offen']))] }]));
 }
 function exportAll() {
@@ -667,7 +697,8 @@ document.addEventListener('click', async ev => {
     case 'newA': artikelDialog(null); break;
     case 'editA': artikelDialog(id); break;
     // Rechnungseditor
-    case 'edAdd': App.ed.pos.push(newPos(t.dataset.t === 'pos' ? {} : { typ: t.dataset.t, bez: '' })); posDialog(App.ed.pos.length - 1, { neu: true }); break;
+    case 'edAdd': { const ty = t.dataset.t; App.ed.pos.push(newPos(ty === 'pos' ? {} : ty === 'zws' ? { typ: 'zws', bez: 'Zwischensumme' } : ty === 'rabatt' ? { typ: 'rabatt', bez: 'Rabatt', proz: 5, bereich: App.ed.pos.some(q => q.typ === 'zws') ? 'block' : 'alle' } : { typ: ty, bez: '' }));
+      if (ty === 'zws') { edRerender(); toast('Zwischensumme eingefügt – mit ▲ ▼ an die richtige Stelle schieben'); break; } posDialog(App.ed.pos.length - 1, { neu: true }); break; }
     case 'edPos': if (ev.target.closest('.eact, .cs')) break; posDialog(+t.dataset.i); break;
     case 'edKopf': if (ev.target.closest('a,button')) break; kopfDialog(t.dataset.f); break;
     case 'edDel': { // Rückfrage (v1.13) – ausser bei leeren Zeilen
@@ -676,8 +707,9 @@ document.addEventListener('click', async ev => {
       const was = p.typ === 'titel' ? `Zwischentitel «${p.bez || ''}»` : p.typ === 'text' ? `Textzeile «${String(p.bez || '').slice(0, 60)}»`
         : `Position${p.art ? ' ' + p.art : ''} «${String(p.bez || '').split('\n')[0].slice(0, 60)}»${p.preis != null && p.preis !== '' ? `\n${fmtNum(+p.menge || 0, 3)} ${p.einh || ''} × ${chf(+p.preis || 0)} = CHF ${chf((+p.menge || 0) * (+p.preis || 0))}` : ''}`;
       if (!leer && !await frage(`${was}\n\nwirklich aus der Rechnung löschen?`)) break;
-      App.ed.pos.splice(i, 1); edRerender(); break; }
-    case 'edUp': { const i = +t.dataset.i; if (i > 0) { const P = App.ed.pos; [P[i - 1], P[i]] = [P[i], P[i - 1]]; edRerender(); } break; }
+      App.ed.pos.splice(i, 1); App.ed.pos.forEach(q => { if (q.zu === p.id) delete q.zu; }); edRerender(); break; }
+    case 'edUp': edMove(+t.dataset.i, -1); edRerender(); break;
+    case 'edDown': edMove(+t.dataset.i, 1); edRerender(); break;
     case 'edNewK': kundeDialog(null, { after: k => { App.ed.kunde = k.id; rechnungDialog(null, { keep: true }); } }); break;
     case 'edEditK': kundeDialog(App.ed.kunde, { after: () => rechnungDialog(null, { keep: true }) }); break;
     case 'edZahl': { const r = edClean(clone(App.ed)); edSave(r); zahlDialog(r.id, true); break; }

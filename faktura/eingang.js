@@ -94,7 +94,9 @@ const Eingang = {
     r = r ? clone(r) : newRechnung({ kunde: k.id, frist: k.frist ?? Store.cfg().frist, betreff: T.app || T.betreff || '', quelle: T.app || 'Eingang' });
     if (T.app && !String(r.betreff || '').includes(T.app)) r.betreff = [r.betreff, T.app].filter(Boolean).join(', '); // Betreff = Herkunft (intern, nicht gedruckt)
     r.pos = r.pos.filter(p => (p.typ || 'pos') !== 'pos' || p.art || p.bez || p.preis != null); // leere Startzeile weg
-    (T.pos || []).forEach(p => r.pos.push(this.posFor(p)));
+    const gm = new Map(); // v1.26: Zusatzleistungen (Strohhäckseln, Saatgut, Schneckenkorn …) an ihren Auftrag hängen
+    (T.pos || []).forEach(p => { const np = this.posFor(p); if (p.gid) gm.set(p.gid, np.id); if (p.zuGid && gm.has(p.zuGid)) np.zu = gm.get(p.zuGid); r.pos.push(np); });
+    posOrdnen(r);
     if (T.beilage) addBeilage(r, T.beilage);
     r.quellen = (r.quellen || []).concat([{ app: T.app || '', am: T.am || new Date().toISOString(), refs: T.refs || [], text: T.text || '' }]);
     Store.put('rechnungen', r, { silent: true });
@@ -105,7 +107,7 @@ const Eingang = {
 function zusammenfassen(r) {
   const out = [], idx = new Map(); let n = 0;
   r.pos.forEach(p => {
-    if ((p.typ || 'pos') !== 'pos') { out.push(p); return; }
+    if ((p.typ || 'pos') !== 'pos' || p.zu || r.pos.some(q => q.zu === p.id)) { out.push(p); return; } // Zusatzleistungen und ihre Hauptposition bleiben einzeln
     const key = [p.grp || p.bez, p.art, p.preis, p.einh, p.mwst, p.konto, p.rabatt || 0].join('|');
     if (idx.has(key)) { const x = idx.get(key); x.menge = r2((+x.menge || 0) + (+p.menge || 0)); x._n++; n++; if (x.datum !== p.datum) x.datum = ''; if ((x.bem || '') !== (p.bem || '')) x.bem = ''; return; }
     const x = Object.assign({}, p, { _n: 1 }); idx.set(key, x); out.push(x);
