@@ -1,4 +1,4 @@
-# IM-Faktura v1.0 – Anleitung
+# IM-Faktura v1.1 – Anleitung
 
 Eigenständige App für Rechnungen mit Schweizer **QR-Zahlteil** (QR-IBAN mit QR-Referenz), Offenen Posten,
 Zahlungsabgleich (camt.054) und Mahnungen. Eigene Daten (`faktura.json`), unabhängig von IM-Verwaltung und IM-Vermietung.
@@ -36,3 +36,17 @@ Zahlungsabgleich (camt.054) und Mahnungen. Eigene Daten (`faktura.json`), unabh�
   `config.js` (Dropbox-App-Key – bei Updates **nicht überschreiben**), `sw.js`, Icons, `logo.jpg` (Briefkopf).
 - localStorage-Schlüssel `mf_*` (nie `lp_*` oder `mv_*`). Liest `/vermietung.json` und `/planung.json` nur (Kunden/Artikel übernehmen).
 - Bei Updates: `APP_VERSION`/`APP_STAND` in `app.js` und `CACHE` in `sw.js` erhöhen.
+
+## Buchhaltung AgroOffice (ab v1.1)
+- Gebucht werden nur **Zahlungseingänge** (vereinnahmte Entgelte): `1020 an 9904` (Total der Zahlung), danach `9904 an Ertragskonto`
+  je Konto und MWST-Satz, inkl. MWST, mit MWST-Code. Teilzahlungen werden anteilig aufgeteilt, ausgebuchte Restbeträge nicht gebucht,
+  Überzahlungen auf 9910. Konten und MWST-Codes unter *Mehr › Buchhaltung (AgroOffice)*.
+- *Offene Posten › 📒 Buchungen für AgroOffice* erstellt die Datei im Abacus-Format «XML-Buchungen». In AgroOffice unter
+  *Grundeinstellungen › Import* den Haken «BETA: Import von Buchungen im Abacus-Format» setzen und den Ordner eintragen.
+  Mit Chrome/Edge am PC kann IM-Faktura direkt in diesen Ordner schreiben («Ordner wählen»), sonst landet die Datei im Download-Ordner.
+- Exportierte Zahlungen sind markiert (📒 gebucht) und kommen nicht nochmals. Frühere Exporte lassen sich nochmals herunterladen
+  oder zurücknehmen (nur wenn der Import in AgroOffice nicht geklappt hat).
+- *Debitoren per Stichtag*: Excel mit allen am Stichtag offenen Rechnungen, aufgeteilt nach Konto und MWST – für die Nachführung per 31.12.
+- Jeder Artikel hat ein **Ertragskonto** (Artikelliste aus AgroFaktura per *Import › Artikel* einlesen, Spalte «Konto»).
+- **Maschinenmiete** aus der Abrechnungsliste der IM-Vermietung: eine Zeile «100 Maschinenmiete gemäss Rapport», die Maschinen
+  stehen als Beilage «Rapport Maschinenmiete» hinter der Rechnung (abschaltbar beim Import).

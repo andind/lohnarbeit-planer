@@ -306,3 +306,4 @@ details.help summary { cursor: pointer; width: max-content; }
 /* Dialog an die gezoomte Fensterhöhe anpassen (body.style.zoom) */
 dialog { max-height: calc(var(--appH, 100dvh) - 24px); }
 @media (max-width: 699px) { dialog, dialog.wide { height: var(--appH, 100dvh); max-height: var(--appH, 100dvh); } }
+.dtab tr.grp td { background: var(--surface-2); font-weight: 600; }

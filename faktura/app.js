@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken) wie IM-Vermietung: Daten lokal im Browser + Abgleich mit Dropbox (/faktura.json). */
 'use strict';
 
-const APP_VERSION = '1.0', APP_STAND = '17.11.2026';
+const APP_VERSION = '1.1', APP_STAND = '18.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/faktura.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'artikel', 'rechnungen', 'einstellungen'];
 const EINHEITEN = ['ha', 'h', 'Stk', 'Pausch.', 'km', 'm³', 't', 'kg', 'l', 'a'];
@@ -61,7 +61,7 @@ const excelDate = v => { const n = num(v); if (typeof v === 'number' || (/^\d{5}
 /* ================= Datenhaltung ================= */
 const DEF_CFG = {
   firma: { name: 'Andreas Indermühle', strasse: 'Kreuzweg', hausnr: '4', plz: '3054', ort: 'Schüpfen', land: 'CH', tel: '079 322 29 64', mail: 'indermuehle@windowslive.com', uid: 'CHE-170.163.145 MWST' },
-  iban: '', refPrefix: '', nextNr: 1, frist: 30, titel: 'Rechnung', ort: 'Schüpfen',
+  iban: 'CH9530808001496253095', refPrefix: '', nextNr: 1, frist: 30, titel: 'Rechnung', ort: 'Schüpfen',
   textOben: '', textUnten: 'Besten Dank für Ihren Auftrag.', adrPos: 'rechts', runden5: true, preiseInkl: false, swico: true, logo: '',
   mwst: [{ satz: 8.1, name: 'Normalsatz' }, { satz: 2.6, name: 'Reduzierter Satz' }, { satz: 3.8, name: 'Beherbergung' }, { satz: 0, name: 'Ohne MWST' }], mwstDef: 8.1,
   mahn: [
@@ -168,7 +168,7 @@ function newRechnung(preset = {}) {
   return Object.assign({ id: uid(), nr: '', kunde: '', datum: todayIso(), frist: c.frist, titel: c.titel, betreff: '', textOben: c.textOben, textUnten: c.textUnten,
     inkl: !!c.preiseInkl, runden5: c.runden5 !== false, pos: [], zahlungen: [], mahnungen: [] }, preset);
 }
-const newPos = (p = {}) => Object.assign({ id: uid(), typ: 'pos', art: '', bez: '', menge: 1, einh: '', preis: null, mwst: Store.cfg().mwstDef }, p);
+const newPos = (p = {}) => Object.assign({ id: uid(), typ: 'pos', art: '', bez: '', menge: 1, einh: '', preis: null, mwst: Store.cfg().mwstDef, konto: '' }, p);
 // QR-Daten einer Rechnung (Mahnung: offener Betrag inkl. Gebühren)
 function qrData(r, betrag) {
   const c = Store.cfg(), k = r._k || kunde(r.kunde), cc = calc(r);

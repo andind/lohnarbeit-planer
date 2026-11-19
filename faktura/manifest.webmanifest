@@ -1,6 +1,7 @@
 {
   "name": "IM-Faktura",
   "short_name": "IM-Faktura",
+  "id": "/lohnarbeit-planer/faktura/",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

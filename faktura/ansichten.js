@@ -111,6 +111,7 @@ function rechnungDialog(id, { keep = false } = {}) {
     <div class="btns"><button type="button" class="btn small" data-act="edAdd" data-t="pos">＋ Position</button><button type="button" class="btn small" data-act="edAdd" data-t="text">＋ Textzeile</button><button type="button" class="btn small" data-act="edAdd" data-t="titel">＋ Zwischentitel</button>
       <label class="tog" style="margin-left:auto"><input type="checkbox" data-in="edInkl" ${r.inkl ? 'checked' : ''}> Preise inkl. MWST</label></div>
     <div id="edTot" class="edtot">${edTotHtml(r)}</div>
+    ${r.beilage ? `<div class="box small">📎 Beilage «${esc(r.beilage.titel)}» mit ${r.beilage.rows.length} Zeilen (CHF ${chf(r.beilage.total)}) wird hinter der Rechnung gedruckt. <a href="#" data-act="edBeilDel">entfernen</a></div>` : ''}
     <label class="fld"><span>Text unter den Positionen</span><textarea class="input" data-in="ed" data-k="textUnten" rows="2">${esc(r.textUnten || '')}</textarea></label>
     ${fix ? zahlMahnInfo(r) : ''}`;
   const isNew = !Store.get('rechnungen', r.id);
@@ -167,7 +168,7 @@ function edInput(t, commit) {
   if (t.dataset.in === 'edInkl') { r.inkl = t.checked; $('#edTot').innerHTML = edTotHtml(r); return; }
   const i = +t.dataset.i, f = t.dataset.f, p = r.pos[i]; if (!p) return;
   if (['menge', 'preis', 'mwst'].includes(f)) p[f] = num(t.value); else p[f] = t.value;
-  if (f === 'art' && commit) { const a = artByNr(t.value); if (a) { if (!p.bez || p._auto) { p.bez = a.bez; p._auto = true; } p.einh = a.einheit || p.einh; if (a.preis != null) p.preis = a.preis; p.mwst = a.mwst ?? p.mwst; edRerender(); return; } }
+  if (f === 'art' && commit) { const a = artByNr(t.value); if (a) { if (!p.bez || p._auto) { p.bez = a.bez; p._auto = true; } p.einh = a.einheit || p.einh; if (a.preis != null) p.preis = a.preis; p.mwst = a.mwst ?? p.mwst; p.konto = a.konto || ''; edRerender(); return; } }
   if (f === 'bez') { delete p._auto; t.style.height = 'auto'; t.style.height = Math.min(160, t.scrollHeight + 2) + 'px'; }
   const pb = $('#pb' + i); if (pb) pb.textContent = chf(calc({ pos: [p] }).rows[0].betrag);
   $('#edTot').innerHTML = edTotHtml(r);
@@ -178,7 +179,7 @@ function zahlDialog(id, back) {
   const r = Store.get('rechnungen', id); if (!r) return;
   const Z = r.zahlungen || [];
   openDlg(`Zahlung · Rechnung ${r.nr}`, `<p>${esc(kName(r.kunde))} · Total CHF ${chf(calc(r).total)}${gebuehren(r) ? ' + Gebühren ' + chf(gebuehren(r)) : ''} · offen <b>CHF ${chf(offenBetrag(r))}</b></p>
-    ${Z.length ? `<table class="dtab" style="margin-bottom:12px"><thead><tr><th>Datum</th><th class="n">Betrag</th><th>Bemerkung</th><th></th></tr></thead>${Z.map(z => `<tr><td>${fmtDate(z.datum)}</td><td class="n">${chf(z.betrag)}</td><td class="small">${esc(z.quelle === 'camt' ? 'Bank (camt)' : z.bem || '')}</td><td><label class="tog"><input type="checkbox" name="del_${z.id}"> löschen</label></td></tr>`).join('')}</table>` : ''}
+    ${Z.length ? `<table class="dtab" style="margin-bottom:12px"><thead><tr><th>Datum</th><th class="n">Betrag</th><th>Bemerkung</th><th></th></tr></thead>${Z.map(z => `<tr><td>${fmtDate(z.datum)}</td><td class="n">${chf(z.betrag)}</td><td class="small">${esc(z.quelle === 'camt' ? 'Bank (camt)' : z.bem || '')}</td><td>${z.exp ? '<span class="small muted" title="an AgroOffice übergeben">📒 gebucht</span>' : `<label class="tog"><input type="checkbox" name="del_${z.id}"> löschen</label>`}</td></tr>`).join('')}</table>` : ''}
     <div class="three"><label class="fld"><span>Datum</span><input class="input" type="date" name="datum" value="${todayIso()}"></label>
       <label class="fld"><span>Betrag CHF</span><input class="input" name="betrag" inputmode="decimal" value="${offenBetrag(r) > 0 ? offenBetrag(r).toFixed(2) : ''}" autofocus></label>
       <label class="fld"><span>Bemerkung</span><input class="input" name="bem" placeholder="z. B. bar, Skonto"></label></div>
@@ -187,7 +188,7 @@ function zahlDialog(id, back) {
     { onSubmit: fd => {
       const x = clone(r); x.zahlungen = (x.zahlungen || []).filter(z => !fd.get('del_' + z.id));
       const b = num(fd.get('betrag')); if (b) x.zahlungen.push({ id: uid(), datum: fd.get('datum') || todayIso(), betrag: r2(b), bem: (fd.get('bem') || '').trim() });
-      if (fd.get('rest')) { const o = offenBetrag(x); if (o > 0) x.zahlungen.push({ id: uid(), datum: fd.get('datum') || todayIso(), betrag: o, bem: 'Rest ausgebucht' }); }
+      if (fd.get('rest')) { const o = offenBetrag(x); if (o > 0) x.zahlungen.push({ id: uid(), datum: fd.get('datum') || todayIso(), betrag: o, bem: 'Rest ausgebucht', aus: true }); }
       Store.put('rechnungen', x, { silent: true }); toast(statusOf(x) === 'bezahlt' ? `Rechnung ${x.nr} bezahlt ✓` : 'Zahlung gespeichert');
       if (back) setTimeout(() => rechnungDialog(x.id), 50);
     } });
@@ -221,7 +222,8 @@ function viewOP() {
   const L = Store.all('rechnungen').filter(isOP).filter(r => (!f.nurUeber || statusOf(r) === 'ueberfaellig') && (!q || fold([r.nr, kName(r.kunde)].join(' ')).includes(q)))
     .sort((a, b) => (faelligAkt(a) || '').localeCompare(faelligAkt(b) || ''));
   const all = Store.all('rechnungen').filter(isOP), tot = all.reduce((s, r) => s + offenBetrag(r), 0), ue = all.filter(r => statusOf(r) === 'ueberfaellig');
-  const tb = `<h1>Offene Posten</h1><label class="btn">🏦 Zahlungen einlesen (camt.054)…<input type="file" accept=".xml,.zip" multiple data-in="camtFile" hidden></label>`;
+  const nB = offeneZahlungen().length;
+  const tb = `<h1>Offene Posten</h1><button class="btn" data-act="buchOpen">📒 Buchungen für AgroOffice${nB ? ` (${nB})` : ''}</button><label class="btn">🏦 Zahlungen einlesen (camt.054)…<input type="file" accept=".xml,.zip" multiple data-in="camtFile" hidden></label>`;
   const html = `<div class="kpis"><div class="kpi"><b>${chf(tot)}</b><span>offen total (${all.length})</span></div><div class="kpi"><b class="${ue.length ? 'warnc' : ''}">${chf(ue.reduce((s, r) => s + offenBetrag(r), 0))}</b><span>überfällig (${ue.length})</span></div>
       <div class="kpi"><b>${chf(Store.all('rechnungen').filter(r => !r.storno).flatMap(r => r.zahlungen || []).filter(z => (z.datum || '').startsWith(today.slice(0, 4))).reduce((s, z) => s + +z.betrag, 0))}</b><span>Zahlungseingang ${today.slice(0, 4)}</span></div></div>
     <div class="filters"><input class="input search" type="search" placeholder="Suchen…" data-in="opq" value="${esc(f.q)}"><label class="tog"><input type="checkbox" data-in="opUe" ${f.nurUeber ? 'checked' : ''}> nur überfällige</label></div>
@@ -246,13 +248,14 @@ function viewImport() {
       html: `<div class="filters"><span class="lbl">${esc(I.fname)} · ${I.groups.length} Kunden · ${I.groups.reduce((s, g) => s + g.items.length, 0)} Positionen · CHF ${chf(I.groups.reduce((s, g) => s + impTotal(g), 0))}</span></div>
       <div class="filters"><label class="fld" style="margin:0;min-width:260px"><span>Betreff der Rechnungen</span><input class="input" data-in="impBetreff" value="${esc(I.betreff)}" placeholder="z. B. Maschinenmiete 2026"></label>
         <label class="tog"><input type="checkbox" data-in="impOpt" data-k="kNeu" ${I.kNeu ? 'checked' : ''}> unbekannte Kunden neu anlegen</label>
-        <label class="tog"><input type="checkbox" data-in="impOpt" data-k="artNeu" ${I.artNeu ? 'checked' : ''}> fehlende Artikel anlegen</label>
+        ${I.vm ? `<label class="tog"><input type="checkbox" data-in="impOpt" data-k="miete" ${I.miete ? 'checked' : ''}> Maschinenmiete als eine Zeile «${MIETE_ART} ${esc(artByNr(MIETE_ART)?.bez || 'Maschinenmiete gemäss Rapport')}», Einzelheiten als Beilage</label>${I.miete && !artByNr(MIETE_ART) ? `<span class="small warnc">Artikel ${MIETE_ART} fehlt noch (Stammdaten › Artikel)</span>` : ''}` : ''}
+        ${I.miete ? '' : `<label class="tog"><input type="checkbox" data-in="impOpt" data-k="artNeu" ${I.artNeu ? 'checked' : ''}> fehlende Artikel anlegen</label>`}
         <label class="tog"><input type="checkbox" data-in="impOpt" data-k="append" ${I.append ? 'checked' : ''}> an bestehenden Entwurf des Kunden anhängen</label></div>
       <div class="dscroll"><table class="dtab"><thead><tr><th class="cb"></th><th>Aus der Liste</th><th>Kunde in IM-Faktura</th><th>Positionen</th><th class="n">Total CHF</th></tr></thead><tbody>
       ${I.groups.map((g, i) => `<tr class="${g.sel ? '' : 'off'}"><td class="cb"><input type="checkbox" data-in="impSel" data-i="${i}" ${g.sel ? 'checked' : ''}></td>
         <td>${g.kd ? `<span class="nr">${esc(g.kd)}</span> ` : ''}${esc(g.kn)}</td>
         <td><select class="input" data-in="impK" data-i="${i}" style="min-width:220px">${optList(K.map(k => [k.id, kLabel(k)]), g.kId, I.kNeu ? '＋ neu anlegen' : '– nicht zugeordnet –')}</select>${g.kId && !kAdrOk(kunde(g.kId)) ? '<div class="small warnc">Adresse unvollständig</div>' : ''}${g.how === 'ähnlich' ? '<div class="small warnc">ähnlicher Name – bitte prüfen</div>' : ''}</td>
-        <td class="small">${g.items.map(it => `${esc(it.art ? it.art + ' ' : '')}${esc(it.bez)}: ${fmtNum(it.menge, 3)} ${esc(it.einh)} × ${it.preis != null ? chf(it.preis) : '<span class="warnc">ohne Preis</span>'}${it.artNeu ? ' <span class="chip small">neuer Artikel</span>' : ''}`).join('<br>')}</td>
+        <td class="small">${g.items.map(it => `${esc(it.art ? it.art + ' ' : '')}${esc(it.bez)}: ${fmtNum(it.menge, 3)} ${esc(it.einh)} × ${it.preis != null ? chf(it.preis) : '<span class="warnc">ohne Preis</span>'}${it.artNeu && !I.miete ? ' <span class="chip small">neuer Artikel</span>' : ''}`).join('<br>')}</td>
         <td class="n">${chf(impTotal(g))}</td></tr>`).join('')}</tbody></table></div>` };
   }
   return { tb: '<h1>Import</h1>', html: `<div class="cols"><div>
@@ -265,8 +268,8 @@ function viewImport() {
     <div class="panel"><h2>Kunden übernehmen</h2><p>Bestehende Kunden werden über die Kunden-Nr. bzw. den Namen erkannt und nur ergänzt (nie überschrieben). Für den QR-Zahlteil braucht jeder Kunde Name, PLZ und Ort.</p>
       <div class="btns"><button class="btn" data-act="kDbx" data-src="vm">Aus IM-Vermietung</button><button class="btn" data-act="kDbx" data-src="lp">Aus IM-Verwaltung</button><label class="btn">Excel/CSV…<input type="file" accept=".xlsx,.csv,.txt" data-in="impKFile" hidden></label></div>
       ${Auth.hasSession() ? '' : '<p class="small warnc">Für IM-Vermietung/IM-Verwaltung zuerst unter Mehr mit Dropbox anmelden.</p>'}</div>
-    <div class="panel"><h2>Artikel übernehmen</h2><p>Maschinen der IM-Vermietung (Art.-Nr. 101 ff.) mit Preisen oder eine Artikelliste aus Excel (Art.-Nr., Bezeichnung, Einheit, Preis, MWST).</p>
-      <div class="btns"><button class="btn" data-act="aVm">Aus IM-Vermietung</button><label class="btn">Excel/CSV…<input type="file" accept=".xlsx,.csv,.txt" data-in="impAFile" hidden></label></div></div>
+    <div class="panel"><h2>Artikel übernehmen</h2><p>Artikelliste aus Excel (Art.-Nr., Bezeichnung, Einheit, MWST, Preis, Konto) – z. B. die Artikelliste aus AgroFaktura. Bestehende Artikel (gleiche Art.-Nr.) erhalten Preis, MWST und Konto aus der Liste. Alte MWST-Sätze (8,0 / 7,7 / 2,5 %) werden auf 8,1 / 2,6 % umgestellt.</p>
+      <div class="btns"><label class="btn">Excel/CSV…<input type="file" accept=".xlsx,.csv,.txt" data-in="impAFile" hidden></label></div></div>
   </div></div>` };
 }
 
@@ -277,8 +280,8 @@ function viewStamm() {
   if (sub === 'artikel') {
     const q = fold(App.f.a.q), L = artSorted().filter(a => !q || fold([a.artNr, a.bez].join(' ')).includes(q));
     return { tb: `<h1>Stammdaten</h1>${seg}<button class="btn primary" data-act="newA">＋ Artikel</button>`, html: `<div class="filters"><input class="input search" type="search" placeholder="Suchen…" data-in="aq" value="${esc(App.f.a.q)}"><span class="lbl">${L.length} Artikel</span></div>
-      <div class="dscroll"><table class="dtab"><thead><tr><th>Art.-Nr.</th><th>Bezeichnung</th><th>Einheit</th><th class="n">Preis CHF</th><th class="n">MWST</th></tr></thead><tbody>
-      ${L.map(a => `<tr class="click ${a.aktiv === false ? 'off' : ''}" data-act="editA" data-id="${a.id}"><td>${esc(a.artNr)}</td><td>${esc(a.bez)}</td><td>${esc(a.einheit || '')}</td><td class="n">${a.preis != null ? chf(a.preis) : ''}</td><td class="n">${a.mwst != null ? mwstTxt(a.mwst) : ''}</td></tr>`).join('')}</tbody></table>${L.length ? '' : '<div class="empty">Noch keine Artikel</div>'}</div>` };
+      <div class="dscroll"><table class="dtab"><thead><tr><th>Art.-Nr.</th><th>Bezeichnung</th><th>Einheit</th><th class="n">Preis CHF</th><th class="n">MWST</th><th>Konto</th></tr></thead><tbody>
+      ${L.map(a => `<tr class="click ${a.aktiv === false ? 'off' : ''}" data-act="editA" data-id="${a.id}"><td>${esc(a.artNr)}</td><td>${esc(a.bez)}</td><td>${esc(a.einheit || '')}</td><td class="n">${a.preis != null ? chf(a.preis) : ''}</td><td class="n">${a.mwst != null ? mwstTxt(a.mwst) : ''}</td><td>${a.konto ? esc(a.konto) : '<span class="small muted">' + esc(buchCfg().kontoStd) + ' (Std.)</span>'}</td></tr>`).join('')}</tbody></table>${L.length ? '' : '<div class="empty">Noch keine Artikel</div>'}</div>` };
   }
   const f = App.f.k, q = fold(f.q), cnt = new Map(); Store.all('rechnungen').forEach(r => cnt.set(r.kunde, (cnt.get(r.kunde) || 0) + 1));
   const L = kundenSorted().filter(k => (f.alle || k.aktiv !== false) && (!q || fold([k.nr, k.name, k.ort, k.strasse].join(' ')).includes(q)));
@@ -318,11 +321,12 @@ function artikelDialog(id) {
     <div class="three"><label class="fld"><span>Einheit</span><input class="input" name="einheit" list="einhList2" value="${esc(a.einheit || '')}"><datalist id="einhList2">${EINHEITEN.map(e => `<option value="${e}">`).join('')}</datalist></label>
       <label class="fld"><span>Preis CHF</span><input class="input" name="preis" inputmode="decimal" value="${a.preis ?? ''}"></label>
       <label class="fld"><span>MWST</span><select class="input" name="mwst">${mwstOpts(a.mwst)}</select></label></div>
+    <label class="fld"><span>Ertragskonto (AgroOffice)</span><input class="input" name="konto" inputmode="numeric" value="${esc(a.konto || '')}" placeholder="leer = Standardkonto ${esc(buchCfg().kontoStd)}" style="max-width:220px"></label>
     <label class="tog"><input type="checkbox" name="aktiv" ${a.aktiv !== false ? 'checked' : ''}> aktiv (in der Auswahl)</label>`,
     `${id ? '<button class="btn danger" value="del">Löschen</button>' : ''}<span class="spacer"></span><button class="btn primary" value="ok">Speichern</button>`,
     { onSubmit: (fd, btn) => {
       if (btn === 'del') { if (!confirm('Artikel löschen?')) return false; Store.remove('artikel', a.id); return; }
-      const x = Object.assign({}, a, { artNr: String(fd.get('artNr') || '').trim(), bez: String(fd.get('bez') || '').trim(), einheit: String(fd.get('einheit') || '').trim(), preis: num(fd.get('preis')), mwst: num(fd.get('mwst')) ?? 0, aktiv: !!fd.get('aktiv') });
+      const x = Object.assign({}, a, { artNr: String(fd.get('artNr') || '').trim(), bez: String(fd.get('bez') || '').trim(), einheit: String(fd.get('einheit') || '').trim(), preis: num(fd.get('preis')), mwst: num(fd.get('mwst')) ?? 0, konto: String(fd.get('konto') || '').replace(/\D/g, ''), aktiv: !!fd.get('aktiv') });
       if (!x.bez) { toast('Bezeichnung fehlt'); return false; }
       if (x.artNr && Store.all('artikel').some(o => o.id !== x.id && nrKey(o.artNr) === nrKey(x.artNr))) { toast('Art.-Nr. gibt es schon'); return false; }
       Store.put('artikel', x);
@@ -361,9 +365,10 @@ function viewMehr() {
       <h3 class="sub">Briefkopf</h3><img src="${esc(logoSrc())}" alt="" style="max-width:100%;max-height:70px;display:block;margin:4px 0 8px;background:#fff">
       <div class="btns"><label class="btn small">Anderes Logo…<input type="file" accept="image/*" data-in="logoFile" hidden></label>${c.logo ? '<button class="btn small" data-act="logoReset">Standard (logo.jpg)</button>' : ''}<button class="btn small" data-act="testDoc">👁 Testrechnung ansehen</button></div></div>
   </div><div>
-    <div class="panel"><h2>MWST-Sätze</h2><p class="small">Effektive Methode: MWST pro Position. Lohnarbeiten/Maschinenmiete Normalsatz 8,1 %, landwirtschaftliche Erzeugnisse, Saatgut, Dünger und Pflanzenschutzmittel 2,6 %.</p>
+    <div class="panel"><h2>MWST-Sätze</h2><p class="small">Effektive Methode, MWST pro Position (Satz kommt aus dem Artikel). Landwirtschaftliche Lohnarbeiten, Erzeugnisse, Saatgut, Dünger und Pflanzenschutzmittel 2,6 %; Maschinenmiete, Forstarbeiten 8,1 %.</p>
       <table class="dtab">${c.mwst.map((m, i) => `<tr><td style="width:110px"><input class="input n" data-in="mwst" data-i="${i}" data-f="satz" value="${m.satz}" inputmode="decimal"></td><td><input class="input" data-in="mwst" data-i="${i}" data-f="name" value="${esc(m.name)}"></td><td style="width:40px"><button class="ib" data-act="mwstDel" data-i="${i}">✕</button></td></tr>`).join('')}</table>
       <div class="btns"><button class="btn small" data-act="mwstAdd">＋ Satz</button></div></div>
+    ${buchPanel()}
     <div class="panel"><h2>Mahnwesen</h2>${c.mahn.map((m, i) => `<div class="mstufe"><div class="three" style="grid-template-columns:2fr 1fr 1fr">
         <label class="fld"><span>Stufe ${i + 1}</span><input class="input" data-in="mahn" data-i="${i}" data-f="titel" value="${esc(m.titel)}"></label>
         <label class="fld"><span>Gebühr CHF</span><input class="input n" data-in="mahn" data-i="${i}" data-f="gebuehr" value="${m.gebuehr}" inputmode="decimal"></label>
@@ -376,19 +381,32 @@ function viewMehr() {
       <div class="btns"><button class="btn" data-act="reload">App neu laden</button></div></div>
   </div></div>` };
 }
+function buchPanel() {
+  const B = buchCfg(), dir = ls('mf_buchdir'), bi = (k, l, x = '') => `<label class="fld"><span>${l}</span><input class="input" data-in="buch" data-k="${k}" value="${esc(B[k] ?? '')}" inputmode="numeric" ${x}></label>`;
+  return `<div class="panel"><h2>Buchhaltung (AgroOffice)</h2>
+    <p class="small">Gebucht werden nur <b>Zahlungseingänge</b>: Bank an Hilfskonto (Total), dann Hilfskonto an die Ertragskonten der Artikel, je MWST-Satz inkl. MWST (vereinnahmt). Datei im Abacus-Format «XML-Buchungen» – in AgroOffice unter Grundeinstellungen › Import den Ordner eintragen.</p>
+    <div class="three">${bi('bank', 'Bankkonto')}${bi('hilfs', 'Hilfskonto Zahlungen')}${bi('kontoStd', 'Standard-Ertragskonto')}</div>
+    <div class="three">${bi('kontoGeb', 'Mahngebühren')}${bi('kontoUeber', 'Überzahlungen')}${bi('mwstKonto', 'MWST-Konto')}</div>
+    <div class="three">${Store.cfg().mwst.filter(m => +m.satz).map(m => `<label class="fld"><span>MWST-Code ${mwstTxt(m.satz)}</span><input class="input" data-in="buchCode" data-k="${m.satz}" value="${esc(B.codes[String(m.satz)] || '')}" maxlength="3"></label>`).join('')}</div>
+    <div class="two">${bi('version', 'Abacus-Version', 'inputmode="decimal"')}${bi('mandant', 'Mandant (meist leer)')}</div>
+    <p class="small">Speicherort: ${dir ? `Ordner <b>${esc(dir)}</b> <a href="#" data-act="buchDirClear">zurücksetzen</a>` : 'Download-Ordner'}${window.showDirectoryPicker ? ` · <a href="#" data-act="buchDir">Ordner wählen…</a>` : ''}</p>
+    <div class="btns"><button class="btn primary" data-act="buchOpen">📒 Buchungen erstellen (${offeneZahlungen().length})</button></div>
+    <h3 class="sub">Debitoren per Stichtag</h3><p class="small">Offene Rechnungen an einem Tag (Zahlungen und Gebühren bis zu diesem Tag), aufgeteilt nach Konto und MWST – für die Nachführung per 31.12.</p>
+    <div class="btns"><input class="input" type="date" data-in="debStich" value="${new Date().getMonth() < 6 ? new Date().getFullYear() - 1 : new Date().getFullYear()}-12-31" style="max-width:170px"><button class="btn" data-act="debExcel">⬇ Debitorenliste (Excel)</button></div></div>`;
+}
 function journal() {
   const L = Store.all('rechnungen').filter(r => r.nr).sort((a, b) => +a.nr - +b.nr || String(a.nr).localeCompare(b.nr)), sätze = [...new Set(L.flatMap(r => calc(r).groups.map(g => g.satz)))].sort((a, b) => b - a);
   const rows = [['Nr.', 'Datum', 'Kd-Nr.', 'Kunde', 'Betreff', ...sätze.flatMap(s => [`Netto ${s} %`, `MWST ${s} %`]), 'Rundung', 'Total CHF', 'Gebühren', 'Bezahlt', 'Offen', 'Fällig', 'Status', 'Mahnstufe', 'Referenz', 'Letzte Zahlung']];
   L.forEach(r => { const c = calc(r), k = kunde(r.kunde) || {}, gm = new Map(c.groups.map(g => [g.satz, g]));
     rows.push([+r.nr || r.nr, r.datum, k.nr ? +k.nr || k.nr : '', k.name || '', r.betreff || '', ...sätze.flatMap(s => [gm.get(s)?.netto ?? '', gm.get(s)?.mwst ?? '']), c.rund || '', c.total, gebuehren(r) || '', bezahlt(r) || '', r.storno ? '' : offenBetrag(r), r.faellig || '', ST[statusOf(r)][0], (r.mahnungen || []).length || '', r.ref || '', (r.zahlungen || []).map(z => z.datum).sort().pop() || '']); });
-  download(`Rechnungsjournal_${todayIso()}.xlsx`, xlsxBlob([{ name: 'Rechnungen', rows }, { name: 'Positionen', rows: [['Nr.', 'Datum', 'Kunde', 'Art.-Nr.', 'Bezeichnung', 'Menge', 'Einheit', 'Preis', 'MWST %', 'Betrag'],
-    ...L.filter(r => !r.storno).flatMap(r => calc(r).rows.filter(p => (p.typ || 'pos') === 'pos').map(p => [+r.nr || r.nr, r.datum, kName(r.kunde), p.art || '', p.bez, p.menge ?? '', p.einh || '', p.preis ?? '', p.mwst ?? '', p.betrag]))] },
-    { name: 'Zahlungen', rows: [['Nr.', 'Kunde', 'Datum', 'Betrag', 'Quelle'], ...L.flatMap(r => (r.zahlungen || []).map(z => [+r.nr || r.nr, kName(r.kunde), z.datum, z.betrag, z.quelle === 'camt' ? 'camt' : z.bem || '']))] }]));
+  download(`Rechnungsjournal_${todayIso()}.xlsx`, xlsxBlob([{ name: 'Rechnungen', rows }, { name: 'Positionen', rows: [['Nr.', 'Datum', 'Kunde', 'Art.-Nr.', 'Bezeichnung', 'Menge', 'Einheit', 'Preis', 'MWST %', 'Betrag', 'Konto'],
+    ...L.filter(r => !r.storno).flatMap(r => calc(r).rows.filter(p => (p.typ || 'pos') === 'pos').map(p => [+r.nr || r.nr, r.datum, kName(r.kunde), p.art || '', p.bez, p.menge ?? '', p.einh || '', p.preis ?? '', p.mwst ?? '', p.betrag, +posKonto(p) || posKonto(p)]))] },
+    { name: 'Zahlungen', rows: [['Nr.', 'Kunde', 'Datum', 'Betrag', 'Quelle', 'AgroOffice'], ...L.flatMap(r => (r.zahlungen || []).map(z => [+r.nr || r.nr, kName(r.kunde), z.datum, z.betrag, z.quelle === 'camt' ? 'camt' : z.bem || '', isAus(z) ? 'nicht gebucht (ausgebucht)' : z.exp ? 'exportiert' : 'offen']))] }]));
 }
 function exportAll() {
   download(`IM-Faktura-Daten_${todayIso()}.xlsx`, xlsxBlob([
     { name: 'Kunden', rows: [['Kd-Nr.', 'Name', 'Zusatz', 'Strasse', 'Nr.', 'PLZ', 'Ort', 'Land', 'E-Mail', 'Telefon', 'Frist', 'Aktiv', 'Bemerkung', 'ID'], ...kundenSorted().map(k => [k.nr ? +k.nr || k.nr : '', k.name, k.zusatz || '', k.strasse || '', k.hausnr || '', k.plz || '', k.ort || '', k.land || '', k.mail || '', k.tel || '', k.frist ?? '', k.aktiv === false ? 'nein' : 'ja', k.bem || '', k.id])] },
-    { name: 'Artikel', rows: [['Art.-Nr.', 'Bezeichnung', 'Einheit', 'Preis CHF', 'MWST %', 'Aktiv'], ...artSorted().map(a => [+a.artNr || a.artNr || '', a.bez, a.einheit || '', a.preis ?? '', a.mwst ?? '', a.aktiv === false ? 'nein' : 'ja'])] }]));
+    { name: 'Artikel', rows: [['Art.-Nr.', 'Bezeichnung', 'Einheit', 'Preis CHF', 'MWST %', 'Konto', 'Aktiv'], ...artSorted().map(a => [+a.artNr || a.artNr || '', a.bez, a.einheit || '', a.preis ?? '', a.mwst ?? '', a.konto ? +a.konto : '', a.aktiv === false ? 'nein' : 'ja'])] }]));
 }
 async function restore(file) {
   let d; try { d = JSON.parse(await file.text()); } catch { toast('Keine gültige Datensicherung'); return; }
@@ -451,7 +469,6 @@ document.addEventListener('click', ev => {
     case 'impCancel': App.imp = null; App.render(); break;
     case 'impCreate': impAbrCreate(); break;
     case 'kDbx': impKundenDbx(t.dataset.src); break;
-    case 'aVm': impArtVm(); break;
     case 'kimpAll': $$('#dlgForm input[type=checkbox][name^="s"]:not(:disabled)').forEach(x => { x.checked = t.checked; }); break;
     // Stammdaten
     case 'newK': kundeDialog(null); break;
@@ -466,6 +483,15 @@ document.addEventListener('click', ev => {
     case 'edEditK': kundeDialog(App.ed.kunde, { after: () => rechnungDialog(null, { keep: true }) }); break;
     case 'edZahl': { const r = edClean(clone(App.ed)); edSave(r); zahlDialog(r.id, true); break; }
     case 'edMahn': { const r = edClean(clone(App.ed)); edSave(r); mahnDialog([r.id], true); break; }
+    case 'edBeilDel': if (confirm('Beilage entfernen?')) { delete App.ed.beilage; edRerender(); } break;
+    case 'buchOpen': buchDialog(); break;
+    case 'buchDir': Dir.pick().then(() => { if ($('#dlg').open) buchDialog(); }); break;
+    case 'buchDirClear': Dir.clear().then(() => { ls('mf_buchdir', null); App.render(); }); break;
+    case 'buchAgain': buchExport(buchZahlungenOf(id), id); break;
+    case 'buchUndo': { const L = buchZahlungenOf(id); if (!confirm(`${L.length} Zahlungen wieder als «nicht exportiert» markieren? (Nur wenn der Import in AgroOffice nicht geklappt hat – sonst wird doppelt gebucht.)`)) break;
+      const ch = new Map(); L.forEach(({ r, z }) => { const x = ch.get(r.id) || clone(r); const zz = x.zahlungen.find(q => q.id === z.id); if (zz) delete zz.exp; ch.set(r.id, x); });
+      Store.putMany('rechnungen', [...ch.values()], { silent: true }); Store.setCfg({ buchExports: (Store.cfg().buchExports || []).filter(e => e.id !== id) }); buchDialog(); break; }
+    case 'debExcel': debitorenExcel(($('[data-in=debStich]') || {}).value || `${new Date().getFullYear() - 1}-12-31`); break;
     case 'edMahnPrint': { const r = App.ed; printDocs([{ r, mahnung: +t.dataset.i }], { title: `Mahnung ${r.nr} ${kName(r.kunde)}` }); break; }
   }
 });
@@ -497,6 +523,9 @@ function onChange(ev) {
       Store.setCfg(setPath(c, key, val)); if (['iban', 'nextNr', 'refPrefix', 'mwstDef'].includes(key)) App.render(); toast('Gespeichert', 1200); break;
     }
     case 'cfgB': Store.setCfg({ [t.dataset.k]: t.checked }); break;
+    case 'buch': Store.setCfg({ buch: Object.assign({}, Store.cfg().buch || {}, { [t.dataset.k]: v.trim() }) }); toast('Gespeichert', 1200); break;
+    case 'buchCode': { const b = Object.assign({}, Store.cfg().buch || {}); b.codes = Object.assign({}, b.codes || {}, { [t.dataset.k]: v.trim() }); Store.setCfg({ buch: b }); toast('Gespeichert', 1200); break; }
+    case 'buchBis': App.buchBis = v; buchDialog(); break;
     case 'mwst': { const m = Store.cfg().mwst, i = +t.dataset.i; m[i][t.dataset.f] = t.dataset.f === 'satz' ? (num(v) ?? 0) : v; Store.setCfg({ mwst: m }); App.render(); break; }
     case 'mahn': { const m = Store.cfg().mahn, i = +t.dataset.i, f = t.dataset.f; m[i][f] = f === 'gebuehr' || f === 'frist' ? (num(v) ?? 0) : v; Store.setCfg({ mahn: m }); break; }
     case 'logoFile': if (t.files[0]) { const fr = new FileReader(); fr.onload = () => { if (fr.result.length > 400000) { toast('Bild zu gross (max. ca. 300 KB)'); return; } Store.setCfg({ logo: fr.result }); App.render(); }; fr.readAsDataURL(t.files[0]); } t.value = ''; break;

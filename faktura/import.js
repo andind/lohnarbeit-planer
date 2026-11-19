@@ -64,16 +64,18 @@ function impAbrBuild(rows, { hi, map }, fname) {
   if (!items.length) { toast('Keine Positionen gefunden – Spalten prüfen'); return; }
   const G = new Map();
   items.forEach(it => { const key = it.kd || fold(it.kn); if (!G.has(key)) G.set(key, { kd: it.kd, kn: it.kn, items: [] }); G.get(key).items.push(it); });
-  App.imp = { fname, titel: /vermiet|maschin/i.test(fname) || items.some(i => /^1\d\d$/.test(i.art)) ? 'Rechnung' : 'Rechnung', betreff: /vermiet|maschin/i.test(fname) ? 'Maschinenmiete' : '',
+  const vm = (rows[hi] || []).some(c => /^eins(ä|ae)tze/i.test(String(c || '').trim())) || /abrechnungsliste|vermiet/i.test(fname);
+  App.imp = { fname, vm, miete: vm, betreff: vm ? 'Maschinenmiete' : '',
     groups: [...G.values()].map(g => { const m = matchKunde(g.kd, g.kn); return Object.assign(g, { kId: m?.k.id || '', how: m?.how || '', sel: true }); }), artNeu: true, kNeu: true, append: false };
   App.go('import');
 }
+const MIETE_ART = '100';
 const impTotal = g => r2(g.items.reduce((s, i) => s + r2((i.menge ?? 1) * (i.preis || 0)), 0));
 function impAbrCreate() {
   const I = App.imp, c = Store.cfg(); if (!I) return;
   const G = I.groups.filter(g => g.sel); if (!G.length) { toast('Keine Kunden ausgewählt'); return; }
   // fehlende Artikel anlegen
-  if (I.artNeu) {
+  if (I.artNeu && !I.miete) {
     const neu = new Map(); G.forEach(g => g.items.forEach(i => { if (i.art && !artByNr(i.art) && !neu.has(nrKey(i.art))) neu.set(nrKey(i.art), { id: uid(), artNr: i.art, bez: i.bez.replace(/^\d{2}\.\d{2}\.\d{4}\s+/, ''), einheit: i.einh, preis: i.preis, mwst: c.mwstDef, aktiv: true }); }));
     if (neu.size) Store.putMany('artikel', [...neu.values()], { silent: true });
   }
@@ -81,9 +83,16 @@ function impAbrCreate() {
   G.forEach(g => {
     let k = kunde(g.kId);
     if (!k) { if (!I.kNeu) return; k = { id: uid(), nr: g.kd || '', name: g.kn || ('Kunde ' + g.kd), aktiv: true, land: 'CH' }; Store.put('kunden', k, { silent: true }); nNeuK++; }
-    const pos = g.items.map(i => newPos({ art: i.art, bez: i.bez, menge: i.menge, einh: i.einh, preis: i.preis, mwst: artByNr(i.art)?.mwst ?? i.mwst }));
+    let pos, beilage = null;
+    if (I.miete) { // Version A: eine Zeile «100 Maschinenmiete gemäss Rapport», Einzelheiten als Beilage
+      const a = artByNr(MIETE_ART), tot = impTotal(g);
+      pos = [newPos({ art: MIETE_ART, bez: a?.bez || 'Maschinenmiete gemäss Rapport', menge: 1, einh: a?.einheit || '', preis: tot, mwst: a?.mwst ?? 8.1, konto: a?.konto || '3411' })];
+      beilage = { titel: 'Rapport Maschinenmiete', cols: [['Art.-Nr.', '', 'ca'], ['Maschine', ''], ['Menge', 'q', 'cm'], ['Einheit', '', 'ce'], ['Preis', 'chf', 'cp'], ['Betrag CHF', 'chf', 'cb']],
+        rows: g.items.map(i => [i.art, i.bez, i.menge, i.einh, i.preis, r2((i.menge ?? 1) * (i.preis || 0))]), total: tot, quelle: I.fname };
+    } else pos = g.items.map(i => { const a = artByNr(i.art); return newPos({ art: i.art, bez: i.bez, menge: i.menge, einh: i.einh, preis: i.preis, mwst: a?.mwst ?? i.mwst, konto: a?.konto || '' }); });
     let r = I.append ? Store.all('rechnungen').find(x => x.kunde === k.id && statusOf(x) === 'entwurf') : null;
-    if (r) { r = clone(r); r.pos.push(...pos); } else { r = newRechnung({ kunde: k.id, frist: k.frist ?? c.frist, betreff: I.betreff || '', quelle: I.fname }); r.pos = pos; }
+    if (r) { r = clone(r); r.pos.push(...pos); if (beilage) r.beilage = r.beilage ? Object.assign({}, r.beilage, { rows: r.beilage.rows.concat(beilage.rows), total: r2((r.beilage.total || 0) + beilage.total) }) : beilage; }
+    else { r = newRechnung({ kunde: k.id, frist: k.frist ?? c.frist, betreff: I.betreff || '', quelle: I.fname }); r.pos = pos; if (beilage) r.beilage = beilage; }
     out.push(r); nR++;
   });
   Store.putMany('rechnungen', out, { silent: true });
@@ -144,12 +153,14 @@ function kundenMerge(L, quelle) {
 
 /* ---------- Artikel übernehmen ---------- */
 const ART_F = [['artNr', 'Art.-Nr.', /^art(ikel)?[-\s.]*(nr|nummer)\.?$|^nr\.?$|^artikel$/i], ['bez', 'Bezeichnung', /bezeichnung|maschine|name|text/i], ['einheit', 'Einheit', /^einh/i],
-  ['preis', 'Preis', /^(preis|ansatz)/i], ['mwst', 'MWST-Satz', /mwst|mwst-satz|ust|steuer/i]];
+  ['preis', 'Preis', /^(preis|ansatz)/i], ['mwst', 'MWST-Satz', /mwst|mwst-satz|ust|steuer/i], ['konto', 'Konto', /^(konto|ertragskonto|kto)/i]];
+// MWST-Satz aus Text («2.6%», «8.0%») – alte Sätze werden auf die seit 2024 gültigen umgestellt
+function mwstParse(v) { if (v == null || String(v).trim() === '') return 0; let m = num(String(v).replace('%', '')); if (m == null) return 0; if (m > 0 && m < 1) m = r2(m * 100); return ({ 8: 8.1, 7.7: 8.1, 7.6: 8.1, 2.5: 2.6, 2.4: 2.6, 3.7: 3.8, 3.5: 3.8 })[m] ?? m; }
 async function impArtFile(file) {
   let rows; try { rows = await readTable(file); } catch (e) { toast('Datei nicht lesbar: ' + e.message, 6000); return; }
   mapDialog('Artikel', rows, ART_F, detectCols(rows, ART_F), ({ hi, map }) => {
     artMerge(rows.slice(hi + 1).map(r => { const g = f => String(pick(r, map, f) ?? '').trim(); if (!g('artNr') && !g('bez')) return null;
-      const m = num(g('mwst')); return { artNr: g('artNr'), bez: g('bez'), einheit: g('einheit'), preis: num(g('preis')), mwst: m == null ? undefined : (m < 1 && m > 0 ? r2(m * 100) : m) }; }).filter(Boolean), file.name);
+      return { artNr: g('artNr'), bez: g('bez'), einheit: g('einheit'), preis: num(g('preis')), mwst: map.mwst != null ? mwstParse(g('mwst')) : undefined, konto: g('konto').replace(/\D/g, '') }; }).filter(Boolean), file.name);
   }, ['bez']);
 }
 async function impArtVm() {
@@ -161,8 +172,8 @@ async function impArtVm() {
 function artMerge(L, quelle) {
   const c = Store.cfg(); let neu = 0, upd = 0; const out = [];
   L.forEach(n => { const a = n.artNr ? artByNr(n.artNr) : Store.all('artikel').find(x => fold(x.bez) === fold(n.bez));
-    if (a) { const x = clone(a); let ch = false; ['bez', 'einheit'].forEach(f => { if (n[f] && !x[f]) { x[f] = n[f]; ch = true; } }); if (n.preis != null && n.preis !== x.preis) { x.preis = n.preis; ch = true; } if (n.mwst != null && n.mwst !== x.mwst) { x.mwst = n.mwst; ch = true; } if (ch) { out.push(x); upd++; } }
-    else { out.push({ id: uid(), artNr: n.artNr, bez: n.bez, einheit: n.einheit || '', preis: n.preis, mwst: n.mwst ?? c.mwstDef, aktiv: true }); neu++; } });
+    if (a) { const x = clone(a); let ch = false; ['bez', 'einheit'].forEach(f => { if (n[f] && !x[f]) { x[f] = n[f]; ch = true; } }); if (n.preis != null && n.preis !== x.preis) { x.preis = n.preis; ch = true; } if (n.mwst != null && n.mwst !== x.mwst) { x.mwst = n.mwst; ch = true; } if (n.konto && n.konto !== x.konto) { x.konto = n.konto; ch = true; } if (ch) { out.push(x); upd++; } }
+    else { out.push({ id: uid(), artNr: n.artNr, bez: n.bez, einheit: n.einheit || '', preis: n.preis, mwst: n.mwst ?? c.mwstDef, konto: n.konto || '', aktiv: true }); neu++; } });
   if (!out.length) { toast(`${quelle}: nichts Neues`); return; }
   if (!confirm(`${quelle}: ${neu} neue Artikel, ${upd} Preise/Angaben aktualisieren?`)) return;
   Store.putMany('artikel', out); toast(`${neu + upd} Artikel übernommen`);

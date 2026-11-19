@@ -102,7 +102,24 @@ function qrBlock(b) {
 // docs: [{ r, mahnung: idx }]
 async function docsHtml(docs) {
   await loadLogo();
-  return docs.map(d => renderDoc(d.mahnung != null ? mahnungParts(d.r, d.mahnung) : rechnungParts(d.r), d.r)).join('');
+  return docs.map(d => renderDoc(d.mahnung != null ? mahnungParts(d.r, d.mahnung) : rechnungParts(d.r), d.r) + (d.mahnung == null && d.r.beilage ? renderBeilage(d.r) : '')).join('');
+}
+// Beilage hinter der Rechnung (z. B. Rapport Maschinenmiete): { titel, cols: [[Titel, 'n'|'']], rows: [[…]], total }
+function renderBeilage(r) {
+  const B = r.beilage; if (!B || !(B.rows || []).length) return '';
+  const h = measurer(), full = PAGE.h - PAGE.top - PAGE.bottom - 6;
+  const titel = `Beilage zu ${r.titel || 'Rechnung'} Nr. ${r.nr || '(Entwurf)'}`;
+  const head = `<img class="dlogo" src="${esc(logoSrc())}" alt="" style="aspect-ratio:${LOGO.w}/${LOGO.h};max-height:24mm"><div class="dtitle">${esc(B.titel || 'Beilage')}</div><div class="dtext">${esc(titel)} · ${esc(docK(r)?.name || '')}</div>`;
+  const thead = `<thead><tr>${B.cols.map(([t, n, cl]) => `<th class="${n ? 'n' : ''} ${cl || ''}">${esc(t)}</th>`).join('')}</tr></thead>`;
+  const cell = (v, n) => n ? (typeof v === 'number' ? (n === 'chf' ? chf(v) : qtyTxt(v)) : esc(v ?? '')) : esc(v ?? '');
+  const rows = B.rows.map(row => `<tr>${row.map((v, i) => `<td class="${B.cols[i][1] ? 'n' : ''}">${cell(v, B.cols[i][1])}</td>`).join('')}</tr>`);
+  const foot = B.total != null ? `<table class="dsum"><tr class="tot"><td>Total CHF</td><td class="n">${chf(B.total)}</td></tr></table>` : '';
+  const tab = R => `<table class="itab">${thead}<tbody>${R.join('')}</tbody></table>`;
+  const headH = h(head), contH = h(contHead(r, B.titel)), thH = h(tab([])), footH = h(foot) + 2, rowH = rows.map(x => h(tab([x])) - thH);
+  const pages = []; let cur = { rows: [], first: true }, y = headH + thH;
+  rows.forEach((x, i) => { if (cur.rows.length && y + rowH[i] > full) { pages.push(cur); cur = { rows: [] }; y = contH + thH; } cur.rows.push(x); y += rowH[i]; });
+  if (y + footH > full) { pages.push(cur); cur = { rows: [] }; } cur.foot = true; pages.push(cur);
+  return pages.map((p, i) => `<div class="page doc">${p.first ? head : contHead(r, B.titel)}${p.rows.length ? tab(p.rows) : ''}${p.foot ? foot : ''}${pages.length > 1 ? `<div class="dpno">Beilage Seite ${i + 1} von ${pages.length}</div>` : ''}</div>`).join('');
 }
 async function printDocs(docs, { title, after } = {}) {
   if (!docs.length) return;
