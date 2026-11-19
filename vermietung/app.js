@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.15', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.16', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -1197,7 +1197,8 @@ function viewAbrechnung() {
     const head = `<tr class="click ${g.R.length ? 'sel' : ''}" data-act="abrToggle" data-id="${g.k.id}"><td class="cb"><input type="checkbox" ${g.R.length ? 'checked' : ''} ${part ? 'data-ind="1"' : ''} tabindex="-1"></td>
       <td><button type="button" class="btn small" data-act="abrExp" data-id="${g.k.id}" title="Zeilen anzeigen und einzeln auswählen">${isOpen ? '▾' : '▸'} ${g.R.length ? g.R.length + ' / ' : ''}${nW}${nSt ? ' +' + nSt : ''}</button></td>
       <td class="n">${esc(g.k.nr || '')}</td><td><b>${esc(g.k.name)}</b></td><td class="n">${s.ha ? fmtQty(s.ha) : ''}</td><td class="n">${s.h ? fmtQty(s.h) : ''}</td><td class="n">${s.chf ? chf(s.chf) : ''}</td><td>${hints.join(' ')}</td>
-      <td><button class="btn small" data-act="abrOne" data-id="${g.k.id}" title="Rapport nur für diesen Kunden (ausgewählte Zeilen, sonst alle)" ${nW ? '' : 'disabled'}>Rapport</button></td></tr>`;
+      <td class="nowrap"><button class="btn small" data-act="abrOne" data-id="${g.k.id}" title="Rapport nur für diesen Kunden (ausgewählte Zeilen, sonst alle)" ${nW ? '' : 'disabled'}>Rapport</button>
+        <button class="btn small" data-act="abrFaktOne" data-id="${g.k.id}" title="Nur diesen Kunden an IM-Faktura senden (ausgewählte Zeilen, sonst alle offenen) und als abgerechnet markieren" ${nW ? '' : 'disabled'}>📤 An IM-Faktura</button></td></tr>`;
     const sub = isOpen ? g.L.map(e => { const m = masch(e.maschine) || {}, b = betragOf(e), st = isStorno(e), on = App.abr.rows.has(e.id) && !st;
       return `<tr class="sub click ${on ? 'sel' : ''} ${st ? 'off storno' : ''} ${isDone(e) ? 'done' : ''}" data-act="abrEntry" data-id="${e.id}" title="Anklicken = Details"><td></td>
         <td class="cb" style="text-align:left"><input type="checkbox" data-act="abrRow" data-id="${e.id}" ${on ? 'checked' : ''} ${st ? 'disabled' : ''} title="${st ? 'storniert – nie im Rapport' : 'Zeile auswählen (Rapport, Abrechnungsliste, abrechnen)'}">${e.ohneRapport ? ' <span class="chip warn small">nicht im Rapport</span>' : ''}</td>
@@ -1270,8 +1271,8 @@ function printHtml(html, after) { // after: wird nach dem Druckfenster einmal au
 }
 // Vor dem Druck: Artikelpreise nur für diesen Ausdruck anpassen (Stammdaten bleiben unverändert)
 function prePrint(kind, ids) {
-  const G = abrGroups().filter(g => ids ? ids.includes(g.k.id) : g.R.length).map(g => (ids && !g.R.length) ? Object.assign({}, g, { R: abrWahl(g) }) : g).filter(g => g.R.length);
-  if (!G.length) { toast('Keine Einträge für den Rapport – Kunden ankreuzen'); return; }
+  const G = abrGroups().filter(g => ids ? ids.includes(g.k.id) : g.R.length).map(g => (ids && !g.R.length) ? Object.assign({}, g, { R: abrWahl(g).filter(e => kind !== 'faktura' || isOffen(e)) }) : g).filter(g => g.R.length);
+  if (!G.length) { toast(kind === 'faktura' ? 'Keine offenen Einsätze zum Senden' : 'Keine Einträge für den Rapport – Kunden ankreuzen'); return; }
   const arts = new Map(); let eigen = 0;
   G.flatMap(g => g.R).forEach(e => { if (e.preis != null) { eigen++; return; }
     const k = e.maschine + '|' + einhOf(e), m = masch(e.maschine) || {};
@@ -1590,6 +1591,7 @@ document.addEventListener('click', ev => {
     case 'abrList': prePrint('liste'); break;
     case 'abrXlsx': prePrint('xlsx'); break;
     case 'abrFakt': prePrint('faktura'); break;
+    case 'abrFaktOne': prePrint('faktura', [id]); break;
     case 'abrEntry': einsatzDialog(id); break;
     case 'abrDoneSel': abrDoneSel(); break;
     case 'fkSync': FK.sync(); break;
