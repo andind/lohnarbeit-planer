@@ -93,15 +93,17 @@ function rechnungDialog(id, { keep = false } = {}) {
       <label class="fld"><span>Datum</span><input class="input" type="date" data-in="ed" data-k="datum" value="${esc(r.datum)}"></label>
       <label class="fld"><span>Zahlungsfrist (Tage)</span><input class="input" type="number" min="0" data-in="ed" data-k="frist" value="${esc(r.frist ?? c.frist)}"></label>
       <label class="fld"><span>Titel</span><input class="input" data-in="ed" data-k="titel" value="${esc(r.titel)}"></label>
-      <label class="fld wide2"><span>Betreff (optional)</span><input class="input" data-in="ed" data-k="betreff" value="${esc(r.betreff || '')}" placeholder="z. B. Maschinenmiete 2026, Spritzarbeiten Frühling"></label>
+      <label class="fld wide2"><span>Betreff (intern – wird nicht gedruckt)</span><input class="input" data-in="ed" data-k="betreff" value="${esc(r.betreff || '')}" placeholder="z. B. IM-Verwaltung, IM-Vermietung, Maschinenmiete 2026"></label>
     </div>
     <details class="help" ${r.textOben ? 'open' : ''}><summary>Text über den Positionen</summary><textarea class="input" data-in="ed" data-k="textOben" rows="2">${esc(r.textOben || '')}</textarea></details>
     <datalist id="artList">${artSorted().filter(a => a.aktiv !== false).map(a => `<option value="${esc(a.artNr)}">${esc(a.bez)}${a.preis != null ? ' · ' + chf(a.preis) + '/' + esc(a.einheit || '') : ''}</option>`).join('')}</datalist>
-    <div class="dscroll postab"><table class="dtab"><thead><tr><th style="width:84px">Art.-Nr.</th><th>Bezeichnung</th><th class="n" style="width:84px">Menge</th><th style="width:80px">Einh.</th><th class="n" style="width:96px">Preis</th><th style="width:84px">MWST</th><th class="n" style="width:96px">Betrag</th><th style="width:72px"></th></tr></thead><tbody>
+    <div class="dscroll postab"><table class="dtab"><thead><tr><th class="cs" title="Positionen auswählen – z. B. für einen Zusatzposten"></th><th style="width:128px">Datum</th><th style="width:84px">Art.-Nr.</th><th>Bezeichnung / Bemerkung</th><th class="n" style="width:84px">Menge</th><th style="width:80px">Einh.</th><th class="n" style="width:96px">Preis</th><th style="width:84px">MWST</th><th class="n" style="width:96px">Betrag</th><th style="width:72px"></th></tr></thead><tbody>
     ${r.pos.map((p, i) => (p.typ || 'pos') !== 'pos'
-      ? `<tr><td class="small muted">${p.typ === 'titel' ? 'Titel' : 'Text'}</td><td colspan="6"><textarea class="input" rows="1" data-in="edp" data-i="${i}" data-f="bez">${esc(p.bez)}</textarea></td><td class="nowrap">${posBtns(i)}</td></tr>`
-      : `<tr><td><input class="input" list="artList" data-in="edp" data-i="${i}" data-f="art" value="${esc(p.art || '')}"></td>
-        <td><textarea class="input" rows="1" data-in="edp" data-i="${i}" data-f="bez">${esc(p.bez)}</textarea></td>
+      ? `<tr><td></td><td></td><td class="small muted">${p.typ === 'titel' ? 'Titel' : 'Text'}</td><td colspan="6"><textarea class="input" rows="1" data-in="edp" data-i="${i}" data-f="bez">${esc(p.bez)}</textarea></td><td class="nowrap">${posBtns(i)}</td></tr>`
+      : `<tr class="${(App.edSel || new Set()).has(p.id) ? 'psel' : ''}"><td class="cs"><input type="checkbox" data-act="edSel" data-id="${p.id}" ${(App.edSel || new Set()).has(p.id) ? 'checked' : ''}></td>
+        <td><input class="input" type="date" data-in="edp" data-i="${i}" data-f="datum" value="${esc(p.datum || '')}" title="Auftragsdatum – leer bei Zusatzpositionen"></td>
+        <td><input class="input" list="artList" data-in="edp" data-i="${i}" data-f="art" value="${esc(p.art || '')}"></td>
+        <td><textarea class="input" rows="1" data-in="edp" data-i="${i}" data-f="bez">${esc(p.bez)}</textarea><input class="input pbem" data-in="edp" data-i="${i}" data-f="bem" value="${esc(p.bem || '')}" placeholder="Bemerkung (z. B. Kultur, Feld)"></td>
         <td><input class="input n" inputmode="decimal" data-in="edp" data-i="${i}" data-f="menge" value="${p.menge ?? ''}"></td>
         <td><input class="input" list="einhList" data-in="edp" data-i="${i}" data-f="einh" value="${esc(p.einh || '')}"></td>
         <td><input class="input n" inputmode="decimal" data-in="edp" data-i="${i}" data-f="preis" value="${p.preis ?? ''}"></td>
@@ -109,7 +111,7 @@ function rechnungDialog(id, { keep = false } = {}) {
         <td class="n" id="pb${i}">${chf(calc({ pos: [p] }).rows[0].betrag)}</td><td class="nowrap">${posBtns(i)}</td></tr>`).join('')}
     </tbody></table></div>
     <datalist id="einhList">${EINHEITEN.map(e => `<option value="${e}">`).join('')}</datalist>
-    <div class="btns"><button type="button" class="btn small" data-act="edAdd" data-t="pos">＋ Position</button><button type="button" class="btn small" data-act="edAdd" data-t="text">＋ Textzeile</button><button type="button" class="btn small" data-act="edAdd" data-t="titel">＋ Zwischentitel</button><button type="button" class="btn small" data-act="edSum" title="Gleiche Positionen (gleiche Arbeit/Produkt, Preis, Einheit, MWST) zu einer Zeile zusammenfassen">Σ Zusammenfassen</button>
+    <div class="btns"><button type="button" class="btn small" data-act="edAdd" data-t="pos">＋ Position</button><button type="button" class="btn small" data-act="edAdd" data-t="text">＋ Textzeile</button><button type="button" class="btn small" data-act="edAdd" data-t="titel">＋ Zwischentitel</button><button type="button" class="btn small" data-act="edZus" title="Zusatzposten (z. B. Dieselzuschlag) für die angekreuzten Positionen – Menge = Summe der Positionen">＋ Zusatzposten${(App.edSel || new Set()).size ? ` (${App.edSel.size} ausgewählt)` : ''}</button><button type="button" class="btn small" data-act="edSum" title="Gleiche Positionen (gleiche Arbeit/Produkt, Preis, Einheit, MWST) zu einer Zeile zusammenfassen">Σ Zusammenfassen</button>
       <label class="tog" style="margin-left:auto"><input type="checkbox" data-in="edInkl" ${r.inkl ? 'checked' : ''}> Preise inkl. MWST</label></div>
     <div id="edTot" class="edtot">${edTotHtml(r)}</div>
     ${beilagenOf(r).map((b, i) => `<div class="box small">📎 Beilage «${esc(b.titel)}»${b.html ? ` (Ausdruck aus ${esc(b.app || 'dem Absender-Programm')})` : ` mit ${b.rows.length} Zeilen`}${b.total != null ? ` (CHF ${chf(b.total)})` : ''} wird hinter der Rechnung gedruckt. <a href="#" data-act="edBeilDel" data-i="${i}">entfernen</a></div>`).join('')}
@@ -125,6 +127,35 @@ function rechnungDialog(id, { keep = false } = {}) {
       ${fix ? '<button class="btn primary" value="print">🖨 Speichern & drucken</button>' : '<button class="btn primary" value="final">✓ Abschliessen & drucken</button>'}`;
   openDlg(title, body, foot, { wide: true, onSubmit: (fd, btn) => edSubmit(btn) });
   autoGrow();
+}
+// Zusatzposten für mehrere Positionen (z. B. Dieselzuschlag beim Dreschen): Menge = Summe der angekreuzten Positionen (gleiche Einheit wie der Artikel), ein Posten total oder je Position
+function zusatzDialog() {
+  const r = App.ed, S = App.edSel || new Set(), sel = r.pos.filter(p => S.has(p.id) && (p.typ || 'pos') === 'pos');
+  if (!sel.length) { toast('Zuerst die Positionen ankreuzen, für die der Zusatzposten gilt (Kästchen links)', 4000); return; }
+  const sumF = einh => r2(sel.filter(p => !einh || (p.einh || '') === einh).reduce((s, p) => s + (+p.menge || 0), 0));
+  const einh0 = sel[0].einh || '';
+  openDlg('Zusatzposten', `<datalist id="artList">${artSorted().filter(a => a.aktiv !== false).map(a => `<option value="${esc(a.artNr)}">${esc(a.bez)}${a.preis != null ? ' · ' + chf(a.preis) + '/' + esc(a.einheit || '') : ''}</option>`).join('')}</datalist><datalist id="einhList">${EINHEITEN.map(e => `<option value="${e}">`).join('')}</datalist><p class="small muted">Für ${sel.length} ${sel.length === 1 ? 'Position' : 'Positionen'}: ${esc(sel.map(p => p.bez + (p.datum ? ' ' + fmtDate(p.datum) : '')).slice(0, 4).join(', '))}${sel.length > 4 ? ' …' : ''}</p>
+    <div class="two"><label class="fld"><span>Artikel</span><input class="input" name="art" list="artList" placeholder="Art.-Nr., z. B. Dieselzuschlag" autofocus></label>
+      <label class="fld"><span>Bezeichnung</span><input class="input" name="bez" placeholder="aus dem Artikel"></label>
+      <label class="fld"><span>Menge</span><input class="input n" name="menge" inputmode="decimal" value="${sumF(einh0)}"></label>
+      <label class="fld"><span>Einheit</span><input class="input" name="einh" list="einhList" value="${esc(einh0)}"></label>
+      <label class="fld"><span>Preis</span><input class="input n" name="preis" inputmode="decimal"></label>
+      <label class="fld"><span>Bemerkung</span><input class="input" name="bem" placeholder="z. B. Dieselpreis ab 1.50"></label></div>
+    <label class="tog"><input type="checkbox" name="einzeln"> je Position ein eigener Zusatzposten (mit Datum und Menge der Position)</label>
+    <div class="hint">Menge = Summe der angekreuzten Positionen${new Set(sel.map(p => p.einh || '')).size > 1 ? ' mit gleicher Einheit wie der Artikel' : ''}. Der Zusatzposten wird hinter der letzten angekreuzten Position eingefügt.</div>`,
+    `<button class="btn" value="back" formnovalidate>← Zurück zur Rechnung</button><span class="spacer"></span><button class="btn primary" value="ok">＋ Einfügen</button>`, { onSubmit: (fd, btn) => {
+      if (btn === 'back') { rechnungDialog(null, { keep: true }); return false; }
+      const a = artByNr(String(fd.get('art') || '').trim()), einh = String(fd.get('einh') || '').trim(), base = { art: a ? a.artNr : String(fd.get('art') || '').trim(), bez: String(fd.get('bez') || '').trim() || (a && a.bez) || 'Zuschlag', bem: String(fd.get('bem') || '').trim(),
+        einh, preis: num(fd.get('preis')), mwst: a && a.mwst != null ? a.mwst : sel[0].mwst, konto: (a && a.konto) || '', kind: 'zusatz' };
+      if (base.preis == null && a && a.preis != null) base.preis = a.preis;
+      if (fd.get('einzeln')) { // je Position direkt dahinter
+        [...sel].reverse().forEach(p => { const i = r.pos.indexOf(p); r.pos.splice(i + 1, 0, newPos(Object.assign({}, base, { datum: p.datum || '', menge: p.menge }))); });
+      } else { const i = Math.max(...sel.map(p => r.pos.indexOf(p))); r.pos.splice(i + 1, 0, newPos(Object.assign({}, base, { menge: num(fd.get('menge')) ?? sumF(einh) }))); }
+      S.clear(); rechnungDialog(null, { keep: true }); toast('Zusatzposten eingefügt'); return false;
+    } });
+  { const F = $('#dlgForm'), art = F.querySelector('[name=art]');
+      art.addEventListener('change', () => { const a = artByNr(art.value.trim()); if (!a) return; F.querySelector('[name=bez]').value = a.bez; if (a.preis != null) F.querySelector('[name=preis]').value = a.preis;
+        if (a.einheit) { F.querySelector('[name=einh]').value = a.einheit; F.querySelector('[name=menge]').value = sumF(a.einheit) || sumF(''); } }); }
 }
 const posBtns = i => `<button type="button" class="ib" data-act="edUp" data-i="${i}" title="nach oben">▲</button><button type="button" class="ib" data-act="edDel" data-i="${i}" title="Position löschen">✕</button>`;
 function edTotHtml(r) {
@@ -176,7 +207,7 @@ function edInput(t, commit) {
   if (t.dataset.in === 'edInkl') { r.inkl = t.checked; $('#edTot').innerHTML = edTotHtml(r); return; }
   const i = +t.dataset.i, f = t.dataset.f, p = r.pos[i]; if (!p) return;
   if (['menge', 'preis', 'mwst'].includes(f)) p[f] = num(t.value); else p[f] = t.value;
-  if (f === 'art' && commit) { const a = artByNr(t.value); if (a) { if (!p.bez || p._auto) { p.bez = a.bez; p._auto = true; } p.einh = a.einheit || p.einh; if (a.preis != null) p.preis = a.preis; p.mwst = a.mwst ?? p.mwst; p.konto = a.konto || ''; edRerender(); return; } }
+  if (f === 'art' && commit) { const a = artByNr(t.value); if (a) { if (!p.bez || p._auto || confirm(`Bezeichnung durch den Titel des Artikels ersetzen?\n\n«${p.bez}» → «${a.bez}»`)) { p.bez = a.bez; p._auto = true; } p.einh = a.einheit || p.einh; if (a.preis != null) p.preis = a.preis; p.mwst = a.mwst ?? p.mwst; p.konto = a.konto || ''; edRerender(); return; } }
   if (f === 'bez') { delete p._auto; t.style.height = 'auto'; t.style.height = Math.min(160, t.scrollHeight + 2) + 'px'; }
   const pb = $('#pb' + i); if (pb) pb.textContent = chf(calc({ pos: [p] }).rows[0].betrag);
   $('#edTot').innerHTML = edTotHtml(r);
@@ -534,6 +565,8 @@ document.addEventListener('click', ev => {
     case 'edZahl': { const r = edClean(clone(App.ed)); edSave(r); zahlDialog(r.id, true); break; }
     case 'edMahn': { const r = edClean(clone(App.ed)); edSave(r); mahnDialog([r.id], true); break; }
     case 'edBeilDel': if (confirm('Beilage entfernen?')) { const B = beilagenOf(App.ed); B.splice(+t.dataset.i, 1); delete App.ed.beilage; App.ed.beilagen = B; edRerender(); } break;
+    case 'edSel': { const S = App.edSel = App.edSel || new Set(); if (t.checked) S.add(t.dataset.id); else S.delete(t.dataset.id); edRerender(); break; }
+    case 'edZus': zusatzDialog(); break;
     case 'edSum': { const n = zusammenfassen(App.ed); edRerender(); toast(n ? `${n} Positionen zusammengefasst` : 'Nichts zum Zusammenfassen'); break; }
     case 'printE': { const r = Store.get('rechnungen', id); if (r) printDocs([{ r }], { title: docTitle([{ r }]) }); break; }
     case 'sumR': { const r = Store.get('rechnungen', id); if (!r) break; const x = clone(r), n = zusammenfassen(x); if (n) { Store.put('rechnungen', x); toast(`${n} Positionen zusammengefasst`); } else toast('Nichts zum Zusammenfassen'); break; }

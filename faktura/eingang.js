@@ -84,14 +84,14 @@ const Eingang = {
     const E = einCfg(), c = Store.cfg();
     if (p.kind === 'text') return newPos({ typ: 'text', bez: p.bez || '' });
     const a = p.kind === 'psm' ? artByNr(p.art || E.artPsm) : p.kind === 'miete' ? artByNr(p.art || E.artMiete) : artByNr(p.art);
-    return newPos({ art: p.kind === 'psm' ? (p.art || E.artPsm || '') : (p.art || (p.kind === 'miete' ? E.artMiete : '')), bez: p.bez || a?.bez || '', menge: p.menge ?? 1, einh: p.einh || a?.einheit || '', preis: p.preis ?? a?.preis ?? null,
+    return newPos({ art: p.kind === 'psm' ? (p.art || E.artPsm || '') : (p.art || (p.kind === 'miete' ? E.artMiete : '')), bez: a?.bez || p.bez || '', bem: p.bem || '', datum: p.datum || '', menge: p.menge ?? 1, einh: p.einh || a?.einheit || '', preis: p.preis ?? a?.preis ?? null,
       mwst: p.mwst ?? a?.mwst ?? (p.kind === 'arbeit' ? +E.mwstArbeit : c.mwstDef), konto: p.konto || a?.konto || '', grp: p.grp || '', kind: p.kind || '' });
   },
   apply(T) {
     const k = this.kundeFor(T);
     let r = Store.all('rechnungen').filter(x => x.kunde === k.id && statusOf(x) === 'entwurf' && !x.nrRes).sort((a, b) => (b.upd || 0) - (a.upd || 0))[0];
-    r = r ? clone(r) : newRechnung({ kunde: k.id, frist: k.frist ?? Store.cfg().frist, betreff: T.betreff || '', quelle: T.app || 'Eingang' });
-    if (!r.betreff && T.betreff) r.betreff = T.betreff;
+    r = r ? clone(r) : newRechnung({ kunde: k.id, frist: k.frist ?? Store.cfg().frist, betreff: T.app || T.betreff || '', quelle: T.app || 'Eingang' });
+    if (T.app && !String(r.betreff || '').includes(T.app)) r.betreff = [r.betreff, T.app].filter(Boolean).join(', '); // Betreff = Herkunft (intern, nicht gedruckt)
     r.pos = r.pos.filter(p => (p.typ || 'pos') !== 'pos' || p.art || p.bez || p.preis != null); // leere Startzeile weg
     (T.pos || []).forEach(p => r.pos.push(this.posFor(p)));
     if (T.beilage) addBeilage(r, T.beilage);
@@ -106,7 +106,7 @@ function zusammenfassen(r) {
   r.pos.forEach(p => {
     if ((p.typ || 'pos') !== 'pos') { out.push(p); return; }
     const key = [p.grp || p.bez, p.art, p.preis, p.einh, p.mwst, p.konto, p.rabatt || 0].join('|');
-    if (idx.has(key)) { const x = idx.get(key); x.menge = r2((+x.menge || 0) + (+p.menge || 0)); x._n++; n++; return; }
+    if (idx.has(key)) { const x = idx.get(key); x.menge = r2((+x.menge || 0) + (+p.menge || 0)); x._n++; n++; if (x.datum !== p.datum) x.datum = ''; if ((x.bem || '') !== (p.bem || '')) x.bem = ''; return; }
     const x = Object.assign({}, p, { _n: 1 }); idx.set(key, x); out.push(x);
   });
   out.forEach(p => { if (p._n > 1 && p.grp) p.bez = p.grp + (p.kind === 'arbeit' && p.einh ? ` (total)` : ''); delete p._n; });

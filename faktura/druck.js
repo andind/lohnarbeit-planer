@@ -19,7 +19,7 @@ function adrBlock(k) {
 // Kopf: Briefkopf (Logo), Adressfenster, Angaben, Titel
 function docHead(r, { titel, meta, text }) {
   const c = Store.cfg(), k = docK(r), links = c.adrPos === 'links';
-  const info = `<table class="dmeta">${meta.map(([a, b]) => `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join('')}</table>`;
+  const info = `<table class="dmeta">${meta.map(([a, b]) => a ? `<tr><td>${esc(a)}</td><td>${esc(b)}</td></tr>` : `<tr><td colspan="2">${esc(b)}</td></tr>`).join('')}</table>`;
   return `<img class="dlogo" src="${esc(logoSrc())}" alt="" style="aspect-ratio:${LOGO.w}/${LOGO.h}">
     <div class="dadr ${links ? 'l' : 'r'}">${links ? `<div class="dad">${adrBlock(k)}</div><div class="dinfo">${info}</div>` : `<div class="dinfo">${info}</div><div class="dad">${adrBlock(k)}</div>`}</div>
     <div class="dtitle">${esc(titel)}</div>${text ? `<div class="dtext">${esc(text).replace(/\n/g, '<br>')}</div>` : ''}`;
@@ -30,13 +30,13 @@ const contHead = (r, titel) => `<div class="dcont">${esc(titel)} · ${esc(docK(r
 function rechnungParts(r) {
   const c = Store.cfg(), cc = calc(r), k = docK(r), multi = cc.groups.length > 1 || cc.groups.some(g => g.satz);
   const titel = r.nr ? `${r.titel || 'Rechnung'} Nr. ${r.nr}` : `${r.titel || 'Rechnung'} – Entwurf${r.nrRes ? ' (Nr. ' + r.nrRes + ')' : ''}`;
-  const meta = [['Datum', `${c.ort ? c.ort + ', ' : ''}${fmtDate(r.datum)}`], ...(r.nr ? [['Rechnung Nr.', r.nr]] : []), ...(k?.nr ? [['Kunden-Nr.', k.nr]] : []),
-    ['Zahlbar bis', fmtDate(r.faellig || addDays(r.datum, r.frist ?? c.frist))], ...(c.firma.uid ? [['MWST-Nr.', c.firma.uid]] : [])];
-  const head = docHead(r, { titel: r.betreff ? `${titel} – ${r.betreff}` : titel, meta, text: r.textOben });
-  const thead = `<thead><tr><th class="ca">Art.-Nr.</th><th>Bezeichnung</th><th class="n cm">Menge</th><th class="ce">Einh.</th><th class="n cp">Preis</th>${multi ? '<th class="n cv">MWST</th>' : ''}<th class="n cb">Betrag CHF</th></tr></thead>`;
+  // v1.15: Kopf nur Ort und Datum (MWST-Nr. im Logo, Nr. im Titel, Zahlbar bis im Fuss); Betreff ist intern und wird nicht gedruckt
+  const meta = [['', `${c.ort ? c.ort + ', ' : ''}${fmtDate(r.datum)}`]];
+  const head = docHead(r, { titel, meta, text: r.textOben });
+  const thead = `<thead><tr><th class="cd">Datum</th><th>Bezeichnung</th><th class="n cm">Menge</th><th class="ce">Einh.</th><th class="n cp">Preis</th>${multi ? '<th class="n cv">MWST</th>' : ''}<th class="n cb">Betrag CHF</th></tr></thead>`;
   const rows = cc.rows.map(p => (p.typ === 'text' ? `<tr class="txt"><td></td><td colspan="${multi ? 6 : 5}">${esc(p.bez).replace(/\n/g, '<br>')}</td></tr>`
     : p.typ === 'titel' ? `<tr class="ttl"><td></td><td colspan="${multi ? 6 : 5}">${esc(p.bez)}</td></tr>`
-    : `<tr><td class="ca">${esc(p.art || '')}</td><td>${esc(p.bez).replace(/\n/g, '<br>')}${p.rabatt ? `<span class="drab"> (Rabatt ${fmtNum(p.rabatt)} %)</span>` : ''}</td><td class="n">${qtyTxt(p.menge)}</td><td class="ce">${esc(p.einh || '')}</td><td class="n">${chf(p.preis)}</td>${multi ? `<td class="n">${mwstTxt(p.mwst || 0)}</td>` : ''}<td class="n">${chf(p.betrag)}</td></tr>`));
+    : `<tr><td class="cd">${p.datum ? fmtDate(p.datum) : ''}</td><td>${esc(p.bez).replace(/\n/g, '<br>')}${p.bem ? `<div class="dbem">${esc(p.bem).replace(/\n/g, '<br>')}</div>` : ''}${p.rabatt ? `<span class="drab"> (Rabatt ${fmtNum(p.rabatt)} %)</span>` : ''}</td><td class="n">${qtyTxt(p.menge)}</td><td class="ce">${esc(p.einh || '')}</td><td class="n">${chf(p.preis)}</td>${multi ? `<td class="n">${mwstTxt(p.mwst || 0)}</td>` : ''}<td class="n">${chf(p.betrag)}</td></tr>`));
   const inkl = r.inkl;
   const sums = `<table class="dsum">
     ${cc.groups.map(g => inkl

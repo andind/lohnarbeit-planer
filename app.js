@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '150', APP_STAND = '19.11.2026';
+const APP_VERSION = '151', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -2067,7 +2067,7 @@ function fakturaSpritzT(b, von, bis, L) {
   const T = fakturaT(b.k, 'Spritzarbeiten'), zr = `${fmtDate(von, { day: '2-digit', month: '2-digit', year: 'numeric' })} – ${fmtDate(bis, { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
   const bb = billingFor(b.k, L.map(r => ({ a: r.a, fl: r.fl }))), m0 = L[0] ? fakturaMasch(L[0].a, { arbeit: L[0].a.arbeit }) : {};
   const ha = r2(bb.rows.reduce((s, r) => s + r.fl, 0)), genau = round05(ha * bb.preisHa) === round05(bb.tA); // sonst Betrag wie in der Abrechnung (Rundung je Auftrag)
-  T.pos.push({ kind: 'arbeit', art: m0.artNr || '', bez: `Spritzarbeiten ${zr} gemäss Abrechnung (Beilage)${genau ? '' : ` – ${fmtNum(ha)} ha`}`, grp: 'Spritzarbeiten', menge: genau ? ha : 1, einh: genau ? 'ha' : '', preis: genau ? (bb.preisHa || null) : r2(bb.tA) });
+  T.pos.push({ kind: 'arbeit', art: m0.artNr || '', bez: 'Spritzarbeiten', bem: `${zr} gemäss Abrechnung (Beilage)${genau ? '' : ` – ${fmtNum(ha)} ha`}`, grp: 'Spritzarbeiten', menge: genau ? ha : 1, einh: genau ? 'ha' : '', preis: genau ? (bb.preisHa || null) : r2(bb.tA) });
   const P = fakturaPsTeil(bb, von, bis); T.pos.push(...P.pos); T.beilage = P.beilage;
   T.refs = L.map(r => ({ app: 'imv', id: r.a.id, nr: r.a.nr || '' }));
   return T;
@@ -2174,20 +2174,21 @@ function fkRead(F, j, d) {
   x.zusatz = [...F.querySelectorAll(`tr.fkz[data-j="${j}"]`)].map(tr => { const i = tr.dataset.z; return { art: t('za' + i), menge: v('zm' + i), einh: t('ze' + i), preis: v('zp' + i), bem: t('zb' + i) }; });
   return x;
 }
+// v151: Position mit Datum (Auftragsdatum), Bezeichnung = Titel des Artikels in IM-Faktura, Bemerkung (Kultur, Feld …) als eigene Zeile darunter
 function fkPos(FK, r, d, k) {
-  const dt = fmtDate(r.d, { day: '2-digit', month: '2-digit', year: '2-digit' }), fl = r.feld ? ' – ' + r.feld : '', pos = [], ps = [], tx = (b, m) => b + (m ? '\n' + m : '');
+  const bem = (...x) => x.filter(Boolean).join(' · '), aBez = (nr, alt) => ((fkArtOf(FK, nr) || {}).bez) || alt, pos = [], ps = [];
   if (d.spray && d.o) { // Mittel kommen gesammelt als ein Posten Art. 52 (fkSend), Detail als Abrechnung Spritzarbeiten
-    pos.push({ kind: 'arbeit', art: d.art, bez: tx(`${dt} Spritzen${fl}`, d.bem), grp: 'Spritzarbeiten', menge: d.menge, einh: d.einh, preis: d.preis });
+    pos.push({ kind: 'arbeit', art: d.art, datum: r.d || '', bez: aBez(d.art, 'Spritzen'), bem: bem(d.bem, r.feld), grp: 'Spritzarbeiten', menge: d.menge, einh: d.einh, preis: d.preis });
     ps.push({ a: d.o, fl: d.menge ?? 0 });
-  } else pos.push({ kind: 'arbeit', art: d.art, bez: tx(`${dt} ${r.arbeit || ''}${fl}`, d.bem), grp: r.arbeit || '', menge: d.menge, einh: d.einh, preis: d.preis });
-  if (d.dresch && d.stroh) pos.push({ kind: 'arbeit', art: d.strohArt, bez: `${dt} Strohhäckseln${fl}`, grp: 'Strohhäckseln', menge: d.strohHa, einh: 'ha', preis: d.strohPreis });
-  (d.zusatz || []).filter(z => z.art || z.bem || z.menge != null).forEach(z => { const a = fkArtOf(FK, z.art);
-    pos.push({ kind: 'ware', art: z.art, bez: tx(`${(a && a.bez) || z.bem || 'Zusatzartikel'}${fl}`, a ? z.bem : ''), grp: (a && a.bez) || '', menge: z.menge, einh: z.einh || (a && a.einheit) || '', preis: z.preis }); });
+  } else pos.push({ kind: 'arbeit', art: d.art, datum: r.d || '', bez: aBez(d.art, r.arbeit || 'Arbeit'), bem: bem(d.bem, r.feld), grp: r.arbeit || '', menge: d.menge, einh: d.einh, preis: d.preis });
+  if (d.dresch && d.stroh) pos.push({ kind: 'arbeit', art: d.strohArt, datum: r.d || '', bez: aBez(d.strohArt, 'Strohhäckseln'), bem: bem(r.feld), grp: 'Strohhäckseln', menge: d.strohHa, einh: 'ha', preis: d.strohPreis });
+  (d.zusatz || []).filter(z => z.art || z.bem || z.menge != null).forEach(z => { const a = fkArtOf(FK, z.art); // Zusatzartikel ohne Datum
+    pos.push({ kind: 'ware', art: z.art, bez: (a && a.bez) || z.bem || 'Zusatzartikel', bem: a ? z.bem : '', grp: (a && a.bez) || '', menge: z.menge, einh: z.einh || (a && a.einheit) || '', preis: z.preis }); });
   return { pos, ps };
 }
 // v150: Ohne Artikel keine Übergabe – fehlende Artikel melden und im Formular rot markieren
 function fkMissing(FK, items) {
-  const L = []; items.forEach(x => fkPos(FK, x.r, x.d, x.k).pos.forEach(p => { if ((p.kind === 'arbeit' || p.kind === 'ware') && !p.art) L.push(`${x.k.name || x.r.kunde || '–'}: ${p.bez.split('\n')[0]}`); })); return L;
+  const L = []; items.forEach(x => fkPos(FK, x.r, x.d, x.k).pos.forEach(p => { if ((p.kind === 'arbeit' || p.kind === 'ware') && !p.art) L.push(`${x.k.name || x.r.kunde || '–'}: ${p.datum ? fmtDate(p.datum, { day: '2-digit', month: '2-digit', year: '2-digit' }) + ' ' : ''}${p.bez}${p.bem ? ' (' + p.bem + ')' : ''}`); })); return L;
 }
 function fkMarkMissing(F) {
   let n = 0; F.querySelectorAll('select.fka').forEach(sl => { const tr = sl.closest('tr'), cb = tr && tr.querySelector('input[type=checkbox]');
@@ -2928,7 +2929,7 @@ const billSpan = b => { const ds = b.rows.map(r => dOf(r.a)).filter(Boolean).sor
 const PSM_ART = '52';
 function fakturaPsTeil(b, von, bis) {
   if (!von) [von, bis] = billSpan(b);
-  const pos = b.tM > 0 ? [{ kind: 'psm', art: PSM_ART, bez: 'Pflanzenschutzmittel gemäss Abrechnung (Beilage)', grp: 'Pflanzenschutzmittel', menge: 1, einh: '', preis: r2(b.tM) }] : [];
+  const pos = b.tM > 0 ? [{ kind: 'psm', art: PSM_ART, bez: 'Pflanzenschutzmittel', bem: 'gemäss Abrechnung (Beilage)', grp: 'Pflanzenschutzmittel', menge: 1, einh: '', preis: r2(b.tM) }] : [];
   return { pos, beilage: Object.assign(beilageAusdruck('Abrechnung Spritzarbeiten', billingHtml(b, von, bis), 'IM-Verwaltung'), { total: r2(b.total) }) };
 }
 // Beilage für IM-Faktura als Original-Ausdruck: HTML + die dazu nötigen Stile (inkl. Druck-Stile, ohne #printArea), Bilder mit voller Adresse
