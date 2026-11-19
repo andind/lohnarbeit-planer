@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.22', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.23', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -1408,6 +1408,27 @@ async function abrDoneSel() { // nur angehakte Zeilen («im Rapport») der angek
   setStatus(L.map(e => e.id), 'abgerechnet'); toast(`${L.length} Einsätze als abgerechnet markiert`);
 }
 
+/* ---------- Sicherungsplan aller IM-Programme (NAS-Dienst jd-sync ab v69 schreibt /Sicherungen/status.json) – gleicher Code in IM-Verwaltung, IM-Vermietung, IM-Faktura ---------- */
+const SICH = { d: null, at: 0, busy: false, err: '' };
+async function sichLoad(read, rerender, force) {
+  if (SICH.busy || (!force && Date.now() - SICH.at < 300000)) return;
+  SICH.busy = true; SICH.at = Date.now();
+  try { SICH.d = await read('/Sicherungen/status.json'); SICH.err = SICH.d ? '' : 'noch keine Statusdatei'; } catch (e) { SICH.d = null; SICH.err = 'noch keine Statusdatei (NAS-Dienst ab Version 69 nötig)'; }
+  SICH.busy = false; rerender();
+}
+function sichHtml(own, { pruefung = 'eigene' } = {}) {
+  const D = SICH.d, e = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  if (!D) return `<p class="small" style="color:var(--muted)">Automatische Sicherung: ${SICH.busy ? 'Status wird geladen …' : e(SICH.err || 'Status wird geladen …')}</p>`;
+  const dt = x => x ? new Date(x).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '–', alt = Date.now() - Date.parse(D.stand) > 2 * 864e5;
+  const fehler = (D.quellen || []).filter(q => q.aktiv && q.ok === false);
+  const rows = (D.quellen || []).filter(q => q.aktiv).map(q => `<tr${q.name === own ? ' style="font-weight:600"' : ''}><td>${e(q.name)}</td><td>${q.ok === false ? `<span style="color:#b5580b">⚠ Fehler</span> <span class="small">${e(q.error)}</span>` : q.fehlt ? '<span class="small">keine Daten</span>' : `✓ ${e(dt(q.at))}${q.unv ? ' <span class="small">(unverändert)</span>' : ''}`}${q.warn ? ` <span style="color:#b5580b" class="small">weniger Einträge: ${e(q.warn.join(', '))}</span>` : ''}</td><td class="small">${e(q.counts || '')}</td></tr>`).join('');
+  const P = D.pruefung, pts = P ? (P.punkte || []).filter(x => pruefung === 'alle' || x.prog === own) : [];
+  return `<div class="sichbox" style="border:1px solid var(--line,#ddd);border-radius:10px;padding:10px 12px;margin:8px 0;${alt || fehler.length ? 'background:#fff4e5' : ''}">
+    <p style="margin:0 0 6px"><b>Automatische Sicherung (NAS-Dienst)</b> – zuletzt ${e(dt(D.stand))}${alt ? ' <b style="color:#b5580b">· seit über 2 Tagen keine Sicherung – NAS-Dienst prüfen!</b>' : ''}<br><span class="small">${e(D.plan || '')} · Ablage ${e((D.ablage || []).join(' + '))} · Dropbox › Sicherungen</span></p>
+    <table class="small" style="width:100%;border-collapse:collapse">${rows}</table>
+    ${P && pruefung !== 'keine' ? `<p class="small" style="margin:8px 0 0"><b>Prüfung der Verknüpfungen zwischen den Programmen</b> (${e(dt(P.at))}): ${pts.length ? pts.map(x => `<br>${x.sev === 'fehler' ? '⚠' : 'ℹ'} ${pruefung === 'alle' ? e(x.prog) + ': ' : ''}${e(x.titel)} (${x.n}) – <span style="color:var(--muted)">${e(x.items.slice(0, 6).join(' · '))}${x.n > 6 ? ' …' : ''}</span>`).join('') : '✓ keine Auffälligkeiten'}</p>` : ''}
+  </div>`;
+}
 /* ================= Ansicht Mehr: Dropbox, Scan, Datensicherung ================= */
 function viewMehr() {
   const user = ls('mv_user');
@@ -1438,9 +1459,8 @@ function viewMehr() {
   </div><div>
     <div class="panel"><h2>Daten</h2><p>${n('einsaetze')} Einsätze · ${n('kunden')} Kunden · ${n('maschinen')} Maschinen</p>
       <div class="btns"><button class="btn" data-act="exportAll">⬇ Alles als Excel</button><button class="btn" data-act="backup">⬇ Datensicherung (.json)</button><label class="btn">Wiederherstellen…<input type="file" accept=".json" data-in="restoreFile" hidden></label></div>
-      <p class="small"><b>Automatische Sicherung</b> (wie bei der IM-Verwaltung, durch den NAS-Dienst jd-sync ab Version 57): täglich eine Sicherung von vermietung.json
-        (Dropbox › Sicherungen/Vermietung und NAS, 30 Tage + je eine pro Monat) und einmal pro Woche eine Excel-Datei «IM-Vermietung-Daten_Datum.xlsx» mit Einsätzen, Kunden und Maschinen
-        (Dropbox › Sicherungen/Excel). Zurückspielen mit «Wiederherstellen…». Dropbox führt zusätzlich einen Versionsverlauf der Datei.</p></div>
+      <p class="small"><b>Automatische Sicherung</b> durch den NAS-Dienst jd-sync: täglich vermietung.json (Dropbox › Sicherungen/Vermietung und NAS; 30 Tage, je Monat 24 Monate, je Jahr 10 Jahre) und wöchentlich «IM-Vermietung-Daten_Datum.xlsx» (Dropbox › Sicherungen/Excel). Zurückspielen mit «Wiederherstellen…». Dropbox führt zusätzlich einen Versionsverlauf der Datei.</p>
+      ${(Auth.hasSession() && sichLoad(p => Drive.loadPath(p), () => { if (App.view === 'mehr') App.render(); }), sichHtml('IM-Vermietung'))}</div>
     <div class="panel"><h2>Über</h2><p>IM-Vermietung v${APP_VERSION} (${APP_STAND}) – eigenständige App für die Maschinenvermietung von Indermühle Lohnarbeiten · Maschinenvermietung, Schüpfen. Eigene Kunden, Maschinen und Einsätze, unabhängig von der IM-Verwaltung.</p>
       <div class="btns"><button class="btn" data-act="reload">App neu laden</button></div></div>
   </div></div>` };

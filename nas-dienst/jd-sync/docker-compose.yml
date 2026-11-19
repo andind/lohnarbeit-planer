@@ -1,4 +1,4 @@
-# jd-sync – MyJohnDeere → Lohnarbeit-Planer (Mandanten, Felder und Arbeitsdaten)
+# jd-sync – Hintergrunddienst der IM-Programme (MyJohnDeere-Abgleich, Aufträge an MyJohnDeere, Datensicherung aller Programme)
 # Synology: Container Manager › Projekt › Erstellen › Pfad = dieser Ordner (z.B. /volume1/docker/jd-sync)
 services:
   jd-sync:
@@ -14,4 +14,4 @@ services:
     volumes:
       - ./app:/app:ro
       - ./data:/data
-      - ./sicherungen:/backup   # tägliche Sicherungen und Excel-Dateien (in der File Station sichtbar)
+      - ./sicherungen:/backup   # Sicherungen aller IM-Programme und Excel-Dateien (in der File Station sichtbar)

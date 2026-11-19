@@ -1,4 +1,4 @@
-IM-Feldbereinigung v1.2 (16.11.2026) – Felder und Feldgrenzen im John Deere Operations Center aufräumen (nur PC)
+IM-Feldbereinigung v1.4 (19.11.2026) – Felder und Feldgrenzen im John Deere Operations Center aufräumen (nur PC)
 
 Grundsatz
 - Feldgrenzen ändert das Programm selber (archivieren, aktiv setzen) – über den NAS-Dienst jd-sync.
@@ -31,3 +31,7 @@ Reiter «Feldgrenzen»
 - Archivierte Grenzen wiederherstellen: Operations Center › Land › Archiv oder IM-Applikationskarten.
 
 Hinweis: Arbeitsgänge werden erst ab dem im NAS-Dienst eingestellten Datum gezählt (Arbeitsdaten «seit»).
+
+Datensicherung (ab NAS-Dienst jd-sync Version 69)
+- Der eigene Stand (Dropbox /feldbereinigung.json: erledigte Vorschläge, «nicht zusammenführen», Aufträge) wird täglich
+  nach Dropbox › Sicherungen/Feldbereinigung und aufs NAS gesichert. Zurückholen: Sicherung in der Dropbox als /feldbereinigung.json zurückkopieren.

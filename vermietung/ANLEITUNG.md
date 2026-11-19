@@ -1,4 +1,4 @@
-# IM-Vermietung v1.19 – Anleitung
+# IM-Vermietung v1.23 – Anleitung (Stand 19.11.2026)
 
 Eigenständige App für die Maschinenvermietung: Einsätze erfassen und importieren, auswerten, Kundenrapporte und Abrechnungsliste drucken.
 Eigene Kunden, Maschinen und Einsätze in einer eigenen Datei (`vermietung.json`) – unabhängig von der IM-Verwaltung.
@@ -54,13 +54,18 @@ aus `startdaten.json`.
     Vor dem Druckfenster lassen sich die Artikelpreise **nur für diesen Ausdruck** ändern; dort auch «Preise und Beträge anzeigen».
     Der Knopf «Rapport» in einer Kundenzeile druckt die ausgewählten Zeilen dieses Kunden, sonst alle.
   - Nach dem Druckfenster fragt die App, ob die rapportierten (offenen) Zeilen als abgerechnet markiert werden sollen.
-  - *Abrechnungsliste*: pro Kunde Art.-Nr., Bezeichnung, Menge, Preis, Betrag – zum Übertragen in AgroFaktura (auch als Excel).
+  - **«📤 An IM-Faktura»** (Leiste oder je Kundenzeile hinter «Rapport»): je Kunde eine Rechnungsposition Art. 100 «Maschinenmiete gemäss Rapport»
+    mit Zeitraum (erster–letzter Einsatz), der Rapport 1:1 als Beilage; die Zeilen werden danach abgerechnet. Vorher fragt das Preisfenster.
+  - *Abrechnungsliste*: pro Kunde Art.-Nr., Bezeichnung, Menge, Preis, Betrag (auch als Excel) – nur noch nötig, falls ohne IM-Faktura abgerechnet wird.
   - **Storniert**: zählt nirgends mehr (Rapport, Abrechnungsliste, Auswertung); sichtbar mit «Stornierte anzeigen».
-- **Stammdaten** – Kunden (Kd-Nr. leer = Neukunde, Adresse, Namensvarianten, Zusammenführen) und Maschinen (Art.-Nr., Einheit, Preis).
-  «Kundenliste importieren» liest z. B. Kunden.xlsx und ergänzt Adressen über die Kunden-Nr.
+- **Stammdaten** – Kunden und Maschinen (Art.-Nr. ab 101, Einheit ha/h, Preis).
+  **Kunden kommen aus IM-Faktura** (bei jedem Synchronisieren und mit «⟳ Kunden aus IM-Faktura»): Name, Kd-Nr., Adresse und Status sind hier gesperrt,
+  Namensvarianten und Bemerkung bleiben eigen. Kunden «nur hier» (Neukunden aus dem Import) legt IM-Faktura beim ersten Senden an.
+  Verknüpfte Kunden lassen sich nicht löschen oder zusammenführen.
 - **Mehr** – Dropbox, Scan-Schlüssel, Excel-Export aller Daten, Datensicherung/Wiederherstellen.
-  Automatische Sicherung durch den NAS-Dienst jd-sync (ab Version 57): täglich vermietung.json (Dropbox › Sicherungen/Vermietung + NAS)
-  und wöchentlich «IM-Vermietung-Daten_Datum.xlsx» (Dropbox › Sicherungen/Excel).
+  Automatische Sicherung durch den NAS-Dienst jd-sync: täglich vermietung.json (Dropbox › Sicherungen/Vermietung + NAS; 30 Tage, je Monat 24 Monate,
+  je Jahr 10 Jahre) und wöchentlich «IM-Vermietung-Daten_Datum.xlsx» (Dropbox › Sicherungen/Excel). Ab NAS-Version 69 zeigt *Mehr › Daten*
+  die letzte Sicherung jeder Datei und Auffälligkeiten bei den Verknüpfungen (z. B. Kunde mit IM-Faktura doppelt verknüpft).
 
 ## Bei Updates
 `config.js` nicht überschreiben. Version in `app.js` (`APP_VERSION`, `APP_STAND`) und `CACHE` in `sw.js` gleich erhöhen.

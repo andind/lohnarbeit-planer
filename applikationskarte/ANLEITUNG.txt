@@ -1,4 +1,4 @@
-IM-Applikationskarten v1.28 als App – by Andreas Indermühle
+IM-Applikationskarten v1.32 als App – by Andreas Indermühle
 =======================================================
 
 Eine Webseite lässt sich nur als App installieren, wenn sie über https aus dem
@@ -33,3 +33,8 @@ Hinweise
    - Achtung: Beim Wechsel vom Datei-Doppelklick zur installierten App sind die
      bisher im Browser gespeicherten Karten nicht automatisch dabei. Vorher mit
      «Als Datei sichern (.json)» sichern und in der App mit «Datei laden» öffnen.
+
+Datensicherung (ab NAS-Dienst jd-sync Version 69)
+   - Die gespeicherten Karten (Dropbox /applikationskarten.json) sichert der NAS-Dienst täglich
+     nach Dropbox › Sicherungen/Applikationskarten und auf das NAS (30 Tage, je Monat 24 Monate,
+     je Jahr 10 Jahre). Zurückholen: Datei herunterladen, «Laden …» › «JSON-Datei laden».

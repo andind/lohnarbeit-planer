@@ -3,14 +3,16 @@
    aus dem John Deere Operations Center und schreibt sie als «jd-sync.json» in den Dropbox-App-Ordner der IM-Verwaltung.
    Zusätzlich (unabhängig davon) die Arbeitsgänge (Field Operations) mit Messwerten als «jd-arbeiten.json» –
    für das Modul Bericht in der IM-Verwaltung.
-   Dazu: tägliche Datensicherung die IM-Verwaltung-Daten (NAS und Dropbox) und wöchentlicher Excel-Export aller Daten.
+   Dazu: Sicherungsplan für alle IM-Programme (IM-Verwaltung, IM-Vermietung, IM-Faktura, IM-Applikationskarten, IM-Feldbereinigung,
+   Eingang IM-Faktura, MyJohnDeere-Daten) täglich auf NAS und Dropbox, wöchentliche Excel-Exporte und Prüfung der Datenbeziehungen.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '68', STAND = '18.11.2026'; // v68: Arbeitsgänge mit bedeckter Fläche, aber ohne virtuelle Feldgrenze werden einmal neu berechnet (cov.gz) · v67: Feld archivieren/wiederherstellen (v66, art feld-status) wieder entfernt – Felder werden nur angelegt, nie geändert; Feldgrenzen-Aufträge (grenze-status) auch aus IM-Feldbereinigung · v65: Ertragskarten nur für ausgewählte Kunden (cfg.ertragKunden), dafür Ernten ab cfg.ertragSeit (längere Historie, nur für Ertragskarten, nicht in jd-arbeiten.json) · v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
+const VERSION = '69', STAND = '19.11.2026'; // v69: Sicherungsplan für alle IM-Programme (neu IM-Faktura mit Jahressicherungen 10 Jahre + Excel, IM-Applikationskarten, IM-Feldbereinigung, Eingang IM-Faktura, MyJohnDeere-Daten wöchentlich als ZIP), unveränderte Dateien nicht doppelt, neueste Sicherung bleibt immer, Warnung bei stark weniger Einträgen, Prüfung der Datenbeziehungen zwischen den Programmen, /Sicherungen/status.json für alle Programme · v68: Arbeitsgänge mit bedeckter Fläche, aber ohne virtuelle Feldgrenze werden einmal neu berechnet (cov.gz) · v67: Feld archivieren/wiederherstellen (v66, art feld-status) wieder entfernt – Felder werden nur angelegt, nie geändert; Feldgrenzen-Aufträge (grenze-status) auch aus IM-Feldbereinigung · v65: Ertragskarten nur für ausgewählte Kunden (cfg.ertragKunden), dafür Ernten ab cfg.ertragSeit (längere Historie, nur für Ertragskarten, nicht in jd-arbeiten.json) · v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 
 const DATA = process.env.DATA_DIR || '/data';
 const PORT = +(process.env.PORT || 8787);
@@ -32,7 +34,7 @@ const load = (n, def) => { try { return JSON.parse(fs.readFileSync(file(n), 'utf
 const save = (n, v) => { fs.mkdirSync(DATA, { recursive: true }); fs.writeFileSync(file(n) + '.tmp', JSON.stringify(v, null, 1)); fs.renameSync(file(n) + '.tmp', file(n)); };
 const cfgFile = load('config.json', {});
 let cfg = Object.assign({ syncMode: 'zeiten', syncZeiten: '05:00', syncIntervall: 3, syncVon: '06:00', syncBis: '20:00',
-  sicherungAktiv: true, sicherungZeit: '00:00', sicherungNas: true, sicherungDbx: true, sicherungDbxPfad: '/Sicherungen', datenPfad: '/planung.json', behaltTage: 30, behaltMonate: 24,
+  sicherungAktiv: true, sicherungZeit: '00:00', sicherungNas: true, sicherungDbx: true, sicherungDbxPfad: '/Sicherungen', datenPfad: '/planung.json', behaltTage: 30, behaltMonate: 24, behaltJahre: 10, fkAktiv: true, fkDatenPfad: '/faktura.json', fkDbxPfad: '/Sicherungen/Faktura', akAktiv: true, fbAktiv: true, jdBackupAktiv: true, jdBackupWochen: 8,
   excelAktiv: true, excelTag: 1, excelPfad: '/Sicherungen/Excel', excelBehalt: 26,
   vmAktiv: true, vmDatenPfad: '/vermietung.json', vmDbxPfad: '/Sicherungen/Vermietung', apiBase: 'https://partnerapi.deere.com/platform', redirectUri: 'http://localhost:9090/callback', syncHour: 5, pollMinutes: 5, clientId: '', clientSecret: '', dbxAppKey: '', orgId: '', orgName: '', kundenEbene: 'auto', syncPath: '/jd-sync.json', requestPath: '/jd-sync-request.json', arbeitenAktiv: true, arbeitenSeit: (new Date().getFullYear() - 1) + '-01-01', arbeitenPath: '/jd-arbeiten.json' }, load('config.json', {}));
 // frühere Einstellung «täglich um Stunde» übernehmen
@@ -1075,70 +1077,168 @@ const tzNow = () => { const tz = process.env.TZ || 'Europe/Zurich', n = new Date
 const toMinutes = t => { const m = /^(\d{1,2}):?(\d{2})$/.exec(String(t || '').trim()); return m && +m[1] < 24 && +m[2] < 60 ? +m[1] * 60 + +m[2] : null; };
 const WOCHENTAGE = ['Sonntag', 'Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'];
 // welche Sicherungen behalten? je Tag die neueste der letzten N Tage + je Monat die erste der letzten M Monate
-function pruneList(names, re, keepDays, keepMonths) {
+// v69: + je Jahr die erste der letzten J Jahre (Aufbewahrung, z.B. Rechnungen 10 Jahre) + immer die neueste (falls die Datei lange unverändert blieb)
+function pruneList(names, re, keepDays, keepMonths, keepYears = 0) {
   const items = names.map(n => { const m = re.exec(n); return m ? { n, day: m[1] } : null; }).filter(Boolean).sort((a, b) => b.n.localeCompare(a.n));
   const { day: today } = tzNow(), cutDay = new Date(Date.parse(today) - keepDays * 864e5).toISOString().slice(0, 10);
   const cutMon = (() => { const d = new Date(today + 'T12:00:00Z'); d.setUTCMonth(d.getUTCMonth() - keepMonths); return d.toISOString().slice(0, 7); })();
-  const keep = new Set(), seenDay = new Set(), firstOfMonth = new Map();
+  const cutYear = String(+today.slice(0, 4) - keepYears);
+  const keep = new Set(), seenDay = new Set(), firstOfMonth = new Map(), firstOfYear = new Map();
+  if (items.length) keep.add(items[0].n);
   items.forEach(it => { if (it.day >= cutDay && !seenDay.has(it.day)) { seenDay.add(it.day); keep.add(it.n); } });
-  items.slice().reverse().forEach(it => { const mo = it.day.slice(0, 7); if (mo >= cutMon && !firstOfMonth.has(mo)) firstOfMonth.set(mo, it.n); });
-  firstOfMonth.forEach(n => keep.add(n));
+  items.slice().reverse().forEach(it => { const mo = it.day.slice(0, 7), y = it.day.slice(0, 4);
+    if (keepMonths > 0 && mo >= cutMon && !firstOfMonth.has(mo)) firstOfMonth.set(mo, it.n);
+    if (keepYears > 0 && y > cutYear && !firstOfYear.has(y)) firstOfYear.set(y, it.n); });
+  firstOfMonth.forEach(n => keep.add(n)); firstOfYear.forEach(n => keep.add(n));
   return items.filter(it => !keep.has(it.n)).map(it => it.n);
 }
 const RE_JSON = /^planung_(\d{4}-\d{2}-\d{2})_\d{4}\.json$/, RE_XLSX = /^(?:Lohnarbeit|IM-Verwalter|IM-Verwaltung)-Daten_(\d{4}-\d{2}-\d{2})\.xlsx$/;
 const RE_VM_JSON = /^vermietung_(\d{4}-\d{2}-\d{2})_\d{4}\.json$/, RE_VM_XLSX = /^IM-Vermietung-Daten_(\d{4}-\d{2}-\d{2})\.xlsx$/;
+const RE_FK_XLSX = /^IM-Faktura-Daten_(\d{4}-\d{2}-\d{2})\.xlsx$/, RE_JD_ZIP = /^jd-daten_(\d{4}-\d{2}-\d{2})\.zip$/;
+
+/* ---------- v69: Sicherungsplan – alle Datendateien der IM-Programme an einem Ort ----------
+   Jede Quelle: Datei in Dropbox → täglich mit Datum auf NAS (Ordner sicherungen/<nas>) und in Dropbox (<dbx>).
+   Unveränderte Dateien werden nicht nochmals abgelegt (gleicher Inhalt = gleiche Prüfsumme), die neueste bleibt immer.
+   Plausibilität: fallen Einträge gegenüber der letzten Sicherung stark weg, erscheint eine Warnung (Sicherung läuft trotzdem). */
+const cnt = (d, k) => ((d && d[k]) || []).filter(x => x && !x.del).length;
+function sicherungsPlan() {
+  const J = +cfg.behaltJahre || 0;
+  return [
+    { key: 'imv', name: 'IM-Verwaltung', aktiv: true, pfad: cfg.datenPfad, nas: '', dbx: cfg.sicherungDbxPfad, prefix: 'planung', re: RE_JSON, jahre: J,
+      zaehl: d => ({ Aufträge: cnt(d, 'auftraege'), Kunden: cnt(d, 'kunden'), Felder: cnt(d, 'felder'), Produkte: cnt(d, 'produkte'), Parzellen: cnt(d, 'parzellen') }), haupt: ['Aufträge', 'Kunden', 'Produkte'] },
+    { key: 'vm', name: 'IM-Vermietung', aktiv: !!cfg.vmAktiv, pfad: cfg.vmDatenPfad, nas: 'vermietung', dbx: cfg.vmDbxPfad, prefix: 'vermietung', re: RE_VM_JSON, jahre: J,
+      zaehl: d => ({ Einsätze: cnt(d, 'einsaetze'), Kunden: cnt(d, 'kunden'), Maschinen: cnt(d, 'maschinen') }), haupt: ['Einsätze', 'Kunden'] },
+    { key: 'fk', name: 'IM-Faktura', aktiv: cfg.fkAktiv !== false, pfad: cfg.fkDatenPfad || '/faktura.json', nas: 'faktura', dbx: cfg.fkDbxPfad || '/Sicherungen/Faktura', prefix: 'faktura', re: /^faktura_(\d{4}-\d{2}-\d{2})_\d{4}\.json$/,
+      jahre: Math.max(J, 10), monate: Math.max(+cfg.behaltMonate || 0, 24), // Geschäftsbücher: 10 Jahre (OR 958f)
+      zaehl: d => ({ Rechnungen: ((d && d.rechnungen) || []).filter(r => r && !r.del && r.nr).length, Entwürfe: ((d && d.rechnungen) || []).filter(r => r && !r.del && !r.nr && !r.archiv).length, Kunden: cnt(d, 'kunden'), Artikel: cnt(d, 'artikel') }), haupt: ['Rechnungen', 'Kunden', 'Artikel'] },
+    { key: 'ak', name: 'IM-Applikationskarten', aktiv: cfg.akAktiv !== false, pfad: cfg.akDatenPfad || '/applikationskarten.json', nas: 'applikationskarten', dbx: '/Sicherungen/Applikationskarten', prefix: 'applikationskarten', re: /^applikationskarten_(\d{4}-\d{2}-\d{2})_\d{4}\.json$/, jahre: J,
+      zaehl: d => ({ Karten: ((d && d.projekte) || []).filter(p => p && !p.del).length }), haupt: ['Karten'], fehltOk: true },
+    { key: 'fb', name: 'IM-Feldbereinigung', aktiv: cfg.fbAktiv !== false, pfad: '/feldbereinigung.json', nas: 'feldbereinigung', dbx: '/Sicherungen/Feldbereinigung', prefix: 'feldbereinigung', re: /^feldbereinigung_(\d{4}-\d{2}-\d{2})_\d{4}\.json$/, jahre: 0,
+      zaehl: d => ({ Erledigt: Object.keys((d && d.done) || {}).length, Aufträge: ((d && d.glog) || []).length }), haupt: [], fehltOk: true }
+  ];
+}
+const sha = t => crypto.createHash('sha1').update(t).digest('hex');
+async function sichereQuelle(q, reason) {
+  const { day, hm } = tzNow(), out = [], now = new Date().toISOString();
+  st.sich = st.sich || {};
+  const prev = st.sich[q.key] || {};
+  try {
+    const text = await dbxDownload(q.pfad);
+    if (text == null) {
+      if (q.fehltOk) { st.sich[q.key] = { ...prev, at: now, ok: true, fehlt: true }; return { q, text: null }; }
+      const names = await dbxList('/').catch(() => []);
+      throw new Error(`Datei ${q.pfad} nicht gefunden${names.length ? ' – im Ordner liegen: ' + names.slice(0, 8).join(', ') : ''}`);
+    }
+    let data; try { data = JSON.parse(text); } catch { throw new Error(`${q.pfad} ist kein gültiges JSON – Sicherung der letzten guten Fassung bleibt erhalten`); }
+    const z = q.zaehl(data), h = sha(text), warn = [];
+    // Plausibilität: deutlich weniger Einträge als bei der letzten Sicherung?
+    (q.haupt || []).forEach(k => { const a = (prev.z || {})[k], b = z[k]; if (a >= 5 && b < a * 0.8) warn.push(`${k}: ${a} → ${b}`); });
+    if (warn.length) log(`Sicherung ${q.name}: WARNUNG deutlich weniger Einträge (${warn.join(', ')}) – bitte prüfen`);
+    const counts = Object.entries(z).map(([k, v]) => `${v} ${k}`).join(' · ');
+    if (prev.hash === h && prev.datei && reason !== 'manuell') {
+      st.sich[q.key] = { ...prev, at: now, ok: true, unv: true, z, counts, error: null };
+      log(`Sicherung ${q.name} (${reason}): unverändert seit ${new Date(prev.geaendert || prev.at).toLocaleDateString('de-CH')}`);
+      return { q, text, data };
+    }
+    const name = `${q.prefix}_${day}_${hm}.json`, monate = q.monate ?? +cfg.behaltMonate;
+    if (cfg.sicherungNas) {
+      const nd = q.nas ? path.join(BACKUP_DIR, q.nas) : BACKUP_DIR; fs.mkdirSync(nd, { recursive: true }); fs.writeFileSync(path.join(nd, name), text); out.push('NAS');
+      pruneList(fs.readdirSync(nd), q.re, +cfg.behaltTage, monate, q.jahre).forEach(n => { try { fs.unlinkSync(path.join(nd, n)); } catch { } });
+    }
+    if (cfg.sicherungDbx) {
+      const dir = q.dbx.replace(/\/+$/, '');
+      await dbxUpload(`${dir}/${name}`, text); out.push('Dropbox');
+      for (const n of pruneList(await dbxList(dir).catch(() => []), q.re, +cfg.behaltTage, monate, q.jahre)) await dbxDelete(`${dir}/${n}`);
+    }
+    st.sich[q.key] = { at: now, geaendert: now, ok: true, datei: name, wo: out, kb: Math.round(text.length / 1024), hash: h, z, counts, warn: warn.length ? warn : null };
+    log(`Sicherung ${q.name} (${reason}): ${name} · ${st.sich[q.key].kb} KB · ${out.join(' + ')} · ${counts}`);
+    return { q, text, data };
+  } catch (e) {
+    st.sich[q.key] = { ...prev, at: now, ok: false, error: e.message }; log(`Sicherung ${q.name} FEHLER: ${e.message}`);
+    return { q, text: null };
+  }
+}
+// noch nicht übernommene Übergaben an IM-Faktura (/faktura-eingang) – klein, aber sonst nirgends gesichert
+async function sichereEingang(reason) {
+  const { day, hm } = tzNow(), now = new Date().toISOString();
+  try {
+    const names = (await dbxList('/faktura-eingang').catch(() => [])).filter(n => /\.json$/i.test(n));
+    const files = [];
+    for (const n of names) { const t = await dbxDownload('/faktura-eingang/' + n).catch(() => null); if (t != null) files.push({ name: n, data: t }); }
+    const hE = sha(files.map(f => f.name + ':' + sha(f.data)).join('|')), unv = st.sich.ein && st.sich.ein.hash === hE;
+    st.sich.ein = { at: now, ok: true, hash: hE, n: files.length, counts: `${files.length} wartende Übergaben`, alt: files.map(f => { try { return { id: f.name, am: JSON.parse(f.data).am, app: JSON.parse(f.data).app, kunde: (JSON.parse(f.data).kunde || {}).name }; } catch { return { id: f.name }; } }) };
+    if (!files.length || (unv && reason !== 'manuell')) return;
+    const zip = zipStore(files, true), name = `faktura-eingang_${day}_${hm}.zip`, re = /^faktura-eingang_(\d{4}-\d{2}-\d{2})_\d{4}\.zip$/;
+    if (cfg.sicherungNas) { const nd = path.join(BACKUP_DIR, 'faktura'); fs.mkdirSync(nd, { recursive: true }); fs.writeFileSync(path.join(nd, name), zip); pruneList(fs.readdirSync(nd), re, 60, 0).forEach(n => { try { fs.unlinkSync(path.join(nd, n)); } catch { } }); }
+    if (cfg.sicherungDbx) { const dir = (cfg.fkDbxPfad || '/Sicherungen/Faktura').replace(/\/+$/, ''); await dbxUpload(`${dir}/${name}`, zip); for (const n of pruneList(await dbxList(dir).catch(() => []), re, 60, 0)) await dbxDelete(`${dir}/${n}`); }
+    log(`Sicherung Eingang IM-Faktura (${reason}): ${files.length} wartende Übergaben → ${name}`);
+  } catch (e) { st.sich.ein = { at: now, ok: false, error: e.message }; log('Sicherung Eingang IM-Faktura FEHLER: ' + e.message); }
+}
+// wöchentlich: vom NAS erzeugte MyJohnDeere-Dateien + Rechen-Zwischenspeicher (ohne Zugangsdaten) als ZIP – erspart bei einem Defekt das Neuberechnen aller Bedeckungskarten
+const JD_BAK_DATA = ['arbeiten.json', 'bedeckung-grenzen.json', 'grenzen.json', 'ertrag.json'];
+async function sichereJd(reason) {
+  const { day } = tzNow(), now = new Date().toISOString();
+  try {
+    const files = [];
+    for (const p of [cfg.syncPath, cfg.arbeitenPath, cfg.grenzenPath || '/jd-grenzen.json', cfg.feldgrenzenPath || '/jd-feldgrenzen.json']) { const t = await dbxDownload(p).catch(() => null); if (t != null) files.push({ name: 'dropbox' + p, data: t }); }
+    JD_BAK_DATA.forEach(n => { try { files.push({ name: 'nas-data/' + n, data: fs.readFileSync(file(n)) }); } catch { } });
+    if (!files.length) throw new Error('keine MyJohnDeere-Dateien gefunden');
+    const zip = zipStore(files, true), name = `jd-daten_${day}.zip`, W = +cfg.jdBackupWochen || 8;
+    if (cfg.sicherungNas) { const nd = path.join(BACKUP_DIR, 'myjohndeere'); fs.mkdirSync(nd, { recursive: true }); fs.writeFileSync(path.join(nd, name), zip); pruneList(fs.readdirSync(nd), RE_JD_ZIP, 7 * W, 0).forEach(n => { try { fs.unlinkSync(path.join(nd, n)); } catch { } }); }
+    if (cfg.sicherungDbx && cfg.jdBackupDbx !== false) { const dir = '/Sicherungen/MyJohnDeere'; await dbxUpload(`${dir}/${name}`, zip); for (const n of pruneList(await dbxList(dir).catch(() => []), RE_JD_ZIP, 7 * W, 0)) await dbxDelete(`${dir}/${n}`); }
+    st.sich.jd = { at: now, ok: true, datei: name, kb: Math.round(zip.length / 1024), counts: `${files.length} Dateien` };
+    log(`Sicherung MyJohnDeere-Daten (${reason}): ${name} · ${st.sich.jd.kb} KB`);
+  } catch (e) { st.sich.jd = { at: now, ok: false, error: e.message }; log('Sicherung MyJohnDeere-Daten FEHLER: ' + e.message); }
+}
 async function runBackup(reason, { excel } = {}) {
   if (st.backupRunning) return; st.backupRunning = true;
-  const { day, hm, wd } = tzNow(), out = [];
+  const { day, wd } = tzNow(), wochentag = cfg.excelAktiv && wd === +cfg.excelTag;
+  st.sich = st.sich || {};
   try {
     if (!st.dbx) throw new Error('Nicht mit Dropbox verbunden');
-    const text = await dbxDownload(cfg.datenPfad);
-    if (text == null) { const names = await dbxList('/').catch(() => []); throw new Error(`Datendatei ${cfg.datenPfad} nicht gefunden${names.length ? ' – im Ordner liegen: ' + names.slice(0, 8).join(', ') : ''}`); }
-    let data; try { data = JSON.parse(text); } catch { throw new Error('Datendatei ist kein gültiges JSON'); }
-    const name = `planung_${day}_${hm}.json`;
-    if (cfg.sicherungNas) {
-      fs.mkdirSync(BACKUP_DIR, { recursive: true }); fs.writeFileSync(path.join(BACKUP_DIR, name), text); out.push('NAS');
-      pruneList(fs.readdirSync(BACKUP_DIR), RE_JSON, +cfg.behaltTage, +cfg.behaltMonate).forEach(n => { try { fs.unlinkSync(path.join(BACKUP_DIR, n)); } catch { } });
-    }
-    if (cfg.sicherungDbx) {
-      const dir = cfg.sicherungDbxPfad.replace(/\/+$/, '');
-      await dbxUpload(`${dir}/${name}`, text); out.push('Dropbox');
-      for (const n of pruneList(await dbxList(dir), RE_JSON, +cfg.behaltTage, +cfg.behaltMonate)) await dbxDelete(`${dir}/${n}`);
-    }
-    const n = k => (data[k] || []).filter(x => !x.del).length;
-    st.backupLast = { at: new Date().toISOString(), ok: true, name, wo: out, kb: Math.round(text.length / 1024), counts: `${n('auftraege')} Aufträge · ${n('kunden')} Kunden · ${n('produkte')} Produkte` };
-    log(`Sicherung (${reason}): ${name} · ${st.backupLast.kb} KB · ${out.join(' + ')}`);
-    if (excel || (cfg.excelAktiv && wd === +cfg.excelTag && st.excelLastDay !== day)) await runExcel(data, reason);
+    const R = {};
+    for (const q of sicherungsPlan().filter(q => q.aktiv)) R[q.key] = await sichereQuelle(q, reason);
+    // frühere Statusfelder weiter füllen (Statusseite, status.json)
+    const imv = st.sich.imv; st.backupLast = imv && imv.ok ? { at: imv.at, ok: true, name: imv.datei, wo: imv.wo, kb: imv.kb, counts: imv.counts, unv: imv.unv } : { at: new Date().toISOString(), ok: false, error: imv ? imv.error : 'nicht gesichert' };
+    if (st.sich.vm) st.vmLast = st.sich.vm.ok ? { at: st.sich.vm.at, ok: true, name: st.sich.vm.datei, wo: st.sich.vm.wo, kb: st.sich.vm.kb, counts: st.sich.vm.counts } : { at: st.sich.vm.at, ok: false, error: st.sich.vm.error };
+    await sichereEingang(reason);
+    if (R.imv && R.imv.data && (excel || (wochentag && st.excelLastDay !== day))) await runExcel(R.imv.data, reason);
+    if (R.vm && R.vm.data && (excel || (wochentag && st.vmExcelLastDay !== day))) await runVmExcel(R.vm.data, reason);
+    if (R.fk && R.fk.data && (excel || (wochentag && st.fkExcelLastDay !== day))) await runFkExcel(R.fk.data, reason);
+    if (cfg.jdBackupAktiv !== false && (excel || (wochentag && st.jdBakLastDay !== day))) { st.jdBakLastDay = day; await sichereJd(reason); }
+    try { st.pruefung = pruefeBeziehungen(R); log(`Prüfung Datenbeziehungen: ${st.pruefung.fehler} Fehler · ${st.pruefung.hinweise} Hinweise`); } catch (e) { log('Prüfung Datenbeziehungen FEHLER: ' + e.message); }
+    await schreibeStatus();
   } catch (e) {
     st.backupLast = { at: new Date().toISOString(), ok: false, error: e.message }; log('Sicherung FEHLER: ' + e.message);
-  }
-  try { if (cfg.vmAktiv && st.dbx) await runVmBackup(reason, { excel: excel || (cfg.excelAktiv && wd === +cfg.excelTag && st.vmExcelLastDay !== day) }); }
-  finally { st.backupRunning = false; saveSt(); }
+  } finally { st.backupRunning = false; saveSt(); }
 }
-/* ---------- IM-Vermietung (eigenständige App, Datei /vermietung.json): gleiche Sicherung + wöchentliches Excel ---------- */
-async function runVmBackup(reason, { excel } = {}) {
-  const { day, hm } = tzNow(), out = [];
-  try {
-    const text = await dbxDownload(cfg.vmDatenPfad);
-    if (text == null) { st.vmLast = { at: new Date().toISOString(), ok: false, error: `${cfg.vmDatenPfad} nicht gefunden (IM-Vermietung noch nicht mit Dropbox verbunden?)` }; log('Sicherung IM-Vermietung: ' + st.vmLast.error); return; }
-    let data; try { data = JSON.parse(text); } catch { throw new Error('Datendatei der IM-Vermietung ist kein gültiges JSON'); }
-    const name = `vermietung_${day}_${hm}.json`;
-    if (cfg.sicherungNas) {
-      const nd = path.join(BACKUP_DIR, 'vermietung'); fs.mkdirSync(nd, { recursive: true }); fs.writeFileSync(path.join(nd, name), text); out.push('NAS');
-      pruneList(fs.readdirSync(nd), RE_VM_JSON, +cfg.behaltTage, +cfg.behaltMonate).forEach(n => { try { fs.unlinkSync(path.join(nd, n)); } catch { } });
-    }
-    if (cfg.sicherungDbx) {
-      const dir = cfg.vmDbxPfad.replace(/\/+$/, '');
-      await dbxUpload(`${dir}/${name}`, text); out.push('Dropbox');
-      for (const n of pruneList(await dbxList(dir).catch(() => []), RE_VM_JSON, +cfg.behaltTage, +cfg.behaltMonate)) await dbxDelete(`${dir}/${n}`);
-    }
-    const n = k => (data[k] || []).filter(x => x && !x.del).length;
-    st.vmLast = { at: new Date().toISOString(), ok: true, name, wo: out, kb: Math.round(text.length / 1024), counts: `${n('einsaetze')} Einsätze · ${n('kunden')} Kunden · ${n('maschinen')} Maschinen` };
-    log(`Sicherung IM-Vermietung (${reason}): ${name} · ${st.vmLast.kb} KB · ${out.join(' + ')}`);
-    if (excel) await runVmExcel(data, reason);
-  } catch (e) { st.vmLast = { at: new Date().toISOString(), ok: false, error: e.message }; log('Sicherung IM-Vermietung FEHLER: ' + e.message); }
-  saveSt();
+// Zusammenfassung für alle Programme: Dropbox /Sicherungen/status.json (IM-Verwaltung, IM-Vermietung, IM-Faktura zeigen sie unter Mehr an)
+async function schreibeStatus() {
+  const L = sicherungsPlan().map(q => ({ key: q.key, name: q.name, aktiv: q.aktiv, pfad: q.pfad, ziel: q.dbx, ...pick(st.sich[q.key]) }));
+  const S = { format: 'im-sicherung', v: 1, nas: VERSION, stand: new Date().toISOString(), zeit: cfg.sicherungZeit, aktiv: !!cfg.sicherungAktiv,
+    plan: `täglich ${cfg.sicherungZeit} Uhr · ${cfg.behaltTage} Tage + je Monat ${cfg.behaltMonate} Monate${+cfg.behaltJahre ? ` + je Jahr ${cfg.behaltJahre} Jahre` : ''} · IM-Faktura je Jahr mind. 10 Jahre · Excel und MyJohnDeere-Daten wöchentlich (${WOCHENTAGE[+cfg.excelTag] || ''})`,
+    ablage: [cfg.sicherungNas ? 'NAS' : '', cfg.sicherungDbx ? 'Dropbox' : ''].filter(Boolean),
+    quellen: L, eingang: pick(st.sich.ein), jd: pick(st.sich.jd),
+    excel: { imv: st.excelLast || null, vm: st.vmExcelLast || null, fk: st.fkExcelLast || null }, pruefung: st.pruefung || null };
+  try { await dbxUpload((cfg.sicherungDbxPfad || '/Sicherungen').replace(/\/+$/, '') + '/status.json', JSON.stringify(S, null, 1)); } catch (e) { log('Sicherungsstatus schreiben: ' + e.message); }
 }
+// Statusseite: Tabelle aller Quellen
+function sichTabelle() {
+  const S = st.sich || {}, d = x => x ? esc(new Date(x).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })) : '–';
+  const zeile = (name, x, ziel, extra = '') => `<tr><td><b>${esc(name)}</b><br><small>${esc(ziel || '')}</small></td><td>${!x || !x.at ? '<small>noch nicht gesichert</small>' : x.ok ? `<span class="ok">ok</span> ${d(x.at)}${x.unv ? `<br><small>unverändert seit ${d(x.geaendert)}</small>` : ''}${x.fehlt ? '<br><small>Datei (noch) nicht vorhanden</small>' : ''}` : `<span class="no">Fehler</span> ${d(x.at)}<br><small>${esc(x.error)}</small>`}</td><td><small>${esc(x && x.counts || '')}${x && x.kb != null ? ` · ${esc(x.kb)} KB` : ''}${x && x.warn ? `<br><span class="no">Weniger Einträge: ${esc(x.warn.join(', '))}</span>` : ''}${extra}</small></td></tr>`;
+  const rows = sicherungsPlan().map(q => q.aktiv ? zeile(q.name, S[q.key], `${q.pfad} → ${q.dbx}`) : `<tr><td><b>${esc(q.name)}</b></td><td colspan="2"><small>nicht gesichert (ausgeschaltet)</small></td></tr>`).join('')
+    + zeile('Eingang IM-Faktura (wartende Übergaben)', S.ein, '/faktura-eingang → Sicherungen/Faktura')
+    + (cfg.jdBackupAktiv !== false ? zeile('MyJohnDeere-Daten (wöchentlich, ZIP)', S.jd, 'jd-*.json + Bedeckungs-Zwischenspeicher → Sicherungen/MyJohnDeere') : '');
+  const ex = [['IM-Verwaltung', st.excelLast], ['IM-Vermietung', st.vmExcelLast], ['IM-Faktura', st.fkExcelLast]].filter(([, x]) => x).map(([n, x]) => `${esc(n)}: ${x.ok ? `<span class="ok">ok</span> ${d(x.at)} · ${esc(x.name)}` : `<span class="no">Fehler</span> ${esc(x.error)}`}`).join('<br>');
+  return `<table style="width:100%;border-collapse:collapse;font-size:14px" class="sicht"><tr><th style="text-align:left">Daten</th><th style="text-align:left">Letzte Sicherung</th><th style="text-align:left">Inhalt</th></tr>${rows}</table>
+<style>.sicht td,.sicht th{border-bottom:1px solid #e5e2da;padding:6px 6px;vertical-align:top}</style>${ex ? `<p><small>Excel (wöchentlich, Ordner ${esc(cfg.excelPfad)}):<br>${ex}</small></p>` : ''}`;
+}
+function pruefHtml() {
+  const P = st.pruefung; if (!P) return '<p><small>Prüfung der Datenbeziehungen: läuft nach der nächsten Sicherung.</small></p>';
+  return `<details ${P.fehler ? 'open' : ''}><summary><b>Prüfung der Datenbeziehungen</b> ${new Date(P.at).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}: ${P.fehler ? `<span class="no">${P.fehler} Fehler</span>` : '<span class="ok">keine Fehler</span>'} · ${P.hinweise} Hinweise <small>(${esc(P.geprueft.join(', '))})</small></summary>
+${P.punkte.map(x => `<p style="margin:8px 0"><span class="${x.sev === 'fehler' ? 'no' : ''}">${x.sev === 'fehler' ? '⚠' : 'ℹ'} ${esc(x.prog)}: ${esc(x.titel)} (${x.n})</span><br><small>${esc(x.text)}</small><br><small>${x.items.map(esc).join(' · ')}${x.n > x.items.length ? ' …' : ''}</small></p>`).join('') || '<p><small>Alles in Ordnung.</small></p>'}</details>`;
+}
+function pick(o) { if (!o) return {}; const { hash, ...r } = o; return r; }
 async function runVmExcel(data, reason) {
   const { day } = tzNow();
   try {
@@ -1171,6 +1271,135 @@ function vmSheets(D) {
       ...all('maschinen').sort((a, b) => String(a.artNr).localeCompare(String(b.artNr), 'de', { numeric: true })).map(m => [numOr(m.artNr), m.name || '', m.einheit || '', m.preis ?? '', uM.get(m.id) || 0, (m.aliases || []).join('; '), m.aktiv === false ? 'nein' : 'ja', m.id])] }
   ];
 }
+/* ---------- v69: IM-Faktura (eigenständige App, Datei /faktura.json): wöchentliches Excel ---------- */
+// Rechnungsbetrag wie IM-Faktura calc() (Positionen mit Rabatt, Rabattzeilen auf Block/alle, MWST inkl./exkl., Rundung 5 Rp.) – nur für das Excel
+function fkCalc(r) {
+  const R2 = n => Math.round((n + Number.EPSILON) * 100) / 100, R5 = n => Math.round((n + Number.EPSILON) * 20) / 20, inkl = !!r.inkl, rows = [], G = new Map();
+  let open = 0, closed = null; const sumOf = (a, b) => R2(rows.slice(a, b).reduce((t, x) => t + (x.b || 0), 0));
+  (r.pos || []).forEach((p, i) => {
+    const typ = p.typ || 'pos';
+    if (typ === 'pos') { const b = R2((p.menge ?? 1) * (p.preis || 0) * (1 - (p.rabatt || 0) / 100)); rows.push({ typ, b, parts: [{ satz: +p.mwst || 0, b }] }); return; }
+    if (typ === 'zws') { rows.push({ typ, zws: sumOf(open, i) }); closed = [open, i]; open = i + 1; return; }
+    if (typ === 'rabatt') {
+      const nurText = closed && rows.slice(closed[1] + 1, i).every(x => ['text', 'titel', 'rabatt'].includes(x.typ));
+      const [a, b] = p.bereich === 'alle' ? [0, i] : (nurText && !rows.slice(open, i).some(x => x.typ === 'pos') ? closed : [open, i]);
+      const M = new Map(); rows.slice(a, b).forEach(x => (x.parts || []).forEach(t => M.set(t.satz, R2((M.get(t.satz) || 0) + t.b))));
+      const base = R2([...M.values()].reduce((t, v) => t + v, 0));
+      const tot = base ? -R2(p.proz != null && p.proz !== '' ? base * (+p.proz || 0) / 100 : Math.min(Math.abs(+p.betrag || 0), Math.abs(base)) * Math.sign(base)) : 0;
+      let rest = tot; const P = [...M.entries()].filter(([, v]) => v).map(([satz, v], k, A) => { const x = k === A.length - 1 ? R2(rest) : R2(tot * v / base); rest = R2(rest - x); return { satz, b: x }; });
+      rows.push({ typ, b: tot, parts: P }); return;
+    }
+    rows.push({ typ });
+  });
+  rows.forEach(x => (x.parts || []).forEach(t => G.set(t.satz, R2((G.get(t.satz) || 0) + t.b))));
+  let netto = 0, mwst = 0;
+  [...G.entries()].filter(([, v]) => v).forEach(([satz, sum]) => { const m = satz ? R2(inkl ? sum * satz / (100 + satz) : sum * satz / 100) : 0; mwst += m; netto += inkl ? R2(sum - m) : sum; });
+  netto = R2(netto); mwst = R2(mwst); const roh = R2(netto + mwst);
+  return { netto, mwst, total: r.runden5 === false ? roh : R5(roh) };
+}
+function fkSheets(D) {
+  const all = k => (D[k] || []).filter(x => x && !x.del), K = new Map(all('kunden').map(x => [x.id, x])), r2 = x => Math.round(x * 100) / 100;
+  const numOr = v => v === '' || v == null ? '' : (isFinite(+v) ? +v : v), today = tzNow().day;
+  const bez = r => r2((r.zahlungen || []).reduce((t, z) => t + (+z.betrag || 0), 0)), geb = r => r2((r.mahnungen || []).reduce((t, m) => t + (+m.gebuehr || 0), 0));
+  const status = (r, c) => { if (r.storno) return 'storniert'; if (!r.nr) return r.archiv ? 'Entwurf archiviert' : 'Entwurf'; const off = r2(c.total + geb(r) - bez(r)); if (off <= 0.004) return 'bezahlt'; const f = (r.mahnungen || []).length ? r.mahnungen[r.mahnungen.length - 1].faellig : r.faellig; return f && f < today ? 'überfällig' : 'offen'; };
+  const R = all('rechnungen').sort((a, b) => (+a.nr || 1e9) - (+b.nr || 1e9) || String(a.datum || '').localeCompare(String(b.datum || '')));
+  const rRows = R.map(r => { const c = fkCalc(r), k = K.get(r.kunde) || {}; return [numOr(r.nr), r.datum || '', numOr(k.nr), k.name || '', r.betreff || '', c.netto, c.mwst, c.total, geb(r) || '', bez(r) || '', r.nr && !r.storno ? r2(c.total + geb(r) - bez(r)) : '', r.faellig || '', status(r, c), (r.mahnungen || []).length || '', r.ref || '', r.id]; });
+  return [
+    { name: 'Rechnungen', rows: [['Nr.', 'Datum', 'Kd-Nr.', 'Kunde', 'Betreff (intern)', 'Netto', 'MWST', 'Total CHF', 'Gebühren', 'Bezahlt', 'Offen', 'Fällig', 'Status', 'Mahnstufe', 'QR-Referenz', 'ID'], ...rRows] },
+    { name: 'Positionen', rows: [['Nr.', 'Datum Rechnung', 'Kunde', 'Datum', 'Art.-Nr.', 'Bezeichnung', 'Bemerkung', 'Menge', 'Einheit', 'Preis', 'Rabatt %', 'MWST %', 'Betrag', 'Konto', 'MWST-Code'],
+      ...R.filter(r => !r.storno).flatMap(r => (r.pos || []).filter(p => (p.typ || 'pos') === 'pos').map(p => [numOr(r.nr) || 'Entwurf', r.datum || '', (K.get(r.kunde) || {}).name || '', p.datum || '', numOr(p.art), p.bez || '', p.bem || '', p.menge ?? '', p.einh || '', p.preis ?? '', p.rabatt || '', p.mwst ?? '', r2((p.menge ?? 1) * (p.preis || 0) * (1 - (p.rabatt || 0) / 100)), numOr(p.konto), p.code || '']))] },
+    { name: 'Zahlungen', rows: [['Nr.', 'Kunde', 'Datum', 'Betrag', 'Konto', 'Quelle', 'Bemerkung', 'Export AgroOffice'], ...R.flatMap(r => (r.zahlungen || []).map(z => [numOr(r.nr), (K.get(r.kunde) || {}).name || '', z.datum || '', +z.betrag || 0, numOr(z.konto), z.quelle || '', z.bem || '', z.exp ? 'exportiert' : '']))] },
+    { name: 'Kunden', rows: [['Kd-Nr.', 'Name', 'Zusatz', 'Strasse', 'Nr.', 'PLZ', 'Ort', 'Land', 'E-Mail', 'Telefon', 'Aktiv', 'Verknüpft IM-Verwaltung', 'Verknüpft IM-Vermietung', 'ID'],
+      ...all('kunden').sort((a, b) => String(a.name).localeCompare(String(b.name), 'de')).map(k => [numOr(k.nr), k.name || '', k.zusatz || '', k.strasse || '', k.hausnr || '', k.plz || '', k.ort || '', k.land || '', k.mail || '', k.tel || '', k.aktiv === false ? 'nein' : 'ja', (k.imvIds || []).length || '', k.vmId ? 'ja' : '', k.id])] },
+    { name: 'Artikel', rows: [['Art.-Nr.', 'Bezeichnung', 'Beschreibung', 'Einheit', 'Preis CHF', 'MWST %', 'Konto', 'Aufwandkonto', 'Arbeiten IM-Verwaltung', 'Aktiv'],
+      ...all('artikel').sort((a, b) => String(a.artNr).localeCompare(String(b.artNr), 'de', { numeric: true })).map(a => [numOr(a.artNr), a.bez || '', a.beschr || '', a.einheit || '', a.preis ?? '', a.mwst ?? '', numOr(a.konto), numOr(a.kontoAufw), (a.arbeiten || []).join('; '), a.aktiv === false ? 'nein' : 'ja'])] }
+  ];
+}
+async function runFkExcel(data, reason) {
+  const { day } = tzNow();
+  try {
+    const sheets = fkSheets(data), buf = xlsxBuffer(sheets), name = `IM-Faktura-Daten_${day}.xlsx`, dir = cfg.excelPfad.replace(/\/+$/, '');
+    await dbxUpload(`${dir}/${name}`, buf);
+    for (const n of pruneList(await dbxList(dir).catch(() => []), RE_FK_XLSX, 7 * +cfg.excelBehalt, 0, 10)) await dbxDelete(`${dir}/${n}`); // je Jahr eine Excel-Datei 10 Jahre
+    if (cfg.sicherungNas) { const nd = path.join(BACKUP_DIR, 'excel'); fs.mkdirSync(nd, { recursive: true }); fs.writeFileSync(path.join(nd, name), buf); pruneList(fs.readdirSync(nd), RE_FK_XLSX, 7 * +cfg.excelBehalt, 0, 10).forEach(n => { try { fs.unlinkSync(path.join(nd, n)); } catch { } }); }
+    st.fkExcelLastDay = day; st.fkExcelLast = { at: new Date().toISOString(), ok: true, name, info: sheets.map(s => `${s.name} ${s.rows.length - 1}`).join(' · ') };
+    log(`Excel-Export IM-Faktura (${reason}): ${dir}/${name} · ${st.fkExcelLast.info}`);
+  } catch (e) { st.fkExcelLast = { at: new Date().toISOString(), ok: false, error: e.message }; log('Excel-Export IM-Faktura FEHLER: ' + e.message); }
+  saveSt();
+}
+
+/* ---------- v69: Prüfung der Datenbeziehungen zwischen den Programmen (läuft nach jeder Sicherung) ----------
+   Liest nur – ändert nichts. Ergebnis auf der Statusseite und in /Sicherungen/status.json (IM-Verwaltung › Mehr › Datenprüfung). */
+function pruefeBeziehungen(R) {
+  const D = k => (R[k] && R[k].data) || null, P = D('imv'), V = D('vm'), F = D('fk'), out = [];
+  const all = (d, k) => ((d && d[k]) || []).filter(x => x && !x.del), nk = s => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const add = (prog, sev, titel, text, items) => { if (items.length) out.push({ prog, sev, titel, text, n: items.length, items: items.slice(0, 25) }); };
+  const today = tzNow().day, vorTagen = (iso, n) => iso && Date.parse(iso) < Date.now() - n * 864e5;
+  const PK = new Map(all(P, 'kunden').map(k => [k.id, k])), VK = new Map(all(V, 'kunden').map(k => [k.id, k])), FKd = all(F, 'kunden'), FK = new Map(FKd.map(k => [k.id, k]));
+  const FA = all(F, 'artikel'), artNr = new Map(); FA.forEach(a => { const k = String(a.artNr ?? '').trim(); if (k) artNr.set(k, [...(artNr.get(k) || []), a]); });
+  const fcfg = (all(F, 'einstellungen').find(x => x.id === 'cfg') || {});
+  if (F) {
+    // Kunden IM-Faktura ↔ IM-Verwaltung
+    if (P) {
+      add('IM-Faktura', 'fehler', 'Verknüpfung zu gelöschtem Kunden der IM-Verwaltung', 'Faktura-Kunde ist mit einer Kunden-ID der IM-Verwaltung (MyJohnDeere) verknüpft, die es nicht mehr gibt – in IM-Faktura › Stammdaten › «IM-Verwaltung verknüpfen» neu zuordnen.',
+        FKd.flatMap(k => (k.imvIds || []).filter(i => !PK.has(i)).map(i => `${k.name}${k.nr ? ' (' + k.nr + ')' : ''} → ${i}`)));
+      const by = new Map(); FKd.forEach(k => (k.imvIds || []).forEach(i => by.set(i, [...(by.get(i) || []), k])));
+      add('IM-Faktura', 'fehler', 'Ein Kunde der IM-Verwaltung bei mehreren Faktura-Kunden', 'Übergaben landen dann zufällig bei einem der beiden – Verknüpfung bei einem lösen.', [...by].filter(([, L]) => L.length > 1).map(([i, L]) => `${(PK.get(i) || {}).name || i}: ${L.map(k => k.name).join(' · ')}`));
+      // Kunden, an die schon gesendet wurde, aber ohne Faktura-Kunde
+      const linked = new Set([...by.keys()]), gesendet = new Map();
+      all(P, 'auftraege').filter(o => o.fakt && o.kunde).forEach(o => gesendet.set(o.kunde, (gesendet.get(o.kunde) || 0) + 1));
+      add('IM-Verwaltung', 'hinweis', 'An IM-Faktura gesendet, Kunde aber nicht verknüpft', 'IM-Faktura hat diesen Kunden noch keinem Faktura-Kunden zugeordnet (passiert beim nächsten Eingang automatisch über Nr./Name, sonst «IM-Verwaltung verknüpfen»).',
+        [...gesendet].filter(([id]) => !linked.has(id)).map(([id, n]) => `${(PK.get(id) || {}).name || id} (${n} Aufträge)`));
+    }
+    // Kunden IM-Faktura ↔ IM-Vermietung
+    if (V) {
+      add('IM-Faktura', 'fehler', 'Verknüpfung zu gelöschtem Kunden der IM-Vermietung', 'vmId zeigt auf keinen Kunden der IM-Vermietung.', FKd.filter(k => k.vmId && !VK.has(k.vmId)).map(k => `${k.name} → ${k.vmId}`));
+      add('IM-Vermietung', 'fehler', 'Verknüpfung zu gelöschtem Faktura-Kunden', 'fkId zeigt auf keinen Kunden in IM-Faktura – «⟳ Kunden aus IM-Faktura» ausführen.', [...VK.values()].filter(k => k.fkId && !FK.has(k.fkId)).map(k => `${k.name} → ${k.fkId}`));
+      add('IM-Vermietung', 'hinweis', 'Verknüpfung nicht in beide Richtungen gleich', 'Kunde der IM-Vermietung zeigt auf einen Faktura-Kunden, der selbst auf einen anderen Vermietungs-Kunden zeigt.',
+        [...VK.values()].filter(k => k.fkId && FK.has(k.fkId) && FK.get(k.fkId).vmId && FK.get(k.fkId).vmId !== k.id).map(k => `${k.name} ↔ ${FK.get(k.fkId).name}`));
+      const byF = new Map(); [...VK.values()].filter(k => k.fkId).forEach(k => byF.set(k.fkId, [...(byF.get(k.fkId) || []), k]));
+      add('IM-Vermietung', 'fehler', 'Mehrere Vermietungs-Kunden mit demselben Faktura-Kunden', 'Doppelt geführter Kunde – in der IM-Vermietung zusammenführen.', [...byF].filter(([, L]) => L.length > 1).map(([f, L]) => `${(FK.get(f) || {}).name || f}: ${L.map(k => k.name).join(' · ')}`));
+    }
+    // Rechnungen
+    const RE = all(F, 'rechnungen'), nrs = new Map(); RE.forEach(r => { const n = String(r.nr || r.nrRes || '').trim(); if (n) nrs.set(n, [...(nrs.get(n) || []), r]); });
+    add('IM-Faktura', 'fehler', 'Rechnungsnummer doppelt', 'Dieselbe Nummer (oder reservierte Nummer) bei mehreren Rechnungen – QR-Referenz wäre doppelt.', [...nrs].filter(([, L]) => L.length > 1).map(([n, L]) => `Nr. ${n}: ${L.length}×`));
+    add('IM-Faktura', 'fehler', 'Rechnung ohne Kunde', 'Rechnung/Entwurf zeigt auf einen gelöschten Kunden.', RE.filter(r => !r.archiv && r.kunde && !FK.has(r.kunde)).map(r => r.nr ? `Nr. ${r.nr} vom ${r.datum || ''}` : `Entwurf vom ${r.datum || ''}`));
+    const ent = RE.filter(r => !r.nr && !r.archiv && !r.storno);
+    add('IM-Faktura', 'hinweis', 'Entwürfe mit Artikel-Nr., die es nicht gibt', 'Positionen mit unbekannter Art.-Nr. – beim Abschliessen fehlen Konto und MWST-Code.', ent.flatMap(r => (r.pos || []).filter(p => (p.typ || 'pos') === 'pos' && p.art && !artNr.has(String(p.art).trim())).map(p => `${(FK.get(r.kunde) || {}).name || '?'}: Art. ${p.art} ${p.bez || ''}`)));
+    add('IM-Faktura', 'hinweis', 'Entwürfe für Kunden ohne vollständige Adresse', 'Ohne Strasse/PLZ/Ort gibt es keinen gültigen QR-Zahlteil.', ent.filter(r => FK.has(r.kunde) && !(FK.get(r.kunde).plz && FK.get(r.kunde).ort)).map(r => (FK.get(r.kunde) || {}).name));
+    add('IM-Faktura', 'hinweis', 'Alte Entwürfe (älter als 60 Tage)', 'Noch nicht abgerechnet – abschliessen oder archivieren.', ent.filter(r => r.datum && r.datum < new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10)).map(r => `${(FK.get(r.kunde) || {}).name || '?'} · ${r.datum}`));
+    // Artikel
+    add('IM-Faktura', 'fehler', 'Artikel-Nr. doppelt', 'Gleiche Art.-Nr. bei mehreren Artikeln – Übergaben wählen zufällig einen davon.', [...artNr].filter(([, L]) => L.filter(a => a.aktiv !== false).length > 1).map(([n, L]) => `Art. ${n}: ${L.map(a => a.bez).join(' · ')}`));
+    add('IM-Faktura', 'hinweis', 'Aktive Artikel ohne Konto', 'Beim Übernehmen fragt IM-Faktura jedes Mal nach dem Konto – im Artikel speichern.', FA.filter(a => a.aktiv !== false && !a.konto).map(a => `Art. ${a.artNr ?? '–'} ${a.bez || ''}`));
+    const ein = Object.assign({ artPsm: '52', artMiete: '100' }, fcfg.ein || {});
+    add('IM-Faktura', 'fehler', 'Vorgabe-Artikel fehlen', 'Diese Artikel braucht der Eingang aus IM-Verwaltung/IM-Vermietung (Pflanzenschutzmittel, Maschinenmiete, Spritzarbeiten).',
+      [[ein.artPsm, 'Pflanzenschutzmittel'], [ein.artMiete, 'Maschinenmiete'], ['30', 'Spritzarbeiten']].filter(([n]) => !artNr.has(String(n))).map(([n, t]) => `Art. ${n} (${t})`));
+    // gesendete Übergaben, die nie angekommen sind
+    const done = new Set(fcfg.einDone || []), warten = new Set(((st.sich.ein || {}).alt || []).map(x => String(x.id).replace(/\.json$/i, '')));
+    if (done.size) {
+      const lost = [];
+      if (P) { const seen = new Set(); [...all(P, 'auftraege').map(o => o.fakt), ...all(P, 'einstellungen').filter(x => /^jdabr-/.test(x.id)).map(x => x.fakt)].filter(f => f && f.id && !seen.has(f.id) && seen.add(f.id))
+        .forEach(f => { if (!done.has(f.id) && !warten.has(f.id) && f.am && !vorTagen(f.am, 60) && vorTagen(f.am, 0.05)) lost.push(`IM-Verwaltung ${new Date(f.am).toLocaleDateString('de-CH')} · ${f.id}`); }); }
+      if (V) { const seen = new Set(); all(V, 'einsaetze').filter(e => e.fakt && !seen.has(e.fakt) && seen.add(e.fakt)).forEach(e => { if (!done.has(e.fakt) && !warten.has(e.fakt) && e.abgerechnetAm && e.abgerechnetAm >= new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10) && e.abgerechnetAm < today) lost.push(`IM-Vermietung ${e.abgerechnetAm} · ${e.fakt}`); }); }
+      add('IM-Faktura', 'fehler', 'Gesendet, aber nie in IM-Faktura angekommen', 'Übergabe ist als «an IM-Faktura gesendet» markiert, IM-Faktura hat sie aber nicht übernommen und sie liegt nicht mehr im Eingang. Inhalt ggf. aus der Sicherung «faktura-eingang_…zip» holen oder neu senden.', lost);
+    }
+    add('IM-Faktura', 'hinweis', 'Übergaben warten seit über 3 Tagen im Eingang', 'IM-Faktura öffnen – der Eingang wird beim Start übernommen.', ((st.sich.ein || {}).alt || []).filter(x => vorTagen(x.am, 3)).map(x => `${x.app || ''} · ${x.kunde || ''} · ${x.am ? new Date(x.am).toLocaleDateString('de-CH') : ''}`));
+  }
+  if (V) {
+    const VM = new Map(all(V, 'maschinen').map(m => [m.id, m]));
+    add('IM-Vermietung', 'fehler', 'Einsätze ohne gültigen Kunden oder Maschine', 'Verweis auf gelöschten Kunden/Maschine.', all(V, 'einsaetze').filter(e => e.status !== 'storniert' && ((e.kunde && !VK.has(e.kunde)) || (e.maschine && !VM.has(e.maschine)))).map(e => `${e.datum || ''} · ${(VK.get(e.kunde) || {}).name || '?'} · ${(VM.get(e.maschine) || {}).name || '?'}`));
+    add('IM-Vermietung', 'hinweis', 'Aktive Maschinen ohne Art.-Nr. oder Preis', 'Für Rapport und Abrechnung nötig.', [...VM.values()].filter(m => m.aktiv !== false && (!m.artNr || m.preis == null || m.preis === '')).map(m => m.name));
+    add('IM-Vermietung', 'hinweis', 'Kunden nicht mit IM-Faktura verknüpft', 'Neukunden – IM-Faktura legt sie beim ersten Senden an.', [...VK.values()].filter(k => k.aktiv !== false && !k.fkId).map(k => k.name));
+  }
+  if (P) {
+    const F2 = new Map(all(P, 'felder').map(f => [f.id, f]));
+    add('IM-Verwaltung', 'fehler', 'Aufträge mit Feld eines anderen Kunden', 'Verknüpftes MyJohnDeere-Feld gehört nicht zum Kunden des Auftrags.', all(P, 'auftraege').filter(o => o.kfeld && F2.has(o.kfeld) && F2.get(o.kfeld).kunde && o.kunde && F2.get(o.kfeld).kunde !== o.kunde).map(o => `${o.nr || ''} · ${(PK.get(o.kunde) || {}).name || '?'} · Feld ${F2.get(o.kfeld).name}`));
+    add('IM-Verwaltung', 'hinweis', 'Erledigte Aufträge über 90 Tage noch nicht verrechnet', 'Abrechnen oder an IM-Faktura senden.', all(P, 'auftraege').filter(o => o.status === 'erledigt' && (o.erledigtAm || o.datum) && (o.erledigtAm || o.datum) < new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10)).map(o => `${o.nr || ''} · ${(PK.get(o.kunde) || {}).name || '?'} · ${o.arbeit || ''} · ${o.erledigtAm || o.datum}`));
+  }
+  const ord = { fehler: 0, hinweis: 1 }; out.sort((a, b) => ord[a.sev] - ord[b.sev] || a.prog.localeCompare(b.prog));
+  return { at: new Date().toISOString(), fehler: out.filter(x => x.sev === 'fehler').reduce((t, x) => t + x.n, 0), hinweise: out.filter(x => x.sev === 'hinweis').reduce((t, x) => t + x.n, 0),
+    geprueft: [P ? 'IM-Verwaltung' : '', V ? 'IM-Vermietung' : '', F ? 'IM-Faktura' : ''].filter(Boolean), punkte: out };
+}
 async function runExcel(data, reason) {
   const { day } = tzNow();
   try {
@@ -1187,12 +1416,12 @@ async function runExcel(data, reason) {
 // ---- Excel-Datei (ohne Zusatzpakete): ZIP ohne Kompression + Tabellenblätter
 const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
 const crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC_T[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
-function zipStore(files) {
+function zipStore(files, deflate = false) { // v69: optional komprimiert (Sicherungs-ZIPs); Excel bleibt unkomprimiert
   const parts = [], central = []; let off = 0;
   for (const f of files) {
-    const name = Buffer.from(f.name), data = Buffer.from(f.data), crc = crc32(data), h = Buffer.alloc(30), c = Buffer.alloc(46);
-    h.writeUInt32LE(0x04034b50, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(0x0800, 6); h.writeUInt32LE(crc, 14); h.writeUInt32LE(data.length, 18); h.writeUInt32LE(data.length, 22); h.writeUInt16LE(name.length, 26);
-    c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE(20, 4); c.writeUInt16LE(20, 6); c.writeUInt16LE(0x0800, 8); c.writeUInt32LE(crc, 16); c.writeUInt32LE(data.length, 20); c.writeUInt32LE(data.length, 24); c.writeUInt16LE(name.length, 28); c.writeUInt32LE(off, 42);
+    const name = Buffer.from(f.name), raw = Buffer.from(f.data), crc = crc32(raw), data = deflate ? zlib.deflateRawSync(raw, { level: 6 }) : raw, meth = deflate ? 8 : 0, h = Buffer.alloc(30), c = Buffer.alloc(46);
+    h.writeUInt32LE(0x04034b50, 0); h.writeUInt16LE(20, 4); h.writeUInt16LE(0x0800, 6); h.writeUInt16LE(meth, 8); h.writeUInt32LE(crc, 14); h.writeUInt32LE(data.length, 18); h.writeUInt32LE(raw.length, 22); h.writeUInt16LE(name.length, 26);
+    c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE(20, 4); c.writeUInt16LE(20, 6); c.writeUInt16LE(0x0800, 8); c.writeUInt16LE(meth, 10); c.writeUInt32LE(crc, 16); c.writeUInt32LE(data.length, 20); c.writeUInt32LE(raw.length, 24); c.writeUInt16LE(name.length, 28); c.writeUInt32LE(off, 42);
     parts.push(h, name, data); central.push(c, name); off += 30 + name.length + data.length;
   }
   const cs = central.reduce((s, b) => s + b.length, 0), e = Buffer.alloc(22);
@@ -1589,11 +1818,9 @@ ${st.jdStruktur ? `<p><small>MyJohnDeere: ${st.jdStruktur.mandanten} Mandanten (
 <div><label>Von – bis (bei «regelmässig»)</label><div class="row" style="gap:6px"><input name="syncVon" type="time" value="${esc(cfg.syncVon)}" style="min-width:0"><input name="syncBis" type="time" value="${esc(cfg.syncBis)}" style="min-width:0"></div></div></div>
 <div class="row"><div><label>Anfragen aus der IM-Verwaltung prüfen alle … Minuten</label><select name="pollMinutes">${[1, 2, 5, 10, 15, 30].map(m => `<option ${+cfg.pollMinutes === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div><div><label>Aktuell</label><p style="margin:6px 0 0">${esc(rhythmText())} · nächster Abgleich ${esc(nextSync())}</p></div></div>
 <button>Speichern</button></form></section>
-<section><h2>Datensicherung</h2><p><small>Sichert die Daten der IM-Verwaltung (<b>${esc(cfg.datenPfad)}</b>)${cfg.vmAktiv ? ` und die Daten der IM-Vermietung (<b>${esc(cfg.vmDatenPfad)}</b>, Ordner ${esc(cfg.vmDbxPfad)})` : ''} täglich mit Datum. Behalten werden die letzten ${esc(cfg.behaltTage)} Tage und je eine pro Monat für ${esc(cfg.behaltMonate)} Monate. Zusätzlich einmal pro Woche eine Excel-Datei mit allen Daten. Zurückspielen in der IM-Verwaltung unter <i>Mehr › Sicherung einlesen</i>.</small></p>
-${st.backupLast ? `<p>Letzte Sicherung: ${esc(new Date(st.backupLast.at).toLocaleString('de-CH'))} ${st.backupLast.ok ? `<span class="ok">ok</span> · ${esc(st.backupLast.name)} · ${esc(st.backupLast.kb)} KB · ${esc((st.backupLast.wo || []).join(' + '))} · ${esc(st.backupLast.counts || '')}` : `<span class="no">Fehler</span><br><small>${esc(st.backupLast.error)}</small>`}</p>` : '<p>Noch keine Sicherung.</p>'}
-${st.excelLast ? `<p>Letzter Excel-Export: ${esc(new Date(st.excelLast.at).toLocaleString('de-CH'))} ${st.excelLast.ok ? `<span class="ok">ok</span> · ${esc(cfg.excelPfad)}/${esc(st.excelLast.name)}<br><small>${esc(st.excelLast.info)}</small>` : `<span class="no">Fehler</span><br><small>${esc(st.excelLast.error)}</small>`}</p>` : ''}
-${cfg.vmAktiv && st.vmLast ? `<p>IM-Vermietung – letzte Sicherung: ${esc(new Date(st.vmLast.at).toLocaleString('de-CH'))} ${st.vmLast.ok ? `<span class="ok">ok</span> · ${esc(st.vmLast.name)} · ${esc(st.vmLast.kb)} KB · ${esc((st.vmLast.wo || []).join(' + '))} · ${esc(st.vmLast.counts || '')}` : `<span class="no">Fehler</span><br><small>${esc(st.vmLast.error)}</small>`}</p>` : ''}
-${cfg.vmAktiv && st.vmExcelLast ? `<p>IM-Vermietung – letzter Excel-Export: ${esc(new Date(st.vmExcelLast.at).toLocaleString('de-CH'))} ${st.vmExcelLast.ok ? `<span class="ok">ok</span> · ${esc(cfg.excelPfad)}/${esc(st.vmExcelLast.name)}<br><small>${esc(st.vmExcelLast.info)}</small>` : `<span class="no">Fehler</span><br><small>${esc(st.vmExcelLast.error)}</small>`}</p>` : ''}
+<section><h2>Datensicherung (Sicherungsplan aller IM-Programme)</h2><p><small>Täglich um ${esc(cfg.sicherungZeit)} Uhr wird jede Datendatei mit Datum gesichert – auf dem NAS (${esc(BACKUP_DIR === '/backup' ? 'Ordner docker/jd-sync/sicherungen' : BACKUP_DIR)}) und in der Dropbox (Ordner ${esc(cfg.sicherungDbxPfad)}). Unveränderte Dateien werden nicht doppelt abgelegt. Behalten: letzte ${esc(cfg.behaltTage)} Tage, je eine pro Monat für ${esc(cfg.behaltMonate)} Monate${+cfg.behaltJahre ? `, je eine pro Jahr für ${esc(cfg.behaltJahre)} Jahre` : ''}; IM-Faktura immer mindestens 10 Jahre (Aufbewahrungspflicht). Wöchentlich (${esc(WOCHENTAGE[+cfg.excelTag] || '')}) zusätzlich Excel-Dateien und ein ZIP der MyJohnDeere-Daten. Danach werden die Verknüpfungen zwischen den Programmen geprüft.</small></p>
+${sichTabelle()}
+${pruefHtml()}
 <form method="post" action="/sicherung"><div class="row"><div><label>Tägliche Sicherung</label><select name="sicherungAktiv"><option value="1" ${cfg.sicherungAktiv ? 'selected' : ''}>Ein</option><option value="0" ${cfg.sicherungAktiv ? '' : 'selected'}>Aus</option></select></div>
 <div><label>Uhrzeit (00:00 = um Mitternacht)</label><input name="sicherungZeit" type="time" value="${esc(cfg.sicherungZeit)}"></div></div>
 <div class="row"><div><label>Ablage auf dem NAS</label><select name="sicherungNas"><option value="1" ${cfg.sicherungNas ? 'selected' : ''}>Ja – ${esc(BACKUP_DIR === '/backup' ? 'Ordner docker/jd-sync/sicherungen' : BACKUP_DIR.startsWith(DATA) ? 'Ordner data/sicherungen' : BACKUP_DIR)}</option><option value="0" ${cfg.sicherungNas ? '' : 'selected'}>Nein</option></select></div>
@@ -1605,7 +1832,10 @@ ${cfg.vmAktiv && st.vmExcelLast ? `<p>IM-Vermietung – letzter Excel-Export: ${
 <div class="row"><div><label>Dropbox-Ordner für Excel</label><input name="excelPfad" value="${esc(cfg.excelPfad)}"></div><div><label>Excel-Dateien behalten (Wochen)</label><input name="excelBehalt" type="number" min="1" max="520" value="${esc(cfg.excelBehalt)}"></div></div>
 <div class="row"><div><label>IM-Vermietung mitsichern (inkl. Excel)</label><select name="vmAktiv"><option value="1" ${cfg.vmAktiv ? 'selected' : ''}>Ja</option><option value="0" ${cfg.vmAktiv ? '' : 'selected'}>Nein</option></select></div>
 <div><label>Datendatei der IM-Vermietung</label><input name="vmDatenPfad" value="${esc(cfg.vmDatenPfad)}"></div></div>
-<div class="row"><div><label>Dropbox-Ordner der Vermietungs-Sicherungen</label><input name="vmDbxPfad" value="${esc(cfg.vmDbxPfad)}"></div><div></div></div>
+<div class="row"><div><label>Dropbox-Ordner der Vermietungs-Sicherungen</label><input name="vmDbxPfad" value="${esc(cfg.vmDbxPfad)}"></div><div><label>Jährliche Sicherungen behalten (Jahre, 0 = keine)</label><input name="behaltJahre" type="number" min="0" max="30" value="${esc(cfg.behaltJahre)}"></div></div>
+<div class="row"><div><label>IM-Faktura mitsichern (inkl. Excel, mind. 10 Jahre)</label><select name="fkAktiv"><option value="1" ${cfg.fkAktiv !== false ? 'selected' : ''}>Ja</option><option value="0" ${cfg.fkAktiv !== false ? '' : 'selected'}>Nein</option></select></div><div><label>Dropbox-Ordner der Faktura-Sicherungen</label><input name="fkDbxPfad" value="${esc(cfg.fkDbxPfad)}"></div></div>
+<div class="row"><div><label>IM-Applikationskarten mitsichern</label><select name="akAktiv"><option value="1" ${cfg.akAktiv !== false ? 'selected' : ''}>Ja</option><option value="0" ${cfg.akAktiv !== false ? '' : 'selected'}>Nein</option></select></div><div><label>IM-Feldbereinigung mitsichern</label><select name="fbAktiv"><option value="1" ${cfg.fbAktiv !== false ? 'selected' : ''}>Ja</option><option value="0" ${cfg.fbAktiv !== false ? '' : 'selected'}>Nein</option></select></div></div>
+<div class="row"><div><label>MyJohnDeere-Daten wöchentlich als ZIP</label><select name="jdBackupAktiv"><option value="1" ${cfg.jdBackupAktiv !== false ? 'selected' : ''}>Ja</option><option value="0" ${cfg.jdBackupAktiv !== false ? '' : 'selected'}>Nein</option></select></div><div><label>MyJohnDeere-ZIP behalten (Wochen)</label><input name="jdBackupWochen" type="number" min="1" max="104" value="${esc(cfg.jdBackupWochen)}"></div></div>
 <button>Speichern</button></form>
 <div class="row" style="flex:0"><form method="post" action="/sicherung/jetzt"><button class="sec" ${st.dbx ? '' : 'disabled'}>Jetzt sichern</button></form><form method="post" action="/excel/jetzt"><button class="sec" ${st.dbx ? '' : 'disabled'}>Excel jetzt erstellen</button></form></div></section>
 <section><h2>Arbeitsdaten (Vorrat)</h2><p><small>Arbeitsgänge aus MyJohnDeere (Säen, Spritzen, Ernten, Bodenbearbeitung …) mit Messwerten werden als <b>${esc(cfg.arbeitenPath)}</b> abgelegt (IM-Verwaltung › Verwaltung › Bericht und Abrechnung). Aus jeder Bedeckungskarte wird die Fläche <b>ohne Überlappungen</b> («ha bedeckt») berechnet und eine <b>virtuelle Feldgrenze</b> erstellt (<b>${esc(cfg.grenzenPath || '/jd-grenzen.json')}</b>). Bedeckungskarten kommen über die neue <b>Operations Data Export</b>-Schnittstelle von John Deere (<code>/isg/operations/…/operationsExportRequests</code>); wo sie nicht klappt, über die alte (<code>/fieldOps</code>, läuft laut John Deere bis November 2027)${st.covInfo && st.covInfo.neueApi ? ` · letzter Lauf neue API: ${esc(Object.entries(st.covInfo.neueApi.antworten || {}).map(([k, v]) => k + '×' + v).join(', ') || '–')}${st.covInfo.neueApi.gestoppt ? ' <span class="no">kein Zugriff – Freischaltung prüfen</span>' : ''}` : ''}.</small></p>
@@ -1657,7 +1887,7 @@ http.createServer(async (req, res) => {
     if (req.method === 'GET' && u.pathname === '/diagnose.json') { res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Disposition': 'attachment; filename="jd-sync-diagnose.json"' }); const arb = load('arbeiten.json', { ops: {} }), ohne = Object.values(arb.ops || {}).filter(o => o.flaeche == null).sort((a, b) => String(b.start || '').localeCompare(String(a.start || '')));
       const bsp = ohne.slice(0, 15).map(o => ({ id: o.id, feld: o.fieldName, art: o.type, start: o.start, maschinenTyp: o.machineType, links: o.rels, bedeckungLink: o.lk?.shapeFileAsync || null, bedeckung: o.cov || null, messungen: (o.measurements || []).map(m => ({ name: m.measurementName, felder: Object.keys(m).filter(k => k !== 'measurementName').slice(0, 20) })) }));
       return res.end(JSON.stringify({ version: VERSION, ...load('diagnose.json', { hinweis: 'Noch kein Abgleich gelaufen' }), arbeitsdaten: { letzter: st.arbLast || null, ok: st.arbOk || null, laeuft: st.arbProgress || null }, flaechen: st.flaechen || null, bedeckungskarte: st.covInfo || null, ohneFlaeche: { anzahl: ohne.length, beispiele: bsp } }, null, 1)); }
-    if (req.method === 'GET' && u.pathname === '/status.json') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ version: VERSION, last: st.last, lastOk: st.lastOk, arbLast: st.arbLast, arbOk: st.arbOk, arbProgress: st.arbProgress || null, flaechen: st.flaechen, covInfo: st.covInfo, backupLast: st.backupLast, excelLast: st.excelLast, rhythmus: rhythmText(), running: st.running })); }
+    if (req.method === 'GET' && u.pathname === '/status.json') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ version: VERSION, last: st.last, lastOk: st.lastOk, arbLast: st.arbLast, arbOk: st.arbOk, arbProgress: st.arbProgress || null, flaechen: st.flaechen, covInfo: st.covInfo, backupLast: st.backupLast, excelLast: st.excelLast, sicherung: Object.fromEntries(Object.entries(st.sich || {}).map(([k, v]) => [k, pick(v)])), pruefung: st.pruefung || null, rhythmus: rhythmText(), running: st.running })); }
     if (req.method === 'POST' && u.pathname === '/config') {
       const f = await body(req);
       ['clientId', 'redirectUri', 'apiBase', 'dbxAppKey', 'kundenEbene'].forEach(k => { if (f.has(k)) cfg[k] = f.get(k).trim(); });
@@ -1699,16 +1929,16 @@ http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && u.pathname === '/sicherung') {
       const f = await body(req), yes = k => f.get(k) === '1', clamp = (v, a, b, d) => Math.max(a, Math.min(b, Number.isFinite(+v) && v !== '' ? +v : d));
-      Object.assign(cfg, { sicherungAktiv: yes('sicherungAktiv'), sicherungNas: yes('sicherungNas'), sicherungDbx: yes('sicherungDbx'), excelAktiv: yes('excelAktiv'), vmAktiv: f.has('vmAktiv') ? yes('vmAktiv') : cfg.vmAktiv,
-        excelTag: clamp(f.get('excelTag'), 0, 6, 1), behaltTage: clamp(f.get('behaltTage'), 1, 365, 30), behaltMonate: clamp(f.get('behaltMonate'), 0, 120, 24), excelBehalt: clamp(f.get('excelBehalt'), 1, 520, 26) });
+      Object.assign(cfg, { sicherungAktiv: yes('sicherungAktiv'), sicherungNas: yes('sicherungNas'), sicherungDbx: yes('sicherungDbx'), excelAktiv: yes('excelAktiv'), vmAktiv: f.has('vmAktiv') ? yes('vmAktiv') : cfg.vmAktiv, fkAktiv: f.has('fkAktiv') ? yes('fkAktiv') : cfg.fkAktiv, akAktiv: f.has('akAktiv') ? yes('akAktiv') : cfg.akAktiv, fbAktiv: f.has('fbAktiv') ? yes('fbAktiv') : cfg.fbAktiv, jdBackupAktiv: f.has('jdBackupAktiv') ? yes('jdBackupAktiv') : cfg.jdBackupAktiv,
+        excelTag: clamp(f.get('excelTag'), 0, 6, 1), behaltTage: clamp(f.get('behaltTage'), 1, 365, 30), behaltMonate: clamp(f.get('behaltMonate'), 0, 120, 24), excelBehalt: clamp(f.get('excelBehalt'), 1, 520, 26), behaltJahre: f.has('behaltJahre') ? clamp(f.get('behaltJahre'), 0, 30, 10) : cfg.behaltJahre, jdBackupWochen: f.has('jdBackupWochen') ? clamp(f.get('jdBackupWochen'), 1, 104, 8) : cfg.jdBackupWochen });
       if (toMinutes(f.get('sicherungZeit')) != null) { const nz = hmOf(toMinutes(f.get('sicherungZeit'))); if (nz !== cfg.sicherungZeit) { cfg.sicherungZeit = nz; const { day, min } = tzNow(); if (min >= toMinutes(nz) && st.lastBackupDay !== day) { st.lastBackupDay = day; saveSt(); } } }
       const pth = k => { const v = String(f.get(k) || '').trim(); return v ? '/' + v.replace(/^\/+/, '').replace(/\/+$/, '') : null; };
-      cfg.sicherungDbxPfad = pth('sicherungDbxPfad') || cfg.sicherungDbxPfad; cfg.excelPfad = pth('excelPfad') || cfg.excelPfad; cfg.datenPfad = pth('datenPfad') || cfg.datenPfad; cfg.vmDatenPfad = pth('vmDatenPfad') || cfg.vmDatenPfad; cfg.vmDbxPfad = pth('vmDbxPfad') || cfg.vmDbxPfad;
+      cfg.sicherungDbxPfad = pth('sicherungDbxPfad') || cfg.sicherungDbxPfad; cfg.excelPfad = pth('excelPfad') || cfg.excelPfad; cfg.datenPfad = pth('datenPfad') || cfg.datenPfad; cfg.vmDatenPfad = pth('vmDatenPfad') || cfg.vmDatenPfad; cfg.vmDbxPfad = pth('vmDbxPfad') || cfg.vmDbxPfad; cfg.fkDbxPfad = pth('fkDbxPfad') || cfg.fkDbxPfad;
       if (!cfg.sicherungNas && !cfg.sicherungDbx) return send(res, 200, page('Bitte mindestens eine Ablage (NAS oder Dropbox) wählen.', true));
       saveCfg(); return send(res, 200, page('Datensicherung gespeichert.'));
     }
     if (req.method === 'POST' && u.pathname === '/sicherung/jetzt') { runBackup('manuell'); await sleep(1500); return send(res, 200, page('Sicherung gestartet – Ergebnis siehe Datensicherung bzw. Protokoll.')); }
-    if (req.method === 'POST' && u.pathname === '/excel/jetzt') { runExcel(null, 'manuell').then(() => cfg.vmAktiv ? runVmExcel(null, 'manuell') : null); await sleep(2000); return send(res, 200, page('Excel-Export gestartet – Ergebnis siehe Datensicherung bzw. Protokoll.')); }
+    if (req.method === 'POST' && u.pathname === '/excel/jetzt') { runExcel(null, 'manuell').then(() => cfg.vmAktiv ? runVmExcel(null, 'manuell') : null).then(async () => { if (cfg.fkAktiv !== false) { const t = await dbxDownload(cfg.fkDatenPfad || '/faktura.json').catch(() => null); if (t) await runFkExcel(JSON.parse(t), 'manuell'); } }); await sleep(2000); return send(res, 200, page('Excel-Export gestartet – Ergebnis siehe Datensicherung bzw. Protokoll.')); }
     if (req.method === 'POST' && u.pathname === '/run') { runSync('manuell'); await sleep(300); return send(res, 200, page('Abgleich gestartet – Seite in ein paar Sekunden neu laden.')); }
     return send(res, 404, 'Nicht gefunden');
   } catch (e) { log('Fehler: ' + e.message); return send(res, 200, page(e.message, true)); }

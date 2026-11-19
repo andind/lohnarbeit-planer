@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '159', APP_STAND = '19.11.2026';
+const APP_VERSION = '160', APP_STAND = '19.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'personal', 'auftraege', 'einstellungen', 'pausen', 'parzellen', 'produkte', 'felder'];
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -1156,7 +1156,8 @@ const Views = {
           <p>Zusätzliche Sicherung aller Daten als Datei. Dropbox führt zudem selbst einen Versionsverlauf der Datendatei.</p>
           <p><b>Alles als Excel:</b> sämtliche Daten in einer Excel-Datei mit je einem Blatt für Aufträge, Spritzprodukte, Kunden, Felder, Parzellen, Produkte, Preisverlauf, Maschinen, Listen, Vermessungen, Spritzprogramme, Vorbestellung, Rübensamen, Rübensamen Sorten, JD-Abrechnung, Einstellungen sowie Eigener Betrieb (Parzellen, Kulturen, Fruchtfolge, Düngung, Dünger, Zwischenfrüchte, Bodenproben) – zum Auswerten, Archivieren oder Weitergeben. <b>Sicherung herunterladen</b> enthält alle Daten aller Module zum Wiedereinlesen.</p>
           <div class="btns"><button class="btn primary" data-act="exportAllXlsx">Alles als Excel (.xlsx)</button><button class="btn" data-act="backup">Sicherung herunterladen (zum Einlesen)</button><button class="btn" data-act="restore">Sicherung einlesen</button></div>
-          <p class="nr">Zum Zurückspielen dient die Sicherungsdatei (.json); die Excel-Datei ist zum Lesen und Auswerten gedacht.</p></div>
+          <p class="nr">Zum Zurückspielen dient die Sicherungsdatei (.json); die Excel-Datei ist zum Lesen und Auswerten gedacht.</p>
+          ${(sichLoadImv(), sichHtml('IM-Verwaltung', { pruefung: 'keine' }))}</div>
         <div class="panel"><h2>Version</h2>${versionInfo()}</div>
         <div class="panel"><h2>Als App installieren</h2>
           <p><b>iPhone:</b> In Safari öffnen › Teilen-Symbol › «Zum Home-Bildschirm».</p>
@@ -5160,6 +5161,28 @@ function uiScalePanel() {
     <label class="fld"><span>Anzeigegrösse auf diesem Gerät</span><select class="input" data-plain data-in="uiScale">${UI_SCALES.map(([k, l]) => `<option value="${k}" ${v === k ? 'selected' : ''}>${l}${k === 'auto' ? ` (zurzeit ${Math.round(uiAutoScale() * 100)} %)` : ''}</option>`).join('')}</select></label>
     <p class="nr">Für grosse Bildschirme (z.B. 27 Zoll mit 3840 × 2160). «Automatisch» vergrössert, wenn Windows den Bildschirm nicht selbst skaliert. Die Einstellung gilt nur für dieses Gerät und diesen Browser; Ausdrucke und PDF bleiben unverändert.</p></div>`;
 }
+/* ---------- Sicherungsplan aller IM-Programme (NAS-Dienst jd-sync ab v69 schreibt /Sicherungen/status.json) – gleicher Code in IM-Verwaltung, IM-Vermietung, IM-Faktura ---------- */
+const SICH = { d: null, at: 0, busy: false, err: '' };
+async function sichLoad(read, rerender, force) {
+  if (SICH.busy || (!force && Date.now() - SICH.at < 300000)) return;
+  SICH.busy = true; SICH.at = Date.now();
+  try { SICH.d = await read('/Sicherungen/status.json'); SICH.err = SICH.d ? '' : 'noch keine Statusdatei'; } catch (e) { SICH.d = null; SICH.err = 'noch keine Statusdatei (NAS-Dienst ab Version 69 nötig)'; }
+  SICH.busy = false; rerender();
+}
+function sichHtml(own, { pruefung = 'eigene' } = {}) {
+  const D = SICH.d, e = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  if (!D) return `<p class="small" style="color:var(--muted)">Automatische Sicherung: ${SICH.busy ? 'Status wird geladen …' : e(SICH.err || 'Status wird geladen …')}</p>`;
+  const dt = x => x ? new Date(x).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '–', alt = Date.now() - Date.parse(D.stand) > 2 * 864e5;
+  const fehler = (D.quellen || []).filter(q => q.aktiv && q.ok === false);
+  const rows = (D.quellen || []).filter(q => q.aktiv).map(q => `<tr${q.name === own ? ' style="font-weight:600"' : ''}><td>${e(q.name)}</td><td>${q.ok === false ? `<span style="color:#b5580b">⚠ Fehler</span> <span class="small">${e(q.error)}</span>` : q.fehlt ? '<span class="small">keine Daten</span>' : `✓ ${e(dt(q.at))}${q.unv ? ' <span class="small">(unverändert)</span>' : ''}`}${q.warn ? ` <span style="color:#b5580b" class="small">weniger Einträge: ${e(q.warn.join(', '))}</span>` : ''}</td><td class="small">${e(q.counts || '')}</td></tr>`).join('');
+  const P = D.pruefung, pts = P ? (P.punkte || []).filter(x => pruefung === 'alle' || x.prog === own) : [];
+  return `<div class="sichbox" style="border:1px solid var(--line,#ddd);border-radius:10px;padding:10px 12px;margin:8px 0;${alt || fehler.length ? 'background:#fff4e5' : ''}">
+    <p style="margin:0 0 6px"><b>Automatische Sicherung (NAS-Dienst)</b> – zuletzt ${e(dt(D.stand))}${alt ? ' <b style="color:#b5580b">· seit über 2 Tagen keine Sicherung – NAS-Dienst prüfen!</b>' : ''}<br><span class="small">${e(D.plan || '')} · Ablage ${e((D.ablage || []).join(' + '))} · Dropbox › Sicherungen</span></p>
+    <table class="small" style="width:100%;border-collapse:collapse">${rows}</table>
+    ${P && pruefung !== 'keine' ? `<p class="small" style="margin:8px 0 0"><b>Prüfung der Verknüpfungen zwischen den Programmen</b> (${e(dt(P.at))}): ${pts.length ? pts.map(x => `<br>${x.sev === 'fehler' ? '⚠' : 'ℹ'} ${pruefung === 'alle' ? e(x.prog) + ': ' : ''}${e(x.titel)} (${x.n}) – <span style="color:var(--muted)">${e(x.items.slice(0, 6).join(' · '))}${x.n > 6 ? ' …' : ''}</span>`).join('') : '✓ keine Auffälligkeiten'}</p>` : ''}
+  </div>`;
+}
+const sichLoadImv = (force) => Auth.hasSession() && sichLoad(p => Drive.readJson(p), () => { if (['mehr', 'pruefung'].includes(App.view)) App.render(); }, force);
 /* ---------- Versionsanzeige ---------- */
 const NAS_MIN = '49'; // mindestens nötige Version des NAS-Dienstes
 function versionInfo() {
@@ -6842,7 +6865,8 @@ function chkView() {
           ${c.fix ? `<button type="button" class="btn small ${c.sev === 'fehler' ? 'primary' : ''}" data-chk="fix" data-v="${c.fix.run}">${esc(c.fix.label)}</button>` : ''}</div>
           ${n ? `<p class="nr" style="margin:6px 0">${esc(c.text)}</p><details ${open.has(c.id) ? 'open' : ''} data-chkid="${c.id}"><summary>${n} ${n === 1 ? 'Eintrag' : 'Einträge'} anzeigen</summary><ul class="chkl">${L.join('')}${(c.items || []).length > 300 ? `<li class="nr">… und ${(c.items || []).length - 300} weitere</li>` : ''}</ul></details>` : ''}</div>`; };
       return `<div class="panel"><p style="margin:0">${nF ? `<b class="chk-ft">${nF} Fehler</b>` : '<b>Keine Fehler</b>'} · ${nH} Hinweise · geprüft ${C.length} Punkte über alle Module. Bereinigungen lassen sich mit <i>Rückgängig</i> (Ctrl+Z) zurücknehmen.</p></div>
-        ${C.filter(c => c.sev === 'fehler').map(block).join('')}${C.filter(c => c.sev !== 'fehler').map(block).join('')}`;
+        ${C.filter(c => c.sev === 'fehler').map(block).join('')}${C.filter(c => c.sev !== 'fehler').map(block).join('')}
+        <div class="panel"><h2>Alle IM-Programme (vom NAS-Dienst nach jeder Sicherung geprüft)</h2>${(sichLoadImv(), sichHtml('IM-Verwaltung', { pruefung: 'alle' }))}</div>`;
     }
   };
 }

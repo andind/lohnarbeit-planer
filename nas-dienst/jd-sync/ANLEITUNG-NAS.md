@@ -1,27 +1,25 @@
 # jd-sync auf dem Synology-NAS einrichten
 
-**jd-sync** liest einmal täglich und auf Anfrage aus dem Planer **nur Mandanten (Kunden) und Felder mit Fläche**
-aus MyJohnDeere und legt sie als `jd-sync.json` in den Dropbox-Ordner der IM-Verwaltung.
-Der Planer übernimmt die Datei beim nächsten Öffnen automatisch.
+**jd-sync** (Version 69, Stand 19.11.2026) ist der Hintergrunddienst aller IM-Programme. Er läuft als Container auf dem
+Synology-NAS und erledigt, was kein Browser-Programm selbst kann:
 
-Seit v59 legt jd-sync zusätzlich die **Feldgrenzen mit Geometrie** (alle Vermessungen je Feld) als `jd-feldgrenzen.json`
-daneben ab. Diese Datei liest **IM-Applikationskarten** (Kunde/Feld wählen → Feldgrenze laden). Beim ersten Abgleich nach dem
-Update werden die Grenzen aller Felder einmal neu bei John Deere abgefragt (danach wie bisher höchstens alle 3 Tage).
+| Aufgabe | Ergebnis in der Dropbox | genutzt von |
+|---|---|---|
+| Kunden (Mandanten oder Betriebe), Felder, Vermessungen aus MyJohnDeere holen | `jd-sync.json` | IM-Verwaltung, IM-Applikationskarten, IM-Feldbereinigung |
+| Geometrie aller Vermessungen (seit v59) | `jd-feldgrenzen.json` | IM-Applikationskarten, IM-Feldbereinigung, IM-Verwaltung (Karte des Feldes) |
+| Arbeitsgänge mit Messwerten, bedeckte Fläche ohne Überlappungen, virtuelle Feldgrenzen (seit v53) | `jd-arbeiten.json`, `jd-grenzen.json` | IM-Verwaltung › Bericht und Abrechnung, IM-Feldbereinigung |
+| Ertragskarten der ausgewählten Kunden (seit v64) | `/jd-ertrag/` | IM-Applikationskarten |
+| Aufträge an MyJohnDeere ausführen (seit v61/v64): Applikationskarten hochladen, Feldgrenzen speichern, Grenzen aktiv/archiviert setzen, Felder anlegen | `/jd-upload/` (Auftrag → Rückmeldung `.status.json`) | IM-Applikationskarten, IM-Feldbereinigung, IM-Verwaltung |
+| **Datensicherung aller Programme** + wöchentliche Excel-Dateien + Prüfung der Datenbeziehungen (v69) | `Sicherungen/` | alle |
 
-Seit v61 überträgt jd-sync auch in die andere Richtung: Applikationskarten und Feldgrenzen, die in **IM-Applikationskarten**
-mit «An Operations Center senden» bzw. «In MyJohnDeere speichern» abgeschickt werden, legt die App im Dropbox-Ordner
-`/jd-upload` ab. jd-sync prüft jede Minute und lädt sie ins Operations Center (Dateien bzw. Feldgrenze beim Feld).
-Dafür braucht die John-Deere-App die Freigaben **Files** und **Boundaries Write** und jd-sync die Scopes `ag3` und `files`:
-nach dem Update **einmal neu bei John Deere anmelden** (Schritt 2). Auf der Statusseite zeigt der Abschnitt
-«Hochladen aus IM-Applikationskarten», ob die Rechte vorhanden sind, und die letzten Übertragungen.
-
-Zusätzlich holt jd-sync die **Arbeitsdaten** (Arbeitsgänge wie Säen, Spritzen, Ernten, Bodenbearbeitung mit Messwerten)
-und legt sie als `jd-arbeiten.json` daneben ab – als Vorrat für später. Der Planer liest diese Datei derzeit nicht.
-Klappt das Abholen der Arbeitsdaten einmal nicht, läuft der Abgleich von Mandanten und Feldern trotzdem normal.
+In MyJohnDeere ändert jd-sync nur, was ausdrücklich als Auftrag aus einem IM-Programm kommt; Kunden und Betriebe legt er nie an,
+Felder werden nur neu angelegt, nie archiviert oder gelöscht. Für das Schreiben braucht die John-Deere-App die Freigaben
+**Files** und **Boundaries Write** (Scopes `ag3`, `files`) – nach einem Update von einer Version vor v61 **einmal neu bei John Deere anmelden** (Schritt 2).
+Klappt das Abholen der Arbeitsdaten einmal nicht, läuft der Abgleich von Kunden und Feldern trotzdem normal.
 
 - Das NAS muss **nicht aus dem Internet erreichbar** sein (keine Portfreigabe, kein DynDNS).
 - Das Client Secret von John Deere bleibt auf dem NAS.
-- Es wird nichts nach MyJohnDeere zurückgeschrieben (nur Lesezugriff).
+- Nach MyJohnDeere wird nur auf ausdrücklichen Auftrag aus einem IM-Programm geschrieben (siehe oben), nie gelöscht.
 
 Zeitaufwand: ca. 20 Minuten.
 
@@ -102,16 +100,31 @@ Abschnitt **Rhythmus Abgleich mit MyJohnDeere**:
 - **nur auf Anfrage** – nur wenn im Planer «Jetzt abgleichen» gedrückt wird
 - wie oft Anfragen aus dem Planer geprüft werden (Standard 5 Minuten)
 
-### Datensicherung
+### Datensicherung – Sicherungsplan aller IM-Programme (ab Version 69)
 
-Abschnitt **Datensicherung** (Standard: täglich um 00:00):
-- sichert `planung.json` als `planung_JJJJ-MM-TT_HHMM.json` auf dem NAS (Ordner `docker/jd-sync/sicherungen`) und in der Dropbox (`Apps/<Planer-App>/Sicherungen`)
-- behält die letzten 30 Tage und je eine Sicherung pro Monat für 24 Monate (einstellbar), ältere werden gelöscht
-- **wöchentlicher Excel-Export** aller Daten als `IM-Verwaltung-Daten_<Datum>.xlsx` (gleiche Blätter wie «Alles als Excel» in der IM-Verwaltung, ab Version 52 auch Vermessungen, Spritzprogramme, Vorbestellung, Rübensamen, Rübensamen Sorten, JD-Abrechnung, Einstellungen und Eigener Betrieb (Parzellen, Kulturen, Fruchtfolge, Düngung, Dünger, Zwischenfrüchte, Bodenproben); ältere Dateien «Lohnarbeit-Daten_…» werden weiterhin aufgeräumt) nach `Apps/<Planer-App>/Sicherungen/Excel`, Standard: in der Nacht auf Montag; 26 Wochen werden behalten
-- **IM-Vermietung (ab Version 57):** gleich gesichert wie die IM-Verwaltung – `vermietung.json` täglich als `vermietung_JJJJ-MM-TT_HHMM.json` (NAS `docker/jd-sync/sicherungen/vermietung`, Dropbox `Apps/<Planer-App>/Sicherungen/Vermietung`, gleiche Aufbewahrung) und am Excel-Tag zusätzlich `IM-Vermietung-Daten_<Datum>.xlsx` (Einsätze, Kunden, Maschinen) im Excel-Ordner. Ein/aus und Pfade unter «IM-Vermietung mitsichern». Zurückspielen in der IM-Vermietung unter *Mehr › Wiederherstellen…*.
-- *Jetzt sichern* und *Excel jetzt erstellen* für sofort (beide inkl. IM-Vermietung)
-- **Zurückspielen:** Sicherungsdatei herunterladen, im Planer *Mehr › Sicherung einlesen*
-- Liegt die Datendatei nicht unter `/planung.json`, den Pfad bei «Datendatei des Planers» anpassen (wie `dataPath` in `config.js`).
+Abschnitt **Datensicherung** (Standard: täglich um 00:00). Der NAS-Dienst ist die **eine Stelle**, die alle Daten sichert –
+die Programme selbst brauchen dafür nichts zu tun.
+
+| Daten | Datei in der Dropbox | Sicherung NAS (`docker/jd-sync/sicherungen/…`) | Sicherung Dropbox (`Apps/<App>/Sicherungen/…`) | Rhythmus | Aufbewahrung |
+|---|---|---|---|---|---|
+| IM-Verwaltung | `/planung.json` | `planung_JJJJ-MM-TT_HHMM.json` (Hauptordner) | `Sicherungen/` | täglich | 30 Tage · je Monat 24 Monate · je Jahr 10 Jahre |
+| IM-Vermietung | `/vermietung.json` | `vermietung/` | `Sicherungen/Vermietung/` | täglich | wie oben |
+| **IM-Faktura** | `/faktura.json` | `faktura/` | `Sicherungen/Faktura/` | täglich | 30 Tage · je Monat 24 Monate · **je Jahr mind. 10 Jahre** (Geschäftsbücher, OR 958f) |
+| Eingang IM-Faktura | `/faktura-eingang/*.json` (gesendet, noch nicht übernommen) | `faktura/faktura-eingang_….zip` | `Sicherungen/Faktura/` | täglich, nur wenn etwas wartet | 60 Tage |
+| IM-Applikationskarten | `/applikationskarten.json` | `applikationskarten/` | `Sicherungen/Applikationskarten/` | täglich | wie IM-Verwaltung |
+| IM-Feldbereinigung | `/feldbereinigung.json` | `feldbereinigung/` | `Sicherungen/Feldbereinigung/` | täglich | 30 Tage · je Monat 24 Monate |
+| MyJohnDeere-Daten | `jd-sync.json`, `jd-arbeiten.json`, `jd-grenzen.json`, `jd-feldgrenzen.json` + Zwischenspeicher `data/arbeiten.json`, `bedeckung-grenzen.json`, `grenzen.json`, `ertrag.json` (ohne Zugangsdaten) | `myjohndeere/jd-daten_….zip` | `Sicherungen/MyJohnDeere/` | wöchentlich (Excel-Tag) | 8 Wochen |
+| Excel zum Lesen | – | `excel/` | `Sicherungen/Excel/` | wöchentlich | 26 Wochen (IM-Faktura zusätzlich je Jahr 10 Jahre) |
+
+- **Unverändert = nicht doppelt:** hat sich eine Datei seit der letzten Sicherung nicht geändert, wird keine neue Kopie abgelegt (Protokoll «unverändert seit …»). Die neueste Sicherung jeder Datei wird nie gelöscht.
+- **Plausibilität:** hat eine Datei plötzlich mindestens 20 % weniger Aufträge, Kunden, Rechnungen, Einsätze usw. als bei der letzten Sicherung, erscheint eine **Warnung** auf der Statusseite und in den Programmen (die älteren Sicherungen bleiben ja erhalten – dann rasch prüfen und ggf. zurückspielen).
+- **Excel-Dateien** (wöchentlich, Standard in der Nacht auf Montag): `IM-Verwaltung-Daten_<Datum>.xlsx` (alle Blätter wie «Alles als Excel»), `IM-Vermietung-Daten_<Datum>.xlsx` (Einsätze, Kunden, Maschinen) und neu `IM-Faktura-Daten_<Datum>.xlsx` (Rechnungen mit Total/Bezahlt/Offen/Status, Positionen, Zahlungen, Kunden mit Verknüpfungen, Artikel).
+- **Prüfung der Datenbeziehungen** (nach jeder Sicherung, nur lesen): Verknüpfungen zwischen IM-Verwaltung, IM-Vermietung und IM-Faktura (Kunden-Verknüpfungen ins Leere oder doppelt, doppelte Rechnungs- und Artikelnummern, fehlende Vorgabe-Artikel 30/52/100, Übergaben, die gesendet aber nie in IM-Faktura angekommen sind, Übergaben, die seit über 3 Tagen im Eingang warten, alte Entwürfe, Aufträge mit Feld eines anderen Kunden, erledigte Aufträge über 90 Tage unverrechnet, Einsätze ohne Kunde/Maschine). Ergebnis auf der Statusseite und in der IM-Verwaltung unter *Mehr › Datenprüfung*.
+- **Status für alle Programme:** der Dienst schreibt `Sicherungen/status.json`; IM-Verwaltung (*Mehr › Datensicherung*), IM-Vermietung und IM-Faktura (*Mehr › Daten*) zeigen daraus die letzte Sicherung jeder Datei. Läuft zwei Tage keine Sicherung, erscheint dort ein orange Hinweis.
+- Ein/aus je Programm, Aufbewahrung (Tage, Monate, **Jahre**) und Ordner in den Einstellungen des Abschnitts. *Jetzt sichern* sichert sofort alles (auch unveränderte Dateien), *Excel jetzt erstellen* erstellt alle drei Excel-Dateien.
+- **Zurückspielen:** Sicherungsdatei aus `Sicherungen/…` herunterladen und im jeweiligen Programm einlesen – IM-Verwaltung *Mehr › Sicherung einlesen*, IM-Vermietung und IM-Faktura *Mehr › Wiederherstellen…*, IM-Applikationskarten *Laden … › JSON-Datei laden*. IM-Feldbereinigung: Datei in der Dropbox als `/feldbereinigung.json` zurückkopieren. Ein Eingang-ZIP entpacken und die Dateien wieder nach `/faktura-eingang/` legen.
+- **Dritte Kopie (empfohlen):** den Ordner `docker/jd-sync` (mit `sicherungen` und `data`) zusätzlich mit **Hyper Backup** auf eine USB-Festplatte sichern – `data/` enthält die Zugangsdaten, die bewusst nicht in die Dropbox gehen.
+- Liegt die Datendatei der IM-Verwaltung nicht unter `/planung.json`, den Pfad bei «Datendatei der IM-Verwaltung» anpassen (wie `dataPath` in `config.js`).
 
 ## 5 · Im Planer
 
@@ -137,6 +150,7 @@ Abschnitt **Datensicherung** (Standard: täglich um 00:00):
 
 - **Version:** steht oben auf der Seite von jd-sync (z.B. «Version 52 · Datum») und beim Start im Protokoll; die IM-Verwaltung zeigt sie unter *Mehr › Version*.
 - **Aktualisieren:** neue `server.js` in `docker/jd-sync/app` kopieren, im Container Manager das Projekt neu starten.
+- **Update auf Version 69 (Sicherungsplan):** nur `server.js` ersetzen und neu starten. Danach einmal *Jetzt sichern* drücken – die neuen Ordner (`faktura`, `applikationskarten`, `feldbereinigung`, `myjohndeere`) werden selbst angelegt; der Abschnitt Datensicherung zeigt die Tabelle aller Daten und die erste Prüfung der Datenbeziehungen.
 - **Update auf die Version mit Flächen-Quelle (Bedeckungskarte):** der erste Abgleich danach holt einmal alle Arbeitsgänge neu und fragt die Bedeckungskarten ab – das kann einige Minuten dauern. Für die Maschinennamen einmal neu bei John Deere anmelden.
 - **Update auf die Version mit Datensicherung:** in `docker-compose.yml` unter `volumes:` die Zeile `- ./sicherungen:/backup` ergänzen (oder die neue Datei übernehmen und das Passwort wieder eintragen), den Ordner `docker/jd-sync/sicherungen` anlegen, dann im Container Manager das Projekt **erstellen/neu starten**. Ohne diese Zeile legt der Dienst die NAS-Sicherungen im Ordner `data/sicherungen` ab.
 - **Update von einer Version ohne Arbeitsdaten:** nach dem Aktualisieren **einmal neu bei John Deere anmelden**
