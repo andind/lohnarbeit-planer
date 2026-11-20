@@ -7,7 +7,7 @@
    Eingang IM-Faktura, MyJohnDeere-Daten) täglich auf NAS und Dropbox, wöchentliche Excel-Exporte und Prüfung der Datenbeziehungen.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '71', STAND = '19.11.2026'; // v71: Ertragskarten – Ernten der ausgewählten Kunden zuerst exportieren, Übersicht je Kunde und Jahr auf der Statusseite (gefunden, mit Ertragskarte, wartend, ohne Ertragsdaten, früheste Arbeit bei John Deere) · v70: Meldungen aufs Handy über Telegram (Sicherung, Datenprüfung, Abgleich 3× fehlgeschlagen, Aufträge an MyJohnDeere), alte Excel-Namen einmalig umbenannt statt dauernd mitgeprüft · v69: Sicherungsplan für alle IM-Programme (neu IM-Faktura mit Jahressicherungen 10 Jahre + Excel, IM-Applikationskarten, IM-Feldbereinigung, Eingang IM-Faktura, MyJohnDeere-Daten wöchentlich als ZIP), unveränderte Dateien nicht doppelt, neueste Sicherung bleibt immer, Warnung bei stark weniger Einträgen, Prüfung der Datenbeziehungen zwischen den Programmen, /Sicherungen/status.json für alle Programme · v68: Arbeitsgänge mit bedeckter Fläche, aber ohne virtuelle Feldgrenze werden einmal neu berechnet (cov.gz) · v67: Feld archivieren/wiederherstellen (v66, art feld-status) wieder entfernt – Felder werden nur angelegt, nie geändert; Feldgrenzen-Aufträge (grenze-status) auch aus IM-Feldbereinigung · v65: Ertragskarten nur für ausgewählte Kunden (cfg.ertragKunden), dafür Ernten ab cfg.ertragSeit (längere Historie, nur für Ertragskarten, nicht in jd-arbeiten.json) · v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
+const VERSION = '72', STAND = '20.11.2026'; // v72: Ertrags-Kunden geändert → Felder ohne eTag ganz holen, archivierte Felder dieser Kunden mit, Speichern startet Abgleich · v71: Ertragskarten – Ernten der ausgewählten Kunden zuerst exportieren, Übersicht je Kunde und Jahr auf der Statusseite (gefunden, mit Ertragskarte, wartend, ohne Ertragsdaten, früheste Arbeit bei John Deere) · v70: Meldungen aufs Handy über Telegram (Sicherung, Datenprüfung, Abgleich 3× fehlgeschlagen, Aufträge an MyJohnDeere), alte Excel-Namen einmalig umbenannt statt dauernd mitgeprüft · v69: Sicherungsplan für alle IM-Programme (neu IM-Faktura mit Jahressicherungen 10 Jahre + Excel, IM-Applikationskarten, IM-Feldbereinigung, Eingang IM-Faktura, MyJohnDeere-Daten wöchentlich als ZIP), unveränderte Dateien nicht doppelt, neueste Sicherung bleibt immer, Warnung bei stark weniger Einträgen, Prüfung der Datenbeziehungen zwischen den Programmen, /Sicherungen/status.json für alle Programme · v68: Arbeitsgänge mit bedeckter Fläche, aber ohne virtuelle Feldgrenze werden einmal neu berechnet (cov.gz) · v67: Feld archivieren/wiederherstellen (v66, art feld-status) wieder entfernt – Felder werden nur angelegt, nie geändert; Feldgrenzen-Aufträge (grenze-status) auch aus IM-Feldbereinigung · v65: Ertragskarten nur für ausgewählte Kunden (cfg.ertragKunden), dafür Ernten ab cfg.ertragSeit (längere Historie, nur für Ertragskarten, nicht in jd-arbeiten.json) · v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -805,12 +805,29 @@ async function readArbeiten(d) {
   const yK = ertragKunden(), ySeit = ertragSeit();
   for (const [id, o] of Object.entries(arb.ops)) if (o.nurErtrag && !(yK.has(o.client) && String(o.end || o.start || '').slice(0, 10) >= ySeit)) delete arb.ops[id];
   const clientName = new Map(d.clients.map(c => [c.id, c.name]));
+  // v72: Ertrags-Kunden neu gewählt oder «ab»-Datum geändert → ihre Felder einmal ohne eTag ganz holen (eTags liefern sonst nur Änderungen)
+  const ySig = [...yK].sort().join(',') + '@' + ySeit, yNeu = st.ertragSigDone !== ySig;
+  if (yNeu && yK.size) { let n = 0; for (const f of d.fields) if (yK.has(f.client) && ETAGS[`ops:${org}:${f.id}`]) { delete ETAGS[`ops:${org}:${f.id}`]; n++; } log(`Ertragskarten: Auswahl geändert – ${n} Felder der ausgewählten Kunden werden ganz neu geholt`); }
+  // v72: archivierte Felder der Ertrags-Kunden (ältere Ernten liegen oft dort) – nur für Ertragskarten, nicht in jd-arbeiten.json
+  let archF = [];
+  if (yK.size) {
+    try {
+      const raw = await jdAll(`/organizations/${org}/fields?recordFilter=archived&embed=clients,farms`, true), known = new Set(d.fields.map(f => f.id));
+      for (const f of raw) {
+        const id = idOf(f.id); if (!id || known.has(id)) continue;
+        const cl = idOf(embedded(f, 'clients')[0]), fa = idOf(embedded(f, 'farms')[0]), k = d.kundenEbene === 'farms' ? fa : cl;
+        if (k && yK.has(k)) archF.push({ id, name: (f.name || '').trim() + ' (archiviert)', client: k, farm: d.kundenEbene === 'farms' ? '' : fa, arch: true });
+      }
+      log(`Ertragskarten: ${archF.length} archivierte Felder der ausgewählten Kunden`);
+    } catch (e) { log('Archivierte Felder für Ertragskarten: ' + e.message); }
+  }
+  const alleF = [...d.fields, ...archF];
   let neu = 0, geaendert = 0, fehler = 0, first403 = null, dateParams = st.arbDateParams !== false;
   reqCount = 0; etagStat = { neu: 0, gleich: 0, geaendert: 0, fehler: 0 };
   const nEq = await loadEquipment(org); if (nEq) log(`Maschinenliste: ${nEq} Maschinen/Geräte`);
-  let fDone = 0; st.arbProgress = { phase: 'Arbeitsgänge holen', done: 0, total: d.fields.length, at: new Date().toISOString() };
+  let fDone = 0; st.arbProgress = { phase: 'Arbeitsgänge holen', done: 0, total: alleF.length, at: new Date().toISOString() };
   const yFrueh = {}, yRoh = {};   // v71: je ausgewähltem Kunden früheste gelieferte Arbeit und Anzahl gelieferter Ernten je Jahr (Diagnose)
-  await pool(d.fields, 4, async f => {
+  await pool(alleF, 4, async f => {
     try {
     const base = `/organizations/${org}/fields/${encodeURIComponent(f.id)}/fieldOperations`;
     let list;
@@ -827,7 +844,7 @@ async function readArbeiten(d) {
       const start = op.startDate || op.startTime || null, end = op.endDate || op.endTime || null;
       if (yK.has(f.client)) { const t = (end || start || '').slice(0, 10); if (t && (!yFrueh[f.client] || t < yFrueh[f.client])) yFrueh[f.client] = t;
         if (t && isHarvest(op)) { const j = t.slice(0, 4), r = yRoh[f.client] = yRoh[f.client] || {}; r[j] = (r[j] || 0) + 1; } }
-      const tag = (end || start || '9999').slice(0, 10), nurErtrag = tag < seit;
+      const tag = (end || start || '9999').slice(0, 10), nurErtrag = tag < seit || !!f.arch;
       if (nurErtrag && !(yK.has(f.client) && isHarvest(op) && tag >= ySeit)) continue;
       const modified = op.modifiedTime || op.lastModifiedTime || end || '';
       const alt = arb.ops[id];
@@ -853,12 +870,12 @@ async function readArbeiten(d) {
       };
       alt ? geaendert++ : neu++;
     }
-    } finally { fDone++; st.arbProgress.done = fDone; if (fDone % 50 === 0) { log(`Arbeitsdaten: ${fDone} von ${d.fields.length} Feldern · ${reqCount} Abfragen`); saveSt(); } }
+    } finally { fDone++; st.arbProgress.done = fDone; if (fDone % 50 === 0) { log(`Arbeitsdaten: ${fDone} von ${alleF.length} Feldern · ${reqCount} Abfragen`); saveSt(); } }
   });
   if (first403 && fehler === d.fields.length) throw Object.assign(new Error('Keine Berechtigung für Arbeitsdaten (403). In der John-Deere-App die Arbeitsdaten-Schnittstelle (ag2) freischalten und in jd-sync neu bei John Deere anmelden.'), { status: 403 });
   if (first403) log(`Arbeitsdaten: bei ${fehler} Feldern kein Zugriff (403)`);
   etagSave(); st.etagArb = etagTxt(); log(`Arbeitsgänge ${st.etagArb} · ${reqCount} Abfragen`);
-  st.ertragRoh = { at: new Date().toISOString(), frueh: yFrueh, ernten: yRoh };
+  st.ertragRoh = { at: new Date().toISOString(), frueh: yFrueh, ernten: yRoh, archiviert: archF.length }; st.ertragSigDone = ySig;
   // Felder/Mandanten-Namen nachführen (Umbenennungen in MyJohnDeere)
   for (const o of Object.values(arb.ops)) { const fi = fieldInfo.get(o.field); if (fi) { o.fieldName = fi.name; o.client = fi.client; o.clientName = clientName.get(fi.client) || o.clientName; } }
   if (voll) for (const o of Object.values(arb.ops)) o.v = 2; // nicht mehr gelieferte Arbeitsgänge lösen keinen Volllauf mehr aus
@@ -1762,7 +1779,7 @@ function ertragDiagHtml() {
     const d = D[id] || { total: 0, karte: 0, warten: 0, ohne: 0 }, r = R[id] || {};
     const jahre = Object.keys(r).sort().map(j => `${j}: ${r[j]}`).join(' · ') || '–';
     return `<tr><td>${esc(nm(id))}</td><td>${esc(jahre)}</td><td style="text-align:center">${d.karte}</td><td style="text-align:center">${d.warten}</td><td style="text-align:center">${d.ohne}</td><td style="text-align:center">${esc(F[id] || '–')}</td></tr>`; }).join('')}</table>
-  <p><small>«Ernten bei John Deere» = was MyJohnDeere für die Felder dieses Kunden liefert (alle Jahre). Fehlen dort ältere Jahre, sind sie in MyJohnDeere nicht vorhanden oder auf anderen (archivierten) Feldern gespeichert. «Warten auf Export»: kommt in den nächsten Abgleichen, diese Ernten werden zuerst abgefragt.</small></p>`;
+  <p><small>${st.ertragRoh && st.ertragRoh.at ? `Stand ${esc(new Date(st.ertragRoh.at).toLocaleString('de-CH'))}${st.ertragRoh.archiviert != null ? ` · ${st.ertragRoh.archiviert} archivierte Felder mitgeprüft` : ''}. ` : 'Noch kein Lauf mit dieser Auswahl – startet beim Speichern. '}«Ernten bei John Deere» = was MyJohnDeere für die Felder dieses Kunden liefert (alle Jahre). Fehlen dort ältere Jahre, sind sie in MyJohnDeere nicht vorhanden oder auf anderen (archivierten) Feldern gespeichert. «Warten auf Export»: kommt in den nächsten Abgleichen, diese Ernten werden zuerst abgefragt.</small></p>`;
 }
 const uploadDir = () => cfg.uploadPfad || '/jd-upload';
 let uploadBusy = false, lastUploadPoll = 0;
@@ -2002,7 +2019,9 @@ http.createServer(async (req, res) => {
       if (st.kundenListe) cfg.ertragKunden = f.getAll('ertragKunden');
       saveCfg();
       if (f.get('neu')) { try { fs.unlinkSync(file('arbeiten.json')); } catch { } delete st.arbDateParams; saveSt(); log('Arbeitsdaten: Vorrat gelöscht, wird beim nächsten Abgleich neu geladen'); }
-      return send(res, 200, page(f.get('neu') ? 'Gespeichert – Arbeitsdaten werden beim nächsten Abgleich komplett neu geladen («Jetzt abgleichen»).' : 'Gespeichert.'));
+      // v72: gleich abgleichen (sonst erst beim nächsten geplanten Lauf – geänderte Ertrags-Kunden kamen nie sofort)
+      const los = st.jd && st.dbx && cfg.orgId && !st.running; if (los) runSync('Einstellung Arbeitsdaten geändert');
+      return send(res, 200, page((f.get('neu') ? 'Gespeichert – Arbeitsdaten werden komplett neu geladen.' : 'Gespeichert.') + (los ? ' Abgleich gestartet – dauert einige Minuten, Seite später neu laden.' : st.running ? ' Ein Abgleich läuft bereits; die Einstellung gilt ab dem nächsten.' : '')));
     }
     if (req.method === 'POST' && u.pathname === '/rhythmus') {
       const f = await body(req);
