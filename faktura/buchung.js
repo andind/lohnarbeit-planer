@@ -238,7 +238,7 @@ function buchungen(L) {
       const neg = t.b < 0, b = Math.abs(t.b);
       const bs = t.bs ?? t.satz, code = t.code || (String(t.ck || '').startsWith('a:') && !bs ? '' : t.ck && B.codes[t.ck]) || ((!t.ck || t.ck.startsWith('e:')) && bs ? (B.codes[String(bs)] || '') : ''); // v1.30: Steuerart → Code
       out.push({ datum: z.datum, beleg, soll: neg ? t.konto : gegen, haben: neg ? gegen : t.konto, betrag: b, satz: bs, mwst: t.urp ? r2(b * 2.6 / 100) : bs ? r2(b * bs / (100 + bs)) : 0,
-        code, steuerSeite: neg ? 'soll' : 'haben', text: `${im} ${t.ueber ? 'Überzahlung' : t.geb ? 'Mahngebühren' : `${kpName(t.konto) || 'Konto ' + t.konto} ${t.n || 0}x`} · ${kn}`, zid: z.id }); // v1.39: Name des Erfolgskontos + Anzahl Rechnungsposten
+        code, steuerSeite: neg ? 'soll' : 'haben', text: `${im} ${kn} · ${t.ueber ? 'Überzahlung' : t.geb ? 'Mahngebühren' : `${t.n || 0}x ${kpName(t.konto) || 'Konto ' + t.konto}`}`.slice(0, 80), zid: z.id }); // v1.41: Kunde · Anzahl Posten · Erfolgskonto – zu lang: Kontoname wird abgeschnitten (80 Zeichen)
     });
   });
   return out;
