@@ -201,15 +201,16 @@ function fitCents(G, T) {
   return out;
 }
 function rGroups(r) {
-  const c = calc(r), m = new Map();
-  c.rows.forEach(p => (p.parts || []).forEach(t => { // v1.26: Rabatte anteilig auf Konto/MWST der rabattierten Positionen
+  const c = calc(r), m = new Map(), np = new Map(); // np: Rechnungsposten je Gruppe (v1.39, für den Buchungstext)
+  c.rows.forEach((p, i) => (p.parts || []).forEach(t => { // v1.26: Rabatte anteilig auf Konto/MWST der rabattierten Positionen
     const s = +t.satz || 0, k = String(t.ck || '').startsWith('a:') ? String(t.konto || artByNr(t.art || p.art)?.kontoAufw || buchCfg().kontoAufw || '4000') : posKonto(Object.assign({}, p, { konto: t.konto, art: t.art || p.art })), b = r.inkl ? t.b : t.b * (1 + s / 100), key = [k, s, t.code || '', t.ck || '', t.bs ?? s, t.urp ? 1 : 0].join('|');
     m.set(key, (m.get(key) || 0) + b);
+    if ((p.typ || 'pos') === 'pos') { if (!np.has(key)) np.set(key, new Set()); np.get(key).add(i); }
   }));
-  let G = [...m.entries()].map(([key, b]) => { const [konto, s, code, ck, bs, urp] = key.split('|'); return { konto, satz: +s, code: code || '', ck: ck || '', bs: +bs, urp: urp === '1', b }; });
+  let G = [...m.entries()].map(([key, b]) => { const [konto, s, code, ck, bs, urp] = key.split('|'); return { konto, satz: +s, code: code || '', ck: ck || '', bs: +bs, urp: urp === '1', b, n: np.get(key)?.size || 0 }; });
   const raw = G.reduce((s, g) => s + g.b, 0);
   G = raw ? fitCents(G.map(g => Object.assign(g, { b: g.b * c.total / raw })), c.total) : [];
-  const geb = gebuehren(r); if (geb) G.push({ konto: buchCfg().kontoGeb, satz: 0, b: geb });
+  const geb = gebuehren(r); if (geb) G.push({ konto: buchCfg().kontoGeb, satz: 0, b: geb, geb: true });
   return G.filter(g => g.b);
 }
 const allocTo = (G, x) => { const T = G.reduce((s, g) => s + g.b, 0); return T ? fitCents(G.map(g => Object.assign({}, g, { b: g.b * x / T })), x) : []; };
@@ -220,7 +221,7 @@ function zahlTeile(r, z) {
   let vor = 0; for (const x of Z) { if (x.id === z.id) break; vor = r2(vor + (+x.betrag || 0)); }
   const v0 = Math.min(vor, TT), v1 = Math.min(r2(vor + +z.betrag), TT);
   const A0 = allocTo(G, v0), A1 = allocTo(G, v1);
-  const teile = A1.map((g, i) => ({ konto: g.konto, satz: g.satz, code: g.code || '', ck: g.ck, bs: g.bs, urp: g.urp, b: r2(g.b - (A0[i]?.b || 0)) })).filter(t => t.b);
+  const teile = A1.map((g, i) => ({ konto: g.konto, satz: g.satz, code: g.code || '', ck: g.ck, bs: g.bs, urp: g.urp, n: g.n, geb: g.geb, b: r2(g.b - (A0[i]?.b || 0)) })).filter(t => t.b);
   const ueber = r2(+z.betrag - (v1 - v0)); if (ueber) teile.push({ konto: B.kontoUeber, satz: 0, b: ueber, ueber: true });
   return teile;
 }
@@ -237,7 +238,7 @@ function buchungen(L) {
       const neg = t.b < 0, b = Math.abs(t.b);
       const bs = t.bs ?? t.satz, code = t.code || (String(t.ck || '').startsWith('a:') && !bs ? '' : t.ck && B.codes[t.ck]) || ((!t.ck || t.ck.startsWith('e:')) && bs ? (B.codes[String(bs)] || '') : ''); // v1.30: Steuerart → Code
       out.push({ datum: z.datum, beleg, soll: neg ? t.konto : gegen, haben: neg ? gegen : t.konto, betrag: b, satz: bs, mwst: t.urp ? r2(b * 2.6 / 100) : bs ? r2(b * bs / (100 + bs)) : 0,
-        code, steuerSeite: neg ? 'soll' : 'haben', text: `${im} Zahlung ${kn}${t.ueber ? ' Überzahlung' : ''}`, zid: z.id });
+        code, steuerSeite: neg ? 'soll' : 'haben', text: `${im} ${t.ueber ? 'Überzahlung' : t.geb ? 'Mahngebühren' : `${kpName(t.konto) || 'Konto ' + t.konto} (${t.n || 0} Posten)`} · ${kn}`, zid: z.id }); // v1.39: Name des Erfolgskontos + Anzahl Rechnungsposten
     });
   });
   return out;
