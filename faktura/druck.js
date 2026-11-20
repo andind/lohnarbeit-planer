@@ -29,7 +29,7 @@ function docHead(r, { titel, meta, text, sub }) {
 const WM = '<div class="dwm">ENTWURF</div>'; // Wasserzeichen auf Entwürfen
 const contHead = (r, titel) => `<div class="dcont">${esc(titel)} · ${esc(docK(r)?.name || '')} – Fortsetzung</div>`;
 
-function rechnungParts(r) {
+function rechnungParts(r, opt = {}) { // opt.beleg (v1.43): Exemplar für die Ablage – ohne QR-Zahlteil (Beilagen lässt docsHtml weg)
   const c = Store.cfg(), cc = calc(r), k = docK(r), multi = cc.groups.length > 1 || cc.groups.some(g => g.satz);
   const titel = r.nr ? `${r.titel || 'Rechnung'} Nr. ${r.nr}` : `${r.titel || 'Rechnung'} – Entwurf${r.nrRes ? ' (Nr. ' + r.nrRes + ')' : ''}`;
   // v1.15: Kopf nur Ort und Datum (MWST-Nr. im Logo, Nr. im Titel, Zahlbar bis im Fuss); Betreff ist intern und wird nicht gedruckt
@@ -50,8 +50,8 @@ function rechnungParts(r) {
       : `<tr><td>Total ${g.satz ? 'exkl. MWST' + (cc.groups.length > 1 ? ' (' + mwstTxt(g.satz) + ')' : '') : 'ohne MWST'}</td><td class="n">${chf(g.netto)}</td></tr>${g.satz ? `<tr><td>MWST ${mwstTxt(g.satz)}</td><td class="n">${chf(g.mwst)}</td></tr>` : ''}`).join('')}
     ${cc.rund ? `<tr class="sm"><td>Rundung</td><td class="n">${chf(cc.rund)}</td></tr>` : ''}
     <tr class="tot"><td>Total CHF</td><td class="n">${chf(cc.total)}</td></tr></table>`;
-  const foot = `${sums}<div class="dfoot">${r.textUnten ? esc(r.textUnten).replace(/\n/g, '<br>') + '<br>' : ''}${r.nr ? `Zahlbar bis ${fmtDate(r.faellig || addDays(r.datum, r.frist ?? c.frist))} (${r.frist ?? c.frist} Tage netto) mit dem untenstehenden QR-Zahlteil.` : 'Entwurf – nicht zur Zahlung. Der QR-Zahlteil folgt mit der definitiven Rechnung.'}</div>`;
-  return { titel, head, thead, rows, foot, qr: r.nr ? qrData(r) : null };
+  const foot = `${sums}<div class="dfoot">${r.textUnten ? esc(r.textUnten).replace(/\n/g, '<br>') + '<br>' : ''}${r.nr ? `Zahlbar bis ${fmtDate(r.faellig || addDays(r.datum, r.frist ?? c.frist))} (${r.frist ?? c.frist} Tage netto)${opt.beleg ? '.<div class="dbeleg">Belegexemplar für die Ablage – ohne Zahlteil und Beilagen</div>' : ' mit dem untenstehenden QR-Zahlteil.'}` : 'Entwurf – nicht zur Zahlung. Der QR-Zahlteil folgt mit der definitiven Rechnung.'}</div>`;
+  return { titel, head, thead, rows, foot, qr: r.nr && !opt.beleg ? qrData(r) : null };
 }
 // Mahnung: stufe = Index in r.mahnungen
 function mahnungParts(r, idx) {
@@ -107,9 +107,10 @@ function qrBlock(b) {
   try { return SwissQR.html(b, { trennlinie: true }); } catch (x) { return `<div class="qrerr">QR-Zahlteil: ${esc(x.message)}</div>`; }
 }
 // docs: [{ r, mahnung: idx }]
-async function docsHtml(docs, teil) { // teil: 'rechnung' = ohne Beilagen, 'beilagen' = nur Beilagen
+async function docsHtml(docs, teil) { // teil: 'rechnung' = ohne Beilagen, 'beilagen' = nur Beilagen, 'beleg' = Ablage-Exemplar ohne QR-Zahlteil und Beilagen
   await loadLogo();
-  return docs.map(d => (teil === 'beilagen' ? '' : renderDoc(d.mahnung != null ? mahnungParts(d.r, d.mahnung) : rechnungParts(d.r), d.r))
+  const beleg = teil === 'beleg'; if (beleg) teil = 'rechnung';
+  return docs.map(d => (teil === 'beilagen' ? '' : renderDoc(d.mahnung != null ? mahnungParts(d.r, d.mahnung) : rechnungParts(d.r, { beleg }), d.r))
     + (d.mahnung == null && teil !== 'rechnung' ? beilagenOf(d.r).map(b => renderBeilage(d.r, b)).join('') : '')).join('');
 }
 // Beilage hinter der Rechnung (z. B. Rapport Maschinenmiete): { titel, cols: [[Titel, 'n'|'']], rows: [[…]], total }

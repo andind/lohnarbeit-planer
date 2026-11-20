@@ -77,7 +77,7 @@ function selBar() {
   if (!n || !['rechnungen', 'op', 'entwuerfe'].includes(App.view)) { b.hidden = true; return; }
   const R = [...App.sel].map(id => Store.get('rechnungen', id)).filter(Boolean), nE = R.filter(r => statusOf(r) === 'entwurf').length, nO = R.filter(isOP).length;
   b.hidden = false;
-  b.innerHTML = `<b>${n} ausgewählt</b>${nE ? `<button class="btn primary" data-act="selFinal">✓ ${nE} abschliessen & drucken</button>` : ''}<button class="btn" data-act="selPrint">🖨 Drucken</button>
+  b.innerHTML = `<b>${n} ausgewählt</b>${nE ? `<button class="btn primary" data-act="selFinal">✓ ${nE} abschliessen & drucken</button>` : ''}<button class="btn" data-act="selPrint">🖨 Drucken</button>${R.length - nE ? `<button class="btn" data-act="selBeleg" title="Abgeschlossene Rechnungen ohne QR-Zahlteil und ohne Beilagen drucken – für die Ablage bei den Belegen">🗂 Beleg drucken</button>` : ''}
     ${nO ? `<button class="btn" data-act="selMahn">✉ Mahnen (${nO})</button>` : ''}${R.length - nE && App.view === 'rechnungen' ? `<button class="btn" data-act="selRevert" title="Abgeschlossene Rechnungen ohne Zahlungen zurück in die Entwürfe">↩ Zurück zu Entwurf</button>` : ''}${nE > 1 && App.view === 'entwuerfe' ? `<button class="btn" data-act="selMerge" title="Ausgewählte Entwürfe desselben Kunden zu einem zusammenlegen">⇄ Zusammenlegen</button>` : ''}${nE ? `<button class="btn danger" data-act="selDel" title="Stornieren und ins Archiv legen – zurückholen unter Entwürfe › Archiv">🗄 Entwürfe archivieren</button>` : ''}<button class="btn" data-act="selClear">✕</button>`;
 }
 
@@ -99,7 +99,7 @@ function rechnungDialog(id, { keep = false } = {}) {
   const foot = s === 'storniert'
     ? `<button class="btn" value="unstorno">Storno aufheben</button><span class="spacer"></span><button class="btn" value="close">Schliessen</button>`
     : `${fix ? `<button class="btn danger" value="storno">Stornieren</button><button class="btn" value="revert" title="Rechnung zurück in die Entwürfe, um sie zu korrigieren (Nummer bleibt reserviert)">↩ Zurück zu Entwurf</button><button class="btn" value="copy">Kopie als Entwurf</button>` : (isNew ? '' : '<button class="btn danger" value="del" title="Entwurf stornieren und ins Archiv legen – zurückholen unter Entwürfe › Archiv">🗄 Stornieren & archivieren</button>')}
-      <button class="btn" value="preview">👁 Vorschau</button>${fix ? '' : '<button class="btn" value="draftPrint" title="Entwurf mit Wasserzeichen und ohne QR-Zahlteil drucken – z. B. zum Kontrollieren">🖨 Entwurf drucken</button>'}<span class="spacer"></span>
+      <button class="btn" value="preview">👁 Vorschau</button>${fix ? '<button class="btn" value="beleg" title="Rechnung ohne QR-Zahlteil und ohne Beilagen drucken – für die Ablage bei den Belegen">🗂 Beleg drucken</button>' : '<button class="btn" value="draftPrint" title="Entwurf mit Wasserzeichen und ohne QR-Zahlteil drucken – z. B. zum Kontrollieren">🖨 Entwurf drucken</button>'}<span class="spacer"></span>
       ${fix ? '<button class="btn" value="save">Speichern</button>' : `<span class="small muted edauto" title="Entwürfe werden bei jeder Änderung automatisch gespeichert">${Store.get('rechnungen', r.id) ? '✓ automatisch gespeichert' : 'wird beim ersten Eintrag gespeichert'}</span>`}
       ${fix ? '<button class="btn primary" value="print">🖨 Speichern & drucken</button>' : `${(App.edSel || new Set()).size && (App.edSel.size < r.pos.filter(p => (p.typ || 'pos') === 'pos').length) ? `<button class="btn" value="part" title="Nur die angekreuzten Positionen als Rechnung abschliessen – die übrigen bleiben im Entwurf">✓ Nur ${App.edSel.size} markierte abschliessen & drucken</button>` : ''}<button class="btn primary" value="final">✓ Abschliessen & drucken</button>`}`;
   openDlg(title, body, foot, { wide: true, onSubmit: (fd, btn) => edSubmit(btn) });
@@ -373,6 +373,7 @@ async function edSubmit(btn) {
   if (btn === 'copy') { const n = newRechnung(Object.assign(clone(r), { id: uid(), nr: '', ref: '', faellig: '', abgeschlossen: '', storno: undefined, zahlungen: [], mahnungen: [], datum: todayIso(), quelle: 'Kopie von ' + r.nr })); n.pos.forEach(p => { p.id = uid(); }); edSave(n); setTimeout(() => rechnungDialog(n.id), 50); toast('Kopie als Entwurf erstellt'); return; }
   if (btn === 'preview') { previewDocs([{ r }], { onPrint: () => { App.ed = r; edSubmit(r.nr ? 'print' : 'final'); }, onClose: () => rechnungDialog(null, { keep: true }) }); return false; }
   if (btn === 'save') { edSave(r); toast(r.nr ? 'Gespeichert' : 'Entwurf gespeichert'); return; }
+  if (btn === 'beleg') { printDocs([{ r }], { title: 'Beleg ' + docTitle([{ r }]), teil: 'beleg' }); return false; } // v1.43
   if (btn === 'draftPrint') { edSave(r); printDocs([{ r }], { title: docTitle([{ r }]) }); return false; }
   if (btn === 'revert') {
     const e = zurueckFehler(r); if (e) { meldung(`Rechnung ${r.nr} ${e}.`); return false; }
@@ -695,6 +696,7 @@ document.addEventListener('click', async ev => {
     case 'selOne': ev.stopPropagation(); App.sel.has(id) ? App.sel.delete(id) : App.sel.add(id); App.render(); break;
     case 'selAll': case 'selAllOP': { const L = act === 'selAll' ? rechList() : Store.all('rechnungen').filter(isOP); const all = L.every(r => App.sel.has(r.id)); L.forEach(r => all ? App.sel.delete(r.id) : App.sel.add(r.id)); App.render(); break; }
     case 'selClear': App.sel.clear(); App.render(); break;
+    case 'selBeleg': { const R = [...App.sel].map(x => Store.get('rechnungen', x)).filter(r => r && r.nr); if (R.length) printDocs(R.map(r => ({ r })), { title: R.length === 1 ? 'Beleg ' + docTitle([{ r: R[0] }]) : `Belege ${R.length} Rechnungen ${todayIso()}`, teil: 'beleg' }); break; }
     case 'selPrint': { const R = [...App.sel].map(x => Store.get('rechnungen', x)).filter(Boolean); printDocs(R.map(r => ({ r })), { title: docTitle(R.map(r => ({ r }))) }); break; }
     case 'selFinal': {
       const R = [...App.sel].map(x => Store.get('rechnungen', x)).filter(r => r && statusOf(r) === 'entwurf');

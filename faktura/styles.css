@@ -401,3 +401,4 @@ table.edpos { width: 100%; border-collapse: collapse; margin-top: 6px; }
 .eneg { color: #b3261e; }
 .edpos .ecode { font-size: 11px; color: #6b726c; font-weight: 400; margin-top: 1px; }
 .edpos .ehid { font-style: italic; opacity: .65; }
+.doc .dbeleg { margin-top: 2mm; font-size: 8.5pt; color: #666; } /* v1.43: Belegexemplar */
