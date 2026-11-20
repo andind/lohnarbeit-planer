@@ -622,8 +622,8 @@ function viewMehr() {
 function buchPanel() {
   const B = buchCfg(), dir = ls('mf_buchdir'), bi = (k, l, x = '') => `<label class="fld"><span>${l}</span><input class="input" data-in="buch" data-k="${k}" value="${esc(B[k] ?? '')}" inputmode="numeric" ${x}></label>`;
   return `<div class="panel"><h2>Buchhaltung (AgroOffice)</h2>
-    <p class="small">Gebucht werden nur <b>Zahlungseingänge</b>: Bank direkt an die Ertragskonten der Artikel, je MWST-Satz inkl. MWST (vereinnahmt), mit der Rechnungs-Nr. als Beleg. AgroOffice nimmt beim Import nur Konten 1000–8999 und 9910/9911 an. Datei im Abacus-Format «XML-Buchungen» – in AgroOffice unter Grundeinstellungen › Import den Ordner eintragen.</p>
-    <div class="three">${bi('bank', 'Bankkonto')}${bi('kontoStd', 'Standard-Ertragskonto')}</div>
+    <p class="small">Gebucht werden nur <b>Zahlungseingänge</b> über das Hilfskonto: Zahlungskonto (Bank, Kasse …) an Hilfskonto mit dem Gesamtbetrag der Zahlung, danach Hilfskonto an die Erfolgskonten der Positionen je MWST-Code inkl. MWST (vereinnahmt), alles mit der Rechnungs-Nr. als Beleg. Datei im Abacus-Format «XML-Buchungen» – in AgroOffice unter Grundeinstellungen › Import den Ordner eintragen.</p>
+    <div class="three">${bi('bank', 'Bankkonto')}${bi('hilfs', 'Hilfskonto Zahlungseingänge')}${bi('kontoStd', 'Standard-Ertragskonto')}</div>
     <div class="three">${bi('kontoAufw', 'Standard-Aufwandkonto (Positionen «Aufwand», z. B. übernommenes Saatgut)')}</div>
     <div class="three">${bi('kontoGeb', 'Mahngebühren')}${bi('kontoUeber', 'Überzahlungen')}${bi('mwstKonto', 'MWST-Konto')}</div>
     <div class="three">${Store.cfg().mwst.filter(m => +m.satz).map(m => `<label class="fld"><span>MWST-Code ${mwstTxt(m.satz)}</span><input class="input" data-in="buchCode" data-k="${m.satz}" value="${esc(B.codes[String(m.satz)] || '')}" maxlength="3"></label>`).join('')}</div>
