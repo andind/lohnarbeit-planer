@@ -4,7 +4,7 @@
    Debitoren werden nur per Stichtag (31.12.) als Liste ausgewertet. */
 'use strict';
 
-const DEF_BUCH = { bank: '1020', mwstKonto: '2200', kontoStd: '3410', kontoAufw: '4000', kontoGeb: '3600', kontoUeber: '9910', hilfs: '9906', // v1.37: Hilfskonto für Zahlungseingänge (Andreas 20.11.2026)
+const DEF_BUCH = { bank: '1020', mwstKonto: '2200', kontoStd: '3410', kontoAufw: '4000', kontoGeb: '3600', kontoUeber: '9910', hilfs: '1090', // v1.38: Hilfskonto Zahlungseingänge – 9906 vom AgroOffice-Import abgelehnt (20.11.2026), 1090 Transferkonto steht im Kontenplan
  
   codes: { '8.1': '303', '2.6': '313', '3.8': '343', // v1.31: Code = Ziffer der ESTV-Abrechnung (effektiv), so in AgroOffice (Andreas 19.11.2026)
     ...Object.fromEntries(['8.1', '2.6', '3.8'].flatMap(s => [[`e:${s}`, { '8.1': '303', '2.6': '313', '3.8': '343' }[s]], [`e:${s}:235`, '235'], [`e:${s}:205`, '205'], [`e:${s}:235:205`, '235']])),
@@ -15,9 +15,9 @@ const DEF_BUCH = { bank: '1020', mwstKonto: '2200', kontoStd: '3410', kontoAufw:
 const zKonten = () => String(buchCfg().zkonten || '').split(/[;\n]+/).map(s => s.trim()).filter(Boolean).map(s => { const m = /^(\d{4})\s*(.*)$/.exec(s); return m ? { nr: m[1], name: m[2].trim() } : null; }).filter(Boolean);
 const zKontoName = nr => { const k = zKonten().find(x => x.nr === String(nr)); return k ? `${k.nr} ${k.name}` : String(nr || ''); };
 const zKontoOf = z => String(z.konto || buchCfg().bank);
-// AgroOffice nahm 9904 nicht an (Fehlerprotokoll 19.11.2026: nur 1000–8999 sowie 9910/9911); Hilfskonto 9906 ist in AgroOffice eingerichtet (20.11.2026)
-const kontoOk = k => { const n = +k; return (n >= 1000 && n <= 8999) || [9906, 9910, 9911].includes(n) || String(k) === String(buchCfg().hilfs || ''); };
-const buchCfg = () => { const c = Store.cfg().buch || {}, o = Object.assign({}, DEF_BUCH, c, { codes: Object.assign({}, DEF_BUCH.codes, c.codes || {}) }); if (!/^\d{4}$/.test(String(o.hilfs || ''))) o.hilfs = DEF_BUCH.hilfs; return o; };
+// AgroOffice-Import nimmt nur Konten 1000–8999 sowie 9910/9911 an (Fehlerprotokolle 19.11.2026 mit 9904, 20.11.2026 mit 9906) → Hilfskonto muss in diesem Bereich liegen
+const kontoOk = k => { const n = +k; return (n >= 1000 && n <= 8999) || n === 9910 || n === 9911; };
+const buchCfg = () => { const c = Store.cfg().buch || {}, o = Object.assign({}, DEF_BUCH, c, { codes: Object.assign({}, DEF_BUCH.codes, c.codes || {}) }); if (!/^\d{4}$/.test(String(o.hilfs || '')) || !kontoOk(o.hilfs)) o.hilfs = DEF_BUCH.hilfs; return o; }; // ungültiges Hilfskonto (z. B. 9906) → 1090
 // Beleg für AgroOffice (nur Ziffern): Präfix + Rechnungs-Nr. auf Stellen aufgefüllt – Standard 2 + 0002 = 20002
 const belegNr = nr => { const B = buchCfg(), n = String(nr).replace(/\D/g, ''); return (String(B.belegPrefix || '').replace(/\D/g, '') + n.padStart(+B.belegStellen || 0, '0')).slice(0, 10); };
 const isAus = z => !!z.aus || z.bem === 'Rest ausgebucht';
@@ -343,7 +343,7 @@ function buchDialog() {
   const exp = (Store.cfg().buchExports || []).slice(-8).reverse();
   const bad = new Set(BU.flatMap(b => [b.soll, b.haben]).filter(k => !kontoOk(k)));
   openDlg('Buchungen für AgroOffice', `<p class="muted small">Verbucht werden nur Zahlungseingänge über das Hilfskonto ${esc(B.hilfs)}: Zahlungskonto (Bank ${esc(B.bank)}, Kasse …) an ${esc(B.hilfs)} mit dem Gesamtbetrag, danach ${esc(B.hilfs)} an die Erfolgskonten je MWST-Code (inkl. MWST, vereinnahmt), alle mit derselben Beleg-Nr. Ausgebuchte Restbeträge werden nicht gebucht.</p>
-    ${bad.size ? `<div class="box warn small">AgroOffice nimmt nur Konten 1000–8999, das Hilfskonto sowie 9910/9911 an – ungültig: ${[...bad].map(esc).join(', ')} (Artikel bzw. Mehr › Buchhaltung anpassen).</div>` : ''}
+    ${bad.size ? `<div class="box warn small">AgroOffice nimmt nur Konten 1000–8999 sowie 9910/9911 an – ungültig: ${[...bad].map(esc).join(', ')} (Artikel bzw. Mehr › Buchhaltung anpassen).</div>` : ''}
     <div class="filters"><label class="fld" style="margin:0"><span>Zahlungen bis</span><input class="input" type="date" data-in="buchBis" value="${bis}"></label><span class="lbl">${L.length} Zahlungen · CHF ${chf(L.reduce((s, x) => s + +x.z.betrag, 0))} · ${BU.length} Buchungen</span></div>
     ${fehlt.size ? `<div class="box warn small">Ohne Konto beim Artikel (Standardkonto ${esc(B.kontoStd)} wird verwendet): Rechnung ${[...fehlt].map(esc).join(', ')}</div>` : ''}
     ${ohneCode ? '<div class="box warn small">Für einen MWST-Satz fehlt der AgroOffice-MWST-Code (Mehr › Buchhaltung).</div>' : ''}
