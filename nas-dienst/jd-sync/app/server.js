@@ -7,7 +7,7 @@
    Eingang IM-Faktura, MyJohnDeere-Daten) täglich auf NAS und Dropbox, wöchentliche Excel-Exporte und Prüfung der Datenbeziehungen.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '72', STAND = '20.11.2026'; // v72: Ertrags-Kunden geändert → Felder ohne eTag ganz holen, archivierte Felder dieser Kunden mit, Speichern startet Abgleich · v71: Ertragskarten – Ernten der ausgewählten Kunden zuerst exportieren, Übersicht je Kunde und Jahr auf der Statusseite (gefunden, mit Ertragskarte, wartend, ohne Ertragsdaten, früheste Arbeit bei John Deere) · v70: Meldungen aufs Handy über Telegram (Sicherung, Datenprüfung, Abgleich 3× fehlgeschlagen, Aufträge an MyJohnDeere), alte Excel-Namen einmalig umbenannt statt dauernd mitgeprüft · v69: Sicherungsplan für alle IM-Programme (neu IM-Faktura mit Jahressicherungen 10 Jahre + Excel, IM-Applikationskarten, IM-Feldbereinigung, Eingang IM-Faktura, MyJohnDeere-Daten wöchentlich als ZIP), unveränderte Dateien nicht doppelt, neueste Sicherung bleibt immer, Warnung bei stark weniger Einträgen, Prüfung der Datenbeziehungen zwischen den Programmen, /Sicherungen/status.json für alle Programme · v68: Arbeitsgänge mit bedeckter Fläche, aber ohne virtuelle Feldgrenze werden einmal neu berechnet (cov.gz) · v67: Feld archivieren/wiederherstellen (v66, art feld-status) wieder entfernt – Felder werden nur angelegt, nie geändert; Feldgrenzen-Aufträge (grenze-status) auch aus IM-Feldbereinigung · v65: Ertragskarten nur für ausgewählte Kunden (cfg.ertragKunden), dafür Ernten ab cfg.ertragSeit (längere Historie, nur für Ertragskarten, nicht in jd-arbeiten.json) · v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
+const VERSION = '73', STAND = '22.11.2026'; // v73: Absturz bei einer Bedeckungskarte erkannt (bedeckung-aktiv.json) – Arbeitsgang danach zuletzt, nach 2 Abstürzen übersprungen; Ertragskarten sofort gespeichert · v72: Ertrags-Kunden geändert → Felder ohne eTag ganz holen, archivierte Felder dieser Kunden mit, Speichern startet Abgleich · v71: Ertragskarten – Ernten der ausgewählten Kunden zuerst exportieren, Übersicht je Kunde und Jahr auf der Statusseite (gefunden, mit Ertragskarte, wartend, ohne Ertragsdaten, früheste Arbeit bei John Deere) · v70: Meldungen aufs Handy über Telegram (Sicherung, Datenprüfung, Abgleich 3× fehlgeschlagen, Aufträge an MyJohnDeere), alte Excel-Namen einmalig umbenannt statt dauernd mitgeprüft · v69: Sicherungsplan für alle IM-Programme (neu IM-Faktura mit Jahressicherungen 10 Jahre + Excel, IM-Applikationskarten, IM-Feldbereinigung, Eingang IM-Faktura, MyJohnDeere-Daten wöchentlich als ZIP), unveränderte Dateien nicht doppelt, neueste Sicherung bleibt immer, Warnung bei stark weniger Einträgen, Prüfung der Datenbeziehungen zwischen den Programmen, /Sicherungen/status.json für alle Programme · v68: Arbeitsgänge mit bedeckter Fläche, aber ohne virtuelle Feldgrenze werden einmal neu berechnet (cov.gz) · v67: Feld archivieren/wiederherstellen (v66, art feld-status) wieder entfernt – Felder werden nur angelegt, nie geändert; Feldgrenzen-Aufträge (grenze-status) auch aus IM-Feldbereinigung · v65: Ertragskarten nur für ausgewählte Kunden (cfg.ertragKunden), dafür Ernten ab cfg.ertragSeit (längere Historie, nur für Ertragskarten, nicht in jd-arbeiten.json) · v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -43,6 +43,15 @@ let st = Object.assign({ jd: null, dbx: null, last: null, lastOk: null, running:
 st.arbProgress = null; // nach einem Neustart läuft nichts mehr
 process.on('unhandledRejection', e => { try { log('Unerwarteter Fehler: ' + (e && e.message || e)); } catch { } });
 st.running = false;
+// v73: Absturz während einer Bedeckungskarte erkennen (z. B. zu wenig Speicher bei sehr grossen Ernte-Exporten) – derselbe Arbeitsgang
+// blockierte sonst jeden Lauf, weil er immer wieder zuerst drankam und der Dienst neu startete, bevor etwas gespeichert war
+const COV_AKTIV = 'bedeckung-aktiv.json';
+let covAbsturz = load('bedeckung-absturz.json', {});
+{ const a = load(COV_AKTIV, null);
+  if (a && a.id) { const x = covAbsturz[a.id] && covAbsturz[a.id].mod === a.mod ? covAbsturz[a.id] : { mod: a.mod, n: 0 };
+    x.n++; x.at = new Date().toISOString(); x.name = a.name; x.datum = a.datum; x.mb = a.mb; covAbsturz[a.id] = x; save('bedeckung-absturz.json', covAbsturz);
+    setTimeout(() => log(`Bedeckungskarte: letzter Lauf abgebrochen bei «${a.name}» ${a.datum || ''}${a.mb ? ` (Export ${a.mb} MB)` : ''} – ${x.n}. Mal${x.n >= 2 ? ', wird ab jetzt übersprungen' : ', kommt beim nächsten Lauf zuletzt'}`), 0); }
+  try { fs.unlinkSync(file(COV_AKTIV)); } catch { } }
 const saveCfg = () => save('config.json', cfg);
 const saveSt = () => save('state.json', st);
 function log(msg) {
@@ -750,8 +759,8 @@ const arbCache = () => { try { return (load('arbeiten.json', null) || {}).ops; }
 async function coverageAreas(list, maxWaitMs = 20 * 60 * 1000) {
   covCombo = st.covCombo; covDead = false; covStat = {}; covErr = {}; cov403 = 0; covParamFail = 0; oxDead = false; ox403 = 0; oxStat = {};
   // zuerst Arbeitsgänge ohne Maschinenfläche, dann die neuesten
-  const yPrio = o => isErnte(o) && !(o.cov && o.cov.y === ERTRAG_G) ? 0 : 1;   // v71: gewünschte Ertragskarten zuerst
-  let pending = list.slice().sort((a, b) => ((areaFromMeas(a.measurements) == null ? 0 : 1) - (areaFromMeas(b.measurements) == null ? 0 : 1)) || (yPrio(a) - yPrio(b)) || String(b.start || '').localeCompare(String(a.start || ''))), first = true, ok = 0, none = 0; const end = Date.now() + maxWaitMs;
+  const yPrio = o => covAbsturz[o.id] && covAbsturz[o.id].mod === o.modified ? 2 : isErnte(o) && !(o.cov && o.cov.y === ERTRAG_G) ? 0 : 1;   // v71: gewünschte Ertragskarten zuerst · v73: nach einem Absturz zuletzt
+  let pending = list.slice().sort((a, b) => ((yPrio(a) === 2) - (yPrio(b) === 2) || (areaFromMeas(a.measurements) == null ? 0 : 1) - (areaFromMeas(b.measurements) == null ? 0 : 1)) || (yPrio(a) - yPrio(b)) || String(b.start || '').localeCompare(String(a.start || ''))), first = true, ok = 0, none = 0; const end = Date.now() + maxWaitMs;
   if (pending.length) log(`Bedeckungskarte: ${pending.length} Arbeitsgänge werden abgefragt (Fläche ohne Überlappungen, virtuelle Feldgrenze)`);
   while (pending.length && Date.now() < end && !covDead) {
     if (!first) await sleep(5000); first = false;
@@ -759,21 +768,24 @@ async function coverageAreas(list, maxWaitMs = 20 * 60 * 1000) {
     for (const o of pending) {
       if (covDead || Date.now() > end) { still.push(o); continue; }
       if (st.arbProgress) st.arbProgress.done++;
+      const ab = covAbsturz[o.id]; if (ab && ab.mod === o.modified && ab.n >= 2) { covErr.absturz = covErr.absturz || `${o.fieldName}: übersprungen (Dienst ist ${ab.n}× dabei abgestürzt)`; none++; continue; }
       let res = null; try { res = await coverageRequest(o); } catch (e) { covErr.netz = covErr.netz || `${o.fieldName}: ${e.message}`; res = { none: 'netz' }; }
       if (res === 'wait') { still.push(o); continue; }
       if (Array.isArray(res)) { // mehrere Dateien: die mit der grössten Fläche (Export ist ungeteilt angefordert, sollte selten vorkommen)
         let best = null; for (const b of res) { try { const c = coverageCalc(b); if (c && (!best || c.ha > best.c.ha)) best = { b, c }; } catch { } }
         res = best ? best.b : { none: 'leer' };
       }
+      if (Buffer.isBuffer(res)) save(COV_AKTIV, { id: o.id, mod: o.modified, name: o.fieldName, datum: String(o.start || '').slice(0, 10), mb: Math.round(res.length / 1048576 * 10) / 10 });
       let ha = null, grz = null; if (Buffer.isBuffer(res)) { try { const c = coverageCalc(res); if (c) { ha = c.ha; grz = c.grz; } } catch (e) { covErr.lesen = covErr.lesen || `${o.fieldName}: ${e.message}`; } }
       let yOk = false;
       if (Buffer.isBuffer(res) && isErnte(o)) { try { const E = ertragCalc(res); if (E) { ertrag[o.id] = { mod: o.modified, up: false, grid: E }; yOk = true; } else delete ertrag[o.id]; } catch (e) { covErr.ertrag = covErr.ertrag || `${o.fieldName}: ${e.message}`; } }
+      res = null; try { fs.unlinkSync(file(COV_AKTIV)); } catch { }
       if (grz) grenzen[o.id] = { mod: o.modified, grz }; else delete grenzen[o.id];
       const st0 = Buffer.isBuffer(res) ? (ha ? 'ok' : 'leer') : res && res.none;
       // gemerkt werden Karten und eindeutige «keine Karte»-Antworten; Berechtigungs- und Netzfehler werden beim nächsten Lauf neu versucht
       if (Buffer.isBuffer(res) || [404, 410, 204, 'json', 'download', 'leer', 'export-fehler'].includes(st0)) o.cov = { mod: o.modified, ha, at: new Date().toISOString(), st: st0, g: COV_G, gz: !!grz, ...(isErnte(o) ? { y: ERTRAG_G, yOk } : {}) };
       if (ha) ok++; else none++;
-      if ((ok + none) % 25 === 0 && covSave) covSave(ok + none);
+      if (((ok + none) % 25 === 0 || yOk) && covSave) covSave(ok + none);
     }
     pending = still;
   }
@@ -1779,6 +1791,7 @@ function ertragDiagHtml() {
     const d = D[id] || { total: 0, karte: 0, warten: 0, ohne: 0 }, r = R[id] || {};
     const jahre = Object.keys(r).sort().map(j => `${j}: ${r[j]}`).join(' · ') || '–';
     return `<tr><td>${esc(nm(id))}</td><td>${esc(jahre)}</td><td style="text-align:center">${d.karte}</td><td style="text-align:center">${d.warten}</td><td style="text-align:center">${d.ohne}</td><td style="text-align:center">${esc(F[id] || '–')}</td></tr>`; }).join('')}</table>
+  ${Object.keys(covAbsturz).length ? `<p class="no"><small>Abgestürzt bei Bedeckungskarte (${Object.keys(covAbsturz).length}): ${Object.values(covAbsturz).slice(-8).map(x => esc(`${x.name} ${x.datum || ''}${x.mb ? ` · ${x.mb} MB` : ''} · ${x.n}×${x.n >= 2 ? ' – übersprungen' : ''}`)).join(' · ')}</small></p>` : ''}
   <p><small>${st.ertragRoh && st.ertragRoh.at ? `Stand ${esc(new Date(st.ertragRoh.at).toLocaleString('de-CH'))}${st.ertragRoh.archiviert != null ? ` · ${st.ertragRoh.archiviert} archivierte Felder mitgeprüft` : ''}. ` : 'Noch kein Lauf mit dieser Auswahl – startet beim Speichern. '}«Ernten bei John Deere» = was MyJohnDeere für die Felder dieses Kunden liefert (alle Jahre). Fehlen dort ältere Jahre, sind sie in MyJohnDeere nicht vorhanden oder auf anderen (archivierten) Feldern gespeichert. «Warten auf Export»: kommt in den nächsten Abgleichen, diese Ernten werden zuerst abgefragt.</small></p>`;
 }
 const uploadDir = () => cfg.uploadPfad || '/jd-upload';
