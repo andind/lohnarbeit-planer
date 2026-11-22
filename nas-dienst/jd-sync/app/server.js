@@ -7,7 +7,7 @@
    Eingang IM-Faktura, MyJohnDeere-Daten) täglich auf NAS und Dropbox, wöchentliche Excel-Exporte und Prüfung der Datenbeziehungen.
    Keine externen Abhängigkeiten (Node 18+). */
 'use strict';
-const VERSION = '73', STAND = '22.11.2026'; // v73: Absturz bei einer Bedeckungskarte erkannt (bedeckung-aktiv.json) – Arbeitsgang danach zuletzt, nach 2 Abstürzen übersprungen; Ertragskarten sofort gespeichert · v72: Ertrags-Kunden geändert → Felder ohne eTag ganz holen, archivierte Felder dieser Kunden mit, Speichern startet Abgleich · v71: Ertragskarten – Ernten der ausgewählten Kunden zuerst exportieren, Übersicht je Kunde und Jahr auf der Statusseite (gefunden, mit Ertragskarte, wartend, ohne Ertragsdaten, früheste Arbeit bei John Deere) · v70: Meldungen aufs Handy über Telegram (Sicherung, Datenprüfung, Abgleich 3× fehlgeschlagen, Aufträge an MyJohnDeere), alte Excel-Namen einmalig umbenannt statt dauernd mitgeprüft · v69: Sicherungsplan für alle IM-Programme (neu IM-Faktura mit Jahressicherungen 10 Jahre + Excel, IM-Applikationskarten, IM-Feldbereinigung, Eingang IM-Faktura, MyJohnDeere-Daten wöchentlich als ZIP), unveränderte Dateien nicht doppelt, neueste Sicherung bleibt immer, Warnung bei stark weniger Einträgen, Prüfung der Datenbeziehungen zwischen den Programmen, /Sicherungen/status.json für alle Programme · v68: Arbeitsgänge mit bedeckter Fläche, aber ohne virtuelle Feldgrenze werden einmal neu berechnet (cov.gz) · v67: Feld archivieren/wiederherstellen (v66, art feld-status) wieder entfernt – Felder werden nur angelegt, nie geändert; Feldgrenzen-Aufträge (grenze-status) auch aus IM-Feldbereinigung · v65: Ertragskarten nur für ausgewählte Kunden (cfg.ertragKunden), dafür Ernten ab cfg.ertragSeit (längere Historie, nur für Ertragskarten, nicht in jd-arbeiten.json) · v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
+const VERSION = '74', STAND = '22.11.2026'; // v74: Bedeckungs-/Ertragsberechnung mit wenig Speicher (dbf beim Entpacken spaltenweise gelesen, Shapefile-Index und Punkte in Typed Arrays, Export nur einmal entpackt) · v73: Absturz bei einer Bedeckungskarte erkannt (bedeckung-aktiv.json) – Arbeitsgang danach zuletzt, nach 2 Abstürzen übersprungen; Ertragskarten sofort gespeichert · v72: Ertrags-Kunden geändert → Felder ohne eTag ganz holen, archivierte Felder dieser Kunden mit, Speichern startet Abgleich · v71: Ertragskarten – Ernten der ausgewählten Kunden zuerst exportieren, Übersicht je Kunde und Jahr auf der Statusseite (gefunden, mit Ertragskarte, wartend, ohne Ertragsdaten, früheste Arbeit bei John Deere) · v70: Meldungen aufs Handy über Telegram (Sicherung, Datenprüfung, Abgleich 3× fehlgeschlagen, Aufträge an MyJohnDeere), alte Excel-Namen einmalig umbenannt statt dauernd mitgeprüft · v69: Sicherungsplan für alle IM-Programme (neu IM-Faktura mit Jahressicherungen 10 Jahre + Excel, IM-Applikationskarten, IM-Feldbereinigung, Eingang IM-Faktura, MyJohnDeere-Daten wöchentlich als ZIP), unveränderte Dateien nicht doppelt, neueste Sicherung bleibt immer, Warnung bei stark weniger Einträgen, Prüfung der Datenbeziehungen zwischen den Programmen, /Sicherungen/status.json für alle Programme · v68: Arbeitsgänge mit bedeckter Fläche, aber ohne virtuelle Feldgrenze werden einmal neu berechnet (cov.gz) · v67: Feld archivieren/wiederherstellen (v66, art feld-status) wieder entfernt – Felder werden nur angelegt, nie geändert; Feldgrenzen-Aufträge (grenze-status) auch aus IM-Feldbereinigung · v65: Ertragskarten nur für ausgewählte Kunden (cfg.ertragKunden), dafür Ernten ab cfg.ertragSeit (längere Historie, nur für Ertragskarten, nicht in jd-arbeiten.json) · v64: Felder anlegen (art feld), Grenzen aktiv/archiviert setzen (art grenze-status), Grenz-IDs in jd-sync/jd-feldgrenzen, Ertragskarten (Raster 5 m je Ernte → /jd-ertrag), nach Aufträgen nur Stammdaten abgleichen · v63: zweiter Versuch ohne Schlusspunkt nur bei Geometrie-Fehler (nicht bei doppeltem Grenznamen) · v62: Feldgrenzen als gültiges GeoJSON (geschlossene Ringe, Umlaufsinn nach RFC 7946, doppelte Punkte entfernt; Rückfall ohne Schlusspunkt) · v61: Hochladen aus IM-Applikationskarten (Applikationskarten → Files-API, Feldgrenzen → Boundaries), Schreibrechte ag3/files · v60: Programmname IM-Verwaltung (Excel-Sicherung IM-Verwaltung-Daten_…xlsx, alte Namen werden weiter aufgeräumt) · v59: Geometrie der Vermessungen als eigene Datei jd-feldgrenzen.json (für IM-Applikationskarten) · v58: eTags (nur Änderungen abholen) · v57: Sicherung und wöchentlicher Excel-Export auch für die IM-Vermietung · v53: Bedeckung ohne Überlappungen, virtuelle Feldgrenzen, neue Operations-Data-Export-API · v54: WGS84-Ellipsoid statt Kugel · v55: virtuelle Feldgrenze ohne Randzuschlag · v56: Lücken < 10 m² innerhalb der Grenze zählen als bearbeitet // gleiche Nummer wie die IM-Verwaltung (APP_VERSION)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -396,7 +396,7 @@ function machinesOf(op, extra) {
 // Meter pro Grad auf dem WGS84-Ellipsoid (wie GPS und Display) – die Kugel (EARTH_R) macht Ost-West-Abstände bei 47° um ~0.3 % zu kurz
 function geoK(lat) { const a = 6378137, e2 = 0.00669437999014, s2 = Math.sin(lat * RAD) ** 2, w = Math.sqrt(1 - e2 * s2);
   return { kx: RAD * a / w * Math.cos(lat * RAD), ky: RAD * a * (1 - e2) / (w * w * w) }; }
-function unzip(buf) {
+function unzip(buf, only, raw) { // v74: only = RegExp → nur passende Dateien entpacken (spart Speicher)
   const zlib = require('zlib'), out = {};
   let eocd = -1; for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
   if (eocd < 0) return out;
@@ -406,6 +406,8 @@ function unzip(buf) {
     const method = buf.readUInt16LE(p + 10), csize = buf.readUInt32LE(p + 20), nl = buf.readUInt16LE(p + 28), el = buf.readUInt16LE(p + 30), cl = buf.readUInt16LE(p + 32), lo = buf.readUInt32LE(p + 42);
     const name = buf.slice(p + 46, p + 46 + nl).toString('latin1'); p += 46 + nl + el + cl;
     const ds = lo + 30 + buf.readUInt16LE(lo + 26) + buf.readUInt16LE(lo + 28), data = buf.slice(ds, ds + csize);
+    if (only && !only.test(name)) continue;
+    if (raw) { out[name] = { data, method }; continue; }
     try { out[name] = method === 0 ? data : method === 8 ? zlib.inflateRawSync(data) : null; } catch { out[name] = null; }
   }
   return out;
@@ -453,16 +455,66 @@ function unionGrid(polys, step) {
 }
 const EARTH_R = 6371008.8, RAD = Math.PI / 180;
 // Fläche (ha) aus einer Bedeckungskarte (ZIP mit Shapefile): Polygone direkt, Punkte über Arbeitsbreite × Distanz
+// v74: Datensätze eines Shapefiles als Index (Anfang/Länge in Typed Arrays statt je Punkt ein Buffer-Objekt – bei grossen Ernte-Exporten
+// mit über einer Million Punkten brauchte das allein mehrere hundert MB und brachte den Dienst auf dem NAS zum Absturz)
+function shpIndex(shp) {
+  let n = 0; for (let p = 100; p + 8 <= shp.length; p += 8 + shp.readInt32BE(p + 4) * 2) n++;
+  const off = new Int32Array(n), len = new Int32Array(n); let k = 0;
+  for (let p = 100; p + 8 <= shp.length && k < n; k++) { const l = shp.readInt32BE(p + 4) * 2; off[k] = p + 8; len[k] = Math.max(0, Math.min(l, shp.length - p - 8)); p += 8 + l; }
+  return { shp, off, len, n };
+}
+const ZIP_SHP = /\.(shp|dbf|prj|json)$/i;
+const shpFiles = x => Buffer.isBuffer(x) ? unzip(x, ZIP_SHP) : x;
+// v74: .dbf nicht ganz entpacken (bei grossen Ernten mehrere hundert MB), sondern beim Entpacken nur die benötigten Spalten lesen
+const DBF_WANT = ['SWATHWIDTH', 'DISTANCE', 'HEADING', 'VRYIELDMAS', 'VRYIELDVOL', 'MOISTURE'];
+function dbfStream(data, method) {
+  return new Promise((resolve, reject) => {
+    if (method === 0) return resolve(dbfAll(dbfCols(data, DBF_WANT)));
+    if (method !== 8) return resolve(null);
+    const z = require('zlib').createInflateRaw();
+    let carry = Buffer.alloc(0), out = null, cols = null, hlen = 0, rlen = 0, nrec = 0, row = 0, skip = 0;
+    const take = buf => {
+      let b = carry.length ? Buffer.concat([carry, buf]) : buf, p = 0;
+      if (!out) {
+        if (b.length < 32) { carry = b; return; }
+        nrec = b.readUInt32LE(4); hlen = b.readUInt16LE(8); rlen = b.readUInt16LE(10);
+        if (b.length < hlen) { carry = b; return; }
+        cols = {}; let off = 1;
+        for (let q = 32; q < hlen - 1 && b[q] !== 0x0d; q += 32) { const name = b.slice(q, q + 11).toString('latin1').split('\0')[0].toUpperCase(), len = b[q + 16]; if (DBF_WANT.includes(name)) cols[name] = [off, len]; off += len; }
+        out = { __dbf: true, n: nrec, del: new Uint8Array(nrec) }; for (const w of DBF_WANT) out[w] = new Float64Array(nrec).fill(NaN);
+        p = hlen;
+      }
+      if (rlen <= 0) { carry = Buffer.alloc(0); return; }
+      while (row < nrec && p + rlen <= b.length) {
+        if (b[p] === 0x2a) out.del[row] = 1;
+        else for (const w in cols) { const c = cols[w], v = parseFloat(b.toString('latin1', p + c[0], p + c[0] + c[1])); if (!isNaN(v)) out[w][row] = v; }
+        row++; p += rlen;
+      }
+      carry = row < nrec ? Buffer.from(b.subarray(p)) : Buffer.alloc(0);
+    };
+    z.on('data', take); z.on('error', reject);
+    z.on('end', () => { if (out) for (let r = row; r < nrec; r++) out.del[r] = 1; resolve(out); });
+    for (let i = 0; i < data.length; i += 1 << 20) z.write(data.subarray(i, Math.min(data.length, i + (1 << 20))));
+    z.end();
+  });
+}
+const dbfAll = A => Object.assign(A, { __dbf: true });
+async function covFiles(zipBuf) { // Shapefile-Teile wie unzip(), die .dbf aber als gelesene Spalten
+  const files = unzip(zipBuf, /\.(shp|prj|json)$/i), raw = unzip(zipBuf, /\.dbf$/i, true);
+  for (const [n, e] of Object.entries(raw)) files[n] = e ? await dbfStream(e.data, e.method) : null;
+  return files;
+}
 function coverageCalc(zipBuf) {
-  const files = unzip(zipBuf), names = Object.keys(files);
+  const files = shpFiles(zipBuf), names = Object.keys(files);
   const shpN = names.find(n => /\.shp$/i.test(n)), dbfN = names.find(n => /\.dbf$/i.test(n)), prjN = names.find(n => /\.prj$/i.test(n));
   if (!shpN || !files[shpN]) return null;
   const shp = files[shpN], geo = !(prjN && files[prjN] && /^PROJCS/i.test(files[prjN].toString('latin1').trim()));
-  const recs = []; let p = 100;
-  while (p + 8 <= shp.length) { const len = shp.readInt32BE(p + 4) * 2, c = shp.slice(p + 8, p + 8 + len); p += 8 + len; recs.push(c); }
+  const I = shpIndex(shp);
   const type = c => c.length >= 4 ? c.readInt32LE(0) : 0;
   const polysGeo = [];
-  for (const c of recs) {
+  for (let r = 0; r < I.n; r++) {
+    if (I.len[r] < 4 || ![5, 15, 25].includes(shp.readInt32LE(I.off[r]))) continue;
+    const c = shp.subarray(I.off[r], I.off[r] + I.len[r]);
     if (![5, 15, 25].includes(type(c)) || c.length < 44) continue;
     const np = c.readInt32LE(36), npt = c.readInt32LE(40), parts = []; for (let i = 0; i < np; i++) parts.push(c.readInt32LE(44 + 4 * i));
     const off = 44 + 4 * np, xy = []; for (let i = 0; i < npt; i++) xy.push([c.readDoubleLE(off + 16 * i), c.readDoubleLE(off + 16 * i + 8)]);
@@ -478,7 +530,7 @@ function coverageCalc(zipBuf) {
     return covResult(unionGrid(polys, 0.1), inv); // projizierte Shapefiles: Fläche ja, Grenze nur mit Längen/Breiten
   }
   if (!dbfN || !files[dbfN]) return null;
-  return covResult(pointsGrid(recs, files[dbfN]));
+  return covResult(pointsGrid(I, files[dbfN]));
 }
 function coverageHa(zipBuf) { const r = coverageCalc(zipBuf); return r ? r.ha : null; }
 // Ergebnis einer Bedeckungskarte: Fläche ohne Überlappungen (jede Rasterzelle einmal) + virtuelle Feldgrenze
@@ -591,6 +643,7 @@ function gridBoundary(G, P, M) {
 }
 // nur die benötigten Zahlenspalten aus der dBase-Datei (speichersparend, auch bei Hunderttausenden Punkten)
 function dbfCols(b, want) {
+  if (b && b.__dbf) { const out = { n: b.n, del: b.del }; for (const w of want) out[w] = b[w] || new Float64Array(b.n).fill(NaN); return out; } // v74: schon beim Entpacken gelesen
   const nrec = b.readUInt32LE(4), hlen = b.readUInt16LE(8), rlen = b.readUInt16LE(10), cols = {}; let off = 1;
   for (let p = 32; p < hlen - 1 && b[p] !== 0x0d; p += 32) { const name = b.slice(p, p + 11).toString('latin1').split('\0')[0].toUpperCase(), len = b[p + 16]; if (want.includes(name)) cols[name] = [off, len]; off += len; }
   const out = { n: nrec, del: new Uint8Array(nrec) }; for (const w of want) out[w] = new Float64Array(nrec).fill(NaN);
@@ -601,16 +654,16 @@ function dbfCols(b, want) {
   return out;
 }
 // Punkt-Export: je Messpunkt ein Rechteck (Länge DISTANCE in Fahrtrichtung HEADING, Breite SWATHWIDTH) → Vereinigung über ein Raster
-function pointsGrid(recs, dbfBuf) {
-  const A = dbfCols(dbfBuf, ['SWATHWIDTH', 'DISTANCE', 'HEADING']);
+function pointsGrid(I, dbfBuf) {
+  const A = dbfCols(dbfBuf, ['SWATHWIDTH', 'DISTANCE', 'HEADING']), S = I.shp;
   let n = 0;
-  for (let i = 0; i < recs.length; i++) { const c = recs[i], t = c.length >= 4 ? c.readInt32LE(0) : 0; if ([1, 11, 21].includes(t)) n++; else if ([8, 18, 28].includes(t) && c.length >= 40) n += c.readInt32LE(36); }
+  for (let i = 0; i < I.n; i++) { const o = I.off[i], L = I.len[i], t = L >= 4 ? S.readInt32LE(o) : 0; if ([1, 11, 21].includes(t)) n++; else if ([8, 18, 28].includes(t) && L >= 40) n += S.readInt32LE(o + 36); }
   if (!n) return null;
   const X = new Float64Array(n), Y = new Float64Array(n), R = new Int32Array(n); let k = 0;
-  for (let i = 0; i < recs.length && i < A.n; i++) {
-    if (A.del[i]) continue; const c = recs[i], t = c.length >= 4 ? c.readInt32LE(0) : 0;
-    if ([1, 11, 21].includes(t) && c.length >= 20) { X[k] = c.readDoubleLE(4); Y[k] = c.readDoubleLE(12); R[k++] = i; }
-    else if ([8, 18, 28].includes(t) && c.length >= 40) { const m = c.readInt32LE(36); for (let q = 0; q < m && 40 + 16 * q + 16 <= c.length; q++) { X[k] = c.readDoubleLE(40 + 16 * q); Y[k] = c.readDoubleLE(48 + 16 * q); R[k++] = i; } }
+  for (let i = 0; i < I.n && i < A.n; i++) {
+    if (A.del[i]) continue; const o = I.off[i], L = I.len[i], t = L >= 4 ? S.readInt32LE(o) : 0;
+    if ([1, 11, 21].includes(t) && L >= 20) { X[k] = S.readDoubleLE(o + 4); Y[k] = S.readDoubleLE(o + 12); R[k++] = i; }
+    else if ([8, 18, 28].includes(t) && L >= 40) { const m = S.readInt32LE(o + 36); for (let q = 0; q < m && 40 + 16 * q + 16 <= L && k < n; q++) { X[k] = S.readDoubleLE(o + 40 + 16 * q); Y[k] = S.readDoubleLE(o + 48 + 16 * q); R[k++] = i; } }
   }
   if (!k) return null;
   let sx = 0, sy = 0; for (let i = 0; i < k; i++) { sx += X[i]; sy += Y[i]; }
@@ -776,10 +829,11 @@ async function coverageAreas(list, maxWaitMs = 20 * 60 * 1000) {
         res = best ? best.b : { none: 'leer' };
       }
       if (Buffer.isBuffer(res)) save(COV_AKTIV, { id: o.id, mod: o.modified, name: o.fieldName, datum: String(o.start || '').slice(0, 10), mb: Math.round(res.length / 1048576 * 10) / 10 });
-      let ha = null, grz = null; if (Buffer.isBuffer(res)) { try { const c = coverageCalc(res); if (c) { ha = c.ha; grz = c.grz; } } catch (e) { covErr.lesen = covErr.lesen || `${o.fieldName}: ${e.message}`; } }
+      let ha = null, grz = null, zf = null; if (Buffer.isBuffer(res)) { try { zf = await covFiles(res); } catch (e) { covErr.lesen = covErr.lesen || `${o.fieldName}: ${e.message}`; } } // v74: nur einmal entpacken
+      if (zf) { try { const c = coverageCalc(zf); if (c) { ha = c.ha; grz = c.grz; } } catch (e) { covErr.lesen = covErr.lesen || `${o.fieldName}: ${e.message}`; } }
       let yOk = false;
-      if (Buffer.isBuffer(res) && isErnte(o)) { try { const E = ertragCalc(res); if (E) { ertrag[o.id] = { mod: o.modified, up: false, grid: E }; yOk = true; } else delete ertrag[o.id]; } catch (e) { covErr.ertrag = covErr.ertrag || `${o.fieldName}: ${e.message}`; } }
-      res = null; try { fs.unlinkSync(file(COV_AKTIV)); } catch { }
+      if (zf && isErnte(o)) { try { const E = ertragCalc(zf); if (E) { ertrag[o.id] = { mod: o.modified, up: false, grid: E }; yOk = true; } else delete ertrag[o.id]; } catch (e) { covErr.ertrag = covErr.ertrag || `${o.fieldName}: ${e.message}`; } }
+      zf = null; try { fs.unlinkSync(file(COV_AKTIV)); } catch { }
       if (grz) grenzen[o.id] = { mod: o.modified, grz }; else delete grenzen[o.id];
       const st0 = Buffer.isBuffer(res) ? (ha ? 'ok' : 'leer') : res && res.none;
       // gemerkt werden Karten und eindeutige «keine Karte»-Antworten; Berechtigungs- und Netzfehler werden beim nächsten Lauf neu versucht
@@ -921,7 +975,7 @@ let ertrag = load('ertrag.json', {});
 const ertragDir = () => cfg.ertragPfad || '/jd-ertrag';
 const YCELL = 5;
 function ertragCalc(zipBuf) {
-  const files = unzip(zipBuf), names = Object.keys(files);
+  const files = shpFiles(zipBuf), names = Object.keys(files);
   const shpN = names.find(n => /\.shp$/i.test(n)), dbfN = names.find(n => /\.dbf$/i.test(n)), jsN = names.find(n => /\.json$/i.test(n));
   if (!shpN || !dbfN || !files[shpN] || !files[dbfN]) return null;
   const A = dbfCols(files[dbfN], ['VRYIELDMAS', 'VRYIELDVOL', 'MOISTURE', 'SWATHWIDTH', 'DISTANCE']);
@@ -930,27 +984,30 @@ function ertragCalc(zipBuf) {
   // Einheit aus der beigelegten .json (Metadaten), sonst geschätzt
   let unitRaw = '';
   if (jsN && files[jsN]) { const tx = files[jsN].toString('utf8'), i = tx.indexOf(col); if (i >= 0) { const m = /"(?:unit|Unit|unitId|UnitOfMeasure|uom)"\s*:\s*"([^"]+)"/.exec(tx.slice(i, i + 400)); if (m) unitRaw = m[1]; } }
-  const shp = files[shpN], recs = []; let p = 100;
-  while (p + 8 <= shp.length) { const len = shp.readInt32BE(p + 4) * 2, c = shp.slice(p + 8, p + 8 + len); p += 8 + len; recs.push(c); }
-  const pts = [];
-  for (let i = 0; i < recs.length && i < A.n; i++) {
-    if (A.del[i]) continue; const c = recs[i], t = c.length >= 4 ? c.readInt32LE(0) : 0, v = A[col][i];
+  // v74: Punkte in Typed Arrays (vorher je Punkt ein JS-Array → bei grossen Ernten mehrere hundert MB)
+  const I = shpIndex(files[shpN]), SB = I.shp;
+  let np = 0;
+  for (let i = 0; i < I.n; i++) { const o = I.off[i], L = I.len[i], t = L >= 4 ? SB.readInt32LE(o) : 0; if ([1, 11, 21].includes(t)) np++; else if ([8, 18, 28].includes(t) && L >= 40) np += SB.readInt32LE(o + 36); }
+  const PX = new Float64Array(np), PY = new Float64Array(np), PV = new Float64Array(np), PW = new Float64Array(np), PM = new Float64Array(np); let npt = 0;
+  const add = (x, y, v, w, m) => { if (npt >= np) return; PX[npt] = x; PY[npt] = y; PV[npt] = v; PW[npt] = w; PM[npt++] = m; };
+  for (let i = 0; i < I.n && i < A.n; i++) {
+    if (A.del[i]) continue; const o = I.off[i], L = I.len[i], t = L >= 4 ? SB.readInt32LE(o) : 0, v = A[col][i];
     if (!(v > 0)) continue; const w = (A.SWATHWIDTH[i] > 0 ? A.SWATHWIDTH[i] : 1) * (A.DISTANCE[i] > 0 && A.DISTANCE[i] < 50 ? A.DISTANCE[i] : 1);
     if (A.DISTANCE[i] > 50) continue;
-    if ([1, 11, 21].includes(t) && c.length >= 20) pts.push([c.readDoubleLE(4), c.readDoubleLE(12), v, w, A.MOISTURE[i]]);
-    else if ([8, 18, 28].includes(t) && c.length >= 40) { const m = c.readInt32LE(36); for (let q = 0; q < m && 40 + 16 * q + 16 <= c.length; q++) pts.push([c.readDoubleLE(40 + 16 * q), c.readDoubleLE(48 + 16 * q), v, w / m, A.MOISTURE[i]]); }
+    if ([1, 11, 21].includes(t) && L >= 20) add(SB.readDoubleLE(o + 4), SB.readDoubleLE(o + 12), v, w, A.MOISTURE[i]);
+    else if ([8, 18, 28].includes(t) && L >= 40) { const m = SB.readInt32LE(o + 36); for (let q = 0; q < m && 40 + 16 * q + 16 <= L; q++) add(SB.readDoubleLE(o + 40 + 16 * q), SB.readDoubleLE(o + 48 + 16 * q), v, w, A.MOISTURE[i]); }
   }
-  if (pts.length < 20) return null;
-  const sorted = pts.map(q => q[2]).sort((a, b) => a - b), qn = f => sorted[Math.min(sorted.length - 1, Math.floor(f * sorted.length))];
+  if (npt < 20) return null;
+  const sorted = PV.slice(0, npt).sort(), qn = f => sorted[Math.min(sorted.length - 1, Math.floor(f * sorted.length))];
   const med = qn(0.5), lo = Math.max(qn(0.02), med * 0.3), hi = Math.min(qn(0.98), med * 2.5);
   // Umrechnung in t/ha (Masse); Volumen bleibt in der gelieferten Einheit
   let unit = col === 'VRYIELDMAS' ? 't/ha' : 'l/ha', f = 1; const u = unitRaw.toLowerCase();
   if (col === 'VRYIELDMAS') { if (/^kg1ha-1|kg\/ha/.test(u)) f = 0.001; else if (/^lb1ac-1|lb\/ac/.test(u)) f = 0.00112085; else if (/^(ton|t)1ha-1|t\/ha/.test(u)) f = 1; else if (!u && med > 300) f = 0.001; }
   else { if (/bu1ac-1|bu\/ac/.test(u)) unit = 'bu/ac'; else if (/^l1ha-1|l\/ha/.test(u)) unit = 'l/ha'; else if (u) unit = unitRaw; }
-  let sx = 0, sy = 0; for (const q of pts) { sx += q[0]; sy += q[1]; }
-  const lonC = sx / pts.length, latC = sy / pts.length, { kx, ky } = geoK(latC);
+  let sx = 0, sy = 0; for (let i = 0; i < npt; i++) { sx += PX[i]; sy += PY[i]; }
+  const lonC = sx / npt, latC = sy / npt, { kx, ky } = geoK(latC);
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-  for (const q of pts) { if (q[0] < x0) x0 = q[0]; if (q[0] > x1) x1 = q[0]; if (q[1] < y0) y0 = q[1]; if (q[1] > y1) y1 = q[1]; }
+  for (let i = 0; i < npt; i++) { const qx = PX[i], qy = PY[i]; if (qx < x0) x0 = qx; if (qx > x1) x1 = qx; if (qy < y0) y0 = qy; if (qy > y1) y1 = qy; }
   const dlon = YCELL / kx, dlat = YCELL / ky;
   // Raster an einem festen Gitter ausrichten (gleiche Zellen für alle Ernten eines Feldes)
   const lon0 = Math.floor(x0 / dlon) * dlon, lat1 = Math.ceil(y1 / dlat) * dlat;
@@ -958,11 +1015,12 @@ function ertragCalc(zipBuf) {
   if (w * h > 400000) return null;
   const S = new Float64Array(w * h), W = new Float64Array(w * h), MS = new Float64Array(w * h), MW = new Float64Array(w * h);
   let n = 0;
-  for (const q of pts) {
-    if (q[2] < lo || q[2] > hi) continue;
-    const i = Math.floor((q[0] - lon0) / dlon), j = Math.floor((lat1 - q[1]) / dlat); if (i < 0 || j < 0 || i >= w || j >= h) continue;
-    const k = j * w + i; S[k] += q[2] * q[3]; W[k] += q[3]; n++;
-    if (q[4] > 0 && q[4] < 60) { MS[k] += q[4] * q[3]; MW[k] += q[3]; }
+  for (let p = 0; p < npt; p++) {
+    const qv = PV[p], qw = PW[p], qm = PM[p];
+    if (qv < lo || qv > hi) continue;
+    const i = Math.floor((PX[p] - lon0) / dlon), j = Math.floor((lat1 - PY[p]) / dlat); if (i < 0 || j < 0 || i >= w || j >= h) continue;
+    const k = j * w + i; S[k] += qv * qw; W[k] += qw; n++;
+    if (qm > 0 && qm < 60) { MS[k] += qm * qw; MW[k] += qw; }
   }
   const vals = new Array(w * h).fill(null); let tS = 0, tW = 0, tm = 0, tmw = 0, cells = 0;
   for (let k = 0; k < w * h; k++) if (W[k] > 0) { const v = S[k] / W[k] * f; vals[k] = Math.round(v * 100) / 100; tS += S[k] * f; tW += W[k]; cells++; if (MW[k]) { tm += MS[k]; tmw += MW[k]; } }
