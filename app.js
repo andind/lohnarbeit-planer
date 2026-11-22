@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '161', APP_STAND = '19.11.2026';
+const APP_VERSION = '162', APP_STAND = '22.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'auftraege', 'einstellungen', 'parzellen', 'produkte', 'felder']; // v161: «personal» und «pausen» entfernt (kein Modul Fahrer/Pausen)
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -203,7 +203,7 @@ function sameData(a, b) {
 const Auth = {
   configured() { return /^[a-z0-9]{8,30}$/i.test(CFG.appKey || '') && !/HIER/i.test(CFG.appKey); },
   redirectUri() { return location.origin + location.pathname.replace(/index\.html$/, ''); },
-  tokens() { try { return JSON.parse(ls('lp_tok') || 'null'); } catch { return null; } },
+  tokens() { return imTokUebernehmen('lp_tok'); }, // v162: Anmeldung mit den anderen IM-Programmen geteilt (gemeinsam/im-basis.js)
   hasSession() { const t = this.tokens(); return !!(t && (t.refresh || t.access)); },
   b64url(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); },
   async login() {
@@ -250,14 +250,14 @@ const Auth = {
       method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ client_id: CFG.appKey, grant_type: 'refresh_token', refresh_token: t.refresh })
     });
-    if (r.status === 400 || r.status === 401) { ls('lp_tok', null); return null; } // Zugriff widerrufen → neu anmelden
+    if (r.status === 400 || r.status === 401) { imTokUngueltig(t); ls('lp_tok', null); return this.tokens() ? this.token() : null; } // Zugriff widerrufen → andere Anmeldung des Geräts versuchen, sonst neu anmelden
     if (!r.ok) throw new Error('Dropbox nicht erreichbar (' + r.status + ')');
     const j = await r.json(); this.store(j); return j.access_token;
   },
   async logout() {
     const t = this.tokens();
     if (t?.access && navigator.onLine) { try { await fetch('https://api.dropboxapi.com/2/auth/token/revoke', { method: 'POST', headers: { Authorization: 'Bearer ' + t.access } }); } catch {} }
-    ls('lp_tok', null); ls('lp_user', null); App.render(); Sync.setState('login');
+    imTokAbmelden(); ls('lp_user', null); App.render(); Sync.setState('login'); // gilt für alle IM-Programme auf diesem Gerät
   }
 };
 
@@ -6231,7 +6231,7 @@ document.addEventListener('click', async e => {
     case 'redo': Undo.again(); break;
     case 'sync': if (!Auth.configured()) { App.go('mehr'); toast('Dropbox ist noch nicht eingerichtet.'); } else if (!Auth.hasSession()) Auth.login(); else Sync.run(); break;
     case 'login': Auth.login(); break;
-    case 'logout': if (await frage('Abmelden? Die Daten bleiben auf diesem Gerät erhalten.')) Auth.logout(); break;
+    case 'logout': if (await frage('Von Dropbox abmelden? Das gilt für alle IM-Programme auf diesem Gerät. Die Daten bleiben erhalten.')) Auth.logout(); break;
     case 'newOrder': orderDialog(); break;
     case 'newOrderFor': Dlg.close(); orderDialog(null, { kunde: id }); break;
     case 'editOrder': orderDialog(id); break;

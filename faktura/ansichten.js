@@ -686,7 +686,7 @@ document.addEventListener('click', async ev => {
     case 'dlgClose': if (App.dlgBack) { const f = App.dlgBack; App.dlgBack = null; f(); } else closeDlg(); break;
     case 'sync': if (!Auth.configured()) App.go('mehr'); else if (!Auth.hasSession()) Auth.login(); else { Sync.run(); Eingang.check(); } break;
     case 'login': Auth.login(); break;
-    case 'logout': if (await frage('Von Dropbox abmelden? Die Daten bleiben auf diesem Gerät.')) Auth.logout(); break;
+    case 'logout': if (await frage('Von Dropbox abmelden? Das gilt für alle IM-Programme auf diesem Gerät. Die Daten bleiben erhalten.')) Auth.logout(); break;
     case 'reload': location.reload(); break;
     case 'zoomIn': Zoom.by(1.15); break;
     case 'zoomOut': Zoom.by(1 / 1.15); break;

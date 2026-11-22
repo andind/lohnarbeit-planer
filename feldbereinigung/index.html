@@ -94,7 +94,7 @@ h3{font:600 18px var(--display);margin:18px 0 8px}
 </head>
 <body>
 <header>
-  <h1>IM-Feldbereinigung</h1><span class="ver" id="ver"></span>
+  <h1><a href="../start/" title="Alle IM-Programme (Startseite)" style="color:inherit;text-decoration:none">⌂</a> IM-Feldbereinigung</h1><span class="ver" id="ver"></span>
   <div class="stand" id="stand">–</div>
   <button id="bReload" title="Stammdaten neu aus Dropbox laden">Neu laden</button>
 </header>
@@ -153,7 +153,7 @@ h3{font:600 18px var(--display);margin:18px 0 8px}
 <script src="config.js"></script>
 <script>
 "use strict";
-const VERSION = "1.4", STAND = "19.11.2026", MIN_NACHBAR = 10;   // angrenzend ab 10 m gemeinsamer Grenze
+const VERSION = "1.5", STAND = "22.11.2026", MIN_NACHBAR = 10;   // angrenzend ab 10 m gemeinsamer Grenze
 const NAS_MIN = 64, UP_DIR = "/jd-upload";                       // Feldgrenzen-Aufträge (grenze-status) kann jd-sync ab v64
 const STATE_PATH = "/feldbereinigung.json";
 const DEMO = new URLSearchParams(location.search).has("demo");
@@ -170,15 +170,24 @@ function toast(msg){ const t = $("toast"); t.textContent = msg; t.classList.add(
 /* ---------- Dropbox (PKCE, gleiche Dropbox-App wie die anderen IM-Programme) ---------- */
 const DBX_KEY = ((window.APP_CONFIG || {}).appKey || "").trim();
 const TOK = "feldber.dbx.tok", PKCE = "feldber.dbx.pkce";
+/* Gemeinsame Dropbox-Anmeldung aller IM-Programme (gleiche Regeln wie gemeinsam/im-basis.js, IM_BASIS 2):
+   ohne eigene Anmeldung wird die eines anderen IM-Programms auf diesem Gerät übernommen; Abmelden gilt für alle. */
+const IM_TOK_KEYS = ["lp_tok", "mf_tok", "mv_tok", "imstart_tok", "appkarte.dbx.tok", "feldber.dbx.tok"];
+function imTokLese(k){ try { const t = JSON.parse(localStorage.getItem(k) || "null"); return t && (t.refresh || t.access) ? t : null; } catch(e){ return null; } }
+function imTokBad(){ try { return JSON.parse(localStorage.getItem("im_tok_bad") || "[]"); } catch(e){ return []; } }
+function imTokUebernehmen(own){
+  const eigen = imTokLese(own); if (eigen) return eigen;
+  const bad = imTokBad();
+  for (const k of IM_TOK_KEYS){ if (k === own) continue; const t = imTokLese(k);
+    if (t && t.refresh && !bad.includes(t.refresh)){ const c = { access:t.access, refresh:t.refresh, exp:t.exp || 0 }; try { localStorage.setItem(own, JSON.stringify(c)); } catch(e){} return c; } }
+  return null;
+}
+function imTokUngueltig(t){ if (!t || !t.refresh) return; const b = imTokBad(); if (!b.includes(t.refresh)){ b.push(t.refresh); try { localStorage.setItem("im_tok_bad", JSON.stringify(b.slice(-10))); } catch(e){} } }
+function imTokAbmelden(){ IM_TOK_KEYS.forEach(k => { try { localStorage.removeItem(k); } catch(e){} }); }
 const DBX = {
   configured(){ return /^[a-z0-9]{8,30}$/i.test(DBX_KEY); },
   redirectUri(){ return location.origin + location.pathname.replace(/index\.html$/, ""); },
-  tokens(){
-    let t = lsGet(TOK);
-    // Anmeldung von IM-Applikationskarten auf diesem PC übernehmen (gleiche Adresse, gleiche Dropbox-App)
-    if (!t){ const a = lsGet("appkarte.dbx.tok"); if (a && a.refresh){ t = { refresh:a.refresh, access:a.access, exp:a.exp, von:"IM-Applikationskarten" }; lsSet(TOK, t); } }
-    return t;
-  },
+  tokens(){ return imTokUebernehmen(TOK); }, // v1.5: Anmeldung aller IM-Programme auf diesem Gerät übernehmen
   hasSession(){ const t = this.tokens(); return !!(t && (t.refresh || t.access)); },
   b64url(buf){ return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); },
   async login(){
@@ -212,11 +221,11 @@ const DBX = {
     if (!t.refresh) return null;
     const r = await fetch("https://api.dropboxapi.com/oauth2/token", { method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" },
       body:new URLSearchParams({ client_id:DBX_KEY, grant_type:"refresh_token", refresh_token:t.refresh }) });
-    if (r.status === 400 || r.status === 401){ try { localStorage.removeItem(TOK); } catch(e){} return null; }
+    if (r.status === 400 || r.status === 401){ imTokUngueltig(t); try { localStorage.removeItem(TOK); } catch(e){} return this.tokens() ? this.token() : null; }
     if (!r.ok) throw new Error("Dropbox nicht erreichbar (" + r.status + ")");
     const j = await r.json(); this.store(j); return j.access_token;
   },
-  logout(){ try { localStorage.removeItem(TOK); } catch(e){} },
+  logout(){ imTokAbmelden(); },
   arg(o){ return JSON.stringify(o).replace(/[\u007f-￿]/g, c => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0")); },
   async req(url, opt){
     const t = await this.token(); if (!t){ const e = new Error("Bitte bei Dropbox anmelden"); e.auth = true; throw e; }
@@ -638,7 +647,7 @@ document.addEventListener("click", e => {
   else if (b.id === "bCsv") csvList();
   else if (b.id === "bReload"){ PRE = null; loadAll(true); }
   else if (b.id === "bLogin") DBX.login();
-  else if (b.id === "bLogout"){ DBX.logout(); render(); toast("Von Dropbox abgemeldet."); }
+  else if (b.id === "bLogout"){ DBX.logout(); render(); toast("Von Dropbox abgemeldet (alle IM-Programme auf diesem Gerät)."); }
   else if (b.id === "bSync") DBX.writeJson("/jd-sync-request.json", { at:new Date().toISOString(), von:"IM-Feldbereinigung" }).then(() => toast("Abgleich angefordert – in ein paar Minuten «Neu laden»."), err => toast("Anfordern fehlgeschlagen: " + err.message));
   else if (b.id === "bIgnReset"){ S.ign = []; saveState(); analyse(); render(); }
 });

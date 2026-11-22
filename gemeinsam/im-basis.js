@@ -3,9 +3,10 @@
    <script src="gemeinsam/im-basis.js?v=1"> bzw. "../gemeinsam/im-basis.js?v=1".
    Bei jeder Änderung hier: IM_BASIS erhöhen, ?v= in den drei index.html anpassen und CACHE in allen drei sw.js erhöhen.
    Inhalt: $/$$, esc, ls (localStorage), dbxArg (Dropbox-Header), toast (grosse Meldung), frage/meldung (grosse Rückfragen),
-   download, Excel-Datei ohne Bibliothek (xlsxBlob), Sicherungsstatus des NAS-Dienstes (sichLoad/sichHtml). */
+   download, Excel-Datei ohne Bibliothek (xlsxBlob), Sicherungsstatus des NAS-Dienstes (sichLoad/sichHtml),
+   gemeinsame Dropbox-Anmeldung (imTokUebernehmen/imTokUngueltig/imTokAbmelden, seit IM_BASIS 2). */
 'use strict';
-const IM_BASIS = '1';
+const IM_BASIS = '2';
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
@@ -131,3 +132,25 @@ function sichHtml(own, { pruefung = 'eigene' } = {}) {
     ${P && pruefung !== 'keine' ? `<p class="small" style="margin:8px 0 0"><b>Prüfung der Verknüpfungen zwischen den Programmen</b> (${e(dt(P.at))}): ${pts.length ? pts.map(x => `<br>${x.sev === 'fehler' ? '⚠' : 'ℹ'} ${pruefung === 'alle' ? e(x.prog) + ': ' : ''}${e(x.titel)} (${x.n}) – <span style="color:var(--muted)">${e(x.items.slice(0, 6).join(' · '))}${x.n > 6 ? ' …' : ''}</span>`).join('') : '✓ keine Auffälligkeiten'}</p>` : ''}
   </div>`;
 }
+
+/* ---------- Gemeinsame Dropbox-Anmeldung (IM_BASIS 2) ----------
+   Alle IM-Programme laufen unter derselben Adresse mit derselben Dropbox-App. Hat ein Programm noch keine eigene Anmeldung,
+   übernimmt es die eines anderen Programms auf diesem Gerät (der Refresh-Token gilt für die ganze Dropbox-App).
+   Ein vom Server abgelehnter Refresh-Token wird gemerkt (im_tok_bad) und nicht mehr übernommen.
+   Abmelden gilt für alle Programme auf dem Gerät – sonst würde die Anmeldung beim nächsten Start wieder übernommen.
+   Die gleichen Schlüssel kennen auch IM-Applikationskarten und IM-Feldbereinigung (eigener Code, gleiche Regeln). */
+const IM_TOK_KEYS = ['lp_tok', 'mf_tok', 'mv_tok', 'imstart_tok', 'appkarte.dbx.tok', 'feldber.dbx.tok'];
+function imTokLese(k) { try { const t = JSON.parse(localStorage.getItem(k) || 'null'); return t && (t.refresh || t.access) ? t : null; } catch { return null; } }
+function imTokBad() { try { return JSON.parse(localStorage.getItem('im_tok_bad') || '[]'); } catch { return []; } }
+function imTokUebernehmen(own) {
+  const eigen = imTokLese(own); if (eigen) return eigen;
+  const bad = imTokBad();
+  for (const k of IM_TOK_KEYS) {
+    if (k === own) continue;
+    const t = imTokLese(k);
+    if (t && t.refresh && !bad.includes(t.refresh)) { const c = { access: t.access, refresh: t.refresh, exp: t.exp || 0 }; try { localStorage.setItem(own, JSON.stringify(c)); } catch { } return c; }
+  }
+  return null;
+}
+function imTokUngueltig(t) { if (!t || !t.refresh) return; const b = imTokBad(); if (!b.includes(t.refresh)) { b.push(t.refresh); try { localStorage.setItem('im_tok_bad', JSON.stringify(b.slice(-10))); } catch { } } }
+function imTokAbmelden() { IM_TOK_KEYS.forEach(k => { try { localStorage.removeItem(k); } catch { } }); }

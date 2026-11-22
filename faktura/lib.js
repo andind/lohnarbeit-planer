@@ -4,7 +4,7 @@
 const Auth = {
   configured() { return /^[a-z0-9]{8,30}$/i.test(CFG.appKey || ''); },
   redirectUri() { return location.origin + location.pathname.replace(/index\.html$/, ''); },
-  tokens() { return lsJson('mf_tok'); },
+  tokens() { return imTokUebernehmen('mf_tok'); }, // v1.44: Anmeldung mit den anderen IM-Programmen geteilt
   hasSession() { const t = this.tokens(); return !!(t && (t.refresh || t.access)); },
   b64url(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); },
   async login() {
@@ -39,14 +39,14 @@ const Auth = {
     if (!t.refresh) return null;
     const r = await fetch('https://api.dropboxapi.com/oauth2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ client_id: CFG.appKey, grant_type: 'refresh_token', refresh_token: t.refresh }) });
-    if (r.status === 400 || r.status === 401) { ls('mf_tok', null); return null; }
+    if (r.status === 400 || r.status === 401) { imTokUngueltig(t); ls('mf_tok', null); return this.tokens() ? this.token() : null; }
     if (!r.ok) throw new Error('Dropbox nicht erreichbar (' + r.status + ')');
     const j = await r.json(); this.store(j); return j.access_token;
   },
   async logout() {
     const t = this.tokens();
     if (t?.access && navigator.onLine) { try { await fetch('https://api.dropboxapi.com/2/auth/token/revoke', { method: 'POST', headers: { Authorization: 'Bearer ' + t.access } }); } catch {} }
-    ls('mf_tok', null); ls('mf_user', null); Sync.setState('login'); App.render();
+    imTokAbmelden(); ls('mf_user', null); Sync.setState('login'); App.render();
   }
 };
 const Drive = {

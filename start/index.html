@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="de-CH">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>IM-Programme</title>
+<meta name="theme-color" content="#2f6b3a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="IM-Programme">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="../icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<style>
+:root { --bg:#f3f2ee; --surface:#fff; --surface-2:#f8f7f4; --line:#dedbd3; --text:#1d211e; --muted:#646a65; --accent:#2f6b3a; --accent-ink:#fff; --accent-soft:#e3efe4; --danger:#b3261e; --warn:#b5580b; --warn-soft:#fbead9; --ok:#2f7d3b; --radius:12px; --shadow:0 1px 2px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.04); color-scheme:light; }
+@media (prefers-color-scheme: dark) { :root { --bg:#141614; --surface:#1d201d; --surface-2:#232723; --line:#343a35; --text:#e9ece8; --muted:#a0a8a2; --accent:#6fbf7c; --accent-ink:#0d1a0f; --accent-soft:#24372a; --danger:#ff8a80; --warn:#f0a35b; --warn-soft:#3a2b1c; --ok:#7fcf8b; --shadow:none; color-scheme:dark; } }
+* { box-sizing:border-box; }
+[hidden] { display:none !important; }
+body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; -webkit-text-size-adjust:100%; }
+header.top { position:sticky; top:0; z-index:5; height:59px; display:flex; align-items:center; gap:12px; padding:0 16px; padding-top:env(safe-area-inset-top); background:var(--surface); border-bottom:1px solid var(--line); }
+.brand { display:flex; align-items:center; gap:10px; font-weight:600; font-size:18px; white-space:nowrap; min-width:0; }
+.brand small { font-weight:400; color:var(--muted); font-size:13px; }
+.sp { flex:1; }
+.btn { font:inherit; font-size:15px; padding:8px 14px; border-radius:10px; border:1px solid var(--line); background:var(--surface); color:var(--text); cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:6px; }
+.btn:hover { border-color:var(--muted); }
+.btn.pri { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+main { max-width:1180px; margin:0 auto; padding:18px 16px 60px; }
+.sub { color:var(--muted); margin:0 0 16px; font-size:14px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:14px; }
+.tile { display:flex; flex-direction:column; gap:8px; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:16px; color:inherit; text-decoration:none; min-height:150px; transition:border-color .15s; }
+.tile:hover { border-color:var(--accent); }
+.tile h2 { margin:0; font-size:19px; display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+.tile h2 .n { white-space:nowrap; }
+.tile h2 .v { font-size:13px; font-weight:400; color:var(--muted); }
+.tile .what { color:var(--muted); font-size:14px; margin:0; }
+.tile .kz { display:flex; flex-wrap:wrap; gap:6px; margin-top:auto; }
+.chip { font-size:13px; padding:3px 9px; border-radius:20px; background:var(--surface-2); border:1px solid var(--line); white-space:nowrap; }
+.chip.warn { background:var(--warn-soft); border-color:var(--warn); color:var(--warn); }
+.chip.ok { color:var(--ok); }
+.tile .stand { font-size:12px; color:var(--muted); }
+.tile.pc .what::after { content:" · nur PC"; }
+section.panel { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:16px; margin-top:16px; }
+section.panel h3 { margin:0 0 10px; font-size:17px; }
+.hinw { list-style:none; margin:0; padding:0; }
+.hinw li { padding:8px 0; border-top:1px solid var(--line); font-size:15px; }
+.hinw li:first-child { border-top:0; }
+.hinw li.f::before { content:"⚠ "; color:var(--warn); }
+.hinw li.i::before { content:"ℹ "; color:var(--muted); }
+.hinw small { display:block; color:var(--muted); }
+.small { font-size:13px; }
+.muted { color:var(--muted); }
+.row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+input[type=text] { font:inherit; font-size:15px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--text); min-width:280px; }
+@media (max-width: 560px) { .lang { display:none; } .btn { padding:8px 11px; } .tile { min-height:0; } header.top { gap:8px; padding:0 10px; } }
+#toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(20px); opacity:0; pointer-events:none; max-width:720px; width:calc(100% - 32px); background:var(--surface); color:var(--text); border:2px solid var(--accent); border-radius:12px; padding:14px 18px; font-size:18px; font-weight:600; box-shadow:0 6px 24px rgba(0,0,0,.18); white-space:pre-line; transition:.25s; z-index:50; }
+#toast.show { opacity:1; transform:translateX(-50%); }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><img src="../icon-192.png" alt="" width="28" height="28"><span>IM-Programme</span><small id="ver"></small></div>
+  <span class="sp"></span>
+  <button class="btn" id="btnLaden" title="Stand neu laden">⟳<span class="lang"> Aktualisieren</span></button>
+  <button class="btn pri" id="btnLogin" hidden>Anmelden<span class="lang"> bei Dropbox</span></button>
+</header>
+<main>
+  <p class="sub" id="stand">Indermühle Lohnarbeiten · Maschinenvermietung</p>
+  <div class="grid" id="tiles"></div>
+  <section class="panel"><h3>Hinweise</h3><ul class="hinw" id="hinweise"><li class="i">Wird geladen …</li></ul></section>
+  <section class="panel"><h3>Datensicherung und Prüfung</h3><div id="sicherung"></div></section>
+  <section class="panel" id="einst"><h3>Einstellungen</h3>
+    <div class="row"><label for="nasUrl" class="small">Adresse der NAS-Statusseite (im eigenen Netz, z. B. http://192.168.1.20:8085)</label></div>
+    <div class="row" style="margin-top:6px"><input type="text" id="nasUrl" placeholder="http://…" autocomplete="off"><button class="btn" id="nasSave">Speichern</button></div>
+    <p class="small muted" id="loginInfo"></p>
+    <div class="row"><button class="btn" id="btnLogout" hidden>Von Dropbox abmelden (alle IM-Programme auf diesem Gerät)</button></div>
+  </section>
+</main>
+<div id="toast"></div>
+<script src="config.js"></script>
+<script src="../gemeinsam/im-basis.js?v=2"></script>
+<script>
+'use strict';
+/* IM-Programme – Startseite. Zeigt alle Programme mit Version und Kennzahlen, Hinweise und den Sicherungsstand.
+   Nur lesen: ändert keine Daten. Jedes Programm bleibt auch direkt über seine eigene Adresse erreichbar. */
+const VERSION = '1.0', STAND = '22.11.2026';
+const CFG = window.APP_CONFIG || {}, TOK = 'imstart_tok', PKCE = 'imstart_pkce', CACHE_KEY = 'imstart_cache', NAS_KEY = 'imstart_nas';
+const API = 'https://api.dropboxapi.com/2/', CONTENT = 'https://content.dropboxapi.com/2/';
+const PROG = [
+  { key: 'imv', name: 'IM-Verwaltung', url: '../', was: 'Planung, Aufträge, Spritzen, Betrieb, Bericht, Abrechnung', datei: '/planung.json', ver: ['../sw.js', /lohnarbeit-v(\d+)/] },
+  { key: 'fk', name: 'IM-Faktura', url: '../faktura/', was: 'Rechnungen, Zahlungen, Mahnungen, Kunden', datei: '/faktura.json', ver: ['../faktura/sw.js', /faktura-v([\d.]+)/] },
+  { key: 'vm', name: 'IM-Vermietung', url: '../vermietung/', was: 'Maschinenvermietung, Einsätze, Rapporte', datei: '/vermietung.json', ver: ['../vermietung/sw.js', /vermietung-v([\d.]+)/] },
+  { key: 'ak', name: 'IM-Applikationskarten', url: '../applikationskarte/', was: 'Applikationskarten, Feldgrenzen, Ertragskarten', datei: '/applikationskarten.json', ver: ['../applikationskarte/sw.js', /appkarte-v([\d.]+)/] },
+  { key: 'fb', name: 'IM-Feldbereinigung', url: '../feldbereinigung/', was: 'Felder und Feldgrenzen aufräumen', datei: '/feldbereinigung.json', ver: ['../feldbereinigung/index.html', /VERSION = "([\d.]+)"/], pc: true }
+];
+const dt = x => x ? new Date(x).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '–';
+const vorText = x => { if (!x) return ''; const m = Math.round((Date.now() - Date.parse(x)) / 60000); if (m < 2) return 'gerade eben'; if (m < 60) return `vor ${m} min`; const h = Math.round(m / 60); if (h < 36) return `vor ${h} h`; return `vor ${Math.round(h / 24)} Tagen`; };
+const chf = n => (Math.round(n * 20) / 20).toLocaleString('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const today = () => new Date().toISOString().slice(0, 10);
+const anz = (n, ein, mehr) => `${n} ${n === 1 ? ein : mehr}`;
+const S = { ver: {}, meta: {}, kz: {}, hinw: [], at: null };
+try { Object.assign(S, JSON.parse(localStorage.getItem(CACHE_KEY) || '{}')); } catch { }
+
+/* ---------- Dropbox (Anmeldung wird mit den anderen IM-Programmen geteilt: imTokUebernehmen in im-basis.js) ---------- */
+const Auth = {
+  tokens() { return imTokUebernehmen(TOK); },
+  has() { const t = this.tokens(); return !!(t && (t.refresh || t.access)); },
+  redirect() { return location.origin + location.pathname; },
+  async login() {
+    const v = [...crypto.getRandomValues(new Uint8Array(48))].map(b => ('0' + b.toString(16)).slice(-2)).join('');
+    const ch = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v))))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    ls(PKCE, v);
+    location.href = 'https://www.dropbox.com/oauth2/authorize?' + new URLSearchParams({ client_id: CFG.appKey, response_type: 'code', code_challenge: ch, code_challenge_method: 'S256', redirect_uri: this.redirect(), token_access_type: 'offline' });
+  },
+  async callback() {
+    const q = new URLSearchParams(location.search), code = q.get('code'); if (!code) return;
+    history.replaceState(null, '', location.pathname);
+    const r = await fetch('https://api.dropboxapi.com/oauth2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ code, grant_type: 'authorization_code', client_id: CFG.appKey, code_verifier: ls(PKCE) || '', redirect_uri: this.redirect() }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { toast('Anmeldung fehlgeschlagen: ' + (j.error_description || j.error || r.status)); return; }
+    this.store(j); ls(PKCE, null); toast('Mit Dropbox verbunden – gilt jetzt für alle IM-Programme auf diesem Gerät');
+  },
+  store(j) { ls(TOK, JSON.stringify({ access: j.access_token, refresh: j.refresh_token || (this.tokens() || {}).refresh, exp: Date.now() + (j.expires_in || 3600) * 1000 })); },
+  async token() {
+    const t = this.tokens(); if (!t) return null;
+    if (t.access && t.exp - 120000 > Date.now()) return t.access;
+    if (!t.refresh) return null;
+    const r = await fetch('https://api.dropboxapi.com/oauth2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: CFG.appKey, grant_type: 'refresh_token', refresh_token: t.refresh }) });
+    if (r.status === 400 || r.status === 401) { imTokUngueltig(t); ls(TOK, null); return this.tokens() ? this.token() : null; }
+    if (!r.ok) throw new Error('Dropbox nicht erreichbar (' + r.status + ')');
+    const j = await r.json(); this.store(j); return j.access_token;
+  }
+};
+async function rpc(fn, body) {
+  const tok = await Auth.token(); if (!tok) throw Object.assign(new Error('nicht angemeldet'), { auth: true });
+  const r = await fetch(API + fn, { method: 'POST', headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (r.status === 409) return null;
+  if (!r.ok) throw new Error(fn + ': ' + r.status);
+  return r.json();
+}
+async function dl(path) {
+  const tok = await Auth.token(); if (!tok) throw Object.assign(new Error('nicht angemeldet'), { auth: true });
+  const r = await fetch(CONTENT + 'files/download', { method: 'POST', headers: { Authorization: 'Bearer ' + tok, 'Dropbox-API-Arg': dbxArg({ path }) } });
+  if (r.status === 409) return null;
+  if (!r.ok) throw new Error('Laden ' + path + ': ' + r.status);
+  return r.json();
+}
+const meta = p => rpc('files/get_metadata', { path: p }).then(m => m && m.server_modified).catch(() => null);
+const liste = p => rpc('files/list_folder', { path: p }).then(m => (m && m.entries) || []).catch(() => []);
+
+/* ---------- Rechnungsbetrag wie IM-Faktura (gleich wie fkCalc im NAS-Dienst) ---------- */
+function fkCalc(r) {
+  const R2 = n => Math.round((n + Number.EPSILON) * 100) / 100, R5 = n => Math.round((n + Number.EPSILON) * 20) / 20, inkl = !!r.inkl, rows = [], G = new Map();
+  let open = 0, closed = null; (r.pos || []).forEach((p, i) => {
+    const typ = p.typ || 'pos';
+    if (typ === 'pos') { const b = R2((p.menge ?? 1) * (p.preis || 0) * (1 - (p.rabatt || 0) / 100)); rows.push({ typ, b, parts: [{ satz: +p.mwst || 0, b }] }); return; }
+    if (typ === 'zws') { closed = [open, i]; open = i + 1; rows.push({ typ }); return; }
+    if (typ === 'rabatt') {
+      const nurText = closed && rows.slice(closed[1] + 1, i).every(x => ['text', 'titel', 'rabatt'].includes(x.typ));
+      const [a, b] = p.bereich === 'alle' ? [0, i] : (nurText && !rows.slice(open, i).some(x => x.typ === 'pos') ? closed : [open, i]);
+      const M = new Map(); rows.slice(a, b).forEach(x => (x.parts || []).forEach(t => M.set(t.satz, R2((M.get(t.satz) || 0) + t.b))));
+      const base = R2([...M.values()].reduce((t, v) => t + v, 0));
+      const tot = base ? -R2(p.proz != null && p.proz !== '' ? base * (+p.proz || 0) / 100 : Math.min(Math.abs(+p.betrag || 0), Math.abs(base)) * Math.sign(base)) : 0;
+      let rest = tot; rows.push({ typ, parts: [...M.entries()].filter(([, v]) => v).map(([satz, v], k, A) => { const x = k === A.length - 1 ? R2(rest) : R2(tot * v / base); rest = R2(rest - x); return { satz, b: x }; }) }); return;
+    }
+    rows.push({ typ });
+  });
+  rows.forEach(x => (x.parts || []).forEach(t => G.set(t.satz, R2((G.get(t.satz) || 0) + t.b))));
+  let netto = 0, mwst = 0;
+  [...G.entries()].filter(([, v]) => v).forEach(([satz, sum]) => { const m = satz ? R2(inkl ? sum * satz / (100 + satz) : sum * satz / 100) : 0; mwst += m; netto += inkl ? R2(sum - m) : sum; });
+  const roh = R2(R2(netto) + R2(mwst)); return r.runden5 === false ? roh : R5(roh);
+}
+const alle = (d, k) => ((d && d[k]) || []).filter(x => x && !x.del);
+
+/* ---------- Kennzahlen je Programm ---------- */
+const KZ = {
+  imv(d) {
+    const A = alle(d, 'auftraege'), alt = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
+    const offen = A.filter(o => !o.status || o.status === 'offen').length, geplant = A.filter(o => o.status === 'geplant').length;
+    const erl = A.filter(o => o.status === 'erledigt'), erlAlt = erl.filter(o => (o.erledigtAm || o.datum || '') < alt).length;
+    return { chips: [[`${offen} offen`], [`${geplant} geplant`], [`${erl.length} erledigt, nicht verrechnet`, erl.length ? '' : 'ok']], hinw: erlAlt ? [['i', `IM-Verwaltung: ${anz(erlAlt, 'erledigter Auftrag', 'erledigte Aufträge')} seit über 90 Tagen nicht verrechnet`, 'Verwaltung › Abrechnung oder Spritzen › Abrechnung']] : [] };
+  },
+  fk(d) {
+    const R = alle(d, 'rechnungen'), t = today();
+    const ent = R.filter(r => !r.nr && !r.archiv && !r.storno).length;
+    let n = 0, sum = 0, ueb = 0;
+    R.filter(r => r.nr && !r.storno).forEach(r => {
+      const geb = (r.mahnungen || []).reduce((s, m) => s + (+m.gebuehr || 0), 0), bez = (r.zahlungen || []).reduce((s, z) => s + (+z.betrag || 0), 0);
+      const off = fkCalc(r) + geb - bez; if (off <= 0.004) return;
+      n++; sum += off; const f = (r.mahnungen || []).length ? r.mahnungen[r.mahnungen.length - 1].faellig : r.faellig; if (f && f < t) ueb++;
+    });
+    return { chips: [[anz(ent, 'Entwurf', 'Entwürfe')], [`${anz(n, 'offene Rechnung', 'offene Rechnungen')} · CHF ${chf(sum)}`], [`${ueb} überfällig`, ueb ? 'warn' : 'ok']], hinw: ueb ? [['f', `IM-Faktura: ${anz(ueb, 'Rechnung', 'Rechnungen')} überfällig`, 'Offene Posten › Mahnen']] : [] };
+  },
+  vm(d) {
+    const E = alle(d, 'einsaetze').filter(e => (e.status || 'offen') === 'offen' && !e.ohneRapport);
+    return { chips: [[anz(E.length, 'Einsatz offen', 'Einsätze offen')], [anz(alle(d, 'kunden').length, 'Kunde', 'Kunden')]], hinw: [] };
+  },
+  ak(d) { return { chips: [[anz(alle(d, 'projekte').length, 'gespeicherte Karte', 'gespeicherte Karten')]], hinw: [] }; },
+  fb(d) { return { chips: [[anz(Object.keys((d && d.done) || {}).length, 'Vorschlag erledigt', 'Vorschläge erledigt')]], hinw: [] }; }
+};
+
+/* ---------- Laden ---------- */
+let laeuft = false;
+async function laden() {
+  if (laeuft) return; laeuft = true; $('#btnLaden').disabled = true;
+  versionen();
+  try {
+    if (!Auth.has()) { render(); return; }
+    const hinw = [];
+    const [st, ein, up, jdM, ...dateien] = await Promise.all([dl('/Sicherungen/status.json').catch(() => null), liste('/faktura-eingang'), liste('/jd-upload'), meta('/jd-sync.json'), ...PROG.map(p => meta(p.datei))]);
+    PROG.forEach((p, i) => S.meta[p.key] = dateien[i]);
+    S.meta.jd = jdM; SICH.d = st; SICH.at = Date.now(); SICH.err = st ? '' : 'noch keine Statusdatei (NAS-Dienst ab Version 69 nötig)';
+    // Übergaben und Aufträge, die warten
+    const einJ = ein.filter(e => /\.json$/i.test(e.name)), upA = up.filter(e => /\.json$/i.test(e.name) && !/\.status\.json$/i.test(e.name));
+    S.warten = { ein: einJ.length, up: upA.length };
+    const altEin = einJ.filter(e => e.server_modified && Date.now() - Date.parse(e.server_modified) > 3 * 864e5).length;
+    if (einJ.length) hinw.push([altEin ? 'f' : 'i', `${einJ.length} Abrechnung${einJ.length > 1 ? 'en warten' : ' wartet'} im Eingang von IM-Faktura${altEin ? ` (${altEin} seit über 3 Tagen)` : ''}`, 'IM-Faktura öffnen – sie werden beim Start übernommen']);
+    const altUp = upA.filter(e => e.server_modified && Date.now() - Date.parse(e.server_modified) > 30 * 60000).length;
+    if (altUp) hinw.push(['f', `${altUp} Auftrag${altUp > 1 ? 'e' : ''} an MyJohnDeere seit über 30 Minuten nicht ausgeführt`, 'NAS-Dienst läuft nicht oder ist nicht angemeldet – Statusseite prüfen']);
+    if (jdM && Date.now() - Date.parse(jdM) > 26 * 3600e3) hinw.push(['f', `Abgleich mit MyJohnDeere zuletzt ${vorText(jdM)}`, 'NAS-Dienst prüfen']);
+    if (st) {
+      if (Date.now() - Date.parse(st.stand) > 2 * 864e5) hinw.push(['f', `Letzte Datensicherung ${vorText(st.stand)}`, 'NAS-Dienst prüfen']);
+      (st.quellen || []).filter(q => q.aktiv && q.ok === false).forEach(q => hinw.push(['f', `Sicherung ${q.name} fehlgeschlagen`, q.error]));
+      (st.quellen || []).filter(q => q.aktiv && q.warn).forEach(q => hinw.push(['f', `${q.name}: deutlich weniger Einträge als bei der letzten Sicherung`, q.warn.join(', ')]));
+      ((st.pruefung && st.pruefung.punkte) || []).filter(x => x.sev === 'fehler').forEach(x => hinw.push(['f', `${x.prog}: ${x.titel} (${x.n})`, x.items.slice(0, 3).join(' · ')]));
+    }
+    S.hinwBasis = hinw; render();
+    // Kennzahlen (grössere Dateien) nacheinander
+    S.hinwKz = {};
+    for (const p of PROG) {
+      try { const d = await dl(p.datei); if (d) { const k = KZ[p.key](d); S.kz[p.key] = k.chips; S.hinwKz[p.key] = k.hinw; } else S.kz[p.key] = [['noch keine Daten']]; }
+      catch (e) { if (e.auth) throw e; S.kz[p.key] = [['nicht lesbar', 'warn']]; }
+      render();
+    }
+    S.at = new Date().toISOString();
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ ver: S.ver, meta: S.meta, kz: S.kz, hinwBasis: S.hinwBasis, hinwKz: S.hinwKz, warten: S.warten, at: S.at, sich: SICH.d })); } catch { }
+  } catch (e) { toast(e.auth ? 'Bitte bei Dropbox anmelden' : 'Laden fehlgeschlagen: ' + e.message); }
+  finally { laeuft = false; $('#btnLaden').disabled = false; render(); }
+}
+async function versionen() {
+  await Promise.all(PROG.map(async p => {
+    try { const t = await (await fetch(p.ver[0], { cache: 'no-store' })).text(); const m = p.ver[1].exec(t); if (m) S.ver[p.key] = m[1]; } catch { }
+  }));
+  render();
+}
+
+/* ---------- Anzeige ---------- */
+function render() {
+  $('#ver').textContent = 'v' + VERSION;
+  const angemeldet = Auth.has();
+  $('#btnLogin').hidden = angemeldet; $('#btnLogout').hidden = !angemeldet;
+  $('#loginInfo').textContent = angemeldet ? 'Mit Dropbox verbunden. Die Anmeldung gilt für alle IM-Programme auf diesem Gerät.' : 'Nicht mit Dropbox verbunden. Melde dich hier oder in einem der Programme an – danach sind alle IM-Programme auf diesem Gerät angemeldet.';
+  $('#stand').textContent = 'Indermühle Lohnarbeiten · Maschinenvermietung' + (S.at ? ` · Stand ${dt(S.at)}` : '');
+  const nas = ls(NAS_KEY) || '';
+  $('#tiles').innerHTML = PROG.map(p => {
+    const v = S.ver[p.key], m = S.meta[p.key], kz = S.kz[p.key] || [];
+    const extra = p.key === 'fk' && S.warten && S.warten.ein ? [[`${S.warten.ein} im Eingang`, 'warn']] : p.key === 'ak' && S.warten && S.warten.up ? [[anz(S.warten.up, 'Auftrag an JD unterwegs', 'Aufträge an JD unterwegs')]] : [];
+    return `<a class="tile${p.pc ? ' pc' : ''}" href="${p.url}"><h2><span class="n">${esc(p.name)}</span>${v ? `<span class="v">v${esc(v)}</span>` : ''}</h2><p class="what">${esc(p.was)}</p>
+      <div class="kz">${[...kz, ...extra].map(([t, c]) => `<span class="chip ${c || ''}">${esc(t)}</span>`).join('')}</div>
+      <span class="stand">${m ? 'Daten geändert ' + esc(vorText(m)) : angemeldet ? '' : 'Anmelden, um Kennzahlen zu sehen'}</span></a>`;
+  }).join('') + `<a class="tile" ${nas ? `href="${esc(nas)}" target="_blank" rel="noopener"` : 'href="#einst"'} id="nasTile"><h2><span class="n">NAS-Dienst jd-sync</span>${SICH.d && SICH.d.nas ? `<span class="v">v${esc(SICH.d.nas)}</span>` : ''}</h2><p class="what">MyJohnDeere-Abgleich, Aufträge an MyJohnDeere, Sicherung aller Programme</p>
+      <div class="kz">${S.meta.jd ? `<span class="chip">Abgleich ${esc(vorText(S.meta.jd))}</span>` : ''}${SICH.d ? `<span class="chip">Sicherung ${esc(vorText(SICH.d.stand))}</span>` : ''}</div>
+      <span class="stand">${nas ? 'Statusseite öffnen (nur im eigenen Netz)' : 'Adresse der Statusseite unten eintragen'}</span></a>`;
+  const H = [...(S.hinwBasis || []), ...Object.values(S.hinwKz || {}).flat()];
+  $('#hinweise').innerHTML = !angemeldet ? '<li class="i">Nach der Anmeldung bei Dropbox erscheinen hier offene Punkte aus allen Programmen.</li>'
+    : H.length ? H.sort((a, b) => (a[0] === 'f' ? 0 : 1) - (b[0] === 'f' ? 0 : 1)).map(([c, t, s]) => `<li class="${c}">${esc(t)}${s ? `<small>${esc(s)}</small>` : ''}</li>`).join('') : '<li class="i">Alles in Ordnung – keine offenen Punkte.</li>';
+  $('#sicherung').innerHTML = angemeldet ? sichHtml('', { pruefung: 'alle' }) : '<p class="small muted">Nach der Anmeldung sichtbar.</p>';
+  if (document.activeElement !== $('#nasUrl')) $('#nasUrl').value = nas;
+}
+
+/* ---------- Start ---------- */
+if (S.sich) { SICH.d = S.sich; SICH.at = 0; }
+$('#btnLaden').onclick = () => laden();
+$('#btnLogin').onclick = () => Auth.login();
+$('#btnLogout').onclick = async () => { if (await frage('Von Dropbox abmelden?\n\nDas gilt für alle IM-Programme auf diesem Gerät. Die Daten in der Dropbox bleiben unverändert.', { ok: 'Abmelden' })) { imTokAbmelden(); localStorage.removeItem(CACHE_KEY); location.reload(); } };
+$('#nasSave').onclick = () => { const v = $('#nasUrl').value.trim(); if (v && !/^https?:\/\//i.test(v)) { toast('Bitte mit http:// beginnen'); return; } ls(NAS_KEY, v || null); toast('Gespeichert'); render(); };
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && (!S.at || Date.now() - Date.parse(S.at) > 5 * 60000)) laden(); });
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
+render();
+Auth.callback().catch(e => toast('Anmeldung: ' + e.message)).finally(() => laden());
+</script>
+</body>
+</html>

@@ -174,7 +174,7 @@ dialog h3{font:700 18px var(--display);letter-spacing:.03em;text-transform:upper
 <div class="app">
 <aside>
   <header class="top">
-    <div><h1>IM-Applikationskarten</h1><span class="ver">v1.32 · by Andreas Indermühle</span></div>
+    <div><h1><a href="../start/" title="Alle IM-Programme (Startseite)" style="color:inherit;text-decoration:none">⌂</a> IM-Applikationskarten</h1><span class="ver">v1.33 · by Andreas Indermühle</span></div>
     <div class="row">
       <button id="bInstall" class="pri" hidden title="Als App auf diesem Gerät installieren">App installieren</button>
       <button id="bNeu" class="ghost" title="Neue Karte beginnen">Neu</button>
@@ -469,7 +469,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 <script src="https://unpkg.com/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 "use strict";
-const VERSION = "1.32";
+const VERSION = "1.33";
 const UNITS = { Saat:["Kö/m²","kg/ha","Kö/ha"], Duengung:["kg/ha","l/ha","m³/ha","t/ha"], PS:["l/ha","kg/ha"] };
 const DEF_RATE = { Saat:350, Duengung:100, PS:200 };
 const RAMP = ["#ffffb2","#a1dab4","#41b6c4","#2c7fb8","#253494"];
@@ -2063,10 +2063,24 @@ document.querySelectorAll("aside section").forEach(sec => {
 // jd-sync.json      : { format:'jd-sync', stand, kundenEbene, clients:[{id,name,archived,mandant?}], farms:[{id,name,client}], fields:[{id,name,client,farm,flaeche,archived,grenzen:[…ohne Geometrie]}] }
 // jd-feldgrenzen.json (NAS-Dienst ab v59): { format:'jd-feldgrenzen', stand, fields:{ [feldId]: [{ name, aktiv, archiviert, ha, geaendert, geo:[MultiPolygon-Koordinaten] }] } }
 const DBX_KEY = ((window.APP_CONFIG || {}).appKey || "").trim();
+/* Gemeinsame Dropbox-Anmeldung aller IM-Programme (gleiche Regeln wie gemeinsam/im-basis.js, IM_BASIS 2):
+   ohne eigene Anmeldung wird die eines anderen IM-Programms auf diesem Gerät übernommen; Abmelden gilt für alle. */
+const IM_TOK_KEYS = ["lp_tok", "mf_tok", "mv_tok", "imstart_tok", "appkarte.dbx.tok", "feldber.dbx.tok"];
+function imTokLese(k){ try { const t = JSON.parse(localStorage.getItem(k) || "null"); return t && (t.refresh || t.access) ? t : null; } catch(e){ return null; } }
+function imTokBad(){ try { return JSON.parse(localStorage.getItem("im_tok_bad") || "[]"); } catch(e){ return []; } }
+function imTokUebernehmen(own){
+  const eigen = imTokLese(own); if (eigen) return eigen;
+  const bad = imTokBad();
+  for (const k of IM_TOK_KEYS){ if (k === own) continue; const t = imTokLese(k);
+    if (t && t.refresh && !bad.includes(t.refresh)){ const c = { access:t.access, refresh:t.refresh, exp:t.exp || 0 }; try { localStorage.setItem(own, JSON.stringify(c)); } catch(e){} return c; } }
+  return null;
+}
+function imTokUngueltig(t){ if (!t || !t.refresh) return; const b = imTokBad(); if (!b.includes(t.refresh)){ b.push(t.refresh); try { localStorage.setItem("im_tok_bad", JSON.stringify(b.slice(-10))); } catch(e){} } }
+function imTokAbmelden(){ IM_TOK_KEYS.forEach(k => { try { localStorage.removeItem(k); } catch(e){} }); }
 const DBX = {
   configured(){ return /^[a-z0-9]{8,30}$/i.test(DBX_KEY); },
   redirectUri(){ return location.origin + location.pathname.replace(/index\.html$/, ""); },
-  tokens(){ return lsGet("appkarte.dbx.tok"); },
+  tokens(){ return imTokUebernehmen("appkarte.dbx.tok"); },
   hasSession(){ const t = this.tokens(); return !!(t && (t.refresh || t.access)); },
   b64url(buf){ return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); },
   async login(){
@@ -2102,11 +2116,11 @@ const DBX = {
     if (!t.refresh) return null;
     const r = await fetch("https://api.dropboxapi.com/oauth2/token", { method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" },
       body:new URLSearchParams({ client_id:DBX_KEY, grant_type:"refresh_token", refresh_token:t.refresh }) });
-    if (r.status===400 || r.status===401){ try { localStorage.removeItem("appkarte.dbx.tok"); } catch(e){} return null; }
+    if (r.status===400 || r.status===401){ imTokUngueltig(t); try { localStorage.removeItem("appkarte.dbx.tok"); } catch(e){} return this.tokens() ? this.token() : null; }
     if (!r.ok) throw new Error("Dropbox nicht erreichbar (" + r.status + ")");
     const j = await r.json(); this.store(j); return j.access_token;
   },
-  logout(){ try { localStorage.removeItem("appkarte.dbx.tok"); } catch(e){} jdUI(); projCloudUI(); toast("Von Dropbox abgemeldet – die geladenen Stammdaten bleiben auf diesem Gerät."); },
+  logout(){ imTokAbmelden(); jdUI(); projCloudUI(); toast("Von Dropbox abgemeldet (alle IM-Programme auf diesem Gerät) – die geladenen Stammdaten bleiben auf diesem Gerät."); },
   arg(o){ return JSON.stringify(o).replace(/[\u007f-￿]/g, c => "\\u" + c.charCodeAt(0).toString(16).padStart(4,"0")); },
   async req(url, opt){
     const t = await this.token(); if (!t){ const e = new Error("Bitte bei Dropbox anmelden"); e.auth = true; throw e; }

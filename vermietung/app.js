@@ -2,7 +2,7 @@
    Eigenständige Web-App (ohne Fremdbibliotheken). Daten lokal im Browser + Abgleich mit Dropbox (eigene Datei). */
 'use strict';
 
-const APP_VERSION = '1.24', APP_STAND = '19.11.2026';
+const APP_VERSION = '1.25', APP_STAND = '22.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/vermietung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'einsaetze', 'einstellungen'];
 const EINHEITEN = ['ha', 'h'];
@@ -99,7 +99,7 @@ function sameData(a, b) {
 const Auth = {
   configured() { return /^[a-z0-9]{8,30}$/i.test(CFG.appKey || ''); },
   redirectUri() { return location.origin + location.pathname.replace(/index\.html$/, ''); },
-  tokens() { return lsJson('mv_tok'); },
+  tokens() { return imTokUebernehmen('mv_tok'); }, // v1.25: Anmeldung mit den anderen IM-Programmen geteilt
   hasSession() { const t = this.tokens(); return !!(t && (t.refresh || t.access)); },
   b64url(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); },
   async login() {
@@ -135,14 +135,14 @@ const Auth = {
     if (!t.refresh) return null;
     const r = await fetch('https://api.dropboxapi.com/oauth2/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ client_id: CFG.appKey, grant_type: 'refresh_token', refresh_token: t.refresh }) });
-    if (r.status === 400 || r.status === 401) { ls('mv_tok', null); return null; }
+    if (r.status === 400 || r.status === 401) { imTokUngueltig(t); ls('mv_tok', null); return this.tokens() ? this.token() : null; }
     if (!r.ok) throw new Error('Dropbox nicht erreichbar (' + r.status + ')');
     const j = await r.json(); this.store(j); return j.access_token;
   },
   async logout() {
     const t = this.tokens();
     if (t?.access && navigator.onLine) { try { await fetch('https://api.dropboxapi.com/2/auth/token/revoke', { method: 'POST', headers: { Authorization: 'Bearer ' + t.access } }); } catch {} }
-    ls('mv_tok', null); ls('mv_user', null); Sync.setState('login'); App.render();
+    imTokAbmelden(); ls('mv_user', null); Sync.setState('login'); App.render();
   }
 };
 const Drive = {
@@ -1477,7 +1477,7 @@ document.addEventListener('click', async ev => {
     case 'go': App.go(t.dataset.v); break;
     case 'sync': if (!Auth.configured()) { App.go('mehr'); } else if (!Auth.hasSession()) Auth.login(); else Sync.run(); break;
     case 'login': Auth.login(); break;
-    case 'logout': if (await frage('Von Dropbox abmelden? Die Daten bleiben auf diesem Gerät.')) Auth.logout(); break;
+    case 'logout': if (await frage('Von Dropbox abmelden? Das gilt für alle IM-Programme auf diesem Gerät. Die Daten bleiben erhalten.')) Auth.logout(); break;
     case 'reload': location.reload(); break;
     case 'zoomIn': Zoom.by(1.15); break;
     case 'zoomOut': Zoom.by(1 / 1.15); break;
