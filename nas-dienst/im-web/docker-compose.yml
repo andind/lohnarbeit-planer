@@ -1,10 +1,12 @@
-# im-web v1.0 – Kopie aller IM-Programme auf dem NAS (Plan B, falls GitHub nicht erreichbar ist)
+# im-web v1.1 – Kopie aller IM-Programme auf dem NAS (Plan B ohne GitHub) + Datenquelle NAS (Notbetrieb ohne Dropbox)
 # Synology: Container Manager › Projekt › Erstellen › Pfad = dieser Ordner (z.B. /volume1/docker/im-web)
 services:
   im-web:
     image: nginx:alpine
     container_name: im-web
     restart: unless-stopped
+    depends_on:
+      - im-daten
     ports:
       - "8788:80"            # 8787 = jd-sync, 8090 = ETA Monitor
     volumes:
@@ -23,3 +25,16 @@ services:
     volumes:
       - ./update.sh:/skript/update.sh:ro
       - ./programme:/programme
+
+  im-daten:                  # Datenquelle NAS: arbeitet im Cloud-Sync-Ordner der Dropbox-App (nur über im-web erreichbar)
+    image: node:20-alpine
+    container_name: im-daten
+    restart: unless-stopped
+    command: ["node", "/app/server.js"]
+    environment:
+      - TZ=Europe/Zurich
+      - NAS_SCHLUESSEL=HIER-EIN-SCHLUESSEL-WAEHLEN   # mind. 6 Zeichen; wird einmal auf der Startseite eingegeben
+    volumes:
+      - ./daten/server.js:/app/server.js:ro
+      # Ordner auf dem NAS, in dem planung.json, vermietung.json und faktura.json liegen (Cloud-Sync-Kopie des Dropbox-App-Ordners):
+      - /volume1/HIER-PFAD-ZUM-APP-ORDNER:/daten

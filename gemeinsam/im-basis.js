@@ -4,9 +4,66 @@
    Bei jeder Änderung hier: IM_BASIS erhöhen, ?v= in den drei index.html anpassen und CACHE in allen drei sw.js erhöhen.
    Inhalt: $/$$, esc, ls (localStorage), dbxArg (Dropbox-Header), toast (grosse Meldung), frage/meldung (grosse Rückfragen),
    download, Excel-Datei ohne Bibliothek (xlsxBlob), Sicherungsstatus des NAS-Dienstes (sichLoad/sichHtml),
-   gemeinsame Dropbox-Anmeldung (imTokUebernehmen/imTokUngueltig/imTokAbmelden, seit IM_BASIS 2). */
+   gemeinsame Dropbox-Anmeldung (imTokUebernehmen/imTokUngueltig/imTokAbmelden, seit IM_BASIS 2),
+   Datenquelle NAS für den Notbetrieb (IM_NAS, seit IM_BASIS 3). */
 'use strict';
-const IM_BASIS = '2';
+const IM_BASIS = '3';
+
+/* ---------- Datenquelle NAS – Notbetrieb ohne Dropbox (IM_BASIS 3) ----------
+   Nur wenn die Programme vom NAS kommen (im-web, z. B. http://localhost:8788/lohnarbeit-planer/…): Ist der Notbetrieb
+   eingeschaltet (localStorage im_nas, gilt nur für diese Adresse), werden alle Aufrufe an api/content.dropboxapi.com
+   an den NAS-Dienst im-daten (/im-daten/…) umgeleitet. Er bildet dieselben Dropbox-Befehle nach und arbeitet im
+   Cloud-Sync-Ordner der Dropbox-App; Cloud Sync bringt die Änderungen später zurück in die Dropbox.
+   Der Programmcode merkt davon nichts. Eingeschaltet wird auf der Startseite (Einstellungen). Roter Balken in jedem Programm. */
+const IM_NAS = (() => {
+  const SK = 'im_nas', base = location.origin + '/im-daten/';
+  let c = null; try { c = JSON.parse(localStorage.getItem(SK) || 'null'); } catch { }
+  const aktiv = !!(c && c.aktiv && c.key);
+  const N = {
+    aktiv, base,
+    async status() { // null = keine Datenquelle NAS unter dieser Adresse (z. B. GitHub)
+      try { const r = await fetch(base + 'status', { cache: 'no-store' }); if (!r.ok) return null; const j = await r.json(); return j && j.imDaten ? j : null; } catch { return null; }
+    },
+    async einschalten(key) {
+      const r = await fetch(base + '2/users/get_current_account', { method: 'POST', headers: { 'X-IM-Schluessel': key } });
+      if (r.status === 403) throw new Error('Schlüssel falsch');
+      if (!r.ok) { let s = ''; try { s = (await r.json()).hinweis || ''; } catch { } throw new Error('NAS-Datenquelle nicht bereit (' + r.status + ')' + (s ? ': ' + s : '')); }
+      localStorage.setItem(SK, JSON.stringify({ aktiv: true, key, seit: new Date().toISOString() }));
+      if (!IM_TOK_KEYS.some(k => imTokLese(k))) localStorage.setItem('imstart_tok', JSON.stringify({ access: 'nas', refresh: 'nas', exp: 0, nas: true })); // nie angemeldet → Ersatz-Anmeldung
+    },
+    ausschalten() {
+      localStorage.setItem(SK, JSON.stringify({ aktiv: false, key: c && c.key }));
+      for (const k of IM_TOK_KEYS) { // Ersatz-Anmeldungen entfernen, NAS-Zugangsschlüssel ablaufen lassen → nächster Zugriff holt einen echten Dropbox-Schlüssel
+        const t = imTokLese(k); if (!t) continue;
+        if (t.nas || t.refresh === 'nas') localStorage.removeItem(k); else if (t.access === 'nas') localStorage.setItem(k, JSON.stringify(Object.assign({}, t, { access: null, exp: 0 })));
+      }
+    },
+    seit() { return c && c.seit; }
+  };
+  if (aktiv) {
+    const orig = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const u = typeof input === 'string' ? input : (input && input.url) || '';
+      const m = /^https:\/\/(?:api|content)\.dropboxapi\.com\/(.+)$/.exec(u);
+      if (!m) return orig(input, init);
+      const o = Object.assign({ method: 'POST' }, init || {});
+      const h = new Headers(o.headers || {}); h.delete('Authorization'); h.set('X-IM-Schluessel', c.key); o.headers = h;
+      return orig(base + m[1], o);
+    };
+    const balken = () => {
+      if (document.getElementById('imNasBalken')) return;
+      const d = document.createElement('div'); d.id = 'imNasBalken';
+      d.style.cssText = 'position:fixed;left:50%;bottom:10px;transform:translateX(-50%);z-index:99999;background:#b3261e;color:#fff;font:600 15px/1.3 system-ui,sans-serif;padding:8px 10px 8px 16px;border-radius:10px;box-shadow:0 4px 18px rgba(0,0,0,.35);display:flex;gap:12px;align-items:center;max-width:94vw';
+      d.innerHTML = '<span>⚠ Notbetrieb: Daten vom NAS, nicht aus der Dropbox</span>';
+      const b = document.createElement('button'); b.textContent = 'Zurück zu Dropbox';
+      b.style.cssText = 'font:600 14px system-ui,sans-serif;border:0;border-radius:7px;padding:6px 10px;background:#fff;color:#b3261e;cursor:pointer';
+      b.onclick = async () => { if (await frage('Notbetrieb beenden und wieder mit der Dropbox arbeiten?\n\nNur wenn die Dropbox wieder erreichbar ist. Warte ein paar Minuten, bis Cloud Sync die Änderungen vom NAS in die Dropbox übertragen hat.', { ok: 'Zurück zu Dropbox' })) { N.ausschalten(); location.reload(); } };
+      d.appendChild(b); document.body.appendChild(d);
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', balken); else balken();
+  }
+  return N;
+})();
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 

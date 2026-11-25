@@ -1,5 +1,5 @@
 #!/bin/sh
-# im-web v1.0 – holt den neuesten Stand der IM-Programme von GitHub.
+# im-web v1.1 – holt den neuesten Stand der IM-Programme von GitHub.
 # Ist GitHub nicht erreichbar, bleibt der zuletzt geholte Stand unverändert und wird weiter ausgeliefert.
 ZIEL=/programme/lohnarbeit-planer
 STAND=/programme/nas-stand.json
@@ -14,11 +14,11 @@ stand() { # $1 = ok | fehler
   c=$(git -C "$ZIEL" log -1 --format='%h' 2>/dev/null)
   d=$(git -C "$ZIEL" log -1 --format='%ci' 2>/dev/null)
   m=$(git -C "$ZIEL" log -1 --format='%s' 2>/dev/null | sed 's/\\/\\\\/g; s/"/\\"/g')
-  printf '{"version":"im-web 1.0","commit":"%s","commitDatum":"%s","commitText":"%s","geprueft":"%s","github":"%s"}\n' \
+  printf '{"version":"im-web 1.1","commit":"%s","commitDatum":"%s","commitText":"%s","geprueft":"%s","github":"%s"}\n' \
     "$c" "$d" "$m" "$(date '+%Y-%m-%d %H:%M:%S')" "$1" > "$STAND.tmp" && mv "$STAND.tmp" "$STAND"
 }
 
-log "im-web-update v1.0 gestartet (Prüfung alle ${INTERVALL} s)"
+log "im-web-update v1.1 gestartet (Prüfung alle ${INTERVALL} s)"
 while true; do
   if [ -d "$ZIEL/.git" ]; then
     if git -C "$ZIEL" fetch -q --depth 1 origin "$BRANCH" 2>/dev/null; then

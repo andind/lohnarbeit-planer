@@ -24,16 +24,28 @@ Programmname seit 15.11.2026 (v129) «IM-Verwaltung» (passend zu IM-Vermietung 
 - Wöchentliche Aufgabe «IM-Verwaltung Wochenabschluss» (So 19:33): führt die Docs «Entstehungsgeschichte» und
   «Programmbeschrieb» nach und sendet das Gesamtpaket (1_IM-Verwaltung, 2_NAS-Dienst, 3_Dokumentation) als ZIP.
   Zum NAS-Dienst gehören `nas-dienst/jd-sync` **und** `nas-dienst/im-web` (jd-sync ohne `data/`).
-- NAS-Dienst **im-web v1.0** (seit 25.11.2026, `nas-dienst/im-web/`): **Plan B, falls GitHub ausfällt** (Wunsch Andreas: Unabhängigkeit).
+- NAS-Dienst **im-web v1.1** (seit 25.11.2026, `nas-dienst/im-web/`): **Plan B, falls GitHub oder Dropbox ausfällt** (Wunsch Andreas: Unabhängigkeit).
   Container `im-web` (nginx:alpine, Port 8788 → 80, liefert `programme/` unter demselben Pfad `/lohnarbeit-planer/…` aus wie GitHub Pages,
   `absolute_redirect off`, `Cache-Control: no-cache`, gesperrt: `.git`, `nas-dienst/`, `CLAUDE.md`) + Container `im-web-update`
   (alpine/git, `update.sh`: alle 15 min `git fetch --depth 1` + `reset --hard`, bei Fehler bleibt der alte Stand; `/nas-stand.json`).
   **Notbetrieb nur am Arbeits-PC im Heimnetz** (Entscheid Andreas 25.11.2026, Handy/Tablet nicht nötig): `im-web-pc-einrichten.cmd`
   richtet `netsh interface portproxy` localhost:8788 → NAS:8788 ein, weil Dropbox-PKCE (`crypto.subtle`) und Service Worker einen sicheren
   Ursprung brauchen (`http://localhost` gilt als sicher, `http://<NAS-IP>` nicht) und Dropbox `http://` nur für localhost annimmt.
-  Redirect-URIs `http://localhost:8788/lohnarbeit-planer/…` in der Dropbox App Console. Daten weiterhin Dropbox (Schritt 2 – Datenquelle NAS
-  über WebDAV – noch offen; Cloud Sync Dropbox ↔ NAS ist bidirektional). Die Programme brauchen dafür **relative Pfade** – nie feste
+  Redirect-URIs `http://localhost:8788/lohnarbeit-planer/…` in der Dropbox App Console. Die Programme brauchen dafür **relative Pfade** – nie feste
   `andind.github.io`-Adressen in den Code schreiben.
+  **Datenquelle NAS** (v1.1, IM_BASIS 3 / IMV v163 / IM-Vermietung v1.26 / IM-Faktura v1.45 / Startseite v1.1): Container `im-daten`
+  (node:20-alpine, `daten/server.js`, nur intern Port 8790, nginx `location ^~ /im-daten/` → gleiche Adresse, kein CORS, `client_max_body_size 300m`)
+  **bildet die Dropbox-API nach** (`oauth2/token` → `access_token 'nas'` 300 s, `users/get_current_account`, `auth/token/revoke`, `files/get_metadata`,
+  `files/download` inkl. `rev:`, `files/upload` mit `add`/`overwrite`/`update rev` → 409 `path/conflict/file/`, `files/list_folder` (+`/continue`),
+  `files/delete_v2`; sonst 409 `nas/nicht_unterstuetzt/`) auf dem Cloud-Sync-Ordner des Dropbox-App-Ordners (`/daten`, Pfad in docker-compose.yml);
+  rev = sha1 des Inhalts (16 Zeichen), Pfade ohne Gross/Klein-Unterschied, Schreiben atomar (`.…im-tmp` + rename), Schlüssel `NAS_SCHLUESSEL`
+  im Header `X-IM-Schluessel`, ohne `planung.json`/`vermietung.json`/`faktura.json` im Ordner → 503. Im Browser: `IM_NAS` in `gemeinsam/im-basis.js`
+  – ist `localStorage im_nas.aktiv` (nur unter der NAS-Adresse), ersetzt es `window.fetch` für `https://(api|content).dropboxapi.com/…` durch
+  `/im-daten/…` (Authorization weg, Schlüssel dazu) → **Programmcode unverändert**; roter Balken `#imNasBalken` mit «Zurück zu Dropbox»;
+  `einschalten` prüft den Schlüssel und legt nur ohne jede Anmeldung eine Ersatz-Anmeldung `imstart_tok {nas:true}` an, `ausschalten` entfernt
+  Ersatz-Anmeldungen (`nas`/refresh 'nas') und setzt `access:'nas'` auf abgelaufen. Schalter auf der Startseite › Einstellungen (`nasBox`, nur wenn
+  `/im-daten/status` antwortet). Nicht dabei: IM-Applikationskarten, IM-Feldbereinigung (eigener Code, brauchen jd-sync/Dropbox), Kalender-Abo-Link.
+  Neue Dropbox-Befehle in den Programmen → auch in `daten/server.js` nachbilden.
 
 ## Arbeitsweise (seit v161)
 - **Nur eine Sitzung gleichzeitig** arbeitet am Repository. Am 19.11.2026 haben zwei Sitzungen parallel v159 und IM-Faktura v1.33 vergeben (zusammengeführt).

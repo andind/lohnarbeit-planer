@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '162', APP_STAND = '22.11.2026';
+const APP_VERSION = '163', APP_STAND = '25.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'auftraege', 'einstellungen', 'parzellen', 'produkte', 'felder']; // v161: «personal» und «pausen» entfernt (kein Modul Fahrer/Pausen)
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };

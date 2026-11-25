@@ -74,16 +74,17 @@ input[type=text] { font:inherit; font-size:15px; padding:8px 10px; border:1px so
     <div class="row" style="margin-top:6px"><input type="text" id="nasUrl" placeholder="http://…" autocomplete="off"><button class="btn" id="nasSave">Speichern</button></div>
     <p class="small muted" id="loginInfo"></p>
     <div class="row"><button class="btn" id="btnLogout" hidden>Von Dropbox abmelden (alle IM-Programme auf diesem Gerät)</button></div>
+    <div id="nasBox" hidden style="margin-top:18px;border-top:1px solid var(--line,#ddd);padding-top:14px"></div>
   </section>
 </main>
 <div id="toast"></div>
 <script src="config.js"></script>
-<script src="../gemeinsam/im-basis.js?v=2"></script>
+<script src="../gemeinsam/im-basis.js?v=3"></script>
 <script>
 'use strict';
 /* IM-Programme – Startseite. Zeigt alle Programme mit Version und Kennzahlen, Hinweise und den Sicherungsstand.
    Nur lesen: ändert keine Daten. Jedes Programm bleibt auch direkt über seine eigene Adresse erreichbar. */
-const VERSION = '1.0', STAND = '22.11.2026';
+const VERSION = '1.1', STAND = '25.11.2026';
 const CFG = window.APP_CONFIG || {}, TOK = 'imstart_tok', PKCE = 'imstart_pkce', CACHE_KEY = 'imstart_cache', NAS_KEY = 'imstart_nas';
 const API = 'https://api.dropboxapi.com/2/', CONTENT = 'https://content.dropboxapi.com/2/';
 const PROG = [
@@ -251,7 +252,7 @@ function render() {
   $('#ver').textContent = 'v' + VERSION;
   const angemeldet = Auth.has();
   $('#btnLogin').hidden = angemeldet; $('#btnLogout').hidden = !angemeldet;
-  $('#loginInfo').textContent = angemeldet ? 'Mit Dropbox verbunden. Die Anmeldung gilt für alle IM-Programme auf diesem Gerät.' : 'Nicht mit Dropbox verbunden. Melde dich hier oder in einem der Programme an – danach sind alle IM-Programme auf diesem Gerät angemeldet.';
+  $('#loginInfo').textContent = IM_NAS.aktiv ? 'Notbetrieb: Daten kommen vom NAS (siehe unten).' : angemeldet ? 'Mit Dropbox verbunden. Die Anmeldung gilt für alle IM-Programme auf diesem Gerät.' : 'Nicht mit Dropbox verbunden. Melde dich hier oder in einem der Programme an – danach sind alle IM-Programme auf diesem Gerät angemeldet.';
   $('#stand').textContent = 'Indermühle Lohnarbeiten · Maschinenvermietung' + (S.at ? ` · Stand ${dt(S.at)}` : '');
   const nas = ls(NAS_KEY) || '';
   $('#tiles').innerHTML = PROG.map(p => {
@@ -270,6 +271,35 @@ function render() {
   if (document.activeElement !== $('#nasUrl')) $('#nasUrl').value = nas;
 }
 
+/* ---------- Notbetrieb: Datenquelle NAS (nur wenn die Startseite vom NAS kommt, IM_NAS in im-basis.js) ---------- */
+async function nasBox() {
+  const box = $('#nasBox'), st = await IM_NAS.status();
+  if (!st) { box.hidden = true; return; }
+  box.hidden = false;
+  const zustand = !st.schluesselGesetzt ? '<span style="color:#b3261e">Schlüssel fehlt – NAS_SCHLUESSEL in docker-compose.yml setzen.</span>'
+    : !st.ordnerOk ? '<span style="color:#b3261e">Datenordner nicht gefunden – Pfad in docker-compose.yml prüfen.</span>' : 'bereit';
+  box.innerHTML = IM_NAS.aktiv
+    ? `<h4 style="margin:0 0 6px">Notbetrieb: Datenquelle NAS – <span style="color:#b3261e">eingeschaltet</span></h4>
+       <p class="small">Seit ${esc(dt(IM_NAS.seit()))}. IM-Verwaltung, IM-Vermietung, IM-Faktura und diese Startseite arbeiten mit den Dateien im Cloud-Sync-Ordner auf dem NAS.
+       Cloud Sync überträgt die Änderungen in die Dropbox, sobald sie wieder erreichbar ist. IM-Applikationskarten und IM-Feldbereinigung brauchen weiterhin die Dropbox.</p>
+       <div class="row"><button class="btn pri" id="nasAus">Zurück zu Dropbox</button></div>`
+    : `<h4 style="margin:0 0 6px">Notbetrieb: Datenquelle NAS</h4>
+       <p class="small">Nur verwenden, wenn die Dropbox nicht erreichbar ist. Dann arbeiten IM-Verwaltung, IM-Vermietung, IM-Faktura und diese Startseite
+       (unter dieser Adresse, auf diesem PC) mit der Cloud-Sync-Kopie auf dem NAS. Andere Geräte in der Zeit nicht benutzen.</p>
+       <p class="small muted">NAS-Datenquelle v${esc(st.version)}: ${zustand}</p>
+       <div class="row" style="margin-top:6px"><input type="password" id="nasKey" placeholder="Schlüssel (NAS_SCHLUESSEL)" autocomplete="off"><button class="btn" id="nasEin">Notbetrieb einschalten</button></div>`;
+  if ($('#nasAus')) $('#nasAus').onclick = async () => {
+    if (!await frage('Notbetrieb beenden und wieder mit der Dropbox arbeiten?\n\nNur wenn die Dropbox wieder erreichbar ist. Warte ein paar Minuten, bis Cloud Sync die Änderungen vom NAS in die Dropbox übertragen hat.', { ok: 'Zurück zu Dropbox' })) return;
+    IM_NAS.ausschalten(); localStorage.removeItem(CACHE_KEY); location.reload();
+  };
+  if ($('#nasEin')) $('#nasEin').onclick = async () => {
+    const key = $('#nasKey').value.trim(); if (!key) { toast('Bitte den Schlüssel eingeben'); return; }
+    if (!await frage('Notbetrieb einschalten?\n\nDie IM-Programme unter dieser Adresse lesen und speichern dann direkt auf dem NAS statt in der Dropbox.\n\nNur verwenden, wenn die Dropbox nicht erreichbar ist, und in der Zeit nur an diesem PC arbeiten.', { ok: 'Notbetrieb einschalten', gefahr: true })) return;
+    try { await IM_NAS.einschalten(key); } catch (e) { toast(e.message); return; }
+    localStorage.removeItem(CACHE_KEY); location.reload();
+  };
+}
+
 /* ---------- Start ---------- */
 if (S.sich) { SICH.d = S.sich; SICH.at = 0; }
 $('#btnLaden').onclick = () => laden();
@@ -278,7 +308,7 @@ $('#btnLogout').onclick = async () => { if (await frage('Von Dropbox abmelden?\n
 $('#nasSave').onclick = () => { const v = $('#nasUrl').value.trim(); if (v && !/^https?:\/\//i.test(v)) { toast('Bitte mit http:// beginnen'); return; } ls(NAS_KEY, v || null); toast('Gespeichert'); render(); };
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && (!S.at || Date.now() - Date.parse(S.at) > 5 * 60000)) laden(); });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => { });
-render();
+render(); nasBox();
 Auth.callback().catch(e => toast('Anmeldung: ' + e.message)).finally(() => laden());
 </script>
 </body>
