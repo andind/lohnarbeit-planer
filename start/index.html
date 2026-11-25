@@ -84,7 +84,7 @@ input[type=text] { font:inherit; font-size:15px; padding:8px 10px; border:1px so
 'use strict';
 /* IM-Programme – Startseite. Zeigt alle Programme mit Version und Kennzahlen, Hinweise und den Sicherungsstand.
    Nur lesen: ändert keine Daten. Jedes Programm bleibt auch direkt über seine eigene Adresse erreichbar. */
-const VERSION = '1.1', STAND = '25.11.2026';
+const VERSION = '1.2', STAND = '25.11.2026';
 const CFG = window.APP_CONFIG || {}, TOK = 'imstart_tok', PKCE = 'imstart_pkce', CACHE_KEY = 'imstart_cache', NAS_KEY = 'imstart_nas';
 const API = 'https://api.dropboxapi.com/2/', CONTENT = 'https://content.dropboxapi.com/2/';
 const PROG = [
@@ -285,7 +285,7 @@ async function nasBox() {
        <div class="row"><button class="btn pri" id="nasAus">Zurück zu Dropbox</button></div>`
     : `<h4 style="margin:0 0 6px">Notbetrieb: Datenquelle NAS</h4>
        <p class="small">Nur verwenden, wenn die Dropbox nicht erreichbar ist. Dann arbeiten IM-Verwaltung, IM-Vermietung, IM-Faktura und diese Startseite
-       (unter dieser Adresse, auf diesem PC) mit der Cloud-Sync-Kopie auf dem NAS. Andere Geräte in der Zeit nicht benutzen.</p>
+       (unter dieser Adresse, in diesem Browser) mit der Cloud-Sync-Kopie auf dem NAS. <b>Alle Geräte im Notbetrieb oder keines:</b> weitere PCs ebenfalls umschalten, Handy und Tablet in der Zeit nicht benutzen.</p>
        <p class="small muted">NAS-Datenquelle v${esc(st.version)}: ${zustand}</p>
        <div class="row" style="margin-top:6px"><input type="password" id="nasKey" placeholder="Schlüssel (NAS_SCHLUESSEL)" autocomplete="off"><button class="btn" id="nasEin">Notbetrieb einschalten</button></div>`;
   if ($('#nasAus')) $('#nasAus').onclick = async () => {
@@ -294,7 +294,7 @@ async function nasBox() {
   };
   if ($('#nasEin')) $('#nasEin').onclick = async () => {
     const key = $('#nasKey').value.trim(); if (!key) { toast('Bitte den Schlüssel eingeben'); return; }
-    if (!await frage('Notbetrieb einschalten?\n\nDie IM-Programme unter dieser Adresse lesen und speichern dann direkt auf dem NAS statt in der Dropbox.\n\nNur verwenden, wenn die Dropbox nicht erreichbar ist, und in der Zeit nur an diesem PC arbeiten.', { ok: 'Notbetrieb einschalten', gefahr: true })) return;
+    if (!await frage('Notbetrieb einschalten?\n\nDie IM-Programme unter dieser Adresse lesen und speichern dann direkt auf dem NAS statt in der Dropbox.\n\nNur verwenden, wenn die Dropbox nicht erreichbar ist. Weitere PCs, die in der Zeit arbeiten, ebenfalls auf Notbetrieb umschalten; Handy und Tablet nicht benutzen.', { ok: 'Notbetrieb einschalten', gefahr: true })) return;
     try { await IM_NAS.einschalten(key); } catch (e) { toast(e.message); return; }
     localStorage.removeItem(CACHE_KEY); location.reload();
   };

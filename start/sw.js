@@ -1,5 +1,5 @@
 // Service Worker der Startseite IM-Programme (Netz zuerst, sonst Zwischenspeicher). Bei Updates CACHE erhöhen.
-const CACHE = 'imstart-v1.1';
+const CACHE = 'imstart-v1.2';
 const FILES = ['./', 'index.html', 'config.js', 'manifest.webmanifest', '../gemeinsam/im-basis.js?v=3', '../icon-192.png', '../icon-512.png', '../apple-touch-icon.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => Promise.all(FILES.map(f => c.add(f).catch(() => null))))); self.skipWaiting(); });
 self.addEventListener('activate', e => {

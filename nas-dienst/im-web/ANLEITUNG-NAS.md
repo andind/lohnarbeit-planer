@@ -10,7 +10,7 @@ IM-Faktura, IM-Applikationskarten, IM-Feldbereinigung und die Startseite.
 - **Datenquelle NAS (seit v1.1):** Ist die Dropbox nicht erreichbar, können IM-Verwaltung, IM-Vermietung, IM-Faktura und die Startseite
   direkt mit der Cloud-Sync-Kopie auf dem NAS arbeiten (Abschnitt 6). Cloud Sync (bidirektional) bringt die Änderungen danach in die Dropbox.
 
-**Notbetrieb am Arbeits-PC im Heimnetz.** Der PC öffnet die Programme über `http://localhost:8788/…`.
+**Notbetrieb an jedem Windows-PC im Heimnetz** (oder unterwegs über WireGuard). Der PC öffnet die Programme über `http://localhost:8788/…`.
 Eine kleine Weiterleitung in Windows schickt diese Adresse ans NAS. Damit braucht es weder Zertifikat noch Reverse Proxy.
 
 | Programm | GitHub (normal) | NAS-Notbetrieb am PC |
@@ -68,6 +68,18 @@ im-web-pc-einrichten.cmd    für den Arbeits-PC (nicht aufs NAS kopieren)
 Ändert sich die IP des NAS, das Skript nochmals ausführen. Am besten gibst du dem NAS im Router eine feste IP.
 Entfernen: `netsh interface portproxy delete v4tov4 listenport=8788 listenaddress=127.0.0.1` (als Administrator).
 
+## 2b · Weiteren PC oder Laptop einrichten
+
+Der Notbetrieb geht an jedem **Windows**-PC im Heimnetz, mit WireGuard auch unterwegs (der Tunnel muss das Heimnetz erreichen).
+Je Gerät einmalig:
+1. `im-web-pc-einrichten.cmd` als Administrator ausführen, NAS-IP eingeben (`192.168.1.134`).
+2. `http://localhost:8788/lohnarbeit-planer/start/` öffnen und **bei Dropbox anmelden** (für Fall «GitHub ausgefallen»; jede Anmeldung gilt
+   nur für diesen PC und Browser – am besten gleich jetzt, solange die Dropbox läuft).
+3. Die Dropbox-Adressen (Abschnitt 3) gelten für alle PCs, da sie überall `localhost:8788` lauten – nichts nachtragen.
+4. Für den Notbetrieb ohne Dropbox gibt man den Schlüssel im Ernstfall auf jedem PC einzeln ein.
+
+Nicht vorbereitet: Mac (das Skript nutzt eine Windows-Funktion), Handy und Tablet (bräuchten HTTPS, siehe unten).
+
 ## 3 · Dropbox: Adressen freigeben (einmalig)
 
 <https://www.dropbox.com/developers/apps> › deine App › **Settings › Redirect URIs**. Diese Adressen hinzufügen
@@ -120,9 +132,12 @@ Gut zu wissen:
    (Cloud Sync zeigt «Aktuell»), dann im roten Balken oder auf der Startseite **«Zurück zu Dropbox»**.
 
 Wichtig:
-- **Während des Notbetriebs nur an diesem PC arbeiten.** Handy, Tablet und andere PCs speichern weiter in die Dropbox.
-  Treffen sich beide Fassungen, legt Cloud Sync eine Konfliktkopie an statt zu überschreiben, dann muss man von Hand nachführen.
-- Der Notbetrieb gilt nur für die NAS-Adresse auf diesem PC. Die normalen GitHub-Adressen und Apps arbeiten immer mit der Dropbox.
+- **Alle Geräte im Notbetrieb oder keines.** Mehrere PCs können gleichzeitig im Notbetrieb arbeiten – sie speichern alle auf dem NAS,
+  gleichzeitige Änderungen werden wie gewohnt zusammengeführt. Gefährlich ist nur die Mischung: ein Gerät speichert auf dem NAS, ein anderes
+  in der Dropbox. Dann legt Cloud Sync eine Konfliktkopie an, die man von Hand nachführen muss. Handy und Tablet können nicht in den
+  Notbetrieb – in der Zeit nicht benutzen.
+- Der Notbetrieb wird je PC und Browser eingeschaltet (nur unter der NAS-Adresse). Die normalen GitHub-Adressen und Apps arbeiten immer mit der Dropbox.
+  Beim Zurückwechseln an jedem PC «Zurück zu Dropbox» wählen.
 - Nicht dabei: **IM-Applikationskarten und IM-Feldbereinigung** (brauchen MyJohnDeere über jd-sync, das selbst die Dropbox braucht).
   Ebenfalls nicht im Notbetrieb: Kalender-Abo-Link der IM-Verwaltung (Dropbox-Freigabelink).
 - Was in den letzten Minuten vor einem Dropbox-Ausfall gespeichert wurde, ist eventuell noch nicht aufs NAS synchronisiert.

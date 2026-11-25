@@ -28,7 +28,7 @@ Programmname seit 15.11.2026 (v129) «IM-Verwaltung» (passend zu IM-Vermietung 
   Container `im-web` (nginx:alpine, Port 8788 → 80, liefert `programme/` unter demselben Pfad `/lohnarbeit-planer/…` aus wie GitHub Pages,
   `absolute_redirect off`, `Cache-Control: no-cache`, gesperrt: `.git`, `nas-dienst/`, `CLAUDE.md`) + Container `im-web-update`
   (alpine/git, `update.sh`: alle 15 min `git fetch --depth 1` + `reset --hard`, bei Fehler bleibt der alte Stand; `/nas-stand.json`).
-  **Notbetrieb nur am Arbeits-PC im Heimnetz** (Entscheid Andreas 25.11.2026, Handy/Tablet nicht nötig): `im-web-pc-einrichten.cmd`
+  **Notbetrieb an Windows-PCs im Heimnetz/über WireGuard** (Entscheid Andreas 25.11.2026: Handy/Tablet nicht nötig; Regel «alle Geräte im Notbetrieb oder keines», mehrere PCs gleichzeitig ok, Startseite v1.2): `im-web-pc-einrichten.cmd`
   richtet `netsh interface portproxy` localhost:8788 → NAS:8788 ein, weil Dropbox-PKCE (`crypto.subtle`) und Service Worker einen sicheren
   Ursprung brauchen (`http://localhost` gilt als sicher, `http://<NAS-IP>` nicht) und Dropbox `http://` nur für localhost annimmt.
   Redirect-URIs `http://localhost:8788/lohnarbeit-planer/…` in der Dropbox App Console. Die Programme brauchen dafür **relative Pfade** – nie feste
