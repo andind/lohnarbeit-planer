@@ -23,6 +23,17 @@ Programmname seit 15.11.2026 (v129) «IM-Verwaltung» (passend zu IM-Vermietung 
   **nie Zugangsdaten ins Repository** (öffentlich). Andreas kopiert den Ordner `jd-sync` selbst aufs NAS.
 - Wöchentliche Aufgabe «IM-Verwaltung Wochenabschluss» (So 19:33): führt die Docs «Entstehungsgeschichte» und
   «Programmbeschrieb» nach und sendet das Gesamtpaket (1_IM-Verwaltung, 2_NAS-Dienst, 3_Dokumentation) als ZIP.
+  Zum NAS-Dienst gehören `nas-dienst/jd-sync` **und** `nas-dienst/im-web` (jd-sync ohne `data/`).
+- NAS-Dienst **im-web v1.0** (seit 25.11.2026, `nas-dienst/im-web/`): **Plan B, falls GitHub ausfällt** (Wunsch Andreas: Unabhängigkeit).
+  Container `im-web` (nginx:alpine, Port 8788 → 80, liefert `programme/` unter demselben Pfad `/lohnarbeit-planer/…` aus wie GitHub Pages,
+  `absolute_redirect off`, `Cache-Control: no-cache`, gesperrt: `.git`, `nas-dienst/`, `CLAUDE.md`) + Container `im-web-update`
+  (alpine/git, `update.sh`: alle 15 min `git fetch --depth 1` + `reset --hard`, bei Fehler bleibt der alte Stand; `/nas-stand.json`).
+  **Notbetrieb nur am Arbeits-PC im Heimnetz** (Entscheid Andreas 25.11.2026, Handy/Tablet nicht nötig): `im-web-pc-einrichten.cmd`
+  richtet `netsh interface portproxy` localhost:8788 → NAS:8788 ein, weil Dropbox-PKCE (`crypto.subtle`) und Service Worker einen sicheren
+  Ursprung brauchen (`http://localhost` gilt als sicher, `http://<NAS-IP>` nicht) und Dropbox `http://` nur für localhost annimmt.
+  Redirect-URIs `http://localhost:8788/lohnarbeit-planer/…` in der Dropbox App Console. Daten weiterhin Dropbox (Schritt 2 – Datenquelle NAS
+  über WebDAV – noch offen; Cloud Sync Dropbox ↔ NAS ist bidirektional). Die Programme brauchen dafür **relative Pfade** – nie feste
+  `andind.github.io`-Adressen in den Code schreiben.
 
 ## Arbeitsweise (seit v161)
 - **Nur eine Sitzung gleichzeitig** arbeitet am Repository. Am 19.11.2026 haben zwei Sitzungen parallel v159 und IM-Faktura v1.33 vergeben (zusammengeführt).
