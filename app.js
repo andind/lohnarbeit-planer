@@ -3,7 +3,7 @@
 'use strict';
 
 // Version (bei jedem Update erhöhen – gleich wie CACHE in sw.js und VERSION im NAS-Dienst)
-const APP_VERSION = '163', APP_STAND = '25.11.2026';
+const APP_VERSION = '164', APP_STAND = '26.11.2026';
 const CFG = Object.assign({ appKey: '', dataPath: '/planung.json' }, window.APP_CONFIG || {});
 const COLL = ['kunden', 'maschinen', 'auftraege', 'einstellungen', 'parzellen', 'produkte', 'felder']; // v161: «personal» und «pausen» entfernt (kein Modul Fahrer/Pausen)
 const STATUS = { offen: 'Offen', geplant: 'Geplant', erledigt: 'Erledigt', verrechnet: 'Verrechnet' };
@@ -2076,7 +2076,7 @@ function fakturaAbrT(k, rows) {
     T.pos.push({ kind: 'arbeit', art: m.artNr || '', bez: `${dt} ${txt}`, grp: r.arbeit || '', menge: menge != null ? r2(menge) : null, einh, preis: m.ansatz ?? null });
   });
   if (ps.length) { const P = fakturaPsTeil(billingFor(k, ps)); T.pos.push(...P.pos); T.beilage = P.beilage; }
-  T.refs = rows.map(r => ({ app: 'imv', id: r.oid || '', jd: r.jid || '', nr: r.nr || '' }));
+  T.refs = rows.flatMap(abRefs);
   return T;
 }
 /* v144: Sendefenster – vor dem Senden je Eintrag Menge, Artikel, Preis und Bemerkung (Kultur) bearbeiten, je Kunde den Kunden in IM-Faktura wählen;
@@ -2091,7 +2091,10 @@ async function fkLoad(force) {
 /* ---------- v146: Erfassung für IM-Faktura je Eintrag (gemeinsam: Sendefenster und Abrechnung › Eintrag) ----------
    Entwurf in «einstellungen» fkpos-<Auftrag-ID|Arbeitsgang-ID> – nur Abweichungen von der Vorgabe; nach dem Senden gelöscht.
    Vorgabe Artikel: genau ein Artikel der Arbeit zugewiesen (IM-Faktura «Arbeiten in der IM-Verwaltung») → dieser; mehrere → leer; keiner → Art.-Nr. der Maschine. */
-const FKP = 'fkpos-', fkKey = r => FKP + (r.oid || r.jid);
+const FKP = 'fkpos-', fkKey = r => FKP + (r.gid || r.oid || r.jid);
+// v164: Bezüge je Teil (verknüpfte Einträge haben mehrere Aufträge/Arbeitsgänge)
+const abRefs = r => r.gid ? [...abOids(r).map(id => ({ app: 'imv', id, jd: '', nr: (Store.get('auftraege', id) || {}).nr || '' })), ...abJids(r).map(jd => ({ app: 'imv', id: '', jd, nr: '' }))]
+  : [{ app: 'imv', id: r.oid || '', jd: r.jid || '', nr: r.nr || '' }];
 const FK_KEYS = ['fk', 'menge', 'einh', 'art', 'preis', 'bem', 'stroh', 'strohHa', 'strohArt', 'strohPreis', 'zusatz'];
 const fkArtOf = (FK, nr) => nr ? FK.artikel.find(a => String(a.artNr) === String(nr)) || null : null;
 const fkAssigned = (FK, arbs) => { const ks = arbs.filter(Boolean).map(norm); return FK.artikel.filter(a => a.aktiv !== false && (a.arbeiten || []).some(x => ks.includes(norm(x)))); };
@@ -2200,7 +2203,7 @@ async function fkSend(FK, items, einzeln) { // items: [{ r, d, k }]
     if (fkId) { const f = FK.kunden.find(x => x.id === fkId); T.kunde.fkId = fkId; if (f) { T.kunde.name = f.name; T.kunde.nr = f.nr || T.kunde.nr; } }
     l.forEach(x => { const P = fkPos(FK, x.r, x.d, k); T.pos.push(...P.pos); ps.push(...P.ps); });
     if (ps.length) { const P = fakturaPsTeil(billingFor(k, ps)); T.pos.push(...P.pos); T.beilage = P.beilage; }
-    T.refs = l.map(x => ({ app: 'imv', id: x.r.oid || '', jd: x.r.jid || '', nr: x.r.nr || '' }));
+    T.refs = l.flatMap(x => abRefs(x.r));
     return T;
   });
   const oc = items.filter(x => x.d.o && x.d.dresch).map(x => { const o = { ...Store.get('auftraege', x.d.o.id) }; const was = JSON.stringify([o.stroh, o.strohHa]);
@@ -2209,14 +2212,14 @@ async function fkSend(FK, items, einzeln) { // items: [{ r, d, k }]
   try {
     if (!await fakturaWrite(Ts)) return false;
     if (oc.length) Store.putMany('auftraege', oc);
-    G.forEach(([, l], i) => fakturaMark(l.map(x => x.r.oid).filter(Boolean), l.map(x => x.r.jid).filter(Boolean), Ts[i]));
+    G.forEach(([, l], i) => fakturaMark(l.flatMap(x => abOids(x.r)), l.flatMap(x => abJids(x.r)), Ts[i]));
     const del = items.filter(x => Store.get('einstellungen', fkKey(x.r))).map(x => ({ id: fkKey(x.r), del: true })); if (del.length) Store.putMany('einstellungen', del);
     toast(`📤 ${items.length} ${items.length === 1 ? 'Eintrag' : 'Einträge'} an IM-Faktura gesendet (${G.length} ${G.length === 1 ? 'Übergabe' : 'Übergaben'})`, 4000); App.render();
     return true;
   } catch (e) { faktErr(e); return false; }
 }
-const fkTitle = (r, o) => { const sent = (o && o.fakt) || (r.jid && (jdbAbr(r.jid) || {}).fakt);
-  return `${esc(fmtDate(r.d, { day: '2-digit', month: '2-digit', year: '2-digit' }))} ${esc(r.arbeit || '')}${r.feld ? ' – ' + esc(r.feld) : ''}${sent ? ' <span class="chip warn small" title="wurde schon einmal an IM-Faktura gesendet">schon gesendet</span>' : r.abr ? ' <span class="chip small">abgerechnet</span>' : ''}`; };
+const fkTitle = (r, o) => { const sent = (o && o.fakt) || abSent(r);
+  return `${esc(fmtDate(r.d, { day: '2-digit', month: '2-digit', year: '2-digit' }))}${r.dBis && r.dBis !== r.d ? ' – ' + esc(abD(r.dBis)) : ''} ${esc(r.arbeit || '')}${r.gid ? ` <span class="chip small" title="verknüpfter Auftrag">🔗 ${r.n} Teile</span>` : ''}${r.feld ? ' – ' + esc(r.feld) : ''}${sent ? ' <span class="chip warn small" title="wurde schon einmal an IM-Faktura gesendet">schon gesendet</span>' : r.abr ? ' <span class="chip small">abgerechnet</span>' : ''}`; };
 const fkKundeSel = (FK, name, cur) => `<select class="input" name="${name}"><option value="">${FK.ok ? '— automatisch zuordnen bzw. neu anlegen —' : '— IM-Faktura nicht lesbar: automatisch —'}</option>${FK.kunden.map(x => `<option value="${esc(x.id)}" ${x.id === cur ? 'selected' : ''}>${esc(x.name)}${x.nr ? ' · ' + esc(x.nr) : ''}${x.ort ? ' · ' + esc(x.ort) : ''}</option>`).join('')}</select>`;
 const fkAllBox = FK => FK.artikel.length ? `<label class="tog fkall"><input type="checkbox" data-fkall> Alle Artikel anzeigen <span class="nr">(sonst nur die Artikel, die in IM-Faktura der Arbeit zugewiesen sind)</span></label>` : '';
 const fkHint = FK => FK.ok ? '' : '<div class="hint warn" style="margin-bottom:8px">IM-Faktura-Daten (faktura.json) konnten nicht gelesen werden – Kunde und Artikel werden in IM-Faktura zugeordnet.</div>';
@@ -2261,7 +2264,7 @@ async function fkDetailFill(box, r) {
 async function fkDetailSend(btn) {
   const box = $('#dlg .fkdet'); if (!box || !box._fk) { toast('IM-Faktura-Angaben werden noch geladen …'); return; }
   const { FK, ent, k } = box._fk, e = ent.e0, d = fkRead(box, 'e0', e.d); d.fk = String((box.querySelector('[name=fk_det]') || {}).value || '');
-  const sent = (e.r.oid && (Store.get('auftraege', e.r.oid) || {}).fakt) || (e.r.jid && (jdbAbr(e.r.jid) || {}).fakt);
+  const sent = abSent(e.r);
   const P = fkPos(FK, e.r, d, k), tot = P.pos.reduce((a, p) => a + (p.menge != null && p.preis != null ? round05(p.menge * p.preis) : 0), 0);
   const miss = fkMissing(FK, [{ r: e.r, d, k }]); if (miss.length) { fkMarkMissing(box); meldung(fkMissMsg(miss)); return; }
   if (!await frage(`An IM-Faktura senden?\n\n${P.pos.map(p => `• ${p.bez.split('\n')[0]}: ${p.menge ?? '–'} ${p.einh || ''} × ${p.preis ?? '–'}`).join('\n')}\n\nTotal ca. CHF ${fmtNum(r2(tot))} (ohne MWST)${sent ? '\n\n⚠ Wurde schon einmal gesendet – wird nochmals übergeben.' : ''}`)) return;
@@ -2269,7 +2272,7 @@ async function fkDetailSend(btn) {
 }
 // v142: einzelner Eintrag aus dem Detailfenster (Abrechnung › Eintrag oder Bericht › Arbeitsgang)
 async function fakturaEinzeln(abId) {
-  const r = abRows().find(x => abId.startsWith('jid:') ? x.jid === abId.slice(4) : x.id === abId); if (!r) { toast('Eintrag nicht gefunden'); return; }
+  const r = abRows().find(x => abId.startsWith('jid:') ? abJids(x).includes(abId.slice(4)) : x.id === abId); if (!r) { toast('Eintrag nicht gefunden'); return; }
   await fakturaAbrSend(r);
 }
 const FAKT_BTN = (id, direkt) => `<button type="button" class="btn" data-ab="${direkt ? 'faktDet' : 'faktOne'}" data-id="${esc(id)}" title="Diesen Eintrag an IM-Faktura übergeben (erscheint dort in den Entwürfen des Kunden), danach als abgerechnet markiert">📤 An IM-Faktura</button>`;
@@ -4598,9 +4601,16 @@ function abRows() {
   const ver = Store.v + '|' + jd.length + '|' + (App.jdb.meta?.stand || '');
   if (A._ver === ver && A._rows) return A._rows;
   const jById = new Map(jd.map(r => [r.id, r])), usedJ = new Set(), pair = new Map();
-  // 1) manuelle Verknüpfungen
   const al = (App.jdb.meta && App.jdb.meta.alias) || {}; // v138: Verknüpfung mit einem zusammengefassten Doppel zeigt auf den behaltenen Arbeitsgang
-  orders.forEach(o => { const l = o.jdLink && (jById.has(o.jdLink) ? o.jdLink : al[o.jdLink]); if (l && jById.has(l) && !usedJ.has(l)) { pair.set(o.id, l); usedJ.add(l); } });
+  // 0) v164: verknüpfte Einträge (mehrere Aufträge/Arbeitsgänge = ein Eintrag) – ihre Teile nehmen an keiner anderen Paarung teil
+  const oById = new Map(orders.map(o => [o.id, o])), gO = new Set();
+  const grp = abGroups().map(g => {
+    const o = (g.o || []).filter(id => oById.has(id) && !gO.has(id));
+    const j = [...new Set((g.j || []).map(id => jById.has(id) ? id : al[id]).filter(id => id && jById.has(id) && !usedJ.has(id)))];
+    o.forEach(id => gO.add(id)); j.forEach(id => usedJ.add(id)); return { g, o, j };
+  });
+  // 1) manuelle Verknüpfungen
+  orders.forEach(o => { if (gO.has(o.id)) return; const l = o.jdLink && (jById.has(o.jdLink) ? o.jdLink : al[o.jdLink]); if (l && jById.has(l) && !usedJ.has(l)) { pair.set(o.id, l); usedJ.add(l); } });
   // 2) automatisch: bestes Paar zuerst
   const cand = [];
   // Index: Kunde → Tag → Arbeitsgänge
@@ -4608,7 +4618,7 @@ function abRows() {
   jd.forEach(r => { const k = km.get(abKeyK(r.kunde)), kk = k ? k.id : '?' + abKeyK(r.kunde), dn = abDn(r.d); if (dn < minDn) minDn = dn;
     if (!jMap.has(kk)) jMap.set(kk, new Map()); const m = jMap.get(kk); if (!m.has(dn)) m.set(dn, []); m.get(dn).push(r); r._fk = abKeyK(r.feld); });
   orders.forEach(o => {
-    if (pair.has(o.id)) return;
+    if (pair.has(o.id) || gO.has(o.id)) return;
     const d = o.erledigtAm || o.datum; if (!d) return;
     const dn = abDn(d), km2 = jMap.get(o.kunde); if (!km2 || dn < minDn - 2) return;
     const cat = AB_CAT(o.arbeit), feld = abKeyK(aFeld(o));
@@ -4624,8 +4634,9 @@ function abRows() {
   });
   cand.sort((x, y) => y.s - x.s).forEach(c => { if (pair.has(c.o) || usedJ.has(c.j)) return; pair.set(c.o, c.j); usedJ.add(c.j); });
   const rows = [];
-  orders.forEach(o => rows.push(abRow(o, pair.has(o.id) ? jById.get(pair.get(o.id)) : null, km)));
+  orders.forEach(o => { if (!gO.has(o.id)) rows.push(abRow(o, pair.has(o.id) ? jById.get(pair.get(o.id)) : null, km)); });
   jd.forEach(r => { if (!usedJ.has(r.id)) rows.push(abRow(null, r, km)); });
+  grp.forEach(x => { if (x.o.length + x.j.length) rows.push(abRowGrp(x.g, x.o.map(id => oById.get(id)), x.j.map(id => jById.get(id)), km)); });
   A._ver = ver; A._rows = rows;
   return rows;
 }
@@ -4650,6 +4661,81 @@ function abRow(o, j, km) {
     haP, haE, haG, genau, haJ, haB, ha, haQ, quelle: j ? j.quelle : '', maschine: (m && m.name) || (j ? j.maschine : ''), fahrer: j ? j.fahrer : '',
     produkte: prodP || (j ? [jdbProdTxt(j), j.sorten].filter(Boolean).join(' · ') : ''), gesamt: o ? gesP : (j ? jdbGesTxt(j) : ''), notiz: o ? o.notiz || '' : '', abr, am, link: !!(o && o.jdLink) };
 }
+/* ---------- v164: Verknüpfte Einträge ----------
+   Mehrere Aufträge aus dem Planer und/oder Arbeitsgänge aus MyJohnDeere = ein Eintrag (an einem anderen Tag ausgeführt, wegen Wetter unterbrochen und
+   mit anderer Maschine fortgesetzt, mehrere Sorten gesät). Gespeichert in «einstellungen» abgrp-<id> { abgrp, o:[Auftrag-IDs], j:[Arbeitsgang-IDs] }.
+   Flächen und Zeiten werden zusammengezählt; abgerechnet = alle Teile abgerechnet; Markieren und IM-Faktura gelten für alle Teile. */
+const ABG = 'abgrp-';
+const abGroups = () => Store.all('einstellungen').filter(x => x.abgrp);
+const abOids = r => r.oids || (r.oid ? [r.oid] : []);
+const abJids = r => r.jids || (r.jid ? [r.jid] : []);
+const abSent = r => abOids(r).some(id => (Store.get('auftraege', id) || {}).fakt) || abJids(r).some(id => (jdbAbr(id) || {}).fakt);
+function abRowGrp(g, oL, jL, km) {
+  const dO = o => o.erledigtAm || o.datum || '';
+  oL = oL.slice().sort((a, b) => dO(a).localeCompare(dO(b))); jL = jL.slice().sort((a, b) => (a.start || a.d || '').localeCompare(b.start || b.d || ''));
+  const po = oL[0] || null, pj = jL.slice().sort((a, b) => (b.ha ?? b.haM ?? 0) - (a.ha ?? a.haM ?? 0))[0] || null;
+  const b = abRow(po, pj, km), sub = [...oL.map(o => abRow(o, null, km)), ...jL.map(j => abRow(null, j, km))];
+  const sum = (l, f) => { const v = l.map(f).filter(x => x != null && !isNaN(x)); return v.length ? r2(v.reduce((a, x) => a + +x, 0)) : null; };
+  const uq = (l, sep = ', ') => [...new Set(l.flatMap(x => String(x || '').split(sep)).map(x => x.trim()).filter(Boolean))].join(sep);
+  const haE = sum(oL, o => o.flaecheEff ?? null), haG = sum(oL, o => o.flaeche ?? null), haJ = sum(jL, j => j.haM ?? null), haB = sum(jL, j => j.ha ?? null);
+  const genau = !!oL.length && oL.every(o => o.flaecheGenau && o.flaecheEff != null);
+  const haP = haE ?? haG, ha = genau ? haE : haB ?? haE ?? haG, haQ = ha == null ? '' : genau ? 'genau' : haB != null ? 'bed' : haE != null ? 'eff' : 'geplant';
+  const ds = sub.map(x => x.d).filter(Boolean).sort(), st = jL.map(j => j.start).filter(Boolean).sort(), en = jL.map(j => j.end).filter(Boolean).sort();
+  return { ...b, id: 'g:' + g.id.slice(ABG.length), gid: g.id, oids: oL.map(o => o.id), jids: jL.map(j => j.id), n: sub.length, sub,
+    src: oL.length && jL.length ? 'beide' : oL.length ? 'planer' : 'jd', d: ds[0] || b.d, dBis: ds[ds.length - 1] || '', start: st[0] || '', end: en[en.length - 1] || '',
+    dauer: sum(jL, j => j.dauer ?? null), std: sum(oL, o => o.stundenEff ?? dauerOf(o) ?? null), nr: uq(oL.map(o => o.nr)),
+    haP, haE, haG, genau, haJ, haB, ha, haQ, maschine: uq(sub.map(x => x.maschine)), fahrer: uq(sub.map(x => x.fahrer)),
+    produkte: uq(sub.map(x => x.produkte), ' · '), gesamt: uq(sub.map(x => x.gesamt), ' · '), notiz: uq(sub.map(x => x.notiz), ' · '),
+    abr: sub.every(x => x.abr), am: sub.map(x => x.am).filter(Boolean).sort().pop() || '', fakt: sub.map(x => x.fakt).find(Boolean) || null, korr: sub.some(x => x.korr) ? 1 : 0, link: true };
+}
+const abGrpLbl = x => `${abD(x.d)} · ${x.src === 'jd' ? 'JD' : 'Planer' + (x.nr ? ' ' + x.nr : '')}${x.src === 'beide' ? ' + JD' : ''} · ${x.arbeit || '–'} · ${x.feld || '–'}${x.maschine ? ' · ' + x.maschine : ''}${x.ha != null ? ' · ' + fmtNum(x.ha) + ' ha' : ''}${x.abr ? ' · abgerechnet' : ''}`;
+// Einträge verknüpfen (Auswahlleiste oder «Weitere Einträge verknüpfen …» im Detail); gibt die ID des neuen Eintrags zurück
+async function abGrpCreate(rows) {
+  rows = [...new Map(rows.map(r => [r.id, r])).values()];
+  if (rows.length < 2) { toast('Mindestens zwei Einträge wählen.'); return false; }
+  const kk = r => r.kid || '?' + norm(r.kunde);
+  if (new Set(rows.map(kk)).size > 1) { await meldung('Verknüpfen geht nur bei Einträgen desselben Kunden.\n\nGewählt: ' + [...new Set(rows.map(r => r.kunde || '–'))].join(', ') + '\n\nFalls MyJohnDeere einen Arbeitsgang dem falschen Kunden zugeordnet hat: zuerst im Eintrag «✎ Kunde / Feld / Kultur ändern».'); return false; }
+  const o = [...new Set(rows.flatMap(abOids))], j = [...new Set(rows.flatMap(abJids))];
+  const arbs = [...new Set(rows.map(r => AB_CAT(r.arbeit) || norm(r.arbeit)))], nAbr = rows.filter(r => r.abr).length;
+  const L = rows.slice().sort((a, b) => (a.d || '').localeCompare(b.d || '')).flatMap(r => r.sub ? r.sub : [r]).map(x => '• ' + abGrpLbl(x));
+  const sumHa = r2(rows.reduce((a, r) => a + (r.ha || 0), 0));
+  const nT = o.length + j.length;
+  if (!await frage(`${nT} Teile (${rows.length} Einträge) von «${rows[0].kunde || '–'}» zu einem Auftrag verknüpfen?\n\n${L.slice(0, 15).join('\n')}${L.length > 15 ? `\n… und ${L.length - 15} weitere` : ''}\n\nFlächen und Zeiten werden zusammengezählt (zusammen ca. ${fmtNum(sumHa)} ha).${arbs.length > 1 ? '\n\n⚠ Die Einträge haben verschiedene Arbeiten.' : ''}${nAbr && nAbr < rows.length ? '\n\n⚠ Ein Teil ist schon abgerechnet – der verknüpfte Eintrag gilt erst als abgerechnet, wenn alle Teile abgerechnet sind.' : ''}`, { ok: '🔗 Ja, verknüpfen' })) return false;
+  const gs = [...new Set(rows.map(r => r.gid).filter(Boolean))], gid = gs[0] || ABG + uid();
+  Store.putMany('einstellungen', [{ id: gid, abgrp: true, o, j, am: todayIso() }, ...gs.slice(1).map(id => ({ id, del: true }))]);
+  toast(`🔗 ${nT} Teile zu einem Auftrag verknüpft – Datum der Zeile: ${abD(rows.map(r => r.d).filter(Boolean).sort()[0])}`);
+  return 'g:' + gid.slice(ABG.length);
+}
+async function abGrpRemove(rid, m) {
+  const r = abRows().find(x => x.id === rid); if (!r || !r.gid) return;
+  const x = (r.sub || []).find(y => y.id === m), g = Store.get('einstellungen', r.gid); if (!x || !g) return;
+  const rest = r.n - 1;
+  if (!await frage(`Diesen Teil aus dem verknüpften Auftrag lösen?\n\n• ${abGrpLbl(x)}${rest < 2 ? '\n\nDanach bleibt nur noch ein Teil – die Verknüpfung wird ganz aufgelöst.' : ''}\n\nDer Teil erscheint danach wieder als eigener Eintrag.`, { ok: 'Ja, lösen', gefahr: false })) return;
+  const o = (g.o || []).filter(id => !(x.oid && id === x.oid)), j = (g.j || []).filter(id => !(x.jid && id === x.jid));
+  Store.putMany('einstellungen', [rest < 2 ? { id: g.id, del: true } : { ...g, o, j }]);
+  toast(rest < 2 ? 'Verknüpfung aufgelöst' : 'Teil gelöst');
+  if (rest < 2) Dlg.close(); else setTimeout(() => abDetail(rid), 0);
+}
+async function abGrpDissolve(rid) {
+  const r = abRows().find(x => x.id === rid); if (!r || !r.gid) return;
+  if (!await frage(`Verknüpfung auflösen?\n\n${(r.sub || []).map(x => '• ' + abGrpLbl(x)).join('\n')}\n\nAlle ${r.n} Teile erscheinen danach wieder als eigene Einträge (abgerechnet bleibt abgerechnet).`, { ok: 'Ja, auflösen', gefahr: false })) return;
+  Store.putMany('einstellungen', [{ id: r.gid, del: true }]); Dlg.close(); toast('Verknüpfung aufgelöst');
+}
+function abGrpPick(id) {
+  const r = abRows().find(x => x.id === id); if (!r) return;
+  const kk = x => x.kid || '?' + norm(x.kunde), base = r.d || todayIso();
+  const opts = abRows().filter(x => x.id !== id && kk(x) === kk(r) && abDays(x.d, r.d) <= 45)
+    .sort((a, b) => (AB_CAT(b.arbeit) === AB_CAT(r.arbeit)) - (AB_CAT(a.arbeit) === AB_CAT(r.arbeit)) || abDays(a.d, base) - abDays(b.d, base)).slice(0, 80);
+  if (!opts.length) { toast('Keine weiteren Einträge dieses Kunden im Umkreis von 45 Tagen.'); return; }
+  Dlg.open('Weitere Einträge verknüpfen', `<p class="nr" style="margin-top:0"><b>${esc(r.kunde || '–')}</b> · ${esc(abGrpLbl(r))}</p>
+    <p class="nr">Einträge wählen, die zum gleichen Auftrag gehören (z. B. an einem anderen Tag ausgeführt, unterbrochen und mit anderer Maschine fortgesetzt, mehrere Sorten). Flächen und Zeiten werden zusammengezählt.</p>
+    <div class="rows">${opts.map(x => `<label class="rowi"><input type="checkbox" name="x" value="${esc(x.id)}"> ${x.gid ? '🔗 ' : ''}${esc(abGrpLbl(x))}</label>`).join('')}</div>`,
+    saveFooter(''), async fd => {
+      const ids = fd.getAll('x'); if (!ids.length) { toast('Einträge wählen'); return false; }
+      const all = abRows(), nid = await abGrpCreate([r, ...ids.map(i => all.find(x => x.id === i)).filter(Boolean)]); if (!nid) return false;
+      setTimeout(() => abDetail(nid), 0); return true;
+    });
+}
 /* ---------- Filter (Mehrfachauswahl wie im Bericht) ---------- */
 const AB_MS = { k: ['kunde', 'Kunde', 'Alle Kunden'], a: ['arbeit', 'Arbeit', 'Alle Arbeiten'], f: ['feld', 'Feld', 'Alle Felder'], m: ['maschine', 'Maschine', 'Alle Maschinen'], c: ['kultur', 'Kultur', 'Alle Kulturen'] };
 const AB_SRC = { beide: 'Planer + JD', planer: 'nur Planer', jd: 'nur JD' };
@@ -4672,8 +4758,8 @@ const abGroupKey = (r, g) => g === 'monat' ? (r.d || '').slice(0, 7) : g === 'sr
 function abMark(rows, on) {
   const now = todayIso(), oc = [], ec = [];
   rows.forEach(r => {
-    if (r.oid) { const o = Store.get('auftraege', r.oid); if (o) { const s = statusOf(o); if (on && s !== 'verrechnet') oc.push({ ...o, status: 'verrechnet', verrechnetAm: now }); if (!on && s === 'verrechnet') oc.push({ ...o, status: 'erledigt', verrechnetAm: '' }); } }
-    if (r.jid) { const x = jdbAbr(r.jid); if (on && !x) ec.push({ id: JDB_ABR + r.jid, jdabr: true, am: now }); else if (!on && x) ec.push({ id: JDB_ABR + r.jid, del: true }); }
+    abOids(r).forEach(oid => { const o = Store.get('auftraege', oid); if (o) { const s = statusOf(o); if (on && s !== 'verrechnet') oc.push({ ...o, status: 'verrechnet', verrechnetAm: now }); if (!on && s === 'verrechnet') oc.push({ ...o, status: 'erledigt', verrechnetAm: '' }); } });
+    abJids(r).forEach(jid => { const x = jdbAbr(jid); if (on && !x) ec.push({ id: JDB_ABR + jid, jdabr: true, am: now }); else if (!on && x) ec.push({ id: JDB_ABR + jid, del: true }); });
   });
   if (ec.length) Store.putMany('einstellungen', ec);
   if (oc.length) Store.putMany('auftraege', oc);
@@ -4696,6 +4782,7 @@ function abSelBar(list) {
     <button type="button" class="btn mini primary" data-ab="mark" data-v="1">✓ Als abgerechnet markieren</button>
     <button type="button" class="btn mini" data-ab="mark" data-v="0">Wieder offen</button>
     <button type="button" class="btn mini" data-ab="fakt" title="Je Kunde eine Übergabe an IM-Faktura (erscheint dort in den Entwürfen), danach abgerechnet">📤 An IM-Faktura</button>
+    ${S.size > 1 ? `<button type="button" class="btn mini" data-ab="grpSel" title="Die ausgewählten Einträge desselben Kunden zu einem Auftrag zusammenfassen (Flächen und Zeiten werden zusammengezählt)">🔗 Zu einem Auftrag verknüpfen</button>` : ''}
     ${S.size < list.length ? `<button type="button" class="btn mini" data-ab="selAllList">Alle ${list.length} auswählen</button>` : ''}
     <button type="button" class="btn mini" data-ab="selNone">Auswahl aufheben</button></div>`;
 }
@@ -4704,8 +4791,8 @@ const abD = d => d ? fmtDate(d, { day: '2-digit', month: '2-digit', year: '2-dig
 const AB_HAQ = { genau: '✓ effektive Fläche, als genau markiert', bed: 'B = Fläche aus dem Bericht (Bedeckungskarte ohne Überlappungen)', eff: 'E = effektive Fläche (nicht als genau markiert)', geplant: 'P = geplante Fläche aus dem Auftrag' };
 const EFF_MARK = '<span class="genaum" title="effektive Fläche, als genau markiert"> ✓</span>', E_MARK = '<span class="effm" title="effektive Fläche (nicht als genau markiert)">E</span>', PLAN_MARK = '<span class="planm" title="geplante Fläche (Auftrag)">P</span>';
 const AB_COLS = [
-  { id: 'datum', l: 'Datum', w: 80, v: r => abD(r.d), csv: r => r.d },
-  { id: 'src', l: 'Herkunft', w: 104, v: r => AB_SRC[r.src], html: r => `<span class="absrc absrc-${r.src}" title="${r.src === 'beide' ? 'Auftrag und Arbeitsgang verbunden' + (r.link ? ' (von Hand)' : ' (automatisch)') : ''}">${r.src === 'beide' ? `Planer + JD${r.link ? ' 🔗' : ''}` : r.src === 'planer' ? 'Planer' : 'JD'}</span>` },
+  { id: 'datum', l: 'Datum', w: 80, v: r => abD(r.d) + (r.dBis && r.dBis !== r.d ? ' – ' + abD(r.dBis) : ''), csv: r => r.d + (r.dBis && r.dBis !== r.d ? ' – ' + r.dBis : '') },
+  { id: 'src', l: 'Herkunft', w: 104, v: r => AB_SRC[r.src], html: r => `<span class="absrc absrc-${r.src}" title="${r.src === 'beide' ? 'Auftrag und Arbeitsgang verbunden' + (r.link ? ' (von Hand)' : ' (automatisch)') : ''}">${r.src === 'beide' ? `Planer + JD${r.link && !r.gid ? ' 🔗' : ''}` : r.src === 'planer' ? 'Planer' : 'JD'}</span>${r.gid ? ` <span class="abgrpm" title="${r.n} verknüpfte Teile (${esc((r.sub || []).map(abGrpLbl).join(' | '))})">🔗${r.n}</span>` : ''}` },
   { id: 'nr', l: 'Nr.', w: 76, v: r => r.nr },
   { id: 'beginn', l: 'Beginn (JD)', w: 118, v: r => jdbDT(r.start) },
   { id: 'ende', l: 'Ende (JD)', w: 118, v: r => jdbDT(r.end) },
@@ -4827,7 +4914,7 @@ function abCsv() {
 }
 /* ---------- Detail: Auftrag und Arbeitsgang nebeneinander, verknüpfen / lösen ---------- */
 function abDetail(id) {
-  const r = abRows().find(x => x.id === id) || abRows().find(x => 'o:' + x.oid === id || 'j:' + x.jid === id); if (!r) return;
+  const r = abRows().find(x => x.id === id) || abRows().find(x => abOids(x).some(y => 'o:' + y === id) || abJids(x).some(y => 'j:' + y === id)); if (!r) return;
   const o = r.oid ? Store.get('auftraege', r.oid) : null, j = r.jid ? (App.jdb.rows || []).find(x => x.id === r.jid) : null;
   const kv = (k, v) => v || v === 0 ? `<tr><td class="nr">${esc(k)}</td><td>${esc(v)}</td></tr>` : '';
   const dt = s => s ? new Date(s).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : '';
@@ -4835,16 +4922,23 @@ function abDetail(id) {
       ${kv('Fläche', (o.flaecheEff ?? o.flaeche) != null ? fmtNum(o.flaecheEff ?? o.flaeche) + ' ha' + (o.flaecheEff != null ? ' (effektiv)' : '') : '')}${kv('Stunden', (o.stundenEff ?? dauerOf(o)) != null ? hrs(r2(o.stundenEff ?? dauerOf(o))) + (o.stundenEff != null ? ' (effektiv)' : '') : '')}${kv('Maschine', maschine(o.maschine)?.name)}
       ${kv('Mittel', r.produkte && r.src !== 'jd' && o ? prodList(o).map(p => `${p.name} ${p.menge != null ? fmtNum(p.menge) + ' ' + (p.einheit || prodUnit(p.name)) + '/ha' : ''}`).join(', ') : '')}${kv('Bemerkung', o.notiz)}</table>
       <div class="btns" style="margin-top:8px"><button type="button" class="btn small" data-ab="openOrder" data-id="${o.id}">Auftrag öffnen</button></div>`
-    : `<p class="nr">Kein Auftrag im Planer verbunden.</p>${j ? `<div class="btns"><button type="button" class="btn small" data-ab="linkPick" data-id="${esc(r.id)}">Mit Auftrag verknüpfen…</button></div>` : ''}`;
+    : `<p class="nr">Kein Auftrag im Planer verbunden.</p>${j && !r.gid ? `<div class="btns"><button type="button" class="btn small" data-ab="linkPick" data-id="${esc(r.id)}">Mit Auftrag verknüpfen…</button></div>` : ''}`;
   const right = j ? `<table class="btab kv">${kv('Arbeit', j.arbeit)}${kv('Kunde (JD)', j.kunde)}${kv('Feld', j.feld)}${kv('Fläche bedeckt', j.ha != null ? fmtNum(j.ha) + ' ha (Bedeckungskarte)' : 'keine Bedeckungskarte')}${kv('Fläche Maschine', j.haM != null ? fmtNum(j.haM) + ' ha (nur zur Information)' : '')}${kv('Beginn', dt(j.start))}${kv('Ende', dt(j.end))}${kv('Dauer', j.dauer != null ? hrs(r2(j.dauer)) : '')}
       ${kv('Maschine', j.maschine)}${kv('Fahrer', j.fahrer)}${kv('Kultur', j.kultur)}${kv('Produkte', jdbProdTxt(j))}${kv('Sorten', j.sorten)}${kv('Gesamtmenge', jdbGesTxt(j))}</table>
       ${j.korr ? '<p class="korrhint">✎ Von Hand korrigiert (gilt nur in der IM-Verwaltung).</p>' : ''}<div class="btns" style="margin-top:8px"><button type="button" class="btn small" data-ab="jdDetail" data-id="${esc(j.id)}">Alle Messwerte</button><button type="button" class="btn small" data-ab="jdKorr" data-id="${esc(j.id)}" title="Kunde, Feld oder Kultur ändern, wenn MyJohnDeere den Arbeitsgang falsch zugeordnet hat">✎ Kunde / Feld / Kultur ändern</button></div>`
-    : `<p class="nr">Kein Arbeitsgang aus MyJohnDeere verbunden.</p>${o ? `<div class="btns"><button type="button" class="btn small" data-ab="linkPick" data-id="${esc(r.id)}">Mit Arbeitsgang verknüpfen…</button></div>` : ''}`;
+    : `<p class="nr">Kein Arbeitsgang aus MyJohnDeere verbunden.</p>${o && !r.gid ? `<div class="btns"><button type="button" class="btn small" data-ab="linkPick" data-id="${esc(r.id)}">Mit Arbeitsgang verknüpfen…</button></div>` : ''}`;
   const fe = abFeld(o, j);
   const feLbl = fe ? fe.name : ((j && j.feld) || (o && aFeld(o)) || '');
   // v146: Karte neben den Angaben, darunter die Erfassung für IM-Faktura
-  const body = `<div class="abdet2"><div class="abdl"><h4>Auftrag (Planer)</h4>${left}<h4 style="margin-top:14px">Arbeitsgang (MyJohnDeere)</h4>${right}
-      ${o && j ? `<p class="nr" style="margin-top:10px">${o.jdLink ? 'Von Hand verknüpft.' : 'Automatisch verbunden (Kunde, Datum, Arbeit, Feld).'} <a href="#" data-ab="unlink" data-id="${esc(r.id)}">Verknüpfung lösen</a></p>` : ''}</div>
+  // v164: verknüpfte Teile – oben die Liste, darunter Auftrag und grösster Arbeitsgang
+  const grpHtml = r.gid ? `<div class="abgrpbox"><h4 style="margin-top:0">🔗 Verknüpfter Auftrag – ${r.n} Teile · zusammen ${r.ha != null ? fmtNum(r.ha) + ' ha' : '–'}${r.dauer != null ? ' · ' + hrs(r2(r.dauer)) : ''}</h4>
+      <table class="btab"><tbody>${(r.sub || []).map(x => `<tr><td>${esc(abD(x.d))}</td><td>${x.src === 'jd' ? 'JD' : 'Planer' + (x.nr ? ' ' + esc(x.nr) : '')}</td><td>${esc(x.arbeit || '')}</td><td>${esc(x.feld || '')}</td><td>${esc(x.maschine || '')}</td><td>${esc(x.produkte || '')}</td><td class="num">${x.ha != null ? fmtNum(x.ha) + ' ha' : ''}</td><td>${x.abr ? '<span class="badge verrechnet">✓</span>' : '<span class="nr">offen</span>'}</td>
+        <td><button type="button" class="btn mini" data-ab="grpRm" data-id="${esc(r.id)}" data-m="${esc(x.id)}" title="Diesen Teil aus der Verknüpfung lösen">✕ lösen</button></td></tr>`).join('')}</tbody></table>
+      <div class="btns" style="margin-top:6px"><button type="button" class="btn small" data-ab="grpPick" data-id="${esc(r.id)}">🔗 Weitere Einträge verknüpfen …</button><button type="button" class="btn small" data-ab="grpOff" data-id="${esc(r.id)}">Verknüpfung auflösen</button></div>
+      <p class="nr" style="margin:6px 0 0">Unten: ${o ? 'erster Auftrag' : 'kein Auftrag'} und ${j ? 'Arbeitsgang mit der grössten Fläche' : 'kein Arbeitsgang'}.</p></div>`
+    : `<div class="btns" style="margin:0 0 8px"><button type="button" class="btn small" data-ab="grpPick" data-id="${esc(r.id)}" title="Weitere Aufträge oder Arbeitsgänge desselben Kunden zu diesem Auftrag zusammenfassen – z. B. an einem anderen Tag ausgeführt, unterbrochen und mit anderer Maschine fortgesetzt, mehrere Sorten">🔗 Weitere Einträge verknüpfen …</button></div>`;
+  const body = `${grpHtml}<div class="abdet2"><div class="abdl"><h4>Auftrag (Planer)</h4>${left}<h4 style="margin-top:14px">Arbeitsgang (MyJohnDeere)</h4>${right}
+      ${o && j && !r.gid ? `<p class="nr" style="margin-top:10px">${o.jdLink ? 'Von Hand verknüpft.' : 'Automatisch verbunden (Kunde, Datum, Arbeit, Feld).'} <a href="#" data-ab="unlink" data-id="${esc(r.id)}">Verknüpfung lösen</a></p>` : ''}</div>
     <div class="abdr">${(j && j.grzB) || (fe && fe.jdId) ? `<h4>${j && j.grzB ? 'Virtuelle Feldgrenze (aus der Bedeckungskarte)' : 'Karte des Feldes'}</h4><div class="bedgrz" data-id="${esc(j ? j.id : '')}" data-fid="${esc((fe || {}).id || '')}"><span class="nr">wird geladen …</span></div>` : ''}
       <h4 style="margin:14px 0 6px">Vermessungen des Feldes${feLbl ? ` «${esc(feLbl)}»` : ''}</h4>${grenzenHtml(fe)}</div></div>
     <h4 style="margin:16px 0 6px">Für IM-Faktura</h4><div class="fkdet"><span class="nr">wird geladen …</span></div>`;
@@ -4985,6 +5079,10 @@ document.addEventListener('click', e => {
     case 'jdDetail': jdbDetail(id); break;
     case 'jdKorr': jdbKorrDialog(id, () => { const ar = abRows().find(x => x.jid === id); if (ar) abDetail(ar.id); }); break;
     case 'linkPick': abLinkPick(id); break;
+    case 'grpSel': (async () => { const rows = abList().filter(r => S.has(r.id)); if (await abGrpCreate(rows)) { S.clear(); App.render(); } })(); break;
+    case 'grpPick': abGrpPick(id); break;
+    case 'grpRm': abGrpRemove(id, t.dataset.m); break;
+    case 'grpOff': abGrpDissolve(id); break;
     case 'unlink': abUnlink(id); break;
   }
 });

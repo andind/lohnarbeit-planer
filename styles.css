@@ -1333,3 +1333,7 @@ body.fsmode #selbar { left: 12px; }
 .fkdet .tscroll { overflow: visible; }
 .fktab .combo-up .combo-sug { top: auto; bottom: calc(100% + 2px); }
 .fktab .fkmiss .combo-in, .fktab select.fkmiss { border-color: #c0392b; box-shadow: 0 0 0 2px rgba(192,57,43,.18); }
+/* v164: verknüpfte Einträge in der Abrechnung */
+.abgrpm { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 8px; background: var(--accent-soft, #e3efe6); font-size: .85em; font-weight: 600; white-space: nowrap; }
+.abgrpbox { border: 1px solid var(--line, #d5dad5); border-radius: 10px; padding: 10px 12px; margin: 0 0 12px; background: var(--surface-2, #f6f7f4); }
+.abgrpbox .btab td { padding: 3px 8px; }
